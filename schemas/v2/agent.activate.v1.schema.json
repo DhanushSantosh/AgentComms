@@ -1,0 +1,1 @@
+{"$schema":"https://json-schema.org/draft/2020-12/schema","title":"agent.activate payload v1","type":"object","required":["role","capabilities","scopes"],"properties":{"role":{"enum":["OWNER","ORCHESTRATOR","AGENT","OBSERVER"]},"capabilities":{"type":"array","items":{"type":"string"}},"scopes":{"type":"array","items":{"type":"string"}}},"additionalProperties":false}

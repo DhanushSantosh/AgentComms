@@ -1,0 +1,1 @@
+{"$schema":"https://json-schema.org/draft/2020-12/schema","title":"task.offer payload v1","type":"object","required":["to","expires_at"],"properties":{"to":{"type":"string","minLength":1},"expires_at":{"type":"string","format":"date-time"}},"additionalProperties":false}

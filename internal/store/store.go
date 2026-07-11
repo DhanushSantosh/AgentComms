@@ -2,10 +2,7 @@ package store
 
 import (
 	"bytes"
-	"crypto/ed25519"
-	"crypto/rand"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -14,82 +11,119 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
-	"sync"
 	"time"
 
+	"github.com/DhanushSantosh/AgentComms/internal/identity"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 )
 
 const Runtime = ".agent-comms"
 
-var processMu sync.Mutex
-
+type Config struct {
+	SchemaVersion      string `json:"schema_version"`
+	ProjectID          string `json:"project_id"`
+	Owner              string `json:"owner"`
+	DefaultLease       string `json:"default_lease"`
+	StaleGrace         string `json:"stale_grace"`
+	ActiveRetention    string `json:"active_retention"`
+	SummaryLimit       int    `json:"summary_limit"`
+	ArtifactLimitBytes int64  `json:"artifact_limit_bytes"`
+	RequireReview      bool   `json:"require_review"`
+}
 type Store struct {
-	Root string
-	Now  func() time.Time
+	Root        string
+	Now         func() time.Time
+	Credentials identity.Store
+	LockTimeout time.Duration
 }
 
 func Open(root string) *Store {
-	return &Store{Root: root, Now: func() time.Time { return time.Now().UTC() }}
+	return &Store{Root: root, Now: func() time.Time { return time.Now().UTC() }, Credentials: identity.DefaultStore(), LockTimeout: 10 * time.Second}
 }
-func (s *Store) runtime() string { return filepath.Join(s.Root, Runtime) }
-
+func (s *Store) runtime() string                     { return filepath.Join(s.Root, Runtime) }
+func (s *Store) SetCredentialStore(c identity.Store) { s.Credentials = c }
+func (s *Store) Config() (Config, error) {
+	b, e := os.ReadFile(filepath.Join(s.runtime(), "config.json"))
+	if e != nil {
+		return Config{}, e
+	}
+	var c Config
+	e = json.Unmarshal(b, &c)
+	return c, e
+}
 func (s *Store) Init(owner string) error {
 	if owner == "" {
-		owner = "owner"
+		return errors.New("owner is required")
 	}
 	r := s.runtime()
-	if _, err := os.Stat(r); err == nil {
+	if _, e := os.Stat(r); e == nil {
 		return errors.New("runtime already initialized")
 	}
-	for _, d := range []string{"events", "artifacts/sha256", "tmp", "cache", "schemas"} {
-		if err := os.MkdirAll(filepath.Join(r, d), 0700); err != nil {
-			return err
+	if _, e := os.Stat(filepath.Join(s.Root, ".git")); e != nil {
+		return errors.New("target must be a Git repository")
+	}
+	for _, d := range []string{"events", "artifacts/sha256", "tmp", "cache", "schemas", "migrations"} {
+		if e := os.MkdirAll(filepath.Join(r, d), 0700); e != nil {
+			return e
 		}
 	}
-	pub, priv, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		return err
+	projectID := fmt.Sprintf("ac-%d", s.Now().UnixNano())
+	cred, e := identity.Generate(projectID, owner)
+	if e != nil {
+		return e
 	}
-	if err = os.WriteFile(filepath.Join(r, "signing.key"), []byte(base64.StdEncoding.EncodeToString(priv)), 0600); err != nil {
-		return err
+	if e = s.Credentials.Put(cred); e != nil {
+		return fmt.Errorf("store owner credential: %w", e)
 	}
-	if err = os.WriteFile(filepath.Join(r, "signing.pub"), []byte(base64.StdEncoding.EncodeToString(pub)), 0644); err != nil {
-		return err
-	}
-	cfg := map[string]any{"schema_version": model.SchemaVersion, "owner": owner, "default_lease": "4h", "stale_grace": "1h", "active_retention": "168h", "summary_limit": 1200, "artifact_limit_bytes": 5242880}
+	cfg := Config{SchemaVersion: model.SchemaVersion, ProjectID: projectID, Owner: owner, DefaultLease: "4h", StaleGrace: "1h", ActiveRetention: "168h", SummaryLimit: 1200, ArtifactLimitBytes: 5 * 1024 * 1024}
 	b, _ := json.MarshalIndent(cfg, "", "  ")
-	if err = os.WriteFile(filepath.Join(r, "config.json"), append(b, '\n'), 0644); err != nil {
-		return err
+	if e = os.WriteFile(filepath.Join(r, "config.json"), append(b, '\n'), 0644); e != nil {
+		return e
 	}
-	bootstrap := []byte("# Agent Comms bootstrap\n.runtime = .agent-comms\n")
-	if err = os.WriteFile(filepath.Join(s.Root, ".agents"), bootstrap, 0644); err != nil {
-		return err
+	if e = os.WriteFile(filepath.Join(s.Root, ".agents"), []byte("# Agent Comms managed bootstrap\nruntime = .agent-comms\ninstructions = .agent-comms/AGENT_INSTRUCTIONS.md\n"), 0644); e != nil {
+		return e
 	}
-	if err = os.WriteFile(filepath.Join(r, ".gitignore"), []byte("tmp/\ncache/\nsigning.key\n"), 0644); err != nil {
-		return err
+	instructions := "# Agent Comms agent instructions\n\nRun `agent-comms status --json` before work. Register and become ACTIVE before claiming. Never write resources covered by another lease. Use durable messages for contracts, blockers, actions, and decisions.\n"
+	if e = os.WriteFile(filepath.Join(r, "AGENT_INSTRUCTIONS.md"), []byte(instructions), 0644); e != nil {
+		return e
 	}
-	if err = s.git("init"); err != nil {
-		return err
+	if e = os.WriteFile(filepath.Join(r, ".gitignore"), []byte("tmp/\ncache/\n"), 0644); e != nil {
+		return e
+	}
+	if e = s.git("init"); e != nil {
+		return e
 	}
 	_ = s.git("config", "user.name", "Agent Comms")
 	_ = s.git("config", "user.email", "agent-comms@localhost")
 	_ = s.git("config", "commit.gpgsign", "false")
-	if err = s.git("add", "."); err != nil {
-		return err
+	if e = s.git("add", "."); e != nil {
+		return e
 	}
-	return s.git("commit", "-m", "Initialize Agent Comms runtime")
+	if e = s.git("commit", "--no-gpg-sign", "-m", "Initialize Agent Comms runtime"); e != nil {
+		return e
+	}
+	p := model.AgentRegistered{PublicKey: cred.PublicKey, PrincipalType: model.PrincipalHuman, DisplayName: owner}
+	if _, e = s.Append(owner, "agent.register", owner, p); e != nil {
+		return e
+	}
+	_, e = s.Append(owner, "agent.activate", owner, model.AgentActivated{Role: model.RoleOwner, Capabilities: []string{"*"}, Scopes: []string{"*"}})
+	if e == nil {
+		uc, _ := identity.LoadUserConfig()
+		name := projectID + ":" + owner
+		uc.ActiveProfile = name
+		uc.Profiles[name] = identity.Profile{Name: name, ProjectID: projectID, Actor: owner, ProjectRoot: s.Root}
+		e = identity.SaveUserConfig(uc)
+	}
+	return e
 }
-
 func (s *Store) git(args ...string) error {
 	c := exec.Command("git", args...)
 	c.Dir = s.runtime()
-	var e bytes.Buffer
-	c.Stderr = &e
-	if err := c.Run(); err != nil {
-		return fmt.Errorf("git %s: %s", strings.Join(args, " "), strings.TrimSpace(e.String()))
+	var b bytes.Buffer
+	c.Stderr = &b
+	if e := c.Run(); e != nil {
+		return fmt.Errorf("git %s: %s", strings.Join(args, " "), strings.TrimSpace(b.String()))
 	}
 	return nil
 }
@@ -102,147 +136,181 @@ func (s *Store) gitOut(args ...string) (string, error) {
 	}
 	return strings.TrimSpace(string(b)), nil
 }
-
 func canonical(e model.Event) ([]byte, error) { e.Hash = ""; e.Signature = ""; return json.Marshal(e) }
-func (s *Store) Append(actor, typ, entity string, data map[string]any) (model.Event, error) {
-	processMu.Lock()
-	defer processMu.Unlock()
-	if err := s.Recover(); err != nil {
-		return model.Event{}, err
-	}
-	events, err := s.Events()
+func (s *Store) Append(actor, typ, entity string, payload any) (model.Event, error) {
+	cfg, err := s.Config()
 	if err != nil {
 		return model.Event{}, err
 	}
-	var seq uint64 = 1
+	cred, err := identity.ResolveCredential(s.Credentials, cfg.ProjectID, actor)
+	if err != nil {
+		return model.Event{}, fmt.Errorf("credential for %s: %w", actor, err)
+	}
+	return s.AppendWithCredential(actor, typ, entity, payload, cred)
+}
+
+func (s *Store) AppendWithCredential(actor, typ, entity string, payload any, cred identity.Credential) (model.Event, error) {
+	release, e := s.acquire(actor)
+	if e != nil {
+		return model.Event{}, e
+	}
+	defer release()
+	if e = s.Recover(); e != nil {
+		return model.Event{}, e
+	}
+	raw, e := model.EncodePayload(typ, payload)
+	if e != nil {
+		return model.Event{}, e
+	}
+	events, e := s.Events()
+	if e != nil {
+		return model.Event{}, e
+	}
+	seq := uint64(1)
 	prev := ""
 	if len(events) > 0 {
 		seq = events[len(events)-1].Sequence + 1
 		prev = events[len(events)-1].Hash
 	}
-	e := model.Event{SchemaVersion: model.SchemaVersion, ID: fmt.Sprintf("evt-%020d", seq), Sequence: seq, Time: s.Now(), Actor: actor, Type: typ, EntityID: entity, Data: data, PreviousHash: prev}
-	c, err := canonical(e)
-	if err != nil {
-		return e, err
+	ev := model.Event{SchemaVersion: model.SchemaVersion, PayloadVersion: 1, ID: fmt.Sprintf("evt-%020d", seq), Sequence: seq, Time: s.Now(), Actor: actor, Type: typ, EntityID: entity, Data: raw, PreviousHash: prev, KeyFingerprint: identity.Fingerprint(cred.PublicKey)}
+	c, e := canonical(ev)
+	if e != nil {
+		return ev, e
 	}
 	h := sha256.Sum256(c)
-	e.Hash = hex.EncodeToString(h[:])
-	kb, err := os.ReadFile(filepath.Join(s.runtime(), "signing.key"))
-	if err != nil {
-		return e, err
+	ev.Hash = hex.EncodeToString(h[:])
+	ev.Signature, e = identity.Sign(cred, ev.Hash)
+	if e != nil {
+		return ev, e
 	}
-	raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(kb)))
-	if err != nil {
-		return e, err
+	b, _ := json.MarshalIndent(ev, "", "  ")
+	tmp := filepath.Join(s.runtime(), "tmp", ev.ID+".json.tmp")
+	dst := filepath.Join(s.runtime(), "events", ev.ID+".json")
+	if e = os.WriteFile(tmp, append(b, '\n'), 0600); e != nil {
+		return ev, e
 	}
-	e.Signature = base64.StdEncoding.EncodeToString(ed25519.Sign(ed25519.PrivateKey(raw), []byte(e.Hash)))
-	b, err := json.MarshalIndent(e, "", "  ")
-	if err != nil {
-		return e, err
+	f, e := os.OpenFile(tmp, os.O_RDWR, 0600)
+	if e != nil {
+		return ev, e
 	}
-	tmp := filepath.Join(s.runtime(), "tmp", e.ID+".json.tmp")
-	dst := filepath.Join(s.runtime(), "events", e.ID+".json")
-	if err = os.WriteFile(tmp, append(b, '\n'), 0600); err != nil {
-		return e, err
-	}
-	f, err := os.OpenFile(tmp, os.O_RDWR, 0600)
-	if err != nil {
-		return e, err
-	}
-	err = f.Sync()
+	e = f.Sync()
 	_ = f.Close()
-	if err != nil {
-		return e, err
+	if e != nil {
+		return ev, e
 	}
-	if err = os.Rename(tmp, dst); err != nil {
-		return e, err
+	if e = os.Rename(tmp, dst); e != nil {
+		return ev, e
 	}
-	if err = s.git("add", filepath.ToSlash(filepath.Join("events", e.ID+".json"))); err != nil {
-		return e, err
+	if e = s.git("add", filepath.ToSlash(filepath.Join("events", ev.ID+".json"))); e != nil {
+		return ev, e
 	}
 	if typ == "artifact.add" {
-		if err = s.git("add", filepath.ToSlash(filepath.Join("artifacts", "sha256", entity))); err != nil {
-			return e, err
-		}
+		_ = s.git("add", filepath.ToSlash(filepath.Join("artifacts", "sha256", entity)))
 	}
-	if err = s.git("commit", "--no-gpg-sign", "-m", fmt.Sprintf("%s %s", typ, entity)); err != nil {
-		return e, err
+	if e = s.git("commit", "--no-gpg-sign", "-m", fmt.Sprintf("%s %s", typ, entity)); e != nil {
+		return ev, e
 	}
-	return e, nil
+	return ev, nil
 }
 func (s *Store) Events() ([]model.Event, error) {
-	files, err := filepath.Glob(filepath.Join(s.runtime(), "events", "*.json"))
-	if err != nil {
-		return nil, err
+	fs, e := filepath.Glob(filepath.Join(s.runtime(), "events", "*.json"))
+	if e != nil {
+		return nil, e
 	}
-	sort.Strings(files)
-	out := make([]model.Event, 0, len(files))
-	for _, f := range files {
-		b, e := os.ReadFile(f)
-		if e != nil {
-			return nil, e
+	sort.Strings(fs)
+	out := make([]model.Event, 0, len(fs))
+	for _, f := range fs {
+		b, x := os.ReadFile(f)
+		if x != nil {
+			return nil, x
 		}
 		var v model.Event
-		if e = json.Unmarshal(b, &v); e != nil {
-			return nil, fmt.Errorf("%s: %w", f, e)
+		if x = json.Unmarshal(b, &v); x != nil {
+			return nil, fmt.Errorf("%s: %w", f, x)
 		}
 		out = append(out, v)
 	}
 	return out, nil
 }
 func (s *Store) Verify() error {
-	ev, err := s.Events()
-	if err != nil {
-		return err
+	ev, e := s.Events()
+	if e != nil {
+		return e
 	}
-	pb, err := os.ReadFile(filepath.Join(s.runtime(), "signing.pub"))
-	if err != nil {
-		return err
-	}
-	pub, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(pb)))
-	if err != nil {
-		return err
-	}
+	pub := map[string]string{}
 	prev := ""
-	for i, e := range ev {
-		if e.Sequence != uint64(i+1) || e.PreviousHash != prev {
-			return fmt.Errorf("chain discontinuity at %s", e.ID)
+	for i, v := range ev {
+		if v.Sequence != uint64(i+1) || v.PreviousHash != prev {
+			return fmt.Errorf("chain discontinuity at %s", v.ID)
 		}
-		c, _ := canonical(e)
+		c, _ := canonical(v)
 		h := sha256.Sum256(c)
-		hs := hex.EncodeToString(h[:])
-		if hs != e.Hash {
-			return fmt.Errorf("hash mismatch at %s", e.ID)
+		if hex.EncodeToString(h[:]) != v.Hash {
+			return fmt.Errorf("hash mismatch at %s", v.ID)
 		}
-		sig, x := base64.StdEncoding.DecodeString(e.Signature)
-		if x != nil || !ed25519.Verify(pub, []byte(e.Hash), sig) {
-			return fmt.Errorf("signature mismatch at %s", e.ID)
+		if v.Type == "agent.register" {
+			p, x := model.DecodePayload(v.Type, v.Data)
+			if x == nil {
+				a := p.(*model.AgentRegistered)
+				pub[v.Actor] = a.PublicKey
+			}
 		}
-		prev = e.Hash
+		key := pub[v.Actor]
+		if key == "" {
+			return fmt.Errorf("no active public key for %s at %s", v.Actor, v.ID)
+		}
+		if identity.Fingerprint(key) != v.KeyFingerprint || !identity.Verify(key, v.Hash, v.Signature) {
+			return fmt.Errorf("signature mismatch at %s", v.ID)
+		}
+		if v.Type == "agent.rotate-key" {
+			p, _ := model.DecodePayload(v.Type, v.Data)
+			pub[v.EntityID] = p.(*model.AgentKeyRotated).PublicKey
+		}
+		prev = v.Hash
 	}
 	return nil
 }
 func (s *Store) Recover() error {
-	files, _ := filepath.Glob(filepath.Join(s.runtime(), "tmp", "*.tmp"))
-	for _, f := range files {
-		if err := os.Remove(f); err != nil {
-			return err
+	fs, _ := filepath.Glob(filepath.Join(s.runtime(), "tmp", "*.tmp"))
+	for _, f := range fs {
+		if e := os.Remove(f); e != nil {
+			return e
 		}
 	}
 	return nil
 }
+func (s *Store) Head() string   { x, _ := s.gitOut("rev-parse", "HEAD"); return x }
+func (s *Store) Remote() string { x, _ := s.gitOut("remote", "get-url", "origin"); return x }
 func (s *Store) Checkpoint() error {
-	if _, err := s.gitOut("remote"); err != nil {
-		return err
-	}
-	rem, _ := s.gitOut("remote")
-	if strings.TrimSpace(rem) == "" {
+	if s.Remote() == "" {
 		return nil
 	}
-	return s.git("push")
+	return s.git("push", "origin", "HEAD")
 }
-func (s *Store) Head() string { x, _ := s.gitOut("rev-parse", "HEAD"); return x }
-func SequenceFromID(id string) uint64 {
-	n, _ := strconv.ParseUint(strings.TrimPrefix(id, "evt-"), 10, 64)
-	return n
+
+func (s *Store) SetupRemote(url string) error {
+	if strings.TrimSpace(url) == "" {
+		return errors.New("remote URL is required")
+	}
+	if s.Remote() != "" {
+		return errors.New("origin remote is already configured")
+	}
+	return s.git("remote", "add", "origin", url)
+}
+
+func (s *Store) SyncPull() error {
+	if s.Remote() == "" {
+		return errors.New("checkpoint remote is not configured")
+	}
+	if e := s.git("fetch", "origin"); e != nil {
+		return e
+	}
+	branch, e := s.gitOut("branch", "--show-current")
+	if e != nil {
+		return e
+	}
+	if branch == "" {
+		branch = "main"
+	}
+	return s.git("merge", "--ff-only", "origin/"+branch)
 }

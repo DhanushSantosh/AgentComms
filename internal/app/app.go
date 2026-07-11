@@ -2,266 +2,953 @@ package app
 
 import (
 	"bufio"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"time"
 
+	"github.com/DhanushSantosh/AgentComms/internal/identity"
+	"github.com/DhanushSantosh/AgentComms/internal/mcp"
+	"github.com/DhanushSantosh/AgentComms/internal/model"
 	"github.com/DhanushSantosh/AgentComms/internal/service"
+	"github.com/DhanushSantosh/AgentComms/internal/store"
+	tuiterm "github.com/DhanushSantosh/AgentComms/internal/tui"
+	"github.com/spf13/cobra"
 )
 
-const Version = "0.1.0"
+var Version = "0.2.0-preview.1"
 
-type output struct {
-	OK      bool   `json:"ok"`
-	Command string `json:"command"`
-	Result  any    `json:"result,omitempty"`
-	Error   string `json:"error,omitempty"`
+const APIVersion = "agent-comms/v1"
+
+type Envelope struct {
+	APIVersion string     `json:"api_version"`
+	OK         bool       `json:"ok"`
+	Command    string     `json:"command"`
+	Result     any        `json:"result,omitempty"`
+	Error      *ErrorBody `json:"error,omitempty"`
+	Warnings   []string   `json:"warnings,omitempty"`
+}
+type ErrorBody struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+	Details any    `json:"details,omitempty"`
+}
+type ExitError struct {
+	Code int
+	Kind string
+	Err  error
 }
 
-func emit(w io.Writer, j bool, cmd string, v any) error {
-	if j {
-		return json.NewEncoder(w).Encode(output{OK: true, Command: cmd, Result: v})
-	}
-	_, e := fmt.Fprintln(w, v)
-	return e
-}
-func fail(j bool, cmd string, err error) error {
-	if j {
-		b, _ := json.Marshal(output{OK: false, Command: cmd, Error: err.Error()})
-		return errors.New(string(b))
-	}
-	return err
-}
-func parse(args []string) (bool, string, []string) {
-	j := false
-	o := []string{}
-	for _, a := range args {
-		if a == "--json" {
-			j = true
-		} else {
-			o = append(o, a)
-		}
-	}
-	if len(o) == 0 {
-		return j, "", nil
-	}
-	return j, o[0], o[1:]
-}
-func kv(args []string) map[string]any {
-	d := map[string]any{}
-	for _, a := range args {
-		p := strings.SplitN(strings.TrimLeft(a, "-"), "=", 2)
-		if len(p) == 2 {
-			if strings.Contains(p[1], ",") {
-				x := strings.Split(p[1], ",")
-				v := make([]any, len(x))
-				for i := range x {
-					v[i] = x[i]
-				}
-				d[p[0]] = v
-			} else {
-				d[p[0]] = p[1]
-			}
-		}
-	}
-	return d
-}
-func id(args []string, d map[string]any) string {
-	if v, ok := d["id"].(string); ok {
-		return v
-	}
-	if len(args) > 1 && !strings.Contains(args[1], "=") {
-		return args[1]
-	}
-	return ""
+func (e *ExitError) Error() string { return e.Err.Error() }
+
+type cli struct {
+	out, err                             io.Writer
+	json, nonInteractive, noColor, quiet bool
+	project, profile, actor              string
+	timeout                              time.Duration
+	svc                                  *service.Service
+	cmd                                  string
 }
 
 func Run(args []string, stdout, stderr io.Writer) error {
-	j, cmd, rest := parse(args)
-	if cmd == "" {
-		return usage(stdout)
+	c := &cli{out: stdout, err: stderr, timeout: 10 * time.Second}
+	root := c.root()
+	root.SetArgs(args)
+	root.SetOut(stdout)
+	root.SetErr(stderr)
+	root.SilenceUsage = true
+	root.SilenceErrors = true
+	e := root.Execute()
+	if e != nil {
+		if c.json {
+			body := Envelope{APIVersion: APIVersion, OK: false, Command: c.cmd, Error: &ErrorBody{Code: errorCode(e), Message: e.Error()}}
+			_ = json.NewEncoder(stderr).Encode(body)
+		}
+		return &ExitError{Code: exitCode(e), Kind: errorCode(e), Err: e}
 	}
-	cwd, _ := os.Getwd()
-	s := service.New(cwd)
-	switch cmd {
-	case "version":
-		return emit(stdout, j, cmd, map[string]string{"version": Version, "schema_version": "1.0.0"})
-	case "init":
-		f := flag.NewFlagSet("init", flag.ContinueOnError)
-		f.SetOutput(stderr)
-		owner := f.String("owner", "owner", "")
-		_ = f.Parse(rest)
-		if e := s.Store.Init(*owner); e != nil {
-			return fail(j, cmd, e)
-		}
-		return emit(stdout, j, cmd, map[string]any{"runtime": filepath.Join(cwd, ".agent-comms"), "owner": *owner})
-	case "verify":
-		if e := s.Store.Verify(); e != nil {
-			return fail(j, cmd, e)
-		}
-		return emit(stdout, j, cmd, map[string]any{"verified": true, "head": s.Store.Head()})
-	case "doctor":
-		e := s.Store.Verify()
-		r := map[string]any{"runtime": filepath.Join(cwd, ".agent-comms"), "integrity": e == nil, "git_head": s.Store.Head(), "telemetry": false}
-		if e != nil {
-			r["error"] = e.Error()
-		}
-		return emit(stdout, j, cmd, r)
-	case "status":
-		st, e := s.State()
-		if e != nil {
-			return fail(j, cmd, e)
-		}
-		return emit(stdout, j, cmd, st)
-	case "history", "search":
-		ev, e := s.Store.Events()
-		if e != nil {
-			return fail(j, cmd, e)
-		}
-		if cmd == "search" && len(rest) > 0 {
-			q := strings.ToLower(strings.Join(rest, " "))
-			f := ev[:0]
-			for _, v := range ev {
-				b, _ := json.Marshal(v)
-				if strings.Contains(strings.ToLower(string(b)), q) {
-					f = append(f, v)
-				}
-			}
-			ev = f
-		}
-		return emit(stdout, j, cmd, ev)
-	case "checkpoint", "sync":
-		if e := s.Store.Checkpoint(); e != nil {
-			return fail(j, cmd, e)
-		}
-		return emit(stdout, j, cmd, map[string]bool{"checkpointed": true})
-	case "archive":
-		e, er := s.Execute("owner", "archive.run", "archive", map[string]any{"retention": "168h"})
-		if er != nil {
-			return fail(j, cmd, er)
-		}
-		return emit(stdout, j, cmd, e)
-	case "migrate":
-		return migrate(s, rest, stdout, j)
-	case "artifact":
-		return artifact(s, rest, stdout, j)
-	case "tui":
-		return tui(s, stdout)
-	case "agent", "session", "task", "message", "decision", "approval":
-		return domain(s, cmd, rest, stdout, j)
-	default:
-		return fail(j, cmd, fmt.Errorf("unknown command %q", cmd))
-	}
+	return nil
 }
-func usage(w io.Writer) error {
-	_, e := fmt.Fprintln(w, "agent-comms: init version doctor verify migrate agent session task message decision approval artifact status history search archive checkpoint sync tui")
+func (c *cli) root() *cobra.Command {
+	r := &cobra.Command{Use: "agent-comms", Short: "Governed coordination for concurrent agents", Version: Version, PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		c.cmd = cmd.CommandPath()
+		if cmd.Name() == "version" || cmd.Name() == "init" || cmd.Name() == "completion" || cmd.Name() == "update" {
+			return nil
+		}
+		root := c.project
+		if root == "" {
+			var e error
+			root, e = os.Getwd()
+			if e != nil {
+				return e
+			}
+		}
+		c.svc = service.New(root)
+		cfg, e := c.svc.Store.Config()
+		if e != nil {
+			return fmt.Errorf("open project runtime: %w", e)
+		}
+		c.svc.Store.LockTimeout = c.timeout
+		if c.actor == "" {
+			uc, _ := identity.LoadUserConfig()
+			pname := c.profile
+			if pname == "" {
+				pname = uc.ActiveProfile
+			}
+			if p, ok := uc.Profiles[pname]; ok && p.ProjectID == cfg.ProjectID {
+				c.actor = p.Actor
+			} else {
+				c.actor = cfg.Owner
+			}
+		}
+		return nil
+	}}
+	f := r.PersistentFlags()
+	f.StringVar(&c.project, "project", "", "target project root")
+	f.StringVar(&c.profile, "profile", "", "user profile name")
+	f.StringVar(&c.actor, "actor", "", "actor override (credential must match)")
+	f.BoolVar(&c.json, "json", false, "emit a versioned JSON envelope")
+	f.BoolVar(&c.nonInteractive, "non-interactive", false, "never prompt")
+	f.DurationVar(&c.timeout, "timeout", 10*time.Second, "transaction lock timeout")
+	f.BoolVar(&c.noColor, "no-color", false, "disable ANSI color")
+	f.BoolVarP(&c.quiet, "quiet", "q", false, "suppress non-essential output")
+	r.AddCommand(c.versionCmd(), c.initCmd(), c.doctorCmd(), c.verifyCmd(), c.statusCmd(), c.historyCmd(), c.searchCmd(), c.agentCmd(), c.sessionCmd(), c.taskCmd(), c.messageCmd(), c.decisionCmd(), c.approvalCmd(), c.artifactCmd(), c.archiveCmd(), c.exportCmd(), c.syncCmd(), c.profileCmd(), c.configCmd(), c.updateCmd(), c.completionCmd(r), c.mcpCmd(), c.watchCmd(), c.tuiCmd(), c.migrateCmd())
+	return r
+}
+func (c *cli) emit(command string, v any) error {
+	if c.json {
+		return json.NewEncoder(c.out).Encode(Envelope{APIVersion: APIVersion, OK: true, Command: command, Result: v})
+	}
+	if c.quiet {
+		return nil
+	}
+	b, e := json.MarshalIndent(v, "", "  ")
+	if e != nil {
+		return e
+	}
+	_, e = fmt.Fprintln(c.out, string(b))
 	return e
 }
-func domain(s *service.Service, domain string, args []string, w io.Writer, j bool) error {
-	if len(args) == 0 {
-		return fail(j, domain, errors.New("subcommand required"))
+func errorCode(e error) string {
+	var b *store.BusyError
+	if errors.As(e, &b) {
+		return "BUSY"
 	}
-	sub := args[0]
-	d := kv(args[1:])
-	actor := "owner"
-	if v, ok := d["actor"].(string); ok {
-		actor = v
-		delete(d, "actor")
+	s := strings.ToLower(e.Error())
+	switch {
+	case strings.Contains(s, "credential") || strings.Contains(s, "active principal") || strings.Contains(s, "role required") || strings.Contains(s, "human principal"):
+		return "AUTHORIZATION"
+	case strings.Contains(s, "signature") || strings.Contains(s, "hash") || strings.Contains(s, "chain"):
+		return "INTEGRITY"
+	case strings.Contains(s, "remote") || strings.Contains(s, "git "):
+		return "EXTERNAL"
+	case strings.Contains(s, "schema") || strings.Contains(s, "migration"):
+		return "MIGRATION"
+	default:
+		return "VALIDATION"
 	}
-	entity := id(args, d)
-	delete(d, "id")
-	if domain == "agent" && sub == "list" || domain == "message" && sub == "inbox" {
-		st, e := s.State()
-		if e != nil {
-			return fail(j, domain+" "+sub, e)
-		}
-		if domain == "agent" {
-			return emit(w, j, domain+" "+sub, st.Agents)
-		}
-		return emit(w, j, domain+" "+sub, st.Messages)
-	}
-	typ := domain + "." + sub
-	if domain == "task" && sub == "handoff" {
-		if v, ok := d["accept"].(string); ok && v == "true" {
-			typ = "task.handoff.accept"
-		}
-	}
-	if entity == "" {
-		return fail(j, typ, errors.New("id required (--id=...)"))
-	}
-	e, er := s.Execute(actor, typ, entity, d)
-	if er != nil {
-		return fail(j, typ, er)
-	}
-	return emit(w, j, typ, e)
 }
-func artifact(s *service.Service, args []string, w io.Writer, j bool) error {
-	if len(args) == 0 {
-		return fail(j, "artifact", errors.New("subcommand required"))
+func exitCode(e error) int {
+	switch errorCode(e) {
+	case "VALIDATION":
+		return 2
+	case "AUTHORIZATION":
+		return 3
+	case "BUSY":
+		return 4
+	case "INTEGRITY":
+		return 5
+	case "MIGRATION":
+		return 6
+	case "EXTERNAL":
+		return 7
 	}
-	d := kv(args[1:])
-	actor, _ := d["actor"].(string)
-	if actor == "" {
-		actor = "owner"
-	}
-	switch args[0] {
-	case "add":
-		p, _ := d["path"].(string)
-		e, er := s.AddArtifact(actor, p)
-		if er != nil {
-			return fail(j, "artifact add", er)
-		}
-		return emit(w, j, "artifact add", e)
-	case "show", "verify":
-		sum, _ := d["sha256"].(string)
-		p := filepath.Join(s.Store.Root, ".agent-comms", "artifacts", "sha256", sum)
-		b, e := os.ReadFile(p)
-		if e != nil {
-			return fail(j, "artifact "+args[0], e)
-		}
-		if args[0] == "show" && !j {
-			_, e = w.Write(b)
-			return e
-		}
-		return emit(w, j, "artifact "+args[0], map[string]any{"sha256": sum, "size": len(b), "verified": true})
-	}
-	return fail(j, "artifact", errors.New("unknown subcommand"))
+	return 1
 }
-func migrate(s *service.Service, args []string, w io.Writer, j bool) error {
-	if len(args) == 0 || args[0] == "status" {
-		return emit(w, j, "migrate status", map[string]any{"current": "1.0.0", "available": []string{}})
-	}
-	return fail(j, "migrate", errors.New("no migration registered for requested version"))
+func (c *cli) versionCmd() *cobra.Command {
+	return &cobra.Command{Use: "version", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		return c.emit("version", map[string]any{"version": Version, "schema_version": model.SchemaVersion, "go": runtime.Version(), "os": runtime.GOOS, "arch": runtime.GOARCH})
+	}}
 }
-func tui(s *service.Service, w io.Writer) error {
-	in := bufio.NewScanner(os.Stdin)
-	views := []string{"overview", "tasks", "inbox", "agents", "approvals", "contracts/decisions", "blockers", "integrity/sync", "archive search"}
-	for {
-		st, e := s.State()
-		if e != nil {
-			return e
+func (c *cli) initCmd() *cobra.Command {
+	var owner string
+	var yes bool
+	cmd := &cobra.Command{Use: "init", Short: "Initialize Agent Comms in a Git project", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		root := c.project
+		if root == "" {
+			root, _ = os.Getwd()
 		}
-		fmt.Fprint(w, "\x1b[2J\x1b[HAgent Comms TUI\n")
-		fmt.Fprintf(w, "Tasks %d | Messages %d | Agents %d | Approvals %d\n", len(st.Tasks), len(st.Messages), len(st.Agents), len(st.Approvals))
-		fmt.Fprintln(w, strings.Join(views, " | "))
-		fmt.Fprintln(w, "Commands: view <name>, write <domain> <action> key=value..., quit")
-		if !in.Scan() {
-			return nil
-		}
-		line := strings.TrimSpace(in.Text())
-		if line == "quit" || line == "q" {
-			return nil
-		}
-		p := strings.Fields(line)
-		if len(p) >= 3 && p[0] == "write" {
-			if e := domain(s, p[1], p[2:], w, false); e != nil {
-				fmt.Fprintln(w, "error:", e)
+		if owner == "" && !c.nonInteractive {
+			fmt.Fprint(c.out, "Owner identity [owner]: ")
+			scan := bufio.NewScanner(os.Stdin)
+			if scan.Scan() {
+				owner = strings.TrimSpace(scan.Text())
+			}
+			if owner == "" {
+				owner = "owner"
 			}
 		}
+		if owner == "" {
+			return errors.New("--owner is required in non-interactive mode")
+		}
+		if !yes && !c.nonInteractive {
+			fmt.Fprintf(c.out, "\nCreate .agents and isolated .agent-comms runtime in %s? [y/N] ", root)
+			scan := bufio.NewScanner(os.Stdin)
+			if !scan.Scan() || !strings.EqualFold(strings.TrimSpace(scan.Text()), "y") {
+				return errors.New("initialization cancelled")
+			}
+		}
+		s := service.New(root)
+		if e := s.Store.Init(owner); e != nil {
+			return e
+		}
+		return c.emit("init", map[string]any{"project": root, "runtime": filepath.Join(root, store.Runtime), "owner": owner, "remote": "local-only", "next": []string{"agent-comms tui", "agent-comms agent register --id builder --principal-type AGENT"}})
+	}}
+	cmd.Flags().StringVar(&owner, "owner", "", "owner principal ID")
+	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "confirm initialization")
+	return cmd
+}
+func (c *cli) doctorCmd() *cobra.Command {
+	var explain bool
+	cmd := &cobra.Command{Use: "doctor", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		verify := c.svc.Store.Verify()
+		cfg, e := c.svc.Store.Config()
+		if e != nil {
+			return e
+		}
+		r := map[string]any{"integrity": verify == nil, "schema_version": cfg.SchemaVersion, "runtime": filepath.Join(c.svc.Store.Root, store.Runtime), "git_head": c.svc.Store.Head(), "remote": c.svc.Store.Remote(), "telemetry": false}
+		if verify != nil {
+			r["integrity_error"] = verify.Error()
+		}
+		if explain {
+			r["config_sources"] = []string{"CLI flags", "AGENT_COMMS_* environment", "project .agent-comms/config.json", "user config", "built-in defaults"}
+			r["resolved_lock_timeout"] = c.timeout.String()
+			r["actor"] = c.actor
+		}
+		return c.emit("doctor", r)
+	}}
+	cmd.Flags().BoolVar(&explain, "explain-config", false, "show configuration precedence and resolved values")
+	return cmd
+}
+func (c *cli) verifyCmd() *cobra.Command {
+	return &cobra.Command{Use: "verify", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		if e := c.svc.Store.Verify(); e != nil {
+			return e
+		}
+		ev, _ := c.svc.Store.Events()
+		return c.emit("verify", map[string]any{"verified": true, "events": len(ev), "head": c.svc.Store.Head()})
+	}}
+}
+func (c *cli) statusCmd() *cobra.Command {
+	return &cobra.Command{Use: "status", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		v, e := c.svc.State()
+		if e != nil {
+			return e
+		}
+		return c.emit("status", v)
+	}}
+}
+func (c *cli) historyCmd() *cobra.Command {
+	return &cobra.Command{Use: "history", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		v, e := c.svc.Store.Events()
+		if e != nil {
+			return e
+		}
+		return c.emit("history", v)
+	}}
+}
+func (c *cli) searchCmd() *cobra.Command {
+	return &cobra.Command{Use: "search <query>", Args: cobra.MinimumNArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		q := strings.ToLower(strings.Join(args, " "))
+		ev, e := c.svc.Store.Events()
+		if e != nil {
+			return e
+		}
+		out := []model.Event{}
+		for _, v := range ev {
+			b, _ := json.Marshal(v)
+			if strings.Contains(strings.ToLower(string(b)), q) {
+				out = append(out, v)
+			}
+		}
+		return c.emit("search", out)
+	}}
+}
+func (c *cli) agentCmd() *cobra.Command {
+	root := &cobra.Command{Use: "agent"}
+	var display, ptype string
+	reg := &cobra.Command{Use: "register", RunE: func(cmd *cobra.Command, args []string) error {
+		id, _ := cmd.Flags().GetString("id")
+		v, e := c.svc.Register(id, display, model.PrincipalType(strings.ToUpper(ptype)))
+		if e != nil {
+			return e
+		}
+		return c.emit("agent.register", v)
+	}}
+	reg.Flags().String("id", "", "principal ID")
+	_ = reg.MarkFlagRequired("id")
+	reg.Flags().StringVar(&display, "display-name", "", "display name")
+	reg.Flags().StringVar(&ptype, "principal-type", "AGENT", "HUMAN or AGENT")
+	var role string
+	var caps, scopes []string
+	act := &cobra.Command{Use: "activate", RunE: func(cmd *cobra.Command, args []string) error {
+		id, _ := cmd.Flags().GetString("id")
+		v, e := c.svc.Execute(c.actor, "agent.activate", id, model.AgentActivated{Role: model.Role(strings.ToUpper(role)), Capabilities: caps, Scopes: scopes})
+		if e != nil {
+			return e
+		}
+		return c.emit("agent.activate", v)
+	}}
+	act.Flags().String("id", "", "principal ID")
+	_ = act.MarkFlagRequired("id")
+	act.Flags().StringVar(&role, "role", "AGENT", "role")
+	act.Flags().StringSliceVar(&caps, "capability", nil, "capability (repeatable or comma-separated)")
+	act.Flags().StringSliceVar(&scopes, "scope", nil, "scope (repeatable or comma-separated)")
+	suspend := simpleStatus(c, "agent", "suspend")
+	rotate := &cobra.Command{Use: "rotate-key", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		v, e := c.svc.RotateKey(c.actor)
+		if e != nil {
+			return e
+		}
+		return c.emit("agent.rotate-key", v)
+	}}
+	list := &cobra.Command{Use: "list", RunE: func(cmd *cobra.Command, args []string) error {
+		st, e := c.svc.State()
+		if e != nil {
+			return e
+		}
+		return c.emit("agent.list", st.Agents)
+	}}
+	root.AddCommand(reg, act, suspend, rotate, list)
+	return root
+}
+func (c *cli) sessionCmd() *cobra.Command {
+	root := &cobra.Command{Use: "session"}
+	for _, sub := range []string{"start", "end"} {
+		sub := sub
+		cmd := &cobra.Command{Use: sub, RunE: func(cmd *cobra.Command, args []string) error {
+			id, _ := cmd.Flags().GetString("id")
+			v, e := c.svc.Execute(c.actor, "session."+sub, id, model.SessionPayload{AgentID: c.actor, PID: os.Getpid()})
+			if e != nil {
+				return e
+			}
+			return c.emit("session."+sub, v)
+		}}
+		cmd.Flags().String("id", "", "session ID")
+		_ = cmd.MarkFlagRequired("id")
+		root.AddCommand(cmd)
 	}
+	heartbeat := &cobra.Command{Use: "heartbeat", RunE: func(cmd *cobra.Command, args []string) error {
+		return c.emit("session.heartbeat", map[string]any{"actor": c.actor, "at": time.Now().UTC(), "durable": false})
+	}}
+	root.AddCommand(heartbeat)
+	return root
+}
+func (c *cli) taskCmd() *cobra.Command {
+	root := &cobra.Command{Use: "task"}
+	var title, summary, repo, branch, worktree, external, risk string
+	var resources []string
+	create := &cobra.Command{Use: "create", RunE: func(cmd *cobra.Command, args []string) error {
+		id, _ := cmd.Flags().GetString("id")
+		v, e := c.svc.Execute(c.actor, "task.create", id, model.TaskCreated{Title: title, Summary: summary, Repository: repo, Branch: branch, Worktree: worktree, Resources: resources, ExternalRef: external, Risk: risk})
+		if e != nil {
+			return e
+		}
+		return c.emit("task.create", v)
+	}}
+	create.Flags().String("id", "", "task ID")
+	_ = create.MarkFlagRequired("id")
+	create.Flags().StringVar(&title, "title", "", "title")
+	create.Flags().StringVar(&summary, "summary", "", "summary")
+	create.Flags().StringVar(&repo, "repository", "local", "repository")
+	create.Flags().StringVar(&branch, "branch", "", "branch")
+	create.Flags().StringVar(&worktree, "worktree", "", "worktree path")
+	create.Flags().StringSliceVar(&resources, "resource", nil, "write resource")
+	create.Flags().StringVar(&external, "external-ref", "", "external reference")
+	create.Flags().StringVar(&risk, "risk", "ROUTINE", "risk tier")
+	var to string
+	var offerTTL time.Duration
+	offer := &cobra.Command{Use: "offer", RunE: func(cmd *cobra.Command, args []string) error {
+		id, _ := cmd.Flags().GetString("id")
+		v, e := c.svc.Execute(c.actor, "task.offer", id, model.TaskOffered{To: to, ExpiresAt: time.Now().UTC().Add(offerTTL)})
+		if e != nil {
+			return e
+		}
+		return c.emit("task.offer", v)
+	}}
+	offer.Flags().String("id", "", "task ID")
+	_ = offer.MarkFlagRequired("id")
+	offer.Flags().StringVar(&to, "to", "", "principal")
+	offer.Flags().DurationVar(&offerTTL, "expires-in", time.Hour, "offer validity")
+	claim := payloadStatus(c, "task", "claim", func(string) any { return model.TaskClaimed{} })
+	start := simpleStatus(c, "task", "start")
+	var progress string
+	renew := payloadStatus(c, "task", "renew", func(string) any { return model.TaskRenewed{Progress: progress} })
+	renew.Flags().StringVar(&progress, "progress", "", "progress summary")
+	block := statusWithSummary(c, "task", "block")
+	review := statusWithSummary(c, "task", "review")
+	complete := statusWithSummary(c, "task", "complete")
+	cancel := statusWithSummary(c, "task", "cancel")
+	var handTo, handSummary string
+	handoff := &cobra.Command{Use: "handoff", RunE: func(cmd *cobra.Command, args []string) error {
+		id, _ := cmd.Flags().GetString("id")
+		accept, _ := cmd.Flags().GetBool("accept")
+		typ := "task.handoff"
+		var p any = model.TaskHandoff{To: handTo, Summary: handSummary}
+		if accept {
+			typ = "task.handoff.accept"
+			p = model.TaskStatus{Summary: handSummary}
+		}
+		v, e := c.svc.Execute(c.actor, typ, id, p)
+		if e != nil {
+			return e
+		}
+		return c.emit(typ, v)
+	}}
+	handoff.Flags().String("id", "", "task ID")
+	_ = handoff.MarkFlagRequired("id")
+	handoff.Flags().StringVar(&handTo, "to", "", "handoff target")
+	handoff.Flags().StringVar(&handSummary, "summary", "", "handoff summary")
+	handoff.Flags().Bool("accept", false, "accept pending handoff")
+	takeover := statusWithSummary(c, "task", "takeover")
+	list := &cobra.Command{Use: "list", RunE: func(cmd *cobra.Command, args []string) error {
+		st, e := c.svc.State()
+		if e != nil {
+			return e
+		}
+		return c.emit("task.list", st.Tasks)
+	}}
+	root.AddCommand(create, offer, claim, start, renew, block, review, complete, cancel, handoff, takeover, list)
+	return root
+}
+func simpleStatus(c *cli, domain, sub string) *cobra.Command {
+	return payloadStatus(c, domain, sub, func(string) any { return model.TaskStatus{} })
+}
+func statusWithSummary(c *cli, domain, sub string) *cobra.Command {
+	var summary string
+	cmd := payloadStatus(c, domain, sub, func(string) any { return model.TaskStatus{Summary: summary} })
+	cmd.Flags().StringVar(&summary, "summary", "", "summary")
+	return cmd
+}
+func payloadStatus(c *cli, domain, sub string, f func(string) any) *cobra.Command {
+	cmd := &cobra.Command{Use: sub, RunE: func(cmd *cobra.Command, args []string) error {
+		id, _ := cmd.Flags().GetString("id")
+		v, e := c.svc.Execute(c.actor, domain+"."+sub, id, f(id))
+		if e != nil {
+			return e
+		}
+		return c.emit(domain+"."+sub, v)
+	}}
+	cmd.Flags().String("id", "", "entity ID")
+	_ = cmd.MarkFlagRequired("id")
+	return cmd
+}
+func (c *cli) messageCmd() *cobra.Command {
+	root := &cobra.Command{Use: "message"}
+	var kind, subject, body, taskID string
+	var to []string
+	post := &cobra.Command{Use: "post", RunE: func(cmd *cobra.Command, args []string) error {
+		id, _ := cmd.Flags().GetString("id")
+		v, e := c.svc.Execute(c.actor, "message.post", id, model.MessagePosted{Kind: strings.ToUpper(kind), To: to, Subject: subject, Body: body, TaskID: taskID})
+		if e != nil {
+			return e
+		}
+		return c.emit("message.post", v)
+	}}
+	post.Flags().String("id", "", "message ID")
+	_ = post.MarkFlagRequired("id")
+	post.Flags().StringVar(&kind, "kind", "FYI", "message kind")
+	post.Flags().StringSliceVar(&to, "to", nil, "recipient")
+	post.Flags().StringVar(&subject, "subject", "", "subject")
+	post.Flags().StringVar(&body, "body", "", "body")
+	post.Flags().StringVar(&taskID, "task", "", "related task")
+	for _, sub := range []string{"ack", "reject", "complete", "resolve"} {
+		postCmd := payloadStatus(c, "message", sub, func(string) any { return model.MessageResponse{} })
+		root.AddCommand(postCmd)
+	}
+	inbox := &cobra.Command{Use: "inbox", RunE: func(cmd *cobra.Command, args []string) error {
+		st, e := c.svc.State()
+		if e != nil {
+			return e
+		}
+		out := map[string]model.Message{}
+		for id, m := range st.Messages {
+			for _, to := range m.To {
+				if to == c.actor {
+					out[id] = m
+				}
+			}
+		}
+		return c.emit("message.inbox", out)
+	}}
+	root.AddCommand(post, inbox)
+	return root
+}
+func (c *cli) decisionCmd() *cobra.Command {
+	root := &cobra.Command{Use: "decision"}
+	for _, sub := range []string{"create", "supersede"} {
+		sub := sub
+		var title, statement, supersedes string
+		var to []string
+		cmd := &cobra.Command{Use: sub, RunE: func(cmd *cobra.Command, args []string) error {
+			id, _ := cmd.Flags().GetString("id")
+			v, e := c.svc.Execute(c.actor, "decision."+sub, id, model.DecisionPayload{Title: title, Statement: statement, Supersedes: supersedes, To: to})
+			if e != nil {
+				return e
+			}
+			return c.emit("decision."+sub, v)
+		}}
+		cmd.Flags().String("id", "", "decision ID")
+		_ = cmd.MarkFlagRequired("id")
+		cmd.Flags().StringVar(&title, "title", "", "title")
+		cmd.Flags().StringVar(&statement, "statement", "", "statement")
+		cmd.Flags().StringVar(&supersedes, "supersedes", "", "prior decision")
+		cmd.Flags().StringSliceVar(&to, "to", nil, "acknowledging principal")
+		root.AddCommand(cmd)
+	}
+	return root
+}
+func (c *cli) approvalCmd() *cobra.Command {
+	root := &cobra.Command{Use: "approval"}
+	var tier, action, reason string
+	var affected []string
+	request := &cobra.Command{Use: "request", RunE: func(cmd *cobra.Command, args []string) error {
+		id, _ := cmd.Flags().GetString("id")
+		v, e := c.svc.Execute(c.actor, "approval.request", id, model.ApprovalRequested{Tier: strings.ToUpper(tier), Action: action, Reason: reason, Affected: affected})
+		if e != nil {
+			return e
+		}
+		return c.emit("approval.request", v)
+	}}
+	request.Flags().String("id", "", "approval ID")
+	_ = request.MarkFlagRequired("id")
+	request.Flags().StringVar(&tier, "tier", "ORCHESTRATOR", "ORCHESTRATOR or HUMAN")
+	request.Flags().StringVar(&action, "action", "", "proposed action")
+	request.Flags().StringVar(&reason, "reason", "", "reason")
+	request.Flags().StringSliceVar(&affected, "affected", nil, "affected principal")
+	approve := payloadStatus(c, "approval", "approve", func(string) any { return model.ApprovalResponse{} })
+	reject := payloadStatus(c, "approval", "reject", func(string) any { return model.ApprovalResponse{} })
+	list := &cobra.Command{Use: "list", RunE: func(cmd *cobra.Command, args []string) error {
+		st, e := c.svc.State()
+		if e != nil {
+			return e
+		}
+		return c.emit("approval.list", st.Approvals)
+	}}
+	root.AddCommand(request, approve, reject, list)
+	return root
+}
+func (c *cli) artifactCmd() *cobra.Command {
+	root := &cobra.Command{Use: "artifact"}
+	var path, hash string
+	add := &cobra.Command{Use: "add", RunE: func(cmd *cobra.Command, args []string) error {
+		v, e := c.svc.AddArtifact(c.actor, path)
+		if e != nil {
+			return e
+		}
+		return c.emit("artifact.add", v)
+	}}
+	add.Flags().StringVar(&path, "path", "", "artifact path")
+	_ = add.MarkFlagRequired("path")
+	show := &cobra.Command{Use: "show", RunE: func(cmd *cobra.Command, args []string) error {
+		st, e := c.svc.State()
+		if e != nil {
+			return e
+		}
+		a, ok := st.Artifacts[hash]
+		if !ok {
+			return errors.New("artifact not found")
+		}
+		return c.emit("artifact.show", a)
+	}}
+	show.Flags().StringVar(&hash, "sha256", "", "artifact digest")
+	verify := &cobra.Command{Use: "verify", RunE: func(cmd *cobra.Command, args []string) error {
+		p := filepath.Join(c.svc.Store.Root, store.Runtime, "artifacts", "sha256", hash)
+		b, e := os.ReadFile(p)
+		if e != nil {
+			return e
+		}
+		h := sha256.Sum256(b)
+		if hex.EncodeToString(h[:]) != hash {
+			return errors.New("artifact hash mismatch")
+		}
+		return c.emit("artifact.verify", map[string]any{"verified": true, "sha256": hash, "size": len(b)})
+	}}
+	verify.Flags().StringVar(&hash, "sha256", "", "artifact digest")
+	root.AddCommand(add, show, verify)
+	return root
+}
+func (c *cli) archiveCmd() *cobra.Command {
+	return &cobra.Command{Use: "archive", RunE: func(cmd *cobra.Command, args []string) error {
+		v, e := c.svc.Archive(c.actor)
+		if e != nil {
+			return e
+		}
+		return c.emit("archive", v)
+	}}
+}
+func (c *cli) exportCmd() *cobra.Command {
+	var out string
+	cmd := &cobra.Command{Use: "export <jsonl|markdown>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		var w io.Writer = c.out
+		var f *os.File
+		var e error
+		if out != "" {
+			f, e = os.Create(out)
+			if e != nil {
+				return e
+			}
+			defer f.Close()
+			w = f
+		}
+		switch args[0] {
+		case "jsonl":
+			e = c.svc.ExportJSONL(w)
+		case "markdown":
+			e = c.svc.ExportMarkdown(w)
+		default:
+			return errors.New("format must be jsonl or markdown")
+		}
+		return e
+	}}
+	cmd.Flags().StringVarP(&out, "output", "o", "", "output file")
+	return cmd
+}
+func (c *cli) syncCmd() *cobra.Command {
+	root := &cobra.Command{Use: "sync"}
+	var url string
+	setup := &cobra.Command{Use: "setup", RunE: func(cmd *cobra.Command, args []string) error {
+		if e := c.svc.Store.SetupRemote(url); e != nil {
+			return e
+		}
+		return c.emit("sync.setup", map[string]string{"remote": url})
+	}}
+	setup.Flags().StringVar(&url, "url", "", "checkpoint Git URL")
+	status := &cobra.Command{Use: "status", RunE: func(cmd *cobra.Command, args []string) error {
+		return c.emit("sync.status", map[string]string{"remote": c.svc.Store.Remote(), "state": map[bool]string{true: "configured", false: "local-only"}[c.svc.Store.Remote() != ""]})
+	}}
+	push := &cobra.Command{Use: "push", RunE: func(cmd *cobra.Command, args []string) error {
+		if e := c.svc.Store.Checkpoint(); e != nil {
+			return e
+		}
+		return c.emit("sync.push", map[string]bool{"pushed": true})
+	}}
+	pull := &cobra.Command{Use: "pull", RunE: func(cmd *cobra.Command, args []string) error {
+		if e := c.svc.Store.SyncPull(); e != nil {
+			return e
+		}
+		return c.emit("sync.pull", map[string]bool{"fast_forwarded": true})
+	}}
+	root.AddCommand(setup, status, push, pull)
+	return root
+}
+func (c *cli) profileCmd() *cobra.Command {
+	root := &cobra.Command{Use: "profile"}
+	list := &cobra.Command{Use: "list", RunE: func(cmd *cobra.Command, args []string) error {
+		u, e := identity.LoadUserConfig()
+		if e != nil {
+			return e
+		}
+		return c.emit("profile.list", map[string]any{"active": u.ActiveProfile, "profiles": u.Profiles})
+	}}
+	var name string
+	use := &cobra.Command{Use: "use", RunE: func(cmd *cobra.Command, args []string) error {
+		u, e := identity.LoadUserConfig()
+		if e != nil {
+			return e
+		}
+		if _, ok := u.Profiles[name]; !ok {
+			return errors.New("profile not found")
+		}
+		u.ActiveProfile = name
+		if e = identity.SaveUserConfig(u); e != nil {
+			return e
+		}
+		return c.emit("profile.use", map[string]string{"active": name})
+	}}
+	use.Flags().StringVar(&name, "name", "", "profile name")
+	root.AddCommand(list, use)
+	return root
+}
+func (c *cli) configCmd() *cobra.Command {
+	return &cobra.Command{Use: "config", RunE: func(cmd *cobra.Command, args []string) error {
+		u, e := identity.LoadUserConfig()
+		if e != nil {
+			return e
+		}
+		p, e := c.svc.Store.Config()
+		if e != nil {
+			return e
+		}
+		return c.emit("config", map[string]any{"user": u, "project": p, "precedence": []string{"flags", "environment", "project", "user", "defaults"}})
+	}}
+}
+func (c *cli) updateCmd() *cobra.Command {
+	root := &cobra.Command{Use: "update"}
+	var channel string
+	check := &cobra.Command{Use: "check", RunE: func(cmd *cobra.Command, args []string) error {
+		ctx, cancel := context.WithTimeout(cmd.Context(), 15*time.Second)
+		defer cancel()
+		release, err := fetchRelease(ctx, channel, "")
+		if err != nil {
+			return err
+		}
+		return c.emit("update.check", map[string]any{"current": Version, "latest": release.Tag, "channel": channel, "update_available": strings.TrimPrefix(release.Tag, "v") != Version, "telemetry": false})
+	}}
+	check.Flags().StringVar(&channel, "channel", "stable", "stable or preview")
+	var version string
+	apply := &cobra.Command{Use: "apply", RunE: func(cmd *cobra.Command, args []string) error {
+		if _, err := exec.LookPath("cosign"); err != nil {
+			return errors.New("verified self-update requires cosign on PATH; use the signed installer until bundled verification is available")
+		}
+		ctx, cancel := context.WithTimeout(cmd.Context(), 2*time.Minute)
+		defer cancel()
+		release, err := fetchRelease(ctx, channel, version)
+		if err != nil {
+			return err
+		}
+		result, err := installRelease(ctx, release)
+		if err != nil {
+			return err
+		}
+		return c.emit("update.apply", result)
+	}}
+	apply.Flags().StringVar(&channel, "channel", "stable", "stable or preview")
+	apply.Flags().StringVar(&version, "version", "", "exact release tag")
+	root.AddCommand(check, apply)
+	return root
+}
+
+type releaseAsset struct {
+	Name string `json:"name"`
+	URL  string `json:"browser_download_url"`
+}
+type githubRelease struct {
+	Tag        string         `json:"tag_name"`
+	Prerelease bool           `json:"prerelease"`
+	Draft      bool           `json:"draft"`
+	Assets     []releaseAsset `json:"assets"`
+}
+
+func fetchRelease(ctx context.Context, channel, version string) (githubRelease, error) {
+	url := "https://api.github.com/repos/DhanushSantosh/AgentComms/releases"
+	if version != "" {
+		url += "/tags/" + version
+	}
+	req, e := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if e != nil {
+		return githubRelease{}, e
+	}
+	resp, e := http.DefaultClient.Do(req)
+	if e != nil {
+		return githubRelease{}, e
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return githubRelease{}, fmt.Errorf("GitHub releases: %s", resp.Status)
+	}
+	if version != "" {
+		var r githubRelease
+		e = json.NewDecoder(resp.Body).Decode(&r)
+		return r, e
+	}
+	var all []githubRelease
+	if e = json.NewDecoder(resp.Body).Decode(&all); e != nil {
+		return githubRelease{}, e
+	}
+	for _, r := range all {
+		if !r.Draft && (channel == "preview" || !r.Prerelease) {
+			return r, nil
+		}
+	}
+	return githubRelease{}, fmt.Errorf("no %s release is available", channel)
+}
+func installRelease(ctx context.Context, r githubRelease) (map[string]any, error) {
+	ext := ""
+	if runtime.GOOS == "windows" {
+		ext = ".exe"
+	}
+	name := fmt.Sprintf("agent-comms-%s-%s%s", runtime.GOOS, runtime.GOARCH, ext)
+	urls := map[string]string{}
+	for _, a := range r.Assets {
+		urls[a.Name] = a.URL
+	}
+	for _, n := range []string{name, "checksums.txt", name + ".bundle"} {
+		if urls[n] == "" {
+			return nil, fmt.Errorf("release %s is missing %s", r.Tag, n)
+		}
+	}
+	dir, e := os.MkdirTemp("", "agent-comms-update-")
+	if e != nil {
+		return nil, e
+	}
+	defer os.RemoveAll(dir)
+	for _, n := range []string{name, "checksums.txt", name + ".bundle"} {
+		if e = download(ctx, urls[n], filepath.Join(dir, n)); e != nil {
+			return nil, e
+		}
+	}
+	checks, e := os.ReadFile(filepath.Join(dir, "checksums.txt"))
+	if e != nil {
+		return nil, e
+	}
+	expected := ""
+	for _, line := range strings.Split(string(checks), "\n") {
+		f := strings.Fields(line)
+		if len(f) == 2 && f[1] == name {
+			expected = f[0]
+		}
+	}
+	b, e := os.ReadFile(filepath.Join(dir, name))
+	if e != nil {
+		return nil, e
+	}
+	h := sha256.Sum256(b)
+	actual := hex.EncodeToString(h[:])
+	if expected == "" || actual != expected {
+		return nil, errors.New("release SHA-256 verification failed")
+	}
+	verify := exec.CommandContext(ctx, "cosign", "verify-blob", "--bundle", filepath.Join(dir, name+".bundle"), "--certificate-identity-regexp", `^https://github.com/DhanushSantosh/AgentComms/.github/workflows/release.yml@refs/tags/`, "--certificate-oidc-issuer", "https://token.actions.githubusercontent.com", filepath.Join(dir, name))
+	if out, x := verify.CombinedOutput(); x != nil {
+		return nil, fmt.Errorf("cosign verification failed: %s", strings.TrimSpace(string(out)))
+	}
+	exe, e := os.Executable()
+	if e != nil {
+		return nil, e
+	}
+	backup := exe + ".previous"
+	_ = os.Remove(backup)
+	if e = os.Rename(exe, backup); e != nil {
+		return nil, e
+	}
+	if e = os.WriteFile(exe, b, 0755); e != nil {
+		_ = os.Rename(backup, exe)
+		return nil, e
+	}
+	return map[string]any{"version": r.Tag, "installed": exe, "previous": backup, "verified": true}, nil
+}
+func download(ctx context.Context, url, path string) error {
+	req, e := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if e != nil {
+		return e
+	}
+	resp, e := http.DefaultClient.Do(req)
+	if e != nil {
+		return e
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("download %s: %s", url, resp.Status)
+	}
+	f, e := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600)
+	if e != nil {
+		return e
+	}
+	_, copyErr := io.Copy(f, resp.Body)
+	closeErr := f.Close()
+	if copyErr != nil {
+		return copyErr
+	}
+	return closeErr
+}
+func (c *cli) completionCmd(root *cobra.Command) *cobra.Command {
+	return &cobra.Command{Use: "completion <bash|zsh|fish|powershell>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		switch args[0] {
+		case "bash":
+			return root.GenBashCompletion(c.out)
+		case "zsh":
+			return root.GenZshCompletion(c.out)
+		case "fish":
+			return root.GenFishCompletion(c.out, true)
+		case "powershell":
+			return root.GenPowerShellCompletion(c.out)
+		}
+		return errors.New("unsupported shell")
+	}}
+}
+func (c *cli) mcpCmd() *cobra.Command {
+	return &cobra.Command{Use: "mcp", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error { return mcp.Serve(c.svc, c.actor, os.Stdin, c.out) }}
+}
+func (c *cli) watchCmd() *cobra.Command {
+	var interval time.Duration
+	cmd := &cobra.Command{Use: "watch", RunE: func(cmd *cobra.Command, args []string) error {
+		tick := time.NewTicker(interval)
+		defer tick.Stop()
+		last := -1
+		for {
+			select {
+			case <-cmd.Context().Done():
+				return nil
+			case <-tick.C:
+				st, e := c.svc.State()
+				if e != nil {
+					return e
+				}
+				attention := 0
+				for _, a := range st.Approvals {
+					if a.Status == "PENDING" {
+						attention++
+					}
+				}
+				for _, t := range st.Tasks {
+					if t.Status == "BLOCKED" || (!t.LeaseUntil.IsZero() && time.Until(t.LeaseUntil) < time.Hour) {
+						attention++
+					}
+				}
+				if attention != last {
+					fmt.Fprintf(c.out, "%s attention=%d\n", time.Now().Format(time.RFC3339), attention)
+					last = attention
+				}
+			}
+		}
+	}}
+	cmd.Flags().DurationVar(&interval, "interval", 30*time.Second, "poll interval")
+	return cmd
+}
+func (c *cli) tuiCmd() *cobra.Command {
+	return &cobra.Command{Use: "tui", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		if c.json || c.nonInteractive {
+			return errors.New("tui requires an interactive terminal")
+		}
+		return tuiterm.Run(c.svc, c.actor, os.Stdin, c.out)
+	}}
+}
+func (c *cli) migrateCmd() *cobra.Command {
+	root := &cobra.Command{Use: "migrate"}
+	status := &cobra.Command{Use: "status", RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, e := c.svc.Store.Config()
+		if e != nil {
+			return e
+		}
+		return c.emit("migrate.status", map[string]any{"current": cfg.SchemaVersion, "target": model.SchemaVersion, "required": cfg.SchemaVersion != model.SchemaVersion})
+	}}
+	var owner string
+	apply := &cobra.Command{Use: "apply", RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, e := c.svc.Store.Config()
+		if e != nil {
+			return e
+		}
+		if cfg.SchemaVersion == model.SchemaVersion {
+			return c.emit("migrate.apply", map[string]bool{"changed": false})
+		}
+		if owner == "" {
+			return errors.New("--owner is required; automatic identity invention is refused")
+		}
+		if e = c.svc.Store.MigrateV1(owner); e != nil {
+			return e
+		}
+		return c.emit("migrate.apply", map[string]any{"changed": true, "source": cfg.SchemaVersion, "target": model.SchemaVersion, "owner": owner})
+	}}
+	apply.Flags().StringVar(&owner, "owner", "", "v1 owner identity mapping")
+	root.AddCommand(status, apply)
+	return root
 }

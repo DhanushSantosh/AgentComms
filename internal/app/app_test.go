@@ -3,49 +3,50 @@ package app
 import (
 	"bytes"
 	"encoding/json"
-	"os"
+	"os/exec"
+	"path/filepath"
 	"testing"
 )
 
-func TestVersionJSONDeterministic(t *testing.T) {
-	var a, b bytes.Buffer
-	if e := Run([]string{"version", "--json"}, &a, &b); e != nil {
+func TestVersionEnvelope(t *testing.T) {
+	var out, err bytes.Buffer
+	if e := Run([]string{"version", "--json"}, &out, &err); e != nil {
 		t.Fatal(e)
 	}
-	var v map[string]any
-	if e := json.Unmarshal(a.Bytes(), &v); e != nil {
+	var v Envelope
+	if e := json.Unmarshal(out.Bytes(), &v); e != nil {
 		t.Fatal(e)
 	}
-	if v["ok"] != true || v["command"] != "version" {
-		t.Fatal(v)
+	if !v.OK || v.APIVersion != APIVersion {
+		t.Fatalf("bad envelope: %#v", v)
 	}
 }
-func TestTUIViewsDeclared(t *testing.T) {
-	old := os.Stdin
-	f, e := os.CreateTemp(t.TempDir(), "in")
-	if e != nil {
-		t.Fatal(e)
-	}
-	_, _ = f.WriteString("q\n")
-	_, _ = f.Seek(0, 0)
-	os.Stdin = f
-	defer func() { os.Stdin = old }()
-	defer f.Close()
+func TestInitRequiresGitAndNonInteractiveOwner(t *testing.T) {
 	d := t.TempDir()
-	wd, _ := os.Getwd()
-	_ = os.Chdir(d)
-	defer os.Chdir(wd)
-	var out bytes.Buffer
-	if e := Run([]string{"init"}, &out, &out); e != nil {
-		t.Fatal(e)
+	var out, err bytes.Buffer
+	e := Run([]string{"init", "--project", d, "--non-interactive", "--owner", "owner", "--json"}, &out, &err)
+	if e == nil {
+		t.Fatal("non-Git init succeeded")
 	}
+	cmd := exec.Command("git", "init")
+	cmd.Dir = d
+	if b, e := cmd.CombinedOutput(); e != nil {
+		t.Fatal(string(b))
+	}
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(d, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(d, "credentials"))
 	out.Reset()
-	if e := Run([]string{"tui"}, &out, &out); e != nil {
+	err.Reset()
+	if e = Run([]string{"init", "--project", d, "--non-interactive", "--owner", "owner", "--json"}, &out, &err); e != nil {
 		t.Fatal(e)
 	}
-	for _, x := range []string{"overview", "tasks", "inbox", "agents", "approvals", "contracts/decisions", "blockers", "integrity/sync", "archive search"} {
-		if !bytes.Contains(out.Bytes(), []byte(x)) {
-			t.Errorf("missing %s", x)
-		}
+}
+func TestCompletion(t *testing.T) {
+	var out, err bytes.Buffer
+	if e := Run([]string{"completion", "powershell"}, &out, &err); e != nil {
+		t.Fatal(e)
+	}
+	if out.Len() < 100 {
+		t.Fatal("completion output too small")
 	}
 }
