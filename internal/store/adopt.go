@@ -133,6 +133,13 @@ func (s *Store) PrepareLegacyAdoption(owner string) (AdoptionPreview, error) {
 			}
 		} else if cfg.SchemaVersion != model.SchemaVersion {
 			return AdoptionPreview{}, fmt.Errorf("unsupported runtime schema %q", cfg.SchemaVersion)
+		} else {
+			if x = s.Verify(); x != nil {
+				return AdoptionPreview{}, fmt.Errorf("existing event chain integrity check failed; repair before adoption: %w", x)
+			}
+			if _, x = identity.ResolveCredential(s.Credentials, cfg.ProjectID, owner); x != nil {
+				return AdoptionPreview{}, fmt.Errorf("owner credential %q not found in existing runtime; register the owner first or use --owner that matches an existing credential", owner)
+			}
 		}
 	}
 	release, e := s.acquire(owner)
@@ -553,4 +560,137 @@ func (s *Store) ManagedBootstrapValid() bool {
 func (s *Store) InstructionsPresent() bool {
 	b, e := os.ReadFile(filepath.Join(s.runtime(), "AGENT_INSTRUCTIONS.md"))
 	return e == nil && len(bytes.TrimSpace(b)) > 0
+}
+
+type ExtractedContext struct {
+	Decisions  []model.Event `json:"decisions,omitempty"`
+	Documents  []model.Event `json:"documents,omitempty"`
+	Contracts  []model.Event `json:"contracts,omitempty"`
+	Agents     []string      `json:"agents,omitempty"`
+	TotalLines int           `json:"total_lines"`
+}
+
+func (s *Store) ExtractLegacyContext(actor string) (ExtractedContext, error) {
+	var out ExtractedContext
+	legacyPath := filepath.Join(s.Root, ".agents")
+	legacy, e := os.ReadFile(legacyPath)
+	if e != nil {
+		return out, fmt.Errorf("read .agents: %w", e)
+	}
+	cfg, e := s.Config()
+	if e != nil {
+		return out, e
+	}
+	cred, e := identity.ResolveCredential(s.Credentials, cfg.ProjectID, actor)
+	if e != nil {
+		return out, fmt.Errorf("credential for %s: %w", actor, e)
+	}
+	scan := bufio.NewScanner(bytes.NewReader(legacy))
+	scan.Buffer(make([]byte, 64*1024), 2*1024*1024)
+	type section struct{ name, content string }
+	var sections []section
+	var current *section
+	for scan.Scan() {
+		out.TotalLines++
+		line := strings.TrimSpace(scan.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
+			name := strings.ToLower(strings.TrimSpace(strings.Trim(line, "[]")))
+			if current != nil {
+				sections = append(sections, *current)
+			}
+			current = &section{name: name, content: ""}
+			continue
+		}
+		if current != nil {
+			if current.content != "" {
+				current.content += "\n"
+			}
+			current.content += line
+		}
+	}
+	if current != nil {
+		sections = append(sections, *current)
+	}
+	_ = scan.Err()
+
+	decisionID := 0
+	docID := 0
+	contractID := 0
+	for _, sec := range sections {
+		body := sec.content
+		if len(body) > 1200 {
+			body = body[:1200]
+		}
+		switch {
+		case sec.name == "agents" || sec.name == "agent":
+			for _, line := range strings.Split(sec.content, "\n") {
+				parts := strings.SplitN(line, ":", 2)
+				if len(parts) == 2 {
+					id := strings.TrimSpace(parts[0])
+					if id != "" {
+						out.Agents = append(out.Agents, id)
+					}
+				}
+			}
+		case sec.name == "decisions" || sec.name == "decisions" && strings.Contains(strings.ToLower(sec.content), "decision"):
+			decisionID++
+			id := fmt.Sprintf("legacy-decision-%d", decisionID)
+			ev, x := s.AppendWithCredential(actor, "decision.create", id, model.DecisionPayload{Title: fmt.Sprintf("Legacy decision: %s", sec.name), Statement: body}, cred)
+			if x == nil {
+				out.Decisions = append(out.Decisions, ev)
+			}
+		case sec.name == "contracts" || sec.name == "contract" || sec.name == "guardrails" || sec.name == "rules":
+			contractID++
+			id := fmt.Sprintf("legacy-contract-%d", contractID)
+			ev, x := s.AppendWithCredential(actor, "message.post", id, model.MessagePosted{Kind: "CONTRACT", To: []string{cfg.Owner}, Subject: fmt.Sprintf("Legacy contract: %s", sec.name), Body: body}, cred)
+			if x == nil {
+				out.Contracts = append(out.Contracts, ev)
+			}
+		case sec.name == "api" || sec.name == "api-contracts" || sec.name == "spec":
+			docID++
+			id := fmt.Sprintf("legacy-doc-%d", docID)
+			ev, x := s.AppendWithCredential(actor, "document.create", id, model.DocumentPayload{Title: fmt.Sprintf("Legacy: %s", sec.name), Body: body, Tags: []string{"legacy", "api"}}, cred)
+			if x == nil {
+				out.Documents = append(out.Documents, ev)
+			}
+		default:
+			if strings.Contains(strings.ToLower(sec.content), "decision") || strings.Contains(strings.ToLower(sec.name), "decision") {
+				decisionID++
+				id := fmt.Sprintf("legacy-decision-%d", decisionID)
+				ev, x := s.AppendWithCredential(actor, "decision.create", id, model.DecisionPayload{Title: fmt.Sprintf("Legacy decision from %s", sec.name), Statement: body}, cred)
+				if x == nil {
+					out.Decisions = append(out.Decisions, ev)
+				}
+			} else if strings.Contains(strings.ToLower(sec.name), "api") || strings.Contains(strings.ToLower(sec.name), "spec") {
+				docID++
+				id := fmt.Sprintf("legacy-doc-%d", docID)
+				ev, x := s.AppendWithCredential(actor, "document.create", id, model.DocumentPayload{Title: fmt.Sprintf("Legacy: %s", sec.name), Body: body, Tags: []string{"legacy"}}, cred)
+				if x == nil {
+					out.Documents = append(out.Documents, ev)
+				}
+			} else {
+				docID++
+				id := fmt.Sprintf("legacy-doc-%d", docID)
+				ev, x := s.AppendWithCredential(actor, "document.create", id, model.DocumentPayload{Title: fmt.Sprintf("Legacy context: %s", sec.name), Body: body, Tags: []string{"legacy"}}, cred)
+				if x == nil {
+					out.Documents = append(out.Documents, ev)
+				}
+			}
+		}
+	}
+
+	if len(sections) == 0 {
+		body := string(legacy)
+		if len(body) > 1200 {
+			body = body[:1200]
+		}
+		ev, x := s.AppendWithCredential(actor, "document.create", "legacy-context", model.DocumentPayload{Title: "Legacy .agents context", Body: body, Tags: []string{"legacy"}}, cred)
+		if x == nil {
+			out.Documents = append(out.Documents, ev)
+		}
+	}
+	return out, nil
 }

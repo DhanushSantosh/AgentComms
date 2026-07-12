@@ -34,6 +34,7 @@ type Config struct {
 	ArtifactLimitBytes int64  `json:"artifact_limit_bytes"`
 	RequireReview      bool   `json:"require_review"`
 	AdoptionRequired   bool   `json:"adoption_required,omitempty"`
+	AutoSync           bool   `json:"auto_sync,omitempty"`
 }
 type Store struct {
 	Root        string
@@ -235,6 +236,10 @@ func (s *Store) Append(actor, typ, entity string, payload any) (model.Event, err
 }
 
 func (s *Store) AppendWithCredential(actor, typ, entity string, payload any, cred identity.Credential) (model.Event, error) {
+	cfg, _ := s.Config()
+	if cfg.AutoSync && s.Remote() != "" {
+		_ = s.SyncPull()
+	}
 	release, e := s.acquire(actor)
 	if e != nil {
 		return model.Event{}, e
@@ -294,6 +299,9 @@ func (s *Store) AppendWithCredential(actor, typ, entity string, payload any, cre
 	}
 	if e = s.git("commit", "--no-gpg-sign", "-m", fmt.Sprintf("%s %s", typ, entity)); e != nil {
 		return ev, e
+	}
+	if cfg.AutoSync && s.Remote() != "" {
+		_ = s.Checkpoint()
 	}
 	return ev, nil
 }

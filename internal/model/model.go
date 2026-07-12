@@ -94,6 +94,16 @@ type Artifact struct {
 	MediaType string `json:"media_type"`
 	Storage   string `json:"storage"`
 }
+type Document struct {
+	ID        string   `json:"id"`
+	Title     string   `json:"title"`
+	Body      string   `json:"body"`
+	Tags      []string `json:"tags,omitempty"`
+	Status    string   `json:"status"`
+	Version   int      `json:"version"`
+	Author    string   `json:"author"`
+	Supersedes string  `json:"supersedes,omitempty"`
+}
 type Integrity struct {
 	Verified      bool   `json:"verified"`
 	EventCount    int    `json:"event_count"`
@@ -108,6 +118,7 @@ type State struct {
 	Messages  map[string]Message        `json:"messages"`
 	Approvals map[string]Approval       `json:"approvals"`
 	Decisions map[string]Decision       `json:"decisions"`
+	Documents map[string]Document       `json:"documents"`
 	Sessions  map[string]SessionPayload `json:"sessions"`
 	Artifacts map[string]Artifact       `json:"artifacts"`
 	Integrity Integrity                 `json:"integrity"`

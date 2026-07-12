@@ -27,7 +27,7 @@ func (s *Service) State() (model.State, error) {
 	if e != nil {
 		return model.State{}, e
 	}
-	st := model.State{Agents: map[string]model.Agent{}, Tasks: map[string]model.Task{}, Messages: map[string]model.Message{}, Approvals: map[string]model.Approval{}, Decisions: map[string]model.Decision{}, Sessions: map[string]model.SessionPayload{}, Artifacts: map[string]model.Artifact{}}
+	st := model.State{Agents: map[string]model.Agent{}, Tasks: map[string]model.Task{}, Messages: map[string]model.Message{}, Approvals: map[string]model.Approval{}, Decisions: map[string]model.Decision{}, Documents: map[string]model.Document{}, Sessions: map[string]model.SessionPayload{}, Artifacts: map[string]model.Artifact{}}
 	unknown := 0
 	for _, v := range ev {
 		if !model.KnownEventType(v.Type) {
@@ -175,6 +175,28 @@ func apply(s *model.State, e model.Event) error {
 			t := s.Tasks[id]
 			t.Archived = true
 			s.Tasks[id] = t
+		}
+	case *model.DocumentPayload:
+		switch e.Type {
+		case "document.create":
+			s.Documents[e.EntityID] = model.Document{ID: e.EntityID, Title: p.Title, Body: p.Body, Tags: p.Tags, Status: "ACTIVE", Version: 1, Author: e.Actor}
+		case "document.update":
+			d := s.Documents[e.EntityID]
+			d.Title = p.Title
+			d.Body = p.Body
+			d.Tags = p.Tags
+			d.Version++
+			s.Documents[e.EntityID] = d
+		case "document.supersede":
+			d := s.Documents[e.EntityID]
+			d.Status = "SUPERSEDED"
+			s.Documents[e.EntityID] = d
+			if p.Supersedes != "" {
+				nd := s.Documents[p.Supersedes]
+				nd.Status = "ACTIVE"
+				nd.Supersedes = e.EntityID
+				s.Documents[p.Supersedes] = nd
+			}
 		}
 	}
 	return nil
@@ -406,12 +428,25 @@ func (s *Service) Execute(actor, typ, id string, payload any) (model.Event, erro
 		}
 		payload = p
 	}
+	if strings.HasPrefix(typ, "document.") {
+		p := payload.(model.DocumentPayload)
+		switch typ {
+		case "document.create":
+			if strings.TrimSpace(p.Title) == "" || strings.TrimSpace(p.Body) == "" {
+				return model.Event{}, errors.New("title and body are required")
+			}
+		case "document.update", "document.supersede":
+			if _, exists := st.Documents[id]; !exists {
+				return model.Event{}, errors.New("document not found")
+			}
+		}
+	}
 	return s.Store.Append(actor, typ, id, payload)
 }
 
 func migrationSeedEvent(typ string) bool {
 	switch typ {
-	case "agent.register", "agent.activate", "task.create", "task.claim", "task.start", "task.block", "decision.create", "message.post":
+	case "agent.register", "agent.activate", "task.create", "task.claim", "task.start", "task.block", "decision.create", "message.post", "document.create":
 		return true
 	default:
 		return false

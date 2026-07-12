@@ -82,7 +82,7 @@ func Run(args []string, stdout, stderr io.Writer) error {
 func (c *cli) root() *cobra.Command {
 	r := &cobra.Command{Use: "agent-comms", Short: "Governed coordination for concurrent agents", Version: Version, PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		c.cmd = cmd.CommandPath()
-		if cmd.Name() == "version" || cmd.Name() == "init" || cmd.Name() == "completion" || cmd.Name() == "update" {
+		if cmd.Name() == "version" || cmd.Name() == "init" || cmd.Name() == "completion" || (cmd.Name() == "update" && cmd.Parent() == cmd.Root()) || cmd.Name() == "agent-instructions" {
 			return nil
 		}
 		root := c.project
@@ -134,7 +134,7 @@ func (c *cli) root() *cobra.Command {
 	f.DurationVar(&c.timeout, "timeout", 10*time.Second, "transaction lock timeout")
 	f.BoolVar(&c.noColor, "no-color", false, "disable ANSI color")
 	f.BoolVarP(&c.quiet, "quiet", "q", false, "suppress non-essential output")
-	r.AddCommand(c.versionCmd(), c.initCmd(), c.doctorCmd(), c.verifyCmd(), c.statusCmd(), c.historyCmd(), c.searchCmd(), c.agentCmd(), c.sessionCmd(), c.taskCmd(), c.messageCmd(), c.decisionCmd(), c.approvalCmd(), c.artifactCmd(), c.archiveCmd(), c.exportCmd(), c.syncCmd(), c.profileCmd(), c.configCmd(), c.updateCmd(), c.completionCmd(r), c.mcpCmd(), c.watchCmd(), c.tuiCmd(), c.migrateCmd())
+	r.AddCommand(c.versionCmd(), c.initCmd(), c.doctorCmd(), c.verifyCmd(), c.statusCmd(), c.historyCmd(), c.searchCmd(), c.agentCmd(), c.sessionCmd(), c.taskCmd(), c.messageCmd(), c.decisionCmd(), c.approvalCmd(), c.artifactCmd(), c.documentCmd(), c.archiveCmd(), c.exportCmd(), c.syncCmd(), c.profileCmd(), c.configCmd(), c.updateCmd(), c.completionCmd(r), c.agentInstructionsCmd(), c.mcpCmd(), c.watchCmd(), c.tuiCmd(), c.migrateCmd())
 	return r
 }
 
@@ -144,6 +144,7 @@ func cutoverCommandAllowed(path string) bool {
 		"agent-comms agent register", "agent-comms agent activate", "agent-comms agent list",
 		"agent-comms task create", "agent-comms task claim", "agent-comms task start", "agent-comms task block",
 		"agent-comms decision create", "agent-comms message post",
+		"agent-comms document create", "agent-comms document update", "agent-comms document list", "agent-comms document show",
 	} {
 		if strings.HasPrefix(path, prefix) {
 			return true
@@ -675,6 +676,71 @@ func (c *cli) artifactCmd() *cobra.Command {
 	root.AddCommand(add, show, verify)
 	return root
 }
+func (c *cli) documentCmd() *cobra.Command {
+	root := &cobra.Command{Use: "document"}
+	var title, body, docReplacement string
+	var tags []string
+	create := &cobra.Command{Use: "create", RunE: func(cmd *cobra.Command, args []string) error {
+		id, _ := cmd.Flags().GetString("id")
+		v, e := c.svc.Execute(c.actor, "document.create", id, model.DocumentPayload{Title: title, Body: body, Tags: tags})
+		if e != nil {
+			return e
+		}
+		return c.emit("document.create", v)
+	}}
+	create.Flags().String("id", "", "document ID")
+	_ = create.MarkFlagRequired("id")
+	create.Flags().StringVar(&title, "title", "", "title")
+	_ = create.MarkFlagRequired("title")
+	create.Flags().StringVar(&body, "body", "", "body")
+	_ = create.MarkFlagRequired("body")
+	create.Flags().StringSliceVar(&tags, "tag", nil, "tag (repeatable)")
+	update := &cobra.Command{Use: "update", RunE: func(cmd *cobra.Command, args []string) error {
+		id, _ := cmd.Flags().GetString("id")
+		v, e := c.svc.Execute(c.actor, "document.update", id, model.DocumentPayload{Title: title, Body: body, Tags: tags})
+		if e != nil {
+			return e
+		}
+		return c.emit("document.update", v)
+	}}
+	update.Flags().String("id", "", "document ID")
+	_ = update.MarkFlagRequired("id")
+	update.Flags().StringVar(&title, "title", "", "title")
+	update.Flags().StringVar(&body, "body", "", "body")
+	update.Flags().StringSliceVar(&tags, "tag", nil, "tag (repeatable)")
+	supersede := &cobra.Command{Use: "supersede", RunE: func(cmd *cobra.Command, args []string) error {
+		id, _ := cmd.Flags().GetString("id")
+		docReplacement, _ = cmd.Flags().GetString("replacement")
+		v, e := c.svc.Execute(c.actor, "document.supersede", id, model.DocumentPayload{Supersedes: docReplacement})
+		if e != nil {
+			return e
+		}
+		return c.emit("document.supersede", v)
+	}}
+	supersede.Flags().String("id", "", "document ID")
+	_ = supersede.MarkFlagRequired("id")
+	supersede.Flags().StringVar(&docReplacement, "replacement", "", "replacement document ID")
+	list := &cobra.Command{Use: "list", RunE: func(cmd *cobra.Command, args []string) error {
+		st, e := c.svc.State()
+		if e != nil {
+			return e
+		}
+		return c.emit("document.list", st.Documents)
+	}}
+	show := &cobra.Command{Use: "show", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		st, e := c.svc.State()
+		if e != nil {
+			return e
+		}
+		d, ok := st.Documents[args[0]]
+		if !ok {
+			return errors.New("document not found")
+		}
+		return c.emit("document.show", d)
+	}}
+	root.AddCommand(create, update, supersede, list, show)
+	return root
+}
 func (c *cli) archiveCmd() *cobra.Command {
 	return &cobra.Command{Use: "archive", RunE: func(cmd *cobra.Command, args []string) error {
 		v, e := c.svc.Archive(c.actor)
@@ -963,6 +1029,31 @@ func (c *cli) completionCmd(root *cobra.Command) *cobra.Command {
 		return errors.New("unsupported shell")
 	}}
 }
+func (c *cli) agentInstructionsCmd() *cobra.Command {
+	return &cobra.Command{Use: "agent-instructions", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		exe, _ := os.Executable()
+		instructions := fmt.Sprintf(`# Agent Comms agent bootstrap
+binary: %s
+commands:
+  status:   %[1]s status --json
+  verify:   %[1]s verify --json
+  register: %[1]s agent register --id <agent-id> --principal-type AGENT
+  activate: %[1]s agent activate --id <agent-id> --role AGENT --scope <scope>
+  task_create:  %[1]s task create --id <id> --title <title> --repository local --branch <branch> --resource <path>
+  task_claim:   %[1]s task claim --id <id>
+  task_start:   %[1]s task start --id <id>
+  task_renew:   %[1]s task renew --id <id> --progress <summary>
+  message_post: %[1]s message post --id <id> --kind ACTION --to <actor> --subject <subject> --body <body>
+  document_create: %[1]s document create --id <id> --title <title> --body <body> --tag <tag>
+  decision_create: %[1]s decision create --id <id> --title <title> --statement <statement>
+contracts: Use "message post --kind CONTRACT" for binding agreements
+documents: Use "document create" for living reference documents
+decisions: Use "decision create" for design decisions
+sync:      Configure a remote with "sync setup --url <git-url>" for multi-agent coordination
+`, exe)
+		return c.emit("agent-instructions", map[string]any{"instructions": instructions, "binary": exe})
+	}}
+}
 func (c *cli) mcpCmd() *cobra.Command {
 	return &cobra.Command{Use: "mcp", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error { return mcp.Serve(c.svc, c.actor, os.Stdin, c.out) }}
 }
@@ -1134,6 +1225,19 @@ func (c *cli) migrateCmd() *cobra.Command {
 		}
 		return c.emit("migrate.recover", map[string]any{"recovered": true, "path": filepath.Join(c.svc.Store.Root, ".agents")})
 	}}
-	root.AddCommand(status, apply, adopt, seed, requireAcks, ack, activate, rollback, recoverCmd)
+	var extractOwner string
+	extractCmd := &cobra.Command{Use: "extract-context", Short: "Extract legacy .agents content into typed events", RunE: func(cmd *cobra.Command, args []string) error {
+		actor := c.actor
+		if extractOwner != "" {
+			actor = extractOwner
+		}
+		out, e := c.svc.Store.ExtractLegacyContext(actor)
+		if e != nil {
+			return e
+		}
+		return c.emit("migrate.extract-context", out)
+	}}
+	extractCmd.Flags().StringVar(&extractOwner, "actor", "", "actor to sign extraction events (defaults to active actor)")
+	root.AddCommand(status, apply, adopt, seed, requireAcks, ack, activate, rollback, recoverCmd, extractCmd)
 	return root
 }

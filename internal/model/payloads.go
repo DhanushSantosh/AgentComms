@@ -116,6 +116,12 @@ type ArchiveRun struct {
 	Before  time.Time `json:"before"`
 	TaskIDs []string  `json:"task_ids"`
 }
+type DocumentPayload struct {
+	Title     string   `json:"title"`
+	Body      string   `json:"body"`
+	Tags      []string `json:"tags,omitempty"`
+	Supersedes string  `json:"supersedes,omitempty"`
+}
 
 var payloadFactories = map[string]func() any{
 	"agent.register": func() any { return &AgentRegistered{} }, "agent.activate": func() any { return &AgentActivated{} }, "agent.suspend": func() any { return &TaskStatus{} }, "agent.rotate-key": func() any { return &AgentKeyRotated{} },
@@ -124,6 +130,7 @@ var payloadFactories = map[string]func() any{
 	"approval.request": func() any { return &ApprovalRequested{} }, "approval.approve": func() any { return &ApprovalResponse{} }, "approval.reject": func() any { return &ApprovalResponse{} },
 	"decision.create": func() any { return &DecisionPayload{} }, "decision.supersede": func() any { return &DecisionPayload{} }, "session.start": func() any { return &SessionPayload{} }, "session.end": func() any { return &SessionPayload{} },
 	"artifact.add": func() any { return &ArtifactAdded{} }, "archive.run": func() any { return &ArchiveRun{} },
+	"document.create": func() any { return &DocumentPayload{} }, "document.update": func() any { return &DocumentPayload{} }, "document.supersede": func() any { return &DocumentPayload{} },
 }
 
 func EncodePayload(typ string, value any) (json.RawMessage, error) {

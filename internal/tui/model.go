@@ -15,7 +15,7 @@ import (
 	"github.com/DhanushSantosh/AgentComms/internal/service"
 )
 
-var views = []string{"Overview", "My work", "Tasks", "Inbox", "Agents", "Approvals", "Contracts & decisions", "Blockers", "Integrity & sync", "Activity", "Archive search"}
+var views = []string{"Overview", "My work", "Tasks", "Inbox", "Agents", "Approvals", "Documents", "Contracts & decisions", "Blockers", "Integrity & sync", "Activity", "Archive search"}
 
 type Model struct {
 	svc           *service.Service
@@ -292,6 +292,8 @@ func (m Model) renderBody(p palette, w int) string {
 		content = m.agents(p)
 	case "Approvals":
 		content = m.approvals(p)
+	case "Documents":
+		content = m.documents(p)
 	case "Contracts & decisions":
 		content = m.decisions(p)
 	case "Blockers":
@@ -421,6 +423,17 @@ func (m Model) approvals(p palette) string {
 	}
 	if len(rows) == 0 {
 		return "No approval requests. Elevated actions will wait here for an eligible principal."
+	}
+	return strings.Join(rows, "\n")
+}
+func (m Model) documents(p palette) string {
+	rows := []string{"STATUS    VERSION  DOCUMENT             AUTHOR        TAGS"}
+	for _, id := range service.SortedKeys(m.state.Documents) {
+		d := m.state.Documents[id]
+		rows = append(rows, fmt.Sprintf("%-9s %-7d %-20s %-13s %s", d.Status, d.Version, id, d.Author, strings.Join(d.Tags, ",")))
+	}
+	if len(rows) == 1 {
+		return "No living documents yet. Use `agent-comms document create` to record API contracts, guardrails, and shared decisions."
 	}
 	return strings.Join(rows, "\n")
 }
