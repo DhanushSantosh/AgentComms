@@ -104,6 +104,9 @@ func (c *cli) root() *cobra.Command {
 		}
 		c.svc.Store.LockTimeout = c.timeout
 		if c.actor == "" {
+			c.actor = os.Getenv("AGENT_COMMS_ACTOR")
+		}
+		if c.actor == "" {
 			uc, _ := identity.LoadUserConfig()
 			pname := c.profile
 			if pname == "" {
@@ -543,10 +546,17 @@ func payloadStatus(c *cli, domain, sub string, f func(string) any) *cobra.Comman
 }
 func (c *cli) messageCmd() *cobra.Command {
 	root := &cobra.Command{Use: "message"}
-	var kind, subject, body, taskID string
+	var kind, subject, body, taskID, bodyFile string
 	var to []string
 	post := &cobra.Command{Use: "post", RunE: func(cmd *cobra.Command, args []string) error {
 		id, _ := cmd.Flags().GetString("id")
+		if bodyFile != "" {
+			b, e := os.ReadFile(bodyFile)
+			if e != nil {
+				return e
+			}
+			body = string(b)
+		}
 		v, e := c.svc.Execute(c.actor, "message.post", id, model.MessagePosted{Kind: strings.ToUpper(kind), To: to, Subject: subject, Body: body, TaskID: taskID})
 		if e != nil {
 			return e
@@ -559,6 +569,7 @@ func (c *cli) messageCmd() *cobra.Command {
 	post.Flags().StringSliceVar(&to, "to", nil, "recipient")
 	post.Flags().StringVar(&subject, "subject", "", "subject")
 	post.Flags().StringVar(&body, "body", "", "body")
+	post.Flags().StringVar(&bodyFile, "body-file", "", "read body from file (bypasses CLI arg limits)")
 	post.Flags().StringVar(&taskID, "task", "", "related task")
 	for _, sub := range []string{"ack", "reject", "complete", "resolve"} {
 		postCmd := payloadStatus(c, "message", sub, func(string) any { return model.MessageResponse{} })
@@ -1073,7 +1084,7 @@ commands:
   task_claim:   %[1]s task claim --id <id>
   task_start:   %[1]s task start --id <id>
   task_renew:   %[1]s task renew --id <id> --progress <summary>
-  message_post: %[1]s message post --id <id> --kind ACTION --to <actor> --subject <subject> --body <body>
+  message_post: %[1]s message post --id <id> --kind ACTION --to <actor> --subject <subject> --body <body>  (or --body-file <path> for multi-line)
   document_create: %[1]s document create --id <id> --title <title> --body <body> --tag <tag>
   decision_create: %[1]s decision create --id <id> --title <title> --statement <statement>
 contracts: Use "message post --kind CONTRACT" for binding agreements
