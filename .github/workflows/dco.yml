@@ -22,8 +22,13 @@ jobs:
         run: |
           set -euo pipefail
           failed=0
+          policy_start=$(git log --reverse --format=%H -- .github/workflows/dco.yml | head -n 1)
           while read -r commit; do
             [ -z "$commit" ] && continue
+            if [ "$commit" != "$policy_start" ] && git merge-base --is-ancestor "$commit" "$policy_start"; then
+              echo "Grandfathering pre-DCO commit $commit"
+              continue
+            fi
             if ! git show -s --format=%B "$commit" | grep -Eiq '^Signed-off-by: .+ <[^>]+>$'; then
               echo "::error::Commit $commit is missing a Signed-off-by trailer. Use git commit -s."
               failed=1
