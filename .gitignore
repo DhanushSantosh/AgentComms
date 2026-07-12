@@ -1,4 +1,4 @@
 .tools/
 dist/
-agent-comms
-agent-comms.exe
+/agent-comms
+/agent-comms.exe

@@ -1,0 +1,1 @@
+{"$schema":"https://json-schema.org/draft/2020-12/schema","title":"task.claim payload v1","type":"object","required":["lease_until"],"properties":{"lease_until":{"type":"string","format":"date-time"},"offer_id":{"type":"string"}},"additionalProperties":false}

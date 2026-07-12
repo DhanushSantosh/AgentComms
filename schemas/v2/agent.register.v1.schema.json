@@ -1,0 +1,1 @@
+{"$schema":"https://json-schema.org/draft/2020-12/schema","title":"agent.register payload v1","type":"object","required":["public_key","principal_type"],"properties":{"public_key":{"type":"string"},"principal_type":{"enum":["HUMAN","AGENT"]},"display_name":{"type":"string"}},"additionalProperties":false}

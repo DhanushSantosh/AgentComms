@@ -1,0 +1,1 @@
+{"$schema":"https://json-schema.org/draft/2020-12/schema","title":"message response payload v1","description":"Used by message.ack, reject, complete, and resolve","type":"object","required":["response"],"properties":{"response":{"enum":["ACKNOWLEDGED","ACCEPTED","REJECTED","COMPLETED","RESOLVED"]},"note":{"type":"string","maxLength":1200}},"additionalProperties":false}

@@ -1,0 +1,1 @@
+{"$schema":"https://json-schema.org/draft/2020-12/schema","title":"task.renew payload v1","type":"object","required":["lease_until","progress"],"properties":{"lease_until":{"type":"string","format":"date-time"},"progress":{"type":"string","minLength":1,"maxLength":1200}},"additionalProperties":false}
