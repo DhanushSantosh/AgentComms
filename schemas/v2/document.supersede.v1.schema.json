@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "document.supersede payload v1",
+  "type": "object",
+  "required": ["replacement_id"],
+  "properties": {
+    "replacement_id": {"type": "string", "minLength": 1}
+  },
+  "additionalProperties": false
+}

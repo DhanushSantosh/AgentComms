@@ -191,11 +191,11 @@ func apply(s *model.State, e model.Event) error {
 			d := s.Documents[e.EntityID]
 			d.Status = "SUPERSEDED"
 			s.Documents[e.EntityID] = d
-			if p.Supersedes != "" {
-				nd := s.Documents[p.Supersedes]
+			if p.ReplacementID != "" {
+				nd := s.Documents[p.ReplacementID]
 				nd.Status = "ACTIVE"
 				nd.Supersedes = e.EntityID
-				s.Documents[p.Supersedes] = nd
+				s.Documents[p.ReplacementID] = nd
 			}
 		}
 	}
@@ -435,9 +435,23 @@ func (s *Service) Execute(actor, typ, id string, payload any) (model.Event, erro
 			if strings.TrimSpace(p.Title) == "" || strings.TrimSpace(p.Body) == "" {
 				return model.Event{}, errors.New("title and body are required")
 			}
+			if _, exists := st.Documents[id]; exists {
+				return model.Event{}, errors.New("document already exists")
+			}
 		case "document.update", "document.supersede":
 			if _, exists := st.Documents[id]; !exists {
 				return model.Event{}, errors.New("document not found")
+			}
+			if typ == "document.update" && (strings.TrimSpace(p.Title) == "" || strings.TrimSpace(p.Body) == "") {
+				return model.Event{}, errors.New("title and body are required")
+			}
+			if typ == "document.supersede" {
+				if p.ReplacementID == "" || p.ReplacementID == id {
+					return model.Event{}, errors.New("a different replacement document is required")
+				}
+				if _, exists := st.Documents[p.ReplacementID]; !exists {
+					return model.Event{}, errors.New("replacement document not found")
+				}
 			}
 		}
 	}

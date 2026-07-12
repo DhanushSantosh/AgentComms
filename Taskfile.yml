@@ -1,0 +1,21 @@
+version: "3"
+
+tasks:
+  format:
+    desc: Format Go source
+    cmds: ["go fmt ./..."]
+  test:
+    desc: Run the portable test suite
+    cmds: ["go test ./..."]
+  vet:
+    desc: Run Go vet
+    cmds: ["go vet ./..."]
+  race:
+    desc: Run race tests where the local Go toolchain supports CGO
+    cmds: ["go test -race ./..."]
+  check:
+    desc: Run the core contributor checks
+    deps: [test, vet]
+  build:
+    desc: Build the local CLI
+    cmds: ["go build ./cmd/agent-comms"]

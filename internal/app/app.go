@@ -706,12 +706,14 @@ func (c *cli) documentCmd() *cobra.Command {
 	update.Flags().String("id", "", "document ID")
 	_ = update.MarkFlagRequired("id")
 	update.Flags().StringVar(&title, "title", "", "title")
+	_ = update.MarkFlagRequired("title")
 	update.Flags().StringVar(&body, "body", "", "body")
+	_ = update.MarkFlagRequired("body")
 	update.Flags().StringSliceVar(&tags, "tag", nil, "tag (repeatable)")
 	supersede := &cobra.Command{Use: "supersede", RunE: func(cmd *cobra.Command, args []string) error {
 		id, _ := cmd.Flags().GetString("id")
 		docReplacement, _ = cmd.Flags().GetString("replacement")
-		v, e := c.svc.Execute(c.actor, "document.supersede", id, model.DocumentPayload{Supersedes: docReplacement})
+		v, e := c.svc.Execute(c.actor, "document.supersede", id, model.DocumentPayload{ReplacementID: docReplacement})
 		if e != nil {
 			return e
 		}
@@ -720,6 +722,7 @@ func (c *cli) documentCmd() *cobra.Command {
 	supersede.Flags().String("id", "", "document ID")
 	_ = supersede.MarkFlagRequired("id")
 	supersede.Flags().StringVar(&docReplacement, "replacement", "", "replacement document ID")
+	_ = supersede.MarkFlagRequired("replacement")
 	list := &cobra.Command{Use: "list", RunE: func(cmd *cobra.Command, args []string) error {
 		st, e := c.svc.State()
 		if e != nil {
@@ -1225,19 +1228,13 @@ func (c *cli) migrateCmd() *cobra.Command {
 		}
 		return c.emit("migrate.recover", map[string]any{"recovered": true, "path": filepath.Join(c.svc.Store.Root, ".agents")})
 	}}
-	var extractOwner string
-	extractCmd := &cobra.Command{Use: "extract-context", Short: "Extract legacy .agents content into typed events", RunE: func(cmd *cobra.Command, args []string) error {
-		actor := c.actor
-		if extractOwner != "" {
-			actor = extractOwner
-		}
-		out, e := c.svc.Store.ExtractLegacyContext(actor)
+	extractCmd := &cobra.Command{Use: "extract-context", Short: "Preview unverified legacy context candidates", RunE: func(cmd *cobra.Command, args []string) error {
+		out, e := c.svc.Store.ExtractLegacyContext()
 		if e != nil {
 			return e
 		}
 		return c.emit("migrate.extract-context", out)
 	}}
-	extractCmd.Flags().StringVar(&extractOwner, "actor", "", "actor to sign extraction events (defaults to active actor)")
 	root.AddCommand(status, apply, adopt, seed, requireAcks, ack, activate, rollback, recoverCmd, extractCmd)
 	return root
 }

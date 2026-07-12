@@ -1,0 +1,35 @@
+name: Feature proposal
+description: Propose a scoped product capability
+title: "feat: "
+labels: ["type: feature", "status: triage"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: Describe the coordination problem without prescribing an implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope and exclusions
+    validations:
+      required: true
+  - type: textarea
+    id: compatibility
+    attributes:
+      label: Compatibility, migration, and security considerations
+  - type: checkboxes
+    id: rfc
+    attributes:
+      label: Design threshold
+      options:
+        - label: I understand public contracts, schemas, governance, storage, release security, and major TUI changes require an accepted RFC before implementation.
+          required: true

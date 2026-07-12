@@ -237,14 +237,16 @@ func (s *Store) Append(actor, typ, entity string, payload any) (model.Event, err
 
 func (s *Store) AppendWithCredential(actor, typ, entity string, payload any, cred identity.Credential) (model.Event, error) {
 	cfg, _ := s.Config()
-	if cfg.AutoSync && s.Remote() != "" {
-		_ = s.SyncPull()
-	}
 	release, e := s.acquire(actor)
 	if e != nil {
 		return model.Event{}, e
 	}
 	defer release()
+	if cfg.AutoSync && s.Remote() != "" {
+		if e = s.SyncPull(); e != nil {
+			return model.Event{}, fmt.Errorf("auto-sync pull failed before local commit: %w", e)
+		}
+	}
 	if e = s.Recover(); e != nil {
 		return model.Event{}, e
 	}
@@ -301,7 +303,9 @@ func (s *Store) AppendWithCredential(actor, typ, entity string, payload any, cre
 		return ev, e
 	}
 	if cfg.AutoSync && s.Remote() != "" {
-		_ = s.Checkpoint()
+		if e = s.Checkpoint(); e != nil {
+			return ev, fmt.Errorf("event committed locally but auto-sync push failed: %w", e)
+		}
 	}
 	return ev, nil
 }

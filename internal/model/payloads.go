@@ -117,10 +117,10 @@ type ArchiveRun struct {
 	TaskIDs []string  `json:"task_ids"`
 }
 type DocumentPayload struct {
-	Title     string   `json:"title"`
-	Body      string   `json:"body"`
-	Tags      []string `json:"tags,omitempty"`
-	Supersedes string  `json:"supersedes,omitempty"`
+	Title         string   `json:"title,omitempty"`
+	Body          string   `json:"body,omitempty"`
+	Tags          []string `json:"tags,omitempty"`
+	ReplacementID string   `json:"replacement_id,omitempty"`
 }
 
 var payloadFactories = map[string]func() any{

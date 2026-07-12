@@ -96,6 +96,6 @@ go test -race ./...
 go vet ./...
 ```
 
-See [architecture](docs/architecture.md), [governance](docs/governance.md), [threat model](docs/threat-model.md), and [release verification](docs/release-verification.md).
+See [development workflow](docs/development-workflow.md), [contributing](CONTRIBUTING.md), [architecture](docs/architecture.md), [governance](docs/governance.md), [threat model](docs/threat-model.md), [release process](docs/releasing.md), and [release verification](docs/release-verification.md).
 
 Licensed under Apache-2.0.

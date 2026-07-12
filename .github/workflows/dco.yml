@@ -1,0 +1,32 @@
+name: dco
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  signoff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+      - name: Verify DCO sign-offs
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          failed=0
+          while read -r commit; do
+            [ -z "$commit" ] && continue
+            if ! git show -s --format=%B "$commit" | grep -Eiq '^Signed-off-by: .+ <[^>]+>$'; then
+              echo "::error::Commit $commit is missing a Signed-off-by trailer. Use git commit -s."
+              failed=1
+            fi
+          done < <(git rev-list "${BASE_SHA}..${HEAD_SHA}")
+          exit "$failed"

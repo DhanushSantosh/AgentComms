@@ -1,0 +1,22 @@
+name: Documentation improvement
+description: Report missing, inaccurate, or unclear documentation
+title: "docs: "
+labels: ["type: documentation", "status: triage"]
+body:
+  - type: input
+    id: location
+    attributes:
+      label: Documentation location
+      placeholder: README.md, command help, or page URL
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What is unclear or incorrect?
+    validations:
+      required: true
+  - type: textarea
+    id: improvement
+    attributes:
+      label: Suggested improvement

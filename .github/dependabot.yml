@@ -1,0 +1,20 @@
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 5
+    groups:
+      routine-go-dependencies:
+        update-types: [minor, patch]
+    labels: ["type: dependencies", "area: go"]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 5
+    groups:
+      routine-actions:
+        update-types: [minor, patch]
+    labels: ["type: dependencies", "area: ci"]

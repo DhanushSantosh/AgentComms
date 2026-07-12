@@ -1,0 +1,54 @@
+name: Bug report
+description: Report a reproducible Agent Comms defect
+title: "bug: "
+labels: ["type: bug", "status: triage"]
+body:
+  - type: markdown
+    attributes:
+      value: Do not report vulnerabilities or credentials here. Use GitHub private vulnerability reporting.
+  - type: input
+    id: version
+    attributes:
+      label: Agent Comms version
+      placeholder: v0.2.0-preview.1
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options: [Windows, Linux, macOS, Other]
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Use synthetic data and include the smallest deterministic command sequence.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Redacted doctor output
+      description: Paste `agent-comms doctor --json` after removing sensitive paths or identifiers.
+      render: json
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety confirmation
+      options:
+        - label: This report contains no credentials, private communication history, or live project runtime data.
+          required: true
