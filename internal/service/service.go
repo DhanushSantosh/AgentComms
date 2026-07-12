@@ -254,6 +254,14 @@ func scopeAllows(scopes, resources []string) bool {
 	return true
 }
 func (s *Service) Execute(actor, typ, id string, payload any) (model.Event, error) {
+	if incomplete, status := s.Store.MigrationIncomplete(); incomplete && !migrationSeedEvent(typ) {
+		return model.Event{}, fmt.Errorf("runtime migration is incomplete (%s); event %s is blocked", status, typ)
+	}
+	if incomplete, state := s.Store.CutoverIncomplete(); incomplete && !migrationSeedEvent(typ) {
+		return model.Event{}, fmt.Errorf("migration cutover is incomplete (%s); event %s is blocked", state, typ)
+	} else if !incomplete && state == store.CutoverActivated && !s.Store.ManagedBootstrapValid() {
+		return model.Event{}, errors.New("split-brain cutover detected; durable work is blocked")
+	}
 	st, e := s.State()
 	if e != nil {
 		return model.Event{}, e
@@ -399,6 +407,15 @@ func (s *Service) Execute(actor, typ, id string, payload any) (model.Event, erro
 		payload = p
 	}
 	return s.Store.Append(actor, typ, id, payload)
+}
+
+func migrationSeedEvent(typ string) bool {
+	switch typ {
+	case "agent.register", "agent.activate", "task.create", "task.claim", "task.start", "task.block", "decision.create", "message.post":
+		return true
+	default:
+		return false
+	}
 }
 func (s *Service) Register(actor, display string, pt model.PrincipalType) (model.Event, error) {
 	cfg, e := s.Store.Config()

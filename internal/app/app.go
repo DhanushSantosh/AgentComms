@@ -61,6 +61,7 @@ type cli struct {
 }
 
 func Run(args []string, stdout, stderr io.Writer) error {
+	store.RuntimeVersion = Version
 	c := &cli{out: stdout, err: stderr, timeout: 10 * time.Second}
 	root := c.root()
 	root.SetArgs(args)
@@ -93,6 +94,10 @@ func (c *cli) root() *cobra.Command {
 			}
 		}
 		c.svc = service.New(root)
+		if cmd.CommandPath() == "agent-comms migrate adopt" {
+			c.svc.Store.LockTimeout = c.timeout
+			return nil
+		}
 		cfg, e := c.svc.Store.Config()
 		if e != nil {
 			return fmt.Errorf("open project runtime: %w", e)
@@ -110,6 +115,14 @@ func (c *cli) root() *cobra.Command {
 				c.actor = cfg.Owner
 			}
 		}
+		if incomplete, state := c.svc.Store.CutoverIncomplete(); incomplete && !cutoverCommandAllowed(cmd.CommandPath()) {
+			return fmt.Errorf("migration cutover is incomplete (%s); normal work is blocked until explicit activation", state)
+		} else if !incomplete && state == store.CutoverActivated && !c.svc.Store.ManagedBootstrapValid() && !cutoverCommandAllowed(cmd.CommandPath()) {
+			return errors.New("split-brain cutover detected: ACTIVATED runtime does not match root .agents; normal work is blocked")
+		}
+		if incomplete, status := c.svc.Store.MigrationIncomplete(); incomplete && !cutoverCommandAllowed(cmd.CommandPath()) {
+			return fmt.Errorf("runtime migration is incomplete (%s); normal work is blocked", status)
+		}
 		return nil
 	}}
 	f := r.PersistentFlags()
@@ -123,6 +136,20 @@ func (c *cli) root() *cobra.Command {
 	f.BoolVarP(&c.quiet, "quiet", "q", false, "suppress non-essential output")
 	r.AddCommand(c.versionCmd(), c.initCmd(), c.doctorCmd(), c.verifyCmd(), c.statusCmd(), c.historyCmd(), c.searchCmd(), c.agentCmd(), c.sessionCmd(), c.taskCmd(), c.messageCmd(), c.decisionCmd(), c.approvalCmd(), c.artifactCmd(), c.archiveCmd(), c.exportCmd(), c.syncCmd(), c.profileCmd(), c.configCmd(), c.updateCmd(), c.completionCmd(r), c.mcpCmd(), c.watchCmd(), c.tuiCmd(), c.migrateCmd())
 	return r
+}
+
+func cutoverCommandAllowed(path string) bool {
+	for _, prefix := range []string{
+		"agent-comms migrate", "agent-comms doctor", "agent-comms verify", "agent-comms status", "agent-comms history", "agent-comms search",
+		"agent-comms agent register", "agent-comms agent activate", "agent-comms agent list",
+		"agent-comms task create", "agent-comms task claim", "agent-comms task start", "agent-comms task block",
+		"agent-comms decision create", "agent-comms message post",
+	} {
+		if strings.HasPrefix(path, prefix) {
+			return true
+		}
+	}
+	return false
 }
 func (c *cli) emit(command string, v any) error {
 	if c.json {
@@ -225,7 +252,64 @@ func (c *cli) doctorCmd() *cobra.Command {
 		if e != nil {
 			return e
 		}
-		r := map[string]any{"integrity": verify == nil, "schema_version": cfg.SchemaVersion, "runtime": filepath.Join(c.svc.Store.Root, store.Runtime), "git_head": c.svc.Store.Head(), "remote": c.svc.Store.Remote(), "telemetry": false}
+		type finding struct {
+			Severity string `json:"severity"`
+			Code     string `json:"code"`
+			Message  string `json:"message"`
+			Guidance string `json:"guidance"`
+		}
+		findings := []finding{}
+		add := func(severity, code, message, guidance string) {
+			findings = append(findings, finding{severity, code, message, guidance})
+		}
+		if cfg.SchemaVersion != model.SchemaVersion {
+			add("ERROR", "RUNTIME_SCHEMA_MISMATCH", fmt.Sprintf("binary expects schema %s but runtime is %s", model.SchemaVersion, cfg.SchemaVersion), "Run `agent-comms migrate status`; use the dedicated adoption flow when legacy .agents exists.")
+		}
+		if incompleteMigration, status := c.svc.Store.MigrationIncomplete(); incompleteMigration {
+			add("ERROR", "RUNTIME_MIGRATION_INCOMPLETE", "runtime migration journal is "+status, "Resume `agent-comms migrate apply --owner <verified-owner>` before normal work.")
+		}
+		if cfg.ToolkitVersion == "" {
+			add("WARNING", "RUNTIME_VERSION_UNKNOWN", "runtime does not record the toolkit version that created it", "Run doctor with the intended binary and migrate safely before normal work.")
+		} else if cfg.ToolkitVersion != Version {
+			add("WARNING", "BINARY_RUNTIME_VERSION_MISMATCH", fmt.Sprintf("installed binary is %s but runtime was prepared by %s", Version, cfg.ToolkitVersion), "Install the intended release, then run doctor and migration status; project data is never upgraded automatically.")
+		}
+		incomplete, cutoverState := c.svc.Store.CutoverIncomplete()
+		if incomplete {
+			add("ERROR", "CUTOVER_INCOMPLETE", "legacy cutover state is "+cutoverState, "Complete explicit seeding and acknowledgements, preview activation, then run `migrate activate --yes`.")
+		}
+		if !c.svc.Store.ManagedBootstrapValid() {
+			code := "MANAGED_BOOTSTRAP_MISSING"
+			if cutoverState == store.CutoverActivated {
+				code = "SPLIT_BRAIN_BOOTSTRAP"
+			}
+			add("ERROR", code, "project root .agents does not match the managed bootstrap", "Do not work in this project; inspect `migrate status` and use recovery or governed activation.")
+		}
+		if !c.svc.Store.InstructionsPresent() {
+			add("ERROR", "AGENT_INSTRUCTIONS_MISSING", ".agent-comms/AGENT_INSTRUCTIONS.md is missing or empty", "Repair through migration/adoption; do not invent instructions manually during cutover.")
+		}
+		if cfg.SchemaVersion == model.SchemaVersion {
+			if st, x := c.svc.State(); x == nil {
+				now := time.Now().UTC()
+				for id, task := range st.Tasks {
+					if !task.LeaseUntil.IsZero() && now.After(task.LeaseUntil) && task.Status != "COMPLETED" && task.Status != "CANCELLED" {
+						add("WARNING", "STALE_LEASE", fmt.Sprintf("task %s lease expired at %s", id, task.LeaseUntil.Format(time.RFC3339)), "An orchestrator must review it; stale work is never reassigned automatically.")
+					}
+				}
+				for id := range st.Agents {
+					if strings.EqualFold(id, "builder") || strings.Contains(strings.ToLower(id), "test") || strings.Contains(strings.ToLower(id), "smoke") {
+						add("WARNING", "TEST_LIKE_RUNTIME", "runtime contains test-like agent identity "+id, "Verify every identity explicitly before activation; legacy prose is never authoritative.")
+						break
+					}
+				}
+				for id := range st.Tasks {
+					if strings.EqualFold(id, "task-001") || strings.Contains(strings.ToLower(id), "test") || strings.Contains(strings.ToLower(id), "smoke") {
+						add("WARNING", "TEST_LIKE_RUNTIME", "runtime contains test-like task "+id, "Verify or remove synthetic state through governed migration before activation.")
+						break
+					}
+				}
+			}
+		}
+		r := map[string]any{"integrity": verify == nil, "schema_version": cfg.SchemaVersion, "binary_version": Version, "runtime_toolkit_version": cfg.ToolkitVersion, "runtime": filepath.Join(c.svc.Store.Root, store.Runtime), "git_head": c.svc.Store.Head(), "remote": c.svc.Store.Remote(), "telemetry": false, "healthy": len(findings) == 0, "findings": findings}
 		if verify != nil {
 			r["integrity_error"] = verify.Error()
 		}
@@ -280,7 +364,11 @@ func (c *cli) searchCmd() *cobra.Command {
 				out = append(out, v)
 			}
 		}
-		return c.emit("search", out)
+		legacy, e := c.svc.Store.SearchLegacy(q)
+		if e != nil {
+			return e
+		}
+		return c.emit("search", map[string]any{"current_events": out, "legacy_evidence": legacy})
 	}}
 }
 func (c *cli) agentCmd() *cobra.Command {
@@ -929,7 +1017,14 @@ func (c *cli) migrateCmd() *cobra.Command {
 		if e != nil {
 			return e
 		}
-		return c.emit("migrate.status", map[string]any{"current": cfg.SchemaVersion, "target": model.SchemaVersion, "required": cfg.SchemaVersion != model.SchemaVersion})
+		r := map[string]any{"current": cfg.SchemaVersion, "target": model.SchemaVersion, "required": cfg.SchemaVersion != model.SchemaVersion}
+		if cutover, x := c.svc.Store.Cutover(); x == nil {
+			r["cutover"] = cutover
+			if manifest, mx := c.svc.Store.LegacyManifest(); mx == nil {
+				r["legacy_manifest"] = manifest
+			}
+		}
+		return c.emit("migrate.status", r)
 	}}
 	var owner string
 	apply := &cobra.Command{Use: "apply", RunE: func(cmd *cobra.Command, args []string) error {
@@ -949,6 +1044,96 @@ func (c *cli) migrateCmd() *cobra.Command {
 		return c.emit("migrate.apply", map[string]any{"changed": true, "source": cfg.SchemaVersion, "target": model.SchemaVersion, "owner": owner})
 	}}
 	apply.Flags().StringVar(&owner, "owner", "", "v1 owner identity mapping")
-	root.AddCommand(status, apply)
+	var adoptOwner string
+	adopt := &cobra.Command{Use: "adopt", Short: "Preserve a legacy .agents and prepare governed cutover", RunE: func(cmd *cobra.Command, args []string) error {
+		if adoptOwner == "" {
+			return errors.New("--owner is required; identities are never inferred from legacy prose")
+		}
+		preview, e := c.svc.Store.PrepareLegacyAdoption(adoptOwner)
+		if e != nil {
+			return e
+		}
+		return c.emit("migrate.adopt", preview)
+	}}
+	adopt.Flags().StringVar(&adoptOwner, "owner", "", "explicit owner identity")
+	var confirmSeed bool
+	seed := &cobra.Command{Use: "seed-complete", Short: "Confirm explicit seeding of legacy current state", RunE: func(cmd *cobra.Command, args []string) error {
+		if !confirmSeed {
+			return errors.New("--confirm is required after explicitly reviewing owner, orchestrators, agents, tasks, decisions, blockers, and contracts")
+		}
+		v, e := c.svc.Store.ConfirmLegacySeeding(c.actor)
+		if e != nil {
+			return e
+		}
+		return c.emit("migrate.seed-complete", v)
+	}}
+	seed.Flags().BoolVar(&confirmSeed, "confirm", false, "confirm all legacy current-state categories were explicitly reviewed and seeded")
+	var required []string
+	requireAcks := &cobra.Command{Use: "require-acks", RunE: func(cmd *cobra.Command, args []string) error {
+		st, e := c.svc.State()
+		if e != nil {
+			return e
+		}
+		for _, id := range required {
+			a, ok := st.Agents[id]
+			if !ok || a.Status != "ACTIVE" {
+				return fmt.Errorf("required acknowledging agent %s must be explicitly registered and ACTIVE", id)
+			}
+		}
+		v, e := c.svc.Store.SetCutoverAcknowledgements(required)
+		if e != nil {
+			return e
+		}
+		return c.emit("migrate.require-acks", v)
+	}}
+	requireAcks.Flags().StringSliceVar(&required, "agent", nil, "required active agent acknowledgement")
+	ack := &cobra.Command{Use: "ack", RunE: func(cmd *cobra.Command, args []string) error {
+		st, e := c.svc.State()
+		if e != nil {
+			return e
+		}
+		if a, ok := st.Agents[c.actor]; !ok || a.Status != "ACTIVE" {
+			return errors.New("only an explicitly activated agent may acknowledge cutover")
+		}
+		v, e := c.svc.Store.AcknowledgeCutover(c.actor)
+		if e != nil {
+			return e
+		}
+		return c.emit("migrate.ack", v)
+	}}
+	var activateYes bool
+	activate := &cobra.Command{Use: "activate", RunE: func(cmd *cobra.Command, args []string) error {
+		cutover, e := c.svc.Store.Cutover()
+		if e != nil {
+			return e
+		}
+		manifest, e := c.svc.Store.LegacyManifest()
+		if e != nil {
+			return e
+		}
+		preview := map[string]any{"state": cutover.State, "bootstrap": cutover.Bootstrap, "manifest": manifest, "will_replace": filepath.Join(c.svc.Store.Root, ".agents"), "recovery_command": "agent-comms migrate recover"}
+		if !activateYes {
+			return c.emit("migrate.activate.preview", preview)
+		}
+		v, e := c.svc.Store.ActivateCutover()
+		if e != nil {
+			return e
+		}
+		return c.emit("migrate.activate", map[string]any{"cutover": v, "recovery_command": "agent-comms migrate recover"})
+	}}
+	activate.Flags().BoolVarP(&activateYes, "yes", "y", false, "explicitly activate the previewed cutover")
+	rollback := &cobra.Command{Use: "rollback", RunE: func(cmd *cobra.Command, args []string) error {
+		if e := c.svc.Store.RollbackCutover(); e != nil {
+			return e
+		}
+		return c.emit("migrate.rollback", map[string]bool{"rolled_back": true})
+	}}
+	recoverCmd := &cobra.Command{Use: "recover", RunE: func(cmd *cobra.Command, args []string) error {
+		if e := c.svc.Store.RecoverLegacy(); e != nil {
+			return e
+		}
+		return c.emit("migrate.recover", map[string]any{"recovered": true, "path": filepath.Join(c.svc.Store.Root, ".agents")})
+	}}
+	root.AddCommand(status, apply, adopt, seed, requireAcks, ack, activate, rollback, recoverCmd)
 	return root
 }

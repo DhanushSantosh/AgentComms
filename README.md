@@ -35,6 +35,8 @@ agent-comms init
 agent-comms tui
 ```
 
+If the project already contains a `.agents` file, plain initialization refuses to proceed. Use the governed, byte-preserving [legacy adoption workflow](docs/legacy-adoption.md); no confirmation flag can bypass preservation.
+
 Interactive setup previews the `.agents` bootstrap and isolated `.agent-comms` runtime before writing them. Automation uses explicit, non-interactive flags:
 
 ```sh

@@ -12,6 +12,9 @@
 - [x] Signal Room Bubble Tea v2 TUI with responsive role-oriented views and event-chain rail
 - [x] Interactive/non-interactive onboarding and managed agent instructions
 - [x] Legacy v1 verification, preservation, owner mapping, and migration journal
+- [x] Transactional initialization that refuses an existing `.agents`
+- [x] Byte-identical legacy `.agents` archive, manifest, untrusted search index, staged acknowledgements, activation, and recovery
+- [x] Doctor and service-layer cutover/split-brain work blocking
 - [x] PowerShell/POSIX installers and signed multi-platform release workflow
 - [x] Apache-2.0 project policy, security, support, threat-model, and verification documentation
 - [x] Synthetic unit, state-machine, contention, recovery, tamper, migration, MCP, CLI, artifact, export, and TUI tests
