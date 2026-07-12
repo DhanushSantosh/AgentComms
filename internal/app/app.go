@@ -678,10 +678,20 @@ func (c *cli) artifactCmd() *cobra.Command {
 }
 func (c *cli) documentCmd() *cobra.Command {
 	root := &cobra.Command{Use: "document"}
-	var title, body, docReplacement string
+	var title, body, docReplacement, bodyFile string
 	var tags []string
 	create := &cobra.Command{Use: "create", RunE: func(cmd *cobra.Command, args []string) error {
 		id, _ := cmd.Flags().GetString("id")
+		if bodyFile != "" {
+			b, e := os.ReadFile(bodyFile)
+			if e != nil {
+				return e
+			}
+			body = string(b)
+		}
+		if body == "" {
+			return errors.New("body is required (use --body or --body-file)")
+		}
 		v, e := c.svc.Execute(c.actor, "document.create", id, model.DocumentPayload{Title: title, Body: body, Tags: tags})
 		if e != nil {
 			return e
@@ -693,10 +703,20 @@ func (c *cli) documentCmd() *cobra.Command {
 	create.Flags().StringVar(&title, "title", "", "title")
 	_ = create.MarkFlagRequired("title")
 	create.Flags().StringVar(&body, "body", "", "body")
-	_ = create.MarkFlagRequired("body")
+	create.Flags().StringVar(&bodyFile, "body-file", "", "read body from file (bypasses CLI arg limits)")
 	create.Flags().StringSliceVar(&tags, "tag", nil, "tag (repeatable)")
 	update := &cobra.Command{Use: "update", RunE: func(cmd *cobra.Command, args []string) error {
 		id, _ := cmd.Flags().GetString("id")
+		if bodyFile != "" {
+			b, e := os.ReadFile(bodyFile)
+			if e != nil {
+				return e
+			}
+			body = string(b)
+		}
+		if body == "" {
+			return errors.New("body is required (use --body or --body-file)")
+		}
 		v, e := c.svc.Execute(c.actor, "document.update", id, model.DocumentPayload{Title: title, Body: body, Tags: tags})
 		if e != nil {
 			return e
@@ -706,9 +726,8 @@ func (c *cli) documentCmd() *cobra.Command {
 	update.Flags().String("id", "", "document ID")
 	_ = update.MarkFlagRequired("id")
 	update.Flags().StringVar(&title, "title", "", "title")
-	_ = update.MarkFlagRequired("title")
 	update.Flags().StringVar(&body, "body", "", "body")
-	_ = update.MarkFlagRequired("body")
+	update.Flags().StringVar(&bodyFile, "body-file", "", "read body from file (bypasses CLI arg limits)")
 	update.Flags().StringSliceVar(&tags, "tag", nil, "tag (repeatable)")
 	supersede := &cobra.Command{Use: "supersede", RunE: func(cmd *cobra.Command, args []string) error {
 		id, _ := cmd.Flags().GetString("id")
@@ -730,17 +749,25 @@ func (c *cli) documentCmd() *cobra.Command {
 		}
 		return c.emit("document.list", st.Documents)
 	}}
-	show := &cobra.Command{Use: "show", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	show := &cobra.Command{Use: "show", RunE: func(cmd *cobra.Command, args []string) error {
+		id, _ := cmd.Flags().GetString("id")
+		if id == "" && len(args) > 0 {
+			id = args[0]
+		}
+		if id == "" {
+			return errors.New("document ID required (use --id or positional argument)")
+		}
 		st, e := c.svc.State()
 		if e != nil {
 			return e
 		}
-		d, ok := st.Documents[args[0]]
+		d, ok := st.Documents[id]
 		if !ok {
-			return errors.New("document not found")
+			return fmt.Errorf("document %q not found", id)
 		}
 		return c.emit("document.show", d)
 	}}
+	show.Flags().String("id", "", "document ID")
 	root.AddCommand(create, update, supersede, list, show)
 	return root
 }
