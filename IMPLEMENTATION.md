@@ -16,5 +16,5 @@
 - [x] Apache-2.0 project policy, security, support, threat-model, and verification documentation
 - [x] Synthetic unit, state-machine, contention, recovery, tamper, migration, MCP, CLI, artifact, export, and TUI tests
 - [x] Local tests, vet, staticcheck, vulnerability scan, cross-build, installer syntax, and end-to-end smoke verification
-- [ ] Linux/macOS race jobs and installer matrix in GitHub CI
+- [x] Linux/macOS race jobs and Windows/macOS/Linux installer matrix in GitHub CI
 - [ ] Public visibility and preview tag after explicit release review
