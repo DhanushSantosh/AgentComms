@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -176,6 +177,7 @@ func (s *Store) initializeRuntime(owner string) (string, identity.Credential, er
 	if e = os.WriteFile(filepath.Join(r, ".gitignore"), []byte("tmp/\ncache/\n"), 0644); e != nil {
 		return "", cred, e
 	}
+	makeHidden(r)
 	if e = s.git("init"); e != nil {
 		return "", cred, e
 	}
@@ -410,4 +412,10 @@ func (s *Store) SyncPull() error {
 		branch = "main"
 	}
 	return s.git("merge", "--ff-only", "origin/"+branch)
+}
+
+func makeHidden(path string) {
+	if runtime.GOOS == "windows" {
+		_ = exec.Command("attrib", "+h", path).Run()
+	}
 }
