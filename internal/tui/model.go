@@ -13,6 +13,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 	"github.com/DhanushSantosh/AgentComms/internal/service"
+	"github.com/fsnotify/fsnotify"
 )
 
 var views = []string{"Overview", "My work", "Tasks", "Inbox", "Agents", "Approvals", "Documents", "Contracts & decisions", "Blockers", "Integrity & sync", "Activity", "Archive search"}
@@ -30,16 +31,43 @@ type Model struct {
 	form          string
 	inputs        []textinput.Model
 	formFocus     int
+	formTaskID    string
+	formSpec      *ActionForm
+	rowFocus      bool
+	taskList      RowList
+	messageList   RowList
+	approvalList  RowList
+	agentList     RowList
+	confirm       *confirmState
+	watcher       *fsnotify.Watcher
 }
 
 func New(s *service.Service, actor string) (Model, error) {
 	st, e := s.State()
-	return Model{svc: s, state: st, actor: actor, width: 100, height: 30}, e
+	return Model{svc: s, state: st, actor: actor, width: 100, height: 30, taskList: newRowList(taskRowSource{}), messageList: newRowList(messageRowSource{}), approvalList: newRowList(approvalRowSource{}), agentList: newRowList(agentRowSource{})}, e
 }
-func (m Model) Init() tea.Cmd { return tea.RequestBackgroundColor }
+func (m Model) Init() tea.Cmd {
+	if m.watcher != nil {
+		return tea.Batch(tea.RequestBackgroundColor, watchEventsCmd(m.watcher))
+	}
+	return tea.RequestBackgroundColor
+}
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if _, ok := msg.(fsEventMsg); ok {
+		m.refreshSilent()
+		if m.watcher != nil {
+			return m, watchEventsCmd(m.watcher)
+		}
+		return m, nil
+	}
 	if m.form != "" {
 		return m.updateForm(msg)
+	}
+	if m.confirm != nil {
+		return m.updateConfirm(msg)
+	}
+	if m.rowFocus {
+		return m.updateRowList(msg)
 	}
 	switch v := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -78,18 +106,32 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "enter":
 			m.view = m.cursor
+			switch views[m.view] {
+			case "Tasks", "My work":
+				m.rowFocus = true
+				m.taskList.SetMineFilter(views[m.view] == "My work", m.state, m.actor)
+			case "Inbox":
+				m.rowFocus = true
+				m.messageList.Refresh(m.state, m.actor)
+			case "Approvals":
+				m.rowFocus = true
+				m.approvalList.Refresh(m.state, m.actor)
+			case "Agents":
+				m.rowFocus = true
+				m.agentList.Refresh(m.state, m.actor)
+			}
 		case "/", "ctrl+p":
 			m.palette = true
 		case "r":
 			m.refresh()
 		case "?":
-			m.notice = "↑/↓ navigate · enter open · / commands · r refresh · q quit"
+			m.notice = "↑/↓ navigate · enter open · / commands · a switch actor · r refresh · q quit"
 		case "h":
 			m.highContrast = !m.highContrast
 		case "n":
-			if views[m.view] == "Tasks" || views[m.view] == "My work" {
-				return m.openTaskForm()
-			}
+			return m.openCreateForm()
+		case "a":
+			return m.openActorSwitchForm()
 		}
 	}
 	return m, nil
@@ -98,7 +140,27 @@ func (m *Model) refresh() {
 	m.state, m.err = m.svc.State()
 	if m.err == nil {
 		m.notice = "State refreshed at " + time.Now().Format("15:04:05")
+		m.refreshLists()
 	}
+}
+
+// refreshSilent re-reads state without disturbing the current notice/error,
+// used by the background file-watch tick so it never stomps a just-shown
+// action result. Read errors are swallowed; the last-known-good state stays
+// displayed until the next successful read.
+func (m *Model) refreshSilent() {
+	st, err := m.svc.State()
+	if err != nil {
+		return
+	}
+	m.state = st
+	m.refreshLists()
+}
+func (m *Model) refreshLists() {
+	m.taskList.Refresh(m.state, m.actor)
+	m.messageList.Refresh(m.state, m.actor)
+	m.approvalList.Refresh(m.state, m.actor)
+	m.agentList.Refresh(m.state, m.actor)
 }
 func (m *Model) applyPalette() {
 	q := strings.ToLower(strings.TrimSpace(m.query))
@@ -120,26 +182,14 @@ func (m *Model) applyPalette() {
 }
 
 func (m Model) openTaskForm() (tea.Model, tea.Cmd) {
-	labels := []string{"Task ID", "Title", "Branch", "Resources (comma-separated)"}
-	placeholders := []string{"task-001", "Implement API", "feature/api", "src/api,tests/api"}
-	m.inputs = make([]textinput.Model, len(labels))
-	for i := range labels {
-		input := textinput.New()
-		input.Prompt = labels[i] + ": "
-		input.Placeholder = placeholders[i]
-		input.CharLimit = 240
-		m.inputs[i] = input
-	}
-	cmd := m.inputs[0].Focus()
-	m.form, m.formFocus, m.palette, m.query = "create-task", 0, false, ""
-	return m, cmd
+	return m.openActionForm(taskCreateForm, "task.create", "")
 }
 
 func (m Model) updateForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if key, ok := msg.(tea.KeyPressMsg); ok {
 		switch key.String() {
 		case "esc":
-			m.form, m.inputs, m.err = "", nil, nil
+			m.form, m.inputs, m.err, m.formSpec = "", nil, nil, nil
 			return m, nil
 		case "tab", "down":
 			m.inputs[m.formFocus].Blur()
@@ -155,19 +205,43 @@ func (m Model) updateForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.formFocus++
 				return m, m.inputs[m.formFocus].Focus()
 			}
-			id, title := strings.TrimSpace(m.inputs[0].Value()), strings.TrimSpace(m.inputs[1].Value())
-			branch, resources := strings.TrimSpace(m.inputs[2].Value()), splitCSV(m.inputs[3].Value())
-			if id == "" || title == "" || branch == "" || len(resources) == 0 {
-				m.notice = "Complete every required field."
-				return m, nil
+			values := make([]string, len(m.inputs))
+			for i := range m.inputs {
+				values[i] = strings.TrimSpace(m.inputs[i].Value())
 			}
-			_, err := m.svc.Execute(m.actor, "task.create", id, model.TaskCreated{Title: title, Repository: "local", Branch: branch, Resources: resources, Risk: "ROUTINE"})
+			for i, f := range m.formSpec.Fields {
+				if f.Required && values[i] == "" {
+					m.notice = "Complete every required field."
+					return m, nil
+				}
+			}
+			if m.formSpec.Dispatch != nil {
+				return m.formSpec.Dispatch(m, values)
+			}
+			payload, err := m.formSpec.Build(values)
 			if err != nil {
 				m.err = err
 				return m, nil
 			}
-			m.form, m.inputs, m.err = "", nil, nil
-			m.notice = "Created task " + id
+			id := m.formTaskID
+			if m.formSpec.ResolveID != nil {
+				id = m.formSpec.ResolveID(m.formTaskID, values)
+			}
+			typ := m.form
+			if m.formSpec.ConfirmIf != nil {
+				if ok, prompt := m.formSpec.ConfirmIf(payload); ok {
+					m.form, m.inputs, m.formSpec = "", nil, nil
+					m.confirm = &confirmState{prompt: prompt, typ: typ, id: id, payload: payload}
+					return m, nil
+				}
+			}
+			_, err = m.svc.Execute(m.actor, typ, id, payload)
+			if err != nil {
+				m.err = err
+				return m, nil
+			}
+			m.form, m.inputs, m.err, m.formSpec = "", nil, nil, nil
+			m.notice = "Applied " + typ + " to " + id
 			m.refresh()
 			return m, nil
 		}
@@ -278,20 +352,22 @@ func (m Model) renderBody(p palette, w int) string {
 		content := m.renderForm(p)
 		return lipgloss.NewStyle().Width(w).Height(max(20, m.height-1)).Padding(1, 2).Background(p.panel).Foreground(p.text).Render(header + "\n" + meta + "\n\n" + content)
 	}
+	if m.confirm != nil {
+		content := m.renderConfirm(p)
+		return lipgloss.NewStyle().Width(w).Height(max(20, m.height-1)).Padding(1, 2).Background(p.panel).Foreground(p.text).Render(header + "\n" + meta + "\n\n" + content)
+	}
 	content := ""
 	switch views[m.view] {
 	case "Overview":
 		content = m.overview(p)
-	case "My work":
-		content = m.tasks(p, true)
-	case "Tasks":
-		content = m.tasks(p, false)
+	case "My work", "Tasks":
+		content = m.taskList.View(p, m.state, m.actor, max(40, w-4), max(8, m.height-14))
 	case "Inbox":
-		content = m.inbox(p)
+		content = m.messageList.View(p, m.state, m.actor, max(40, w-4), max(8, m.height-14))
 	case "Agents":
-		content = m.agents(p)
+		content = m.agentList.View(p, m.state, m.actor, max(40, w-4), max(8, m.height-14))
 	case "Approvals":
-		content = m.approvals(p)
+		content = m.approvalList.View(p, m.state, m.actor, max(40, w-4), max(8, m.height-14))
 	case "Documents":
 		content = m.documents(p)
 	case "Contracts & decisions":
@@ -314,7 +390,11 @@ func (m Model) renderBody(p palette, w int) string {
 	return lipgloss.NewStyle().Width(w).Height(max(20, m.height-1)).Padding(1, 2).Background(p.panel).Foreground(p.text).Render(header + "\n" + meta + "\n\n" + content + "\n\n" + status)
 }
 func (m Model) renderForm(p palette) string {
-	rows := []string{lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("Create task"), lipgloss.NewStyle().Foreground(p.muted).Render("Declare the branch and protected write resources before work begins."), ""}
+	title, hint := "Form", ""
+	if m.formSpec != nil {
+		title, hint = m.formSpec.Title, m.formSpec.Hint
+	}
+	rows := []string{lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render(title), lipgloss.NewStyle().Foreground(p.muted).Render(hint), ""}
 	for i, input := range m.inputs {
 		line := "  " + input.View()
 		if i == m.formFocus {
@@ -371,59 +451,6 @@ func (m Model) attention(p palette) string {
 		return lipgloss.NewStyle().Foreground(p.muted).Render("No urgent coordination items. Open a task or review project activity.")
 	}
 	sort.Strings(rows)
-	return strings.Join(rows, "\n")
-}
-func (m Model) tasks(p palette, mine bool) string {
-	rows := []string{"STATUS       TASK                 OWNER         LEASE      RESOURCES"}
-	for _, id := range service.SortedKeys(m.state.Tasks) {
-		t := m.state.Tasks[id]
-		if t.Archived || (mine && t.Owner != m.actor) {
-			continue
-		}
-		lease := "—"
-		if !t.LeaseUntil.IsZero() {
-			lease = time.Until(t.LeaseUntil).Round(time.Minute).String()
-		}
-		rows = append(rows, fmt.Sprintf("%-12s %-20s %-13s %-10s %s", t.Status, id, t.Owner, lease, strings.Join(t.Resources, ",")))
-	}
-	if len(rows) == 1 {
-		return "No tasks here. Press / and choose Create task to coordinate the next piece of work."
-	}
-	return strings.Join(rows, "\n")
-}
-func (m Model) inbox(p palette) string {
-	rows := []string{"KIND       FROM          SUBJECT                              STATE"}
-	for _, id := range service.SortedKeys(m.state.Messages) {
-		x := m.state.Messages[id]
-		for _, to := range x.To {
-			if to == m.actor || m.actor == "owner" {
-				rows = append(rows, fmt.Sprintf("%-10s %-13s %-36s %s", x.Kind, x.From, x.Subject, x.Status))
-				break
-			}
-		}
-	}
-	if len(rows) == 1 {
-		return "Inbox is clear. Durable actions, contracts, blockers, and decisions will appear here."
-	}
-	return strings.Join(rows, "\n")
-}
-func (m Model) agents(p palette) string {
-	rows := []string{"STATE       PRINCIPAL        ROLE            TYPE       SCOPES"}
-	for _, id := range service.SortedKeys(m.state.Agents) {
-		a := m.state.Agents[id]
-		rows = append(rows, fmt.Sprintf("%-11s %-16s %-15s %-10s %s", a.Status, id, a.Role, a.PrincipalType, strings.Join(a.Scopes, ",")))
-	}
-	return strings.Join(rows, "\n")
-}
-func (m Model) approvals(p palette) string {
-	rows := []string{}
-	for _, id := range service.SortedKeys(m.state.Approvals) {
-		a := m.state.Approvals[id]
-		rows = append(rows, fmt.Sprintf("◆ %-16s %-9s %-10s %s", id, a.Tier, a.Status, a.Action))
-	}
-	if len(rows) == 0 {
-		return "No approval requests. Elevated actions will wait here for an eligible principal."
-	}
 	return strings.Join(rows, "\n")
 }
 func (m Model) documents(p palette) string {
@@ -517,6 +544,10 @@ func Run(s *service.Service, actor string, in io.Reader, out io.Writer) error {
 	m, e := New(s, actor)
 	if e != nil {
 		return e
+	}
+	m.EnableFileWatch()
+	if m.watcher != nil {
+		defer m.watcher.Close()
 	}
 	p := tea.NewProgram(m, tea.WithInput(in), tea.WithOutput(out))
 	_, e = p.Run()
