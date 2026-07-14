@@ -28,7 +28,7 @@ go install github.com/DhanushSantosh/AgentComms/cmd/agent-comms@latest
 
 ## Start a project
 
-Run inside an existing Git repository:
+Initialise anywhere — no target Git repo needed. `.agent-comms/` is its own private Git repository:
 
 ```sh
 agent-comms init
@@ -43,7 +43,7 @@ Interactive setup previews the `.agents` bootstrap and isolated `.agent-comms` r
 agent-comms init --owner owner --non-interactive --yes --json
 ```
 
-The runtime is its own Git repository. A remote is optional checkpoint/recovery transport and is never a distributed lock.
+The runtime is its own Git repository with auto-generated `tmp/` and `cache/` gitignored. A remote is optional checkpoint/recovery transport and is never a distributed lock.
 
 ## Daily workflow
 
@@ -61,6 +61,11 @@ agent-comms task renew --id task-001 --actor builder --progress "Handlers comple
 agent-comms message post --id action-001 --kind ACTION --to builder \
   --subject "Run integration tests" --body "Attach the result as evidence."
 
+agent-comms message resolve --id blocker-001  # auto-closes linked BLOCKED task
+
+agent-comms env set --key CI_BRANCH --value main
+agent-comms env get --key CI_BRANCH
+
 agent-comms verify --json
 agent-comms export markdown --output audit.md
 ```
@@ -74,6 +79,7 @@ Private actor keys are stored in Windows Credential Manager, macOS Keychain, or 
 - `agent-comms mcp` runs a stdio MCP server using the same authorization service.
 - `agent-comms completion <shell>` generates PowerShell, Bash, Zsh, or Fish completion.
 - `agent-comms doctor --explain-config` shows resolved configuration and provenance.
+- `agent-comms env set/get/delete/list` manages a typed per-project environment registry.
 - `agent-comms sync setup/status/push/pull` manages fast-forward-only checkpoints.
 - `agent-comms update check --channel stable|preview` performs an explicit, telemetry-free release check.
 

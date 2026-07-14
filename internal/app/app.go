@@ -137,7 +137,7 @@ func (c *cli) root() *cobra.Command {
 	f.DurationVar(&c.timeout, "timeout", 10*time.Second, "transaction lock timeout")
 	f.BoolVar(&c.noColor, "no-color", false, "disable ANSI color")
 	f.BoolVarP(&c.quiet, "quiet", "q", false, "suppress non-essential output")
-	r.AddCommand(c.versionCmd(), c.initCmd(), c.doctorCmd(), c.verifyCmd(), c.statusCmd(), c.historyCmd(), c.searchCmd(), c.agentCmd(), c.sessionCmd(), c.taskCmd(), c.messageCmd(), c.decisionCmd(), c.approvalCmd(), c.artifactCmd(), c.documentCmd(), c.archiveCmd(), c.exportCmd(), c.syncCmd(), c.profileCmd(), c.configCmd(), c.themeCmd(), c.updateCmd(), c.completionCmd(r), c.agentInstructionsCmd(), c.mcpCmd(), c.watchCmd(), c.tuiCmd(), c.migrateCmd())
+	r.AddCommand(c.versionCmd(), c.initCmd(), c.doctorCmd(), c.verifyCmd(), c.statusCmd(), c.historyCmd(), c.searchCmd(), c.agentCmd(), c.sessionCmd(), c.taskCmd(), c.messageCmd(), c.decisionCmd(), c.approvalCmd(), c.artifactCmd(), c.documentCmd(), c.envCmd(), c.archiveCmd(), c.exportCmd(), c.syncCmd(), c.profileCmd(), c.configCmd(), c.themeCmd(), c.updateCmd(), c.completionCmd(r), c.agentInstructionsCmd(), c.mcpCmd(), c.watchCmd(), c.tuiCmd(), c.migrateCmd())
 	return r
 }
 
@@ -822,6 +822,45 @@ func (c *cli) documentCmd() *cobra.Command {
 	}}
 	show.Flags().String("id", "", "document ID")
 	root.AddCommand(create, update, supersede, list, show)
+	return root
+}
+func (c *cli) envCmd() *cobra.Command {
+	root := &cobra.Command{Use: "env"}
+	var key, value string
+	set := &cobra.Command{Use: "set", RunE: func(cmd *cobra.Command, args []string) error {
+		if key == "" && len(args) > 0 { key = args[0] }
+		if value == "" && len(args) > 1 { value = args[1] }
+		if key == "" { return errors.New("key required (use --key or positional argument)") }
+		v, e := c.svc.Execute(c.actor, "env.set", "", model.EnvSetPayload{Key: key, Value: value})
+		if e != nil { return e }
+		return c.emit("env.set", v)
+	}}
+	set.Flags().StringVar(&key, "key", "", "key")
+	set.Flags().StringVar(&value, "value", "", "value")
+	get := &cobra.Command{Use: "get", RunE: func(cmd *cobra.Command, args []string) error {
+		if key == "" && len(args) > 0 { key = args[0] }
+		if key == "" { return errors.New("key required (use --key or positional argument)") }
+		st, e := c.svc.State()
+		if e != nil { return e }
+		entry, ok := st.Env[key]
+		if !ok { return fmt.Errorf("key %q not found", key) }
+		return c.emit("env.get", entry)
+	}}
+	get.Flags().StringVar(&key, "key", "", "key")
+	del := &cobra.Command{Use: "delete", RunE: func(cmd *cobra.Command, args []string) error {
+		if key == "" && len(args) > 0 { key = args[0] }
+		if key == "" { return errors.New("key required (use --key or positional argument)") }
+		v, e := c.svc.Execute(c.actor, "env.delete", "", model.EnvDeletePayload{Key: key})
+		if e != nil { return e }
+		return c.emit("env.delete", v)
+	}}
+	del.Flags().StringVar(&key, "key", "", "key")
+	list := &cobra.Command{Use: "list", RunE: func(cmd *cobra.Command, args []string) error {
+		st, e := c.svc.State()
+		if e != nil { return e }
+		return c.emit("env.list", st.Env)
+	}}
+	root.AddCommand(set, get, del, list)
 	return root
 }
 func (c *cli) archiveCmd() *cobra.Command {

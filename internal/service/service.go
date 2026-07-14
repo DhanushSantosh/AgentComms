@@ -27,7 +27,7 @@ func (s *Service) State() (model.State, error) {
 	if e != nil {
 		return model.State{}, e
 	}
-	st := model.State{Agents: map[string]model.Agent{}, Tasks: map[string]model.Task{}, Messages: map[string]model.Message{}, Approvals: map[string]model.Approval{}, Decisions: map[string]model.Decision{}, Documents: map[string]model.Document{}, Sessions: map[string]model.SessionPayload{}, Artifacts: map[string]model.Artifact{}}
+	st := model.State{Agents: map[string]model.Agent{}, Tasks: map[string]model.Task{}, Messages: map[string]model.Message{}, Approvals: map[string]model.Approval{}, Decisions: map[string]model.Decision{}, Documents: map[string]model.Document{}, Env: map[string]model.EnvEntry{}, Sessions: map[string]model.SessionPayload{}, Artifacts: map[string]model.Artifact{}}
 	unknown := 0
 	for _, v := range ev {
 		if !model.KnownEventType(v.Type) {
@@ -147,6 +147,12 @@ func apply(s *model.State, e model.Event) error {
 		}
 		m.Status = messageStatus(m)
 		s.Messages[e.EntityID] = m
+		if p.Response == "RESOLVED" && m.TaskID != "" {
+			if t, ok := s.Tasks[m.TaskID]; ok && t.Status == "BLOCKED" {
+				t.Status = "OPEN"
+				s.Tasks[m.TaskID] = t
+			}
+		}
 	case *model.ApprovalRequested:
 		s.Approvals[e.EntityID] = model.Approval{ID: e.EntityID, Tier: p.Tier, Action: p.Action, Reason: p.Reason, Status: "PENDING", Requester: e.Actor, Affected: p.Affected}
 	case *model.ApprovalResponse:
@@ -201,6 +207,10 @@ func apply(s *model.State, e model.Event) error {
 				s.Documents[p.ReplacementID] = nd
 			}
 		}
+	case *model.EnvSetPayload:
+		s.Env[p.Key] = model.EnvEntry{Key: p.Key, Value: p.Value, UpdatedAt: e.Time, UpdatedBy: e.Actor}
+	case *model.EnvDeletePayload:
+		delete(s.Env, p.Key)
 	}
 	return nil
 }
@@ -472,6 +482,20 @@ func (s *Service) Execute(actor, typ, id string, payload any) (model.Event, erro
 				if _, exists := st.Documents[p.ReplacementID]; !exists {
 					return model.Event{}, errors.New("replacement document not found")
 				}
+			}
+		}
+	}
+	if strings.HasPrefix(typ, "env.") {
+		switch typ {
+		case "env.set":
+			p := payload.(model.EnvSetPayload)
+			if strings.TrimSpace(p.Key) == "" {
+				return model.Event{}, errors.New("key is required")
+			}
+		case "env.delete":
+			p := payload.(model.EnvDeletePayload)
+			if p.Key == "" {
+				return model.Event{}, errors.New("key is required")
 			}
 		}
 	}

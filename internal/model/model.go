@@ -104,6 +104,12 @@ type Document struct {
 	Author    string   `json:"author"`
 	Supersedes string  `json:"supersedes,omitempty"`
 }
+type EnvEntry struct {
+	Key       string    `json:"key"`
+	Value     string    `json:"value"`
+	UpdatedAt time.Time `json:"updated_at"`
+	UpdatedBy string    `json:"updated_by"`
+}
 type Integrity struct {
 	Verified      bool   `json:"verified"`
 	EventCount    int    `json:"event_count"`
@@ -119,6 +125,7 @@ type State struct {
 	Approvals map[string]Approval       `json:"approvals"`
 	Decisions map[string]Decision       `json:"decisions"`
 	Documents map[string]Document       `json:"documents"`
+	Env       map[string]EnvEntry       `json:"env"`
 	Sessions  map[string]SessionPayload `json:"sessions"`
 	Artifacts map[string]Artifact       `json:"artifacts"`
 	Integrity Integrity                 `json:"integrity"`
