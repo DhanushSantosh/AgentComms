@@ -117,6 +117,13 @@ type ArchiveRun struct {
 	Before  time.Time `json:"before"`
 	TaskIDs []string  `json:"task_ids"`
 }
+type EnvSetPayload struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+type EnvDeletePayload struct {
+	Key string `json:"key"`
+}
 type DocumentPayload struct {
 	Title         string   `json:"title,omitempty"`
 	Body          string   `json:"body,omitempty"`
@@ -132,6 +139,7 @@ var payloadFactories = map[string]func() any{
 	"decision.create": func() any { return &DecisionPayload{} }, "decision.supersede": func() any { return &DecisionPayload{} }, "session.start": func() any { return &SessionPayload{} }, "session.end": func() any { return &SessionPayload{} },
 	"artifact.add": func() any { return &ArtifactAdded{} }, "archive.run": func() any { return &ArchiveRun{} },
 	"document.create": func() any { return &DocumentPayload{} }, "document.update": func() any { return &DocumentPayload{} }, "document.supersede": func() any { return &DocumentPayload{} },
+	"env.set": func() any { return &EnvSetPayload{} }, "env.delete": func() any { return &EnvDeletePayload{} },
 }
 
 func EncodePayload(typ string, value any) (json.RawMessage, error) {

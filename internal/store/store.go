@@ -78,9 +78,6 @@ func (s *Store) Init(owner string) error {
 	} else if !os.IsNotExist(e) {
 		return fmt.Errorf("inspect existing .agents: %w", e)
 	}
-	if _, e := os.Stat(filepath.Join(s.Root, ".git")); e != nil {
-		return errors.New("target must be a Git repository")
-	}
 	stage := filepath.Join(s.Root, fmt.Sprintf(".%s.init-%d", strings.TrimPrefix(Runtime, "."), s.Now().UnixNano()))
 	staged := *s
 	staged.runtimePath = stage
