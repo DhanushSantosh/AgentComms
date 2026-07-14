@@ -377,12 +377,16 @@ func (s *Service) Execute(actor, typ, id string, payload any) (model.Event, erro
 	}
 	if typ == "message.post" {
 		p := payload.(model.MessagePosted)
-		valid := map[string]bool{"FYI": true, "ACTION": true, "CONTRACT": true, "BLOCKER": true, "DECISION": true}
+		validKinds := []string{"FYI", "ACTION", "CONTRACT", "BLOCKER", "DECISION"}
+		valid := make(map[string]bool, len(validKinds))
+		for _, k := range validKinds {
+			valid[k] = true
+		}
 		if !valid[p.Kind] || len(p.To) == 0 || p.Subject == "" {
-			return model.Event{}, errors.New("valid kind, recipient, and subject are required")
+			return model.Event{}, fmt.Errorf("valid kind (%s), recipient, and subject are required", strings.Join(validKinds, ", "))
 		}
 		if len(p.Body) > 1200 {
-			return model.Event{}, errors.New("message body exceeds 1200 characters")
+			return model.Event{}, fmt.Errorf("message body exceeds 1200 characters (got %d) — use --body-file for longer content", len(p.Body))
 		}
 		if p.Kind == "CONTRACT" {
 			a, _ := active(st, actor)
