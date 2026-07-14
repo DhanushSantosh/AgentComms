@@ -293,16 +293,11 @@ func colors(high bool) palette {
 }
 func (m Model) View() tea.View {
 	p := colors(m.highContrast)
-	sidebarW := 25
-	if m.width < 90 {
-		sidebarW = 20
-	}
-	contentW := m.width - sidebarW - 3
-	if contentW < 40 {
-		contentW = 40
-	}
-	side := m.renderSidebar(p, sidebarW)
-	body := m.renderBody(p, contentW)
+	sidebarW := m.sidebarWidth()
+	contentW := max(40, m.width-sidebarW-3)
+	availH := max(10, m.height-1)
+	side := m.renderSidebar(p, sidebarW, availH)
+	body := m.renderBody(p, min(contentW, m.width-2), availH)
 	screen := lipgloss.JoinHorizontal(lipgloss.Top, side, " ", body)
 	if m.palette {
 		screen = m.renderPalette(p, screen)
@@ -313,7 +308,20 @@ func (m Model) View() tea.View {
 	v.WindowTitle = "Agent Comms · Signal room"
 	return v
 }
-func (m Model) renderSidebar(p palette, w int) string {
+func (m Model) sidebarWidth() int {
+	maxW := 0
+	for _, name := range views {
+		w := lipgloss.Width(name)
+		b := m.badge(name)
+		if b != "" {
+			w += lipgloss.Width(b) + 1
+		}
+		maxW = max(maxW, w)
+	}
+	titleW := lipgloss.Width("◉ AGENT COMMS")
+	return min(max(18, maxW+5), max(titleW+4, 22), m.width/3)
+}
+func (m Model) renderSidebar(p palette, w, h int) string {
 	title := lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("◉ AGENT COMMS")
 	sub := lipgloss.NewStyle().Foreground(p.muted).Render("SIGNAL ROOM")
 	rows := []string{title, sub, ""}
@@ -325,14 +333,18 @@ func (m Model) renderSidebar(p palette, w int) string {
 			style = style.Foreground(p.cyan).Bold(true)
 		}
 		badge := m.badge(name)
-		label := name
-		if lipgloss.Width(label) > w-7 {
-			label = label[:min(len(label), w-8)] + "…"
+		maxLabelW := w - 6
+		if badge != "" {
+			maxLabelW -= lipgloss.Width(badge) + 1
 		}
-		rows = append(rows, style.Render(fmt.Sprintf("%s%-*s %s", marker, w-7, label, badge)))
+		label := name
+		if lipgloss.Width(label) > maxLabelW {
+			label = label[:max(0, min(len(label), maxLabelW-1))] + "…"
+		}
+		rows = append(rows, style.Render(fmt.Sprintf("%s%s %s", marker, label, badge)))
 	}
 	rows = append(rows, "", lipgloss.NewStyle().Foreground(p.muted).Render("/ commands   ? help"))
-	return lipgloss.NewStyle().Width(w).Height(max(20, m.height-1)).Padding(1).Background(p.ink).Foreground(p.text).Render(strings.Join(rows, "\n"))
+	return lipgloss.NewStyle().Width(w).Height(h).Padding(1).Background(p.ink).Foreground(p.text).Render(strings.Join(rows, "\n"))
 }
 func (m Model) badge(name string) string {
 	n := 0
@@ -365,49 +377,53 @@ func (m Model) badge(name string) string {
 	}
 	return fmt.Sprintf("%d", n)
 }
-func (m Model) renderBody(p palette, w int) string {
+func (m Model) renderBody(p palette, w, h int) string {
 	header := lipgloss.NewStyle().Foreground(p.text).Bold(true).Render(views[m.view])
 	meta := lipgloss.NewStyle().Foreground(p.muted).Render(fmt.Sprintf("profile %s · %d events · %s", m.actor, m.state.Integrity.EventCount, m.state.Integrity.SyncState))
+	pane := lipgloss.NewStyle().Width(w).Height(h).Padding(1, 2).Background(p.panel).Foreground(p.text)
 	if m.form != "" {
 		content := m.renderForm(p)
-		return lipgloss.NewStyle().Width(w).Height(max(20, m.height-1)).Padding(1, 2).Background(p.panel).Foreground(p.text).Render(header + "\n" + meta + "\n\n" + content)
+		return pane.Render(header + "\n" + meta + "\n\n" + content)
 	}
 	if m.confirm != nil {
 		content := m.renderConfirm(p)
-		return lipgloss.NewStyle().Width(w).Height(max(20, m.height-1)).Padding(1, 2).Background(p.panel).Foreground(p.text).Render(header + "\n" + meta + "\n\n" + content)
+		return pane.Render(header + "\n" + meta + "\n\n" + content)
 	}
+	contentW := max(40, w-4)
+	contentH := max(8, h-8)
+	wrap := lipgloss.NewStyle().MaxWidth(contentW)
 	content := ""
 	switch views[m.view] {
 	case "Overview":
-		content = m.overview(p)
+		content = wrap.Render(m.overview(p))
 	case "My work", "Tasks":
-		content = m.taskList.View(p, m.state, m.actor, max(40, w-4), max(8, m.height-14))
+		content = m.taskList.View(p, m.state, m.actor, contentW, contentH)
 	case "Inbox":
-		content = m.messageList.View(p, m.state, m.actor, max(40, w-4), max(8, m.height-14))
+		content = m.messageList.View(p, m.state, m.actor, contentW, contentH)
 	case "Agents":
-		content = m.agentList.View(p, m.state, m.actor, max(40, w-4), max(8, m.height-14))
+		content = m.agentList.View(p, m.state, m.actor, contentW, contentH)
 	case "Approvals":
-		content = m.approvalList.View(p, m.state, m.actor, max(40, w-4), max(8, m.height-14))
+		content = m.approvalList.View(p, m.state, m.actor, contentW, contentH)
 	case "Documents":
-		content = m.documents(p)
+		content = wrap.Render(m.documents(p))
 	case "Contracts & decisions":
-		content = m.decisions(p)
+		content = wrap.Render(m.decisions(p))
 	case "Blockers":
-		content = m.blockers(p)
+		content = wrap.Render(m.blockers(p))
 	case "Integrity & sync":
-		content = m.integrity(p)
+		content = wrap.Render(m.integrity(p))
 	case "Activity":
-		content = m.chain(p)
+		content = wrap.Render(m.chain(p))
 	case "Archive search":
-		content = m.archive(p)
+		content = wrap.Render(m.archive(p))
 	}
 	status := ""
 	if m.err != nil {
-		status = lipgloss.NewStyle().Foreground(p.red).Render("Error: " + m.err.Error())
+		status = lipgloss.NewStyle().Foreground(p.red).MaxWidth(contentW).Render("Error: " + m.err.Error())
 	} else if m.notice != "" {
-		status = lipgloss.NewStyle().Foreground(p.cyan).Render(m.notice)
+		status = lipgloss.NewStyle().Foreground(p.cyan).MaxWidth(contentW).Render(m.notice)
 	}
-	return lipgloss.NewStyle().Width(w).Height(max(20, m.height-1)).Padding(1, 2).Background(p.panel).Foreground(p.text).Render(header + "\n" + meta + "\n\n" + content + "\n\n" + status)
+	return pane.Render(header + "\n" + meta + "\n\n" + content + "\n\n" + status)
 }
 func (m Model) renderForm(p palette) string {
 	title, hint := "Form", ""
@@ -480,7 +496,7 @@ func (m Model) documents(p palette) string {
 		rows = append(rows, fmt.Sprintf("%-9s %-7d %-20s %-13s %s", d.Status, d.Version, id, d.Author, strings.Join(d.Tags, ",")))
 	}
 	if len(rows) == 1 {
-		return "No living documents yet. Use `agent-comms document create` to record API contracts, guardrails, and shared decisions."
+		return "No living documents yet."
 	}
 	return strings.Join(rows, "\n")
 }
@@ -497,7 +513,7 @@ func (m Model) decisions(p palette) string {
 		}
 	}
 	if len(rows) == 0 {
-		return "No contracts or decisions recorded. Use durable records when shared understanding matters."
+		return "No contracts or decisions recorded."
 	}
 	return strings.Join(rows, "\n\n")
 }
