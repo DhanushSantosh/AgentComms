@@ -146,7 +146,7 @@ func (m Model) updateRowList(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	switch k := key.String(); k {
-	case "esc":
+	case "esc", "left":
 		m.rowFocus = false
 		return m, nil
 	case "q", "ctrl+c":
