@@ -137,7 +137,7 @@ func (c *cli) root() *cobra.Command {
 	f.DurationVar(&c.timeout, "timeout", 10*time.Second, "transaction lock timeout")
 	f.BoolVar(&c.noColor, "no-color", false, "disable ANSI color")
 	f.BoolVarP(&c.quiet, "quiet", "q", false, "suppress non-essential output")
-	r.AddCommand(c.versionCmd(), c.initCmd(), c.doctorCmd(), c.verifyCmd(), c.statusCmd(), c.historyCmd(), c.searchCmd(), c.agentCmd(), c.sessionCmd(), c.taskCmd(), c.messageCmd(), c.decisionCmd(), c.approvalCmd(), c.artifactCmd(), c.documentCmd(), c.archiveCmd(), c.exportCmd(), c.syncCmd(), c.profileCmd(), c.configCmd(), c.updateCmd(), c.completionCmd(r), c.agentInstructionsCmd(), c.mcpCmd(), c.watchCmd(), c.tuiCmd(), c.migrateCmd())
+	r.AddCommand(c.versionCmd(), c.initCmd(), c.doctorCmd(), c.verifyCmd(), c.statusCmd(), c.historyCmd(), c.searchCmd(), c.agentCmd(), c.sessionCmd(), c.taskCmd(), c.messageCmd(), c.decisionCmd(), c.approvalCmd(), c.artifactCmd(), c.documentCmd(), c.archiveCmd(), c.exportCmd(), c.syncCmd(), c.profileCmd(), c.configCmd(), c.themeCmd(), c.updateCmd(), c.completionCmd(r), c.agentInstructionsCmd(), c.mcpCmd(), c.watchCmd(), c.tuiCmd(), c.migrateCmd())
 	return r
 }
 
@@ -550,6 +550,9 @@ func (c *cli) messageCmd() *cobra.Command {
 	var to []string
 	post := &cobra.Command{Use: "post", RunE: func(cmd *cobra.Command, args []string) error {
 		id, _ := cmd.Flags().GetString("id")
+		if id == "" {
+			id = fmt.Sprintf("msg-%d", time.Now().UnixNano())
+		}
 		if bodyFile != "" {
 			b, e := os.ReadFile(bodyFile)
 			if e != nil {
@@ -563,9 +566,8 @@ func (c *cli) messageCmd() *cobra.Command {
 		}
 		return c.emit("message.post", v)
 	}}
-	post.Flags().String("id", "", "message ID")
-	_ = post.MarkFlagRequired("id")
-	post.Flags().StringVar(&kind, "kind", "FYI", "message kind")
+	post.Flags().String("id", "", "message ID (auto-generated if omitted)")
+	post.Flags().StringVar(&kind, "kind", "FYI", "message kind (FYI, ACTION, CONTRACT, BLOCKER, DECISION)")
 	post.Flags().StringSliceVar(&to, "to", nil, "recipient")
 	post.Flags().StringVar(&subject, "subject", "", "subject")
 	post.Flags().StringVar(&body, "body", "", "body")
@@ -887,6 +889,26 @@ func (c *cli) configCmd() *cobra.Command {
 		return c.emit("config", map[string]any{"user": u, "project": p, "precedence": []string{"flags", "environment", "project", "user", "defaults"}})
 	}}
 }
+func (c *cli) themeCmd() *cobra.Command {
+	root := &cobra.Command{Use: "theme", Short: "Manage UI theme"}
+	var name string
+	set := &cobra.Command{Use: "set", RunE: func(cmd *cobra.Command, args []string) error {
+		u, e := identity.LoadUserConfig()
+		if e != nil {
+			return e
+		}
+		u.Theme = name
+		if e = identity.SaveUserConfig(u); e != nil {
+			return e
+		}
+		return c.emit("theme.set", map[string]string{"theme": name})
+	}}
+	set.Flags().StringVar(&name, "name", "", "theme (auto, dark, high-contrast)")
+	_ = set.MarkFlagRequired("name")
+	root.AddCommand(set)
+	return root
+}
+
 func (c *cli) updateCmd() *cobra.Command {
 	root := &cobra.Command{Use: "update"}
 	var channel string

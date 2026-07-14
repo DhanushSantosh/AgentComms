@@ -11,6 +11,7 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/DhanushSantosh/AgentComms/internal/identity"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 	"github.com/DhanushSantosh/AgentComms/internal/service"
 	"github.com/fsnotify/fsnotify"
@@ -44,7 +45,11 @@ type Model struct {
 
 func New(s *service.Service, actor string) (Model, error) {
 	st, e := s.State()
-	return Model{svc: s, state: st, actor: actor, width: 100, height: 30, taskList: newRowList(taskRowSource{}), messageList: newRowList(messageRowSource{}), approvalList: newRowList(approvalRowSource{}), agentList: newRowList(agentRowSource{})}, e
+	hc := false
+	if uc, err := identity.LoadUserConfig(); err == nil && uc.Theme == "high-contrast" {
+		hc = true
+	}
+	return Model{svc: s, state: st, actor: actor, width: 100, height: 30, highContrast: hc, taskList: newRowList(taskRowSource{}), messageList: newRowList(messageRowSource{}), approvalList: newRowList(approvalRowSource{}), agentList: newRowList(agentRowSource{})}, e
 }
 func (m Model) Init() tea.Cmd {
 	if m.watcher != nil {
@@ -128,6 +133,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.notice = "↑/↓ navigate · enter open · / commands · a switch actor · r refresh · q quit"
 		case "h":
 			m.highContrast = !m.highContrast
+			theme := "auto"
+			if m.highContrast {
+				theme = "high-contrast"
+			}
+			if uc, err := identity.LoadUserConfig(); err == nil {
+				uc.Theme = theme
+				_ = identity.SaveUserConfig(uc)
+			}
 		case "n":
 			return m.openCreateForm()
 		case "a":
