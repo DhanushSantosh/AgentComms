@@ -105,10 +105,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.cursor > 0 {
 				m.cursor--
 			}
+			m.view = m.cursor
 		case "down", "j":
 			if m.cursor < len(views)-1 {
 				m.cursor++
 			}
+			m.view = m.cursor
+		case "left":
+			m.view = m.cursor
+		case "right":
+			m.view = m.cursor
+			fallthrough
 		case "enter":
 			m.view = m.cursor
 			switch views[m.view] {
@@ -130,7 +137,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "r":
 			m.refresh()
 		case "?":
-			m.notice = "↑/↓ navigate · enter open · / commands · a switch actor · r refresh · q quit"
+			m.notice = "↑/↓ navigate · → open · ← back · / commands · a switch actor · r refresh · q quit"
 		case "h":
 			m.highContrast = !m.highContrast
 			theme := "auto"
