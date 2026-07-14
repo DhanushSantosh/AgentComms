@@ -294,11 +294,12 @@ func colors(high bool) palette {
 func (m Model) View() tea.View {
 	p := colors(m.highContrast)
 	sidebarW := m.sidebarWidth()
-	contentW := max(40, m.width-sidebarW-3)
-	availH := max(10, m.height-1)
+	contentW := max(30, m.width-sidebarW-3)
+	availH := max(10, m.height)
 	side := m.renderSidebar(p, sidebarW, availH)
-	body := m.renderBody(p, min(contentW, m.width-2), availH)
+	body := m.renderBody(p, contentW, availH)
 	screen := lipgloss.JoinHorizontal(lipgloss.Top, side, " ", body)
+	screen = lipgloss.NewStyle().MaxWidth(m.width).Render(screen)
 	if m.palette {
 		screen = m.renderPalette(p, screen)
 	}
@@ -309,17 +310,25 @@ func (m Model) View() tea.View {
 	return v
 }
 func (m Model) sidebarWidth() int {
-	maxW := 0
+	titleW := lipgloss.Width("◉ AGENT COMMS")
+	maxNameW := titleW
 	for _, name := range views {
 		w := lipgloss.Width(name)
 		b := m.badge(name)
 		if b != "" {
 			w += lipgloss.Width(b) + 1
 		}
-		maxW = max(maxW, w)
+		maxNameW = max(maxNameW, w)
 	}
-	titleW := lipgloss.Width("◉ AGENT COMMS")
-	return min(max(18, maxW+5), max(titleW+4, 22), m.width/3)
+	ideal := maxNameW + 5
+	maxAllow := m.width / 3
+	if m.width < 60 {
+		maxAllow = m.width / 4
+	}
+	if ideal > maxAllow {
+		ideal = maxAllow
+	}
+	return max(16, ideal)
 }
 func (m Model) renderSidebar(p palette, w, h int) string {
 	title := lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("◉ AGENT COMMS")
@@ -389,41 +398,42 @@ func (m Model) renderBody(p palette, w, h int) string {
 		content := m.renderConfirm(p)
 		return pane.Render(header + "\n" + meta + "\n\n" + content)
 	}
-	contentW := max(40, w-4)
-	contentH := max(8, h-8)
+	contentW := max(30, w-4)
+	contentH := max(6, h-8)
 	wrap := lipgloss.NewStyle().MaxWidth(contentW)
 	content := ""
+	bodyContent := ""
 	switch views[m.view] {
 	case "Overview":
-		content = wrap.Render(m.overview(p))
+		bodyContent = wrap.Render(m.overview(p))
 	case "My work", "Tasks":
-		content = m.taskList.View(p, m.state, m.actor, contentW, contentH)
+		bodyContent = m.taskList.View(p, m.state, m.actor, contentW, contentH)
 	case "Inbox":
-		content = m.messageList.View(p, m.state, m.actor, contentW, contentH)
+		bodyContent = m.messageList.View(p, m.state, m.actor, contentW, contentH)
 	case "Agents":
-		content = m.agentList.View(p, m.state, m.actor, contentW, contentH)
+		bodyContent = m.agentList.View(p, m.state, m.actor, contentW, contentH)
 	case "Approvals":
-		content = m.approvalList.View(p, m.state, m.actor, contentW, contentH)
+		bodyContent = m.approvalList.View(p, m.state, m.actor, contentW, contentH)
 	case "Documents":
-		content = wrap.Render(m.documents(p))
+		bodyContent = wrap.Render(m.documents(p))
 	case "Contracts & decisions":
-		content = wrap.Render(m.decisions(p))
+		bodyContent = wrap.Render(m.decisions(p))
 	case "Blockers":
-		content = wrap.Render(m.blockers(p))
+		bodyContent = wrap.Render(m.blockers(p))
 	case "Integrity & sync":
-		content = wrap.Render(m.integrity(p))
+		bodyContent = wrap.Render(m.integrity(p))
 	case "Activity":
-		content = wrap.Render(m.chain(p))
+		bodyContent = wrap.Render(m.chain(p))
 	case "Archive search":
-		content = wrap.Render(m.archive(p))
+		bodyContent = wrap.Render(m.archive(p))
 	}
-	status := ""
+	content = bodyContent
 	if m.err != nil {
-		status = lipgloss.NewStyle().Foreground(p.red).MaxWidth(contentW).Render("Error: " + m.err.Error())
+		content += "\n\n" + lipgloss.NewStyle().Foreground(p.red).MaxWidth(contentW).Render("Error: "+m.err.Error())
 	} else if m.notice != "" {
-		status = lipgloss.NewStyle().Foreground(p.cyan).MaxWidth(contentW).Render(m.notice)
+		content += "\n\n" + lipgloss.NewStyle().Foreground(p.cyan).MaxWidth(contentW).Render(m.notice)
 	}
-	return pane.Render(header + "\n" + meta + "\n\n" + content + "\n\n" + status)
+	return pane.Render(header + "\n" + meta + "\n\n" + content)
 }
 func (m Model) renderForm(p palette) string {
 	title, hint := "Form", ""
