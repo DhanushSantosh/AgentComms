@@ -582,16 +582,41 @@ func (c *cli) messageCmd() *cobra.Command {
 		if e != nil {
 			return e
 		}
+		unread, _ := cmd.Flags().GetBool("unread")
+		from, _ := cmd.Flags().GetString("from")
+		limit, _ := cmd.Flags().GetInt("limit")
 		out := map[string]model.Message{}
 		for id, m := range st.Messages {
+			if unread && (m.Status != "OPEN" && m.Status != "DELIVERED") {
+				continue
+			}
+			if from != "" && m.From != from {
+				continue
+			}
 			for _, to := range m.To {
 				if to == c.actor {
 					out[id] = m
+					break
 				}
 			}
 		}
+		if limit > 0 && len(out) > limit {
+			trimmed := map[string]model.Message{}
+			n := 0
+			for id, m := range out {
+				if n >= limit {
+					break
+				}
+				trimmed[id] = m
+				n++
+			}
+			out = trimmed
+		}
 		return c.emit("message.inbox", out)
 	}}
+	inbox.Flags().Bool("unread", false, "show only unread messages")
+	inbox.Flags().String("from", "", "filter by sender")
+	inbox.Flags().Int("limit", 0, "max results (0 = unlimited)")
 	root.AddCommand(post, inbox)
 	return root
 }
