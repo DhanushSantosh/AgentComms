@@ -77,6 +77,9 @@ func apply(s *model.State, e model.Event) error {
 		t.Status = "CLAIMED"
 		t.LeaseUntil = p.LeaseUntil
 		t.StaleUntil = p.LeaseUntil.Add(time.Hour)
+		if p.Worktree != "" {
+			t.Worktree = p.Worktree
+		}
 		for i := range t.Offers {
 			if t.Offers[i].To == e.Actor && t.Offers[i].Status == "PENDING" {
 				t.Offers[i].Status = "ACCEPTED"
@@ -337,6 +340,19 @@ func (s *Service) Execute(actor, typ, id string, payload any) (model.Event, erro
 				}
 			}
 			p.LeaseUntil = time.Now().UTC().Add(4 * time.Hour)
+			if t.Worktree != "" && p.Worktree == "" {
+				p.Worktree = t.Worktree
+			}
+			if p.Worktree != "" {
+				for _, v := range st.Tasks {
+					if v.Worktree == "" || v.Owner == "" || v.Archived || v.Status == "COMPLETED" || v.Status == "CANCELLED" {
+						continue
+					}
+					if v.Worktree == p.Worktree && v.Owner != actor && time.Until(v.LeaseUntil) > 0 {
+						return model.Event{}, fmt.Errorf("worktree %s is already leased by %s (task %s, expires %s)", p.Worktree, v.Owner, v.ID, v.LeaseUntil.Local().Format("15:04"))
+					}
+				}
+			}
 			payload = p
 		case model.TaskRenewed:
 			if t.Owner != actor {
