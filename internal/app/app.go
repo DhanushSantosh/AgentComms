@@ -481,7 +481,22 @@ func (c *cli) taskCmd() *cobra.Command {
 	_ = offer.MarkFlagRequired("id")
 	offer.Flags().StringVar(&to, "to", "", "principal")
 	offer.Flags().DurationVar(&offerTTL, "expires-in", time.Hour, "offer validity")
-	claim := payloadStatus(c, "task", "claim", func(string) any { return model.TaskClaimed{} })
+	var leaseDuration time.Duration
+	var claimRepo, claimWorktree string
+	claim := &cobra.Command{Use: "claim", RunE: func(cmd *cobra.Command, args []string) error {
+		id, _ := cmd.Flags().GetString("id")
+		lease := time.Now().UTC().Add(leaseDuration)
+		v, e := c.svc.Execute(c.actor, "task.claim", id, model.TaskClaimed{LeaseUntil: lease, Worktree: claimWorktree})
+		if e != nil {
+			return e
+		}
+		return c.emit("task.claim", v)
+	}}
+	claim.Flags().String("id", "", "task ID")
+	_ = claim.MarkFlagRequired("id")
+	claim.Flags().DurationVar(&leaseDuration, "duration", 4*time.Hour, "lease duration")
+	claim.Flags().StringVar(&claimRepo, "repo", "", "repository path (acquires working-directory lock)")
+	claim.Flags().StringVar(&claimWorktree, "worktree", "", "worktree path (acquires working-directory lock)")
 	start := simpleStatus(c, "task", "start")
 	var progress string
 	renew := payloadStatus(c, "task", "renew", func(string) any { return model.TaskRenewed{Progress: progress} })

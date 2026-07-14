@@ -53,6 +53,7 @@ type TaskOffered struct {
 type TaskClaimed struct {
 	LeaseUntil time.Time `json:"lease_until"`
 	OfferID    string    `json:"offer_id,omitempty"`
+	Worktree   string    `json:"worktree,omitempty"`
 }
 type TaskRenewed struct {
 	LeaseUntil time.Time `json:"lease_until"`
