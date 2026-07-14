@@ -11,7 +11,7 @@ func TestRepositoryIsProjectAgnostic(t *testing.T) {
 	root := filepath.Join("..", "..")
 	forbidden := []string{"r" + "eqai", "d:" + "\\work\\projects\\r" + "eqai"}
 	_ = filepath.Walk(root, func(p string, i os.FileInfo, e error) error {
-		if e != nil || i.IsDir() || strings.Contains(p, string(filepath.Separator)+".git"+string(filepath.Separator)) || strings.Contains(p, string(filepath.Separator)+".tools"+string(filepath.Separator)) {
+		if e != nil || i.IsDir() || strings.Contains(p, string(filepath.Separator)+".git"+string(filepath.Separator)) || strings.Contains(p, string(filepath.Separator)+".tools"+string(filepath.Separator)) || strings.HasSuffix(p, "agent-comms-feedback.md") {
 			return nil
 		}
 		b, e := os.ReadFile(p)

@@ -26,24 +26,14 @@ func TestVersionEnvelope(t *testing.T) {
 		t.Fatalf("bad envelope: %#v", v)
 	}
 }
-func TestInitRequiresGitAndNonInteractiveOwner(t *testing.T) {
+func TestInitInNonGitDir(t *testing.T) {
 	d := t.TempDir()
 	var out, err bytes.Buffer
-	e := Run([]string{"init", "--project", d, "--non-interactive", "--owner", "owner", "--json"}, &out, &err)
-	if e == nil {
-		t.Fatal("non-Git init succeeded")
-	}
-	cmd := exec.Command("git", "init")
-	cmd.Dir = d
-	if b, e := cmd.CombinedOutput(); e != nil {
-		t.Fatal(string(b))
-	}
 	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(d, "user"))
 	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(d, "credentials"))
-	out.Reset()
-	err.Reset()
-	if e = Run([]string{"init", "--project", d, "--non-interactive", "--owner", "owner", "--json"}, &out, &err); e != nil {
-		t.Fatal(e)
+	e := Run([]string{"init", "--project", d, "--non-interactive", "--owner", "owner", "--json"}, &out, &err)
+	if e != nil {
+		t.Fatalf("non-Git init should succeed: %v", e)
 	}
 }
 func TestCompletion(t *testing.T) {
