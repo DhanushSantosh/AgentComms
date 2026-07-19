@@ -11,7 +11,7 @@ import (
 	"github.com/DhanushSantosh/AgentComms/internal/service"
 )
 
-func TestSignalRoomResponsiveViews(t *testing.T) {
+func TestProjectControlResponsiveViews(t *testing.T) {
 	d := t.TempDir()
 	cmd := exec.Command("git", "init")
 	cmd.Dir = d
@@ -29,11 +29,40 @@ func TestSignalRoomResponsiveViews(t *testing.T) {
 		if e != nil {
 			t.Fatal(e)
 		}
-		for _, want := range []string{"AGENT COMMS", "Overview", "Attention queue", "Event chain"} {
+		for _, want := range []string{"AGENT COMMS", "PROJECT CONTROL", "AGENT WORKFORCE", "ATTENTION", "LIVE ACTIVITY"} {
 			if !strings.Contains(v, want) {
 				t.Errorf("%dx%d missing %q", size[0], size[1], want)
 			}
 		}
+	}
+}
+
+func TestProjectControlDirectNavigation(t *testing.T) {
+	d := t.TempDir()
+	cmd := exec.Command("git", "init")
+	cmd.Dir = d
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatal(string(output))
+	}
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(d, "user"))
+	instance := service.New(d)
+	instance.Store.SetCredentialStore(identity.NewMemoryStore())
+	if err := instance.Store.Init("owner"); err != nil {
+		t.Fatal(err)
+	}
+	view, err := New(instance, "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	next, _ := view.Update(tea.KeyPressMsg(tea.Key{Code: 'g'}))
+	view = next.(Model)
+	if views[view.view] != "Agents" {
+		t.Fatalf("g opened %q, want Agents", views[view.view])
+	}
+	next, _ = view.Update(tea.KeyPressMsg(tea.Key{Code: 'i'}))
+	view = next.(Model)
+	if views[view.view] != "Invocations" {
+		t.Fatalf("i opened %q, want Invocations", views[view.view])
 	}
 }
 
