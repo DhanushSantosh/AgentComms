@@ -24,6 +24,19 @@ var views = []string{
 	"Blockers", "Audit & health", "Activity", "Archive search",
 }
 
+type navigationHub struct {
+	Name  string
+	Views []string
+}
+
+var navigationHubs = []navigationHub{
+	{Name: "Command", Views: []string{"Overview", "My work", "Blockers", "Approvals"}},
+	{Name: "Work", Views: []string{"Tasks", "Documents", "Contracts & decisions", "Archive search"}},
+	{Name: "Team", Views: []string{"Agents", "Runtimes"}},
+	{Name: "Relay", Views: []string{"Inbox", "Invocations", "Activity"}},
+	{Name: "Project", Views: []string{"Project settings", "Audit & health"}},
+}
+
 type Model struct {
 	svc            *service.Service
 	state          model.State
@@ -124,44 +137,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "q", "ctrl+c":
 			return m, tea.Quit
 		case "up", "k":
-			if m.cursor > 0 {
-				m.cursor--
-			}
-			m.view = m.cursor
+			m.moveHub(-1)
 		case "down", "j":
-			if m.cursor < len(views)-1 {
-				m.cursor++
-			}
-			m.view = m.cursor
+			m.moveHub(1)
 		case "left":
-			m.view = m.cursor
+			m.moveHubView(-1)
 		case "right":
-			m.view = m.cursor
-			fallthrough
+			m.focusCurrentView()
+		case "[":
+			m.moveHubView(-1)
+		case "]":
+			m.moveHubView(1)
 		case "enter":
 			m.view = m.cursor
-			switch views[m.view] {
-			case "Tasks", "My work":
-				m.rowFocus = true
-				m.taskList.SetMineFilter(views[m.view] == "My work", m.state, m.actor)
-			case "Inbox":
-				m.rowFocus = true
-				m.messageList.Refresh(m.state, m.actor)
-			case "Approvals":
-				m.rowFocus = true
-				m.approvalList.Refresh(m.state, m.actor)
-			case "Agents":
-				m.rowFocus = true
-				m.agentList.Refresh(m.state, m.actor)
-			case "Invocations":
-				m.rowFocus = true
-				m.invocationList.Refresh(m.state, m.actor)
-			case "Runtimes":
-				m.rowFocus = true
-				m.runtimeList.Refresh(m.state, m.actor)
-			case "Project settings":
-				m.settingsFocus = true
-			}
+			m.focusCurrentView()
 		case "/", "ctrl+p":
 			m.palette = true
 		case "o":
@@ -201,6 +190,64 @@ func (m *Model) openView(name string) {
 			m.notice = "Opened " + name
 			return
 		}
+	}
+}
+
+func (m *Model) activeHubIndex() int {
+	current := views[m.view]
+	for hubIndex, hub := range navigationHubs {
+		for _, viewName := range hub.Views {
+			if viewName == current {
+				return hubIndex
+			}
+		}
+	}
+	return 0
+}
+
+func (m *Model) moveHub(delta int) {
+	next := max(0, min(len(navigationHubs)-1, m.activeHubIndex()+delta))
+	m.openView(navigationHubs[next].Views[0])
+	m.notice = ""
+}
+
+func (m *Model) moveHubView(delta int) {
+	hub := navigationHubs[m.activeHubIndex()]
+	current := views[m.view]
+	position := 0
+	for index, viewName := range hub.Views {
+		if viewName == current {
+			position = index
+			break
+		}
+	}
+	position = (position + delta + len(hub.Views)) % len(hub.Views)
+	m.openView(hub.Views[position])
+	m.notice = ""
+}
+
+func (m *Model) focusCurrentView() {
+	switch views[m.view] {
+	case "Tasks", "My work":
+		m.rowFocus = true
+		m.taskList.SetMineFilter(views[m.view] == "My work", m.state, m.actor)
+	case "Inbox":
+		m.rowFocus = true
+		m.messageList.Refresh(m.state, m.actor)
+	case "Approvals":
+		m.rowFocus = true
+		m.approvalList.Refresh(m.state, m.actor)
+	case "Agents":
+		m.rowFocus = true
+		m.agentList.Refresh(m.state, m.actor)
+	case "Invocations":
+		m.rowFocus = true
+		m.invocationList.Refresh(m.state, m.actor)
+	case "Runtimes":
+		m.rowFocus = true
+		m.runtimeList.Refresh(m.state, m.actor)
+	case "Project settings":
+		m.settingsFocus = true
 	}
 }
 func (m *Model) refresh() {
@@ -338,7 +385,7 @@ func colors(high bool) palette {
 	if high {
 		return palette{lipgloss.Color("#000000"), lipgloss.Color("#111111"), lipgloss.Color("#00FFFF"), lipgloss.Color("#FFFF00"), lipgloss.Color("#FF4444"), lipgloss.Color("#DD88FF"), lipgloss.Color("#BBBBBB"), lipgloss.Color("#FFFFFF")}
 	}
-	return palette{lipgloss.Color("#071019"), lipgloss.Color("#0E1C27"), lipgloss.Color("#39D7E7"), lipgloss.Color("#F0B95B"), lipgloss.Color("#F46A6A"), lipgloss.Color("#B69CFF"), lipgloss.Color("#78909C"), lipgloss.Color("#E8F1F5")}
+	return palette{lipgloss.Color("#071216"), lipgloss.Color("#0D2024"), lipgloss.Color("#56D6C9"), lipgloss.Color("#E8B85C"), lipgloss.Color("#F07167"), lipgloss.Color("#B9A7E8"), lipgloss.Color("#78918F"), lipgloss.Color("#D7E5E3")}
 }
 func (m Model) View() tea.View {
 	p := colors(m.highContrast)
@@ -359,63 +406,30 @@ func (m Model) View() tea.View {
 	return v
 }
 func (m Model) sidebarWidth() int {
-	titleW := lipgloss.Width("◉ AGENT COMMS")
-	maxNameW := titleW
-	for _, name := range views {
-		w := lipgloss.Width(name)
-		b := m.badge(name)
-		if b != "" {
-			w += lipgloss.Width(b) + 1
-		}
-		maxNameW = max(maxNameW, w)
+	if m.width < 72 {
+		return 16
 	}
-	ideal := maxNameW + 5
-	maxAllow := m.width / 3
-	if m.width < 60 {
-		maxAllow = m.width / 4
-	}
-	if ideal > maxAllow {
-		ideal = maxAllow
-	}
-	return max(16, ideal)
+	return 21
 }
 func (m Model) renderSidebar(p palette, w, h int) string {
-	title := lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("◉ AGENT COMMS")
+	title := lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("● AGENT COMMS")
 	sub := lipgloss.NewStyle().Foreground(p.muted).Render(truncate(m.projectID, max(8, w-2)))
-	rows := []string{title, sub, ""}
-	groups := map[int]string{
-		0: "CONTROL",
-		1: "WORK",
-		4: "PEOPLE",
-		5: "GOVERN",
-		9: "RECORDS",
-	}
-	showGroups := h >= 31
-	for i, name := range views {
-		if group := groups[i]; showGroups && group != "" {
-			if i > 0 {
-				rows = append(rows, "")
-			}
-			rows = append(rows, lipgloss.NewStyle().Foreground(p.muted).Faint(true).Render(group))
-		}
+	rows := []string{title, sub, "", lipgloss.NewStyle().Foreground(p.muted).Render("OPERATIONS"), ""}
+	activeHub := m.activeHubIndex()
+	for i, hub := range navigationHubs {
 		marker := "  "
 		style := lipgloss.NewStyle().Foreground(p.muted)
-		if i == m.cursor {
-			marker = "› "
+		if i == activeHub {
+			marker = "▌ "
 			style = style.Foreground(p.cyan).Bold(true)
 		}
-		badge := m.badge(name)
-		maxLabelW := w - 6
-		if badge != "" {
-			maxLabelW -= lipgloss.Width(badge) + 1
-		}
-		label := name
-		if lipgloss.Width(label) > maxLabelW {
-			label = label[:max(0, min(len(label), maxLabelW-1))] + "…"
-		}
-		rows = append(rows, style.Render(fmt.Sprintf("%s%s %s", marker, label, badge)))
+		rows = append(rows, style.Render(marker+hub.Name), "")
 	}
-	rows = append(rows, "", lipgloss.NewStyle().Foreground(p.muted).Render("[/] commands  [?] help"))
+	rows = append(rows,
+		"",
+		lipgloss.NewStyle().Foreground(p.muted).Render("↑↓ hub  [ ] tab"),
+		lipgloss.NewStyle().Foreground(p.muted).Render("[/] commands"),
+	)
 	return lipgloss.NewStyle().Width(w).Height(h).Padding(1).Background(p.ink).Foreground(p.text).Render(strings.Join(rows, "\n"))
 }
 func (m Model) badge(name string) string {
@@ -468,19 +482,16 @@ func (m Model) renderBody(p palette, w, h int) string {
 		title = "PROJECT CONTROL"
 	}
 	header := lipgloss.NewStyle().Foreground(p.text).Bold(true).Render(title)
-	meta := lipgloss.NewStyle().Foreground(p.muted).Render(fmt.Sprintf(
-		"%s  /  %s  ·  %s  ·  seq %d",
-		m.projectID, m.actor, empty(m.state.Integrity.Connectivity, "LOCAL"),
-		max(m.state.Integrity.ServerSequence, m.state.Integrity.CacheSequence),
-	))
+	meta := m.commandRail(p, w)
+	tabs := m.renderHubTabs(p, w)
 	pane := lipgloss.NewStyle().Width(w).Height(h).Padding(1, 2).Background(p.panel).Foreground(p.text)
 	if m.form != "" {
 		content := m.renderForm(p)
-		return pane.Render(header + "\n" + meta + "\n\n" + content)
+		return pane.Render(meta + "\n" + tabs + "\n\n" + header + "\n\n" + content)
 	}
 	if m.confirm != nil {
 		content := m.renderConfirm(p)
-		return pane.Render(header + "\n" + meta + "\n\n" + content)
+		return pane.Render(meta + "\n" + tabs + "\n\n" + header + "\n\n" + content)
 	}
 	contentW := max(30, w-4)
 	contentH := max(6, h-8)
@@ -523,29 +534,68 @@ func (m Model) renderBody(p palette, w, h int) string {
 	} else if m.notice != "" {
 		content += "\n\n" + lipgloss.NewStyle().Foreground(p.cyan).MaxWidth(contentW).Render(m.notice)
 	}
-	return pane.Render(header + "\n" + meta + "\n\n" + content)
+	return pane.Render(meta + "\n" + tabs + "\n\n" + header + "\n\n" + content)
+}
+
+func (m Model) commandRail(p palette, width int) string {
+	sequence := max(m.state.Integrity.ServerSequence, m.state.Integrity.CacheSequence)
+	freshness := empty(m.state.Integrity.Connectivity, "LOCAL")
+	left := lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("LIVE")
+	detail := fmt.Sprintf("  %s  ·  %s  ·  seq %d", truncate(m.actor, 18), freshness, sequence)
+	authority := strings.ToLower(string(m.state.Agents[m.actor].Role))
+	right := "authority " + empty(authority, "unknown")
+	gap := max(1, width-lipgloss.Width(left+detail)-lipgloss.Width(right)-4)
+	return left + lipgloss.NewStyle().Foreground(p.muted).Render(detail) +
+		strings.Repeat(" ", gap) + lipgloss.NewStyle().Foreground(p.amber).Render(right)
+}
+
+func (m Model) renderHubTabs(p palette, width int) string {
+	hub := navigationHubs[m.activeHubIndex()]
+	current := views[m.view]
+	tabs := make([]string, 0, len(hub.Views))
+	for _, name := range hub.Views {
+		label := name
+		style := lipgloss.NewStyle().Foreground(p.muted).Padding(0, 1)
+		if name == current {
+			style = style.Foreground(p.ink).Background(p.cyan).Bold(true)
+		}
+		tabs = append(tabs, style.Render(label))
+	}
+	return lipgloss.NewStyle().Width(width).BorderBottom(true).BorderStyle(lipgloss.NormalBorder()).
+		BorderForeground(p.muted).Render(strings.Join(tabs, " "))
 }
 func (m Model) renderForm(p palette) string {
 	title, hint := "Form", ""
 	if m.formSpec != nil {
 		title, hint = m.formSpec.Title, m.formSpec.Hint
 	}
-	rows := []string{lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render(title), lipgloss.NewStyle().Foreground(p.muted).Render(hint), ""}
-	for i, input := range m.inputs {
-		line := "  " + input.View()
-		if i == m.formFocus {
-			line = lipgloss.NewStyle().Foreground(p.cyan).Render("> ") + input.View()
-		}
-		rows = append(rows, line)
+	rows := []string{
+		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("EDIT / " + title),
+		lipgloss.NewStyle().Foreground(p.muted).Render(hint),
+		"",
 	}
-	rows = append(rows, "", lipgloss.NewStyle().Foreground(p.muted).Render("enter next/save | tab move | esc cancel"))
+	for i, input := range m.inputs {
+		marker := "  "
+		style := lipgloss.NewStyle().Foreground(p.text)
+		if i == m.formFocus {
+			marker = "▌ "
+			style = style.Foreground(p.cyan).Bold(true)
+		}
+		rows = append(rows, style.Render(marker)+input.View(), "")
+	}
+	rows = append(rows,
+		lipgloss.NewStyle().Foreground(p.muted).Render("Tab / Shift+Tab moves between fields"),
+		lipgloss.NewStyle().Foreground(p.amber).Render("Enter continues · final Enter reviews changes · Esc cancels"),
+	)
 	if m.notice != "" {
 		rows = append(rows, lipgloss.NewStyle().Foreground(p.amber).Render(m.notice))
 	}
 	if m.err != nil {
 		rows = append(rows, lipgloss.NewStyle().Foreground(p.red).Render(m.err.Error()))
 	}
-	return lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(p.cyan).Padding(1, 2).Render(strings.Join(rows, "\n"))
+	return lipgloss.NewStyle().BorderLeft(true).BorderStyle(lipgloss.ThickBorder()).
+		BorderForeground(p.cyan).PaddingLeft(2).MaxWidth(max(40, m.width-m.sidebarWidth()-10)).
+		Render(strings.Join(rows, "\n"))
 }
 func (m Model) overview(p palette) string {
 	contentWidth := max(28, m.width-m.sidebarWidth()-7)

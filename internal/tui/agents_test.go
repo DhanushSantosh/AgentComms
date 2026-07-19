@@ -49,7 +49,7 @@ func TestAgentActionsForStates(t *testing.T) {
 
 func enterAgentsView(t *testing.T, m Model) Model {
 	t.Helper()
-	for i := 0; i < 4; i++ {
+	for i := 0; i < 2; i++ {
 		m = pressKey(t, m, keyText("j"))
 	}
 	m = pressKey(t, m, keyEnter())

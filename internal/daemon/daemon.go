@@ -57,8 +57,9 @@ func New(cache *localcache.Cache, client authorityClient) (*Daemon, error) {
 func (d *Daemon) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health/live", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]string{
+		writeJSON(w, http.StatusOK, map[string]any{
 			"status": "live", "runtime_mode": d.runtimeMode, "project_id": d.projectID,
+			"protocol_version": controlplane.LocalDaemonProtocolVersion,
 		})
 	})
 	mux.HandleFunc("POST /v1/admin/shutdown", d.shutdownDaemon)

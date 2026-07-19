@@ -218,12 +218,14 @@ func (m Model) updateConfirm(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 func (m Model) renderConfirm(p palette) string {
 	rows := []string{
-		lipgloss.NewStyle().Foreground(p.amber).Bold(true).Render("Confirm"),
+		lipgloss.NewStyle().Foreground(p.amber).Bold(true).Render("REVIEW / Signed change"),
 		m.confirm.prompt,
 		"",
-		lipgloss.NewStyle().Foreground(p.muted).Render("[y] confirm    [n / esc] cancel"),
+		lipgloss.NewStyle().Foreground(p.muted).Render("This action becomes part of project history."),
+		lipgloss.NewStyle().Foreground(p.amber).Render("[y / enter] Sign and apply    [n / esc] Go back"),
 	}
-	return lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(p.amber).Padding(1, 2).Render(strings.Join(rows, "\n"))
+	return lipgloss.NewStyle().BorderLeft(true).BorderStyle(lipgloss.ThickBorder()).
+		BorderForeground(p.amber).PaddingLeft(2).Render(strings.Join(rows, "\n"))
 }
 func (m Model) dispatchEvent(typ, id string, payload any) (tea.Model, tea.Cmd) {
 	_, err := m.svc.Execute(m.actor, typ, id, payload)
