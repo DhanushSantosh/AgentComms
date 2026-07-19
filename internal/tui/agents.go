@@ -50,6 +50,23 @@ var activateForm = &ActionForm{
 		return model.AgentActivated{Role: model.Role(role), Capabilities: splitCSV(v[1]), Scopes: splitCSV(v[2])}, nil
 	},
 }
+var invocationPolicyForm = &ActionForm{
+	Title: "Invocation policy",
+	Hint:  "Controls which agents may wake this target. Sensitive work can remain human-gated.",
+	Fields: []FormField{
+		{Label: "Mode (MANUAL/TRUSTED/AUTOMATIC/DISABLED)", Placeholder: "MANUAL", Required: true},
+		{Label: "Trusted actors (comma-separated)", Placeholder: ""},
+		{Label: "Allowed scopes (comma-separated)", Placeholder: "src"},
+		{Label: "Require human for sensitive (yes/no)", Placeholder: "yes", Required: true},
+	},
+	Build: func(values []string) (any, error) {
+		requireHuman := strings.EqualFold(values[3], "yes") || strings.EqualFold(values[3], "true")
+		return model.InvocationPolicyUpdated{
+			Mode: strings.ToUpper(values[0]), TrustedActors: splitCSV(values[1]),
+			AllowedScopes: splitCSV(values[2]), RequireHumanForSensitive: requireHuman,
+		}, nil
+	},
+}
 
 var (
 	actActivate = RowAction{Key: "a", Label: "activate", EventType: "agent.activate", Form: activateForm}
@@ -72,6 +89,9 @@ var (
 			return m, nil
 		},
 	}
+	actInvocationPolicy = RowAction{
+		Key: "p", Label: "policy", EventType: "invocation.policy.update", Form: invocationPolicyForm,
+	}
 )
 
 // agentActionsFor mirrors service.go's elevated() gate: activate and suspend
@@ -88,6 +108,9 @@ func agentActionsFor(a model.Agent, id, actor string, role model.Role) []RowActi
 			acts = append(acts, actActivate)
 		case "ACTIVE":
 			acts = append(acts, actSuspend)
+		}
+		if a.PrincipalType == model.PrincipalAgent && a.Status == "ACTIVE" {
+			acts = append(acts, actInvocationPolicy)
 		}
 	}
 	if elevated && id == actor {

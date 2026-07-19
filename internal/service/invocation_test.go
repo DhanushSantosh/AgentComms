@@ -160,3 +160,29 @@ func TestInvocationDeliveryDeadLettersOnlyAtAttemptLimit(t *testing.T) {
 		t.Fatalf("invocation did not dead-letter: %+v", state.Invocations["inv-dead"])
 	}
 }
+
+func TestInvocationRequesterCanCancelActiveWork(t *testing.T) {
+	instance := setup(t)
+	activate(t, instance, "builder", model.PrincipalAgent)
+	activate(t, instance, "requester", model.PrincipalAgent)
+	must(t, instance, "owner", "invocation.policy.update", "builder", model.InvocationPolicyUpdated{
+		Mode: "AUTOMATIC",
+	})
+	must(t, instance, "requester", "invocation.request", "inv-cancel", model.InvocationRequested{
+		Target: "builder", Instruction: "Work that is no longer needed",
+	})
+	must(t, instance, "requester", "invocation.cancel", "inv-cancel", model.InvocationRejected{
+		Reason: "superseded by a newer request",
+	})
+	state, err := instance.State()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Invocations["inv-cancel"].Status != "CANCELLED" {
+		t.Fatalf("invocation was not cancelled: %+v", state.Invocations["inv-cancel"])
+	}
+	if _, err = instance.Execute("builder", "invocation.claim", "inv-cancel",
+		model.InvocationClaimed{RuntimeID: "runtime"}); err == nil {
+		t.Fatal("cancelled invocation was claimable")
+	}
+}

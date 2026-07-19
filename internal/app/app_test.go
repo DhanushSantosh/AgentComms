@@ -153,4 +153,13 @@ func TestInvocationAndRuntimeCLIWorkflow(t *testing.T) {
 	if !bytes.Contains(out.Bytes(), []byte(`"status":"COMPLETED"`)) {
 		t.Fatalf("CLI did not return the completed invocation: %s", out.String())
 	}
+	run("control", "overview")
+	if !bytes.Contains(out.Bytes(), []byte(`"online_runtimes"`)) ||
+		!bytes.Contains(out.Bytes(), []byte(`"invocations_completed":1`)) {
+		t.Fatalf("control overview did not summarize project state: %s", out.String())
+	}
+	run("control", "settings")
+	if !bytes.Contains(out.Bytes(), []byte(`"max_delivery_attempts":10`)) {
+		t.Fatalf("control settings omitted invocation limits: %s", out.String())
+	}
 }

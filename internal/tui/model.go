@@ -18,30 +18,36 @@ import (
 	"github.com/fsnotify/fsnotify"
 )
 
-var views = []string{"Overview", "My work", "Tasks", "Inbox", "Agents", "Approvals", "Documents", "Contracts & decisions", "Blockers", "Integrity & sync", "Activity", "Archive search"}
+var views = []string{
+	"Overview", "My work", "Tasks", "Inbox", "Agents", "Approvals", "Invocations",
+	"Runtimes", "Project settings", "Documents", "Contracts & decisions",
+	"Blockers", "Audit & health", "Activity", "Archive search",
+}
 
 type Model struct {
-	svc           *service.Service
-	state         model.State
-	actor         string
-	width, height int
-	view, cursor  int
-	palette       bool
-	query, notice string
-	err           error
-	highContrast  bool
-	form          string
-	inputs        []textinput.Model
-	formFocus     int
-	formTaskID    string
-	formSpec      *ActionForm
-	rowFocus      bool
-	taskList      RowList
-	messageList   RowList
-	approvalList  RowList
-	agentList     RowList
-	confirm       *confirmState
-	watcher       *fsnotify.Watcher
+	svc            *service.Service
+	state          model.State
+	actor          string
+	width, height  int
+	view, cursor   int
+	palette        bool
+	query, notice  string
+	err            error
+	highContrast   bool
+	form           string
+	inputs         []textinput.Model
+	formFocus      int
+	formTaskID     string
+	formSpec       *ActionForm
+	rowFocus       bool
+	taskList       RowList
+	messageList    RowList
+	approvalList   RowList
+	agentList      RowList
+	invocationList RowList
+	runtimeList    RowList
+	confirm        *confirmState
+	watcher        *fsnotify.Watcher
 }
 
 func New(s *service.Service, actor string) (Model, error) {
@@ -50,7 +56,12 @@ func New(s *service.Service, actor string) (Model, error) {
 	if uc, err := identity.LoadUserConfig(); err == nil && uc.Theme == "high-contrast" {
 		hc = true
 	}
-	return Model{svc: s, state: st, actor: actor, width: 100, height: 30, highContrast: hc, taskList: newRowList(taskRowSource{}), messageList: newRowList(messageRowSource{}), approvalList: newRowList(approvalRowSource{}), agentList: newRowList(agentRowSource{})}, e
+	return Model{
+		svc: s, state: st, actor: actor, width: 100, height: 30, highContrast: hc,
+		taskList: newRowList(taskRowSource{}), messageList: newRowList(messageRowSource{}),
+		approvalList: newRowList(approvalRowSource{}), agentList: newRowList(agentRowSource{}),
+		invocationList: newRowList(invocationRowSource{}), runtimeList: newRowList(runtimeRowSource{}),
+	}, e
 }
 func (m Model) Init() tea.Cmd {
 	if m.watcher != nil {
@@ -132,6 +143,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "Agents":
 				m.rowFocus = true
 				m.agentList.Refresh(m.state, m.actor)
+			case "Invocations":
+				m.rowFocus = true
+				m.invocationList.Refresh(m.state, m.actor)
+			case "Runtimes":
+				m.rowFocus = true
+				m.runtimeList.Refresh(m.state, m.actor)
 			}
 		case "/", "ctrl+p":
 			m.palette = true
@@ -182,6 +199,8 @@ func (m *Model) refreshLists() {
 	m.messageList.Refresh(m.state, m.actor)
 	m.approvalList.Refresh(m.state, m.actor)
 	m.agentList.Refresh(m.state, m.actor)
+	m.invocationList.Refresh(m.state, m.actor)
+	m.runtimeList.Refresh(m.state, m.actor)
 }
 func (m *Model) applyPalette() {
 	q := strings.ToLower(strings.TrimSpace(m.query))
@@ -369,6 +388,19 @@ func (m Model) badge(name string) string {
 		}
 	case "Agents":
 		n = len(m.state.Agents)
+	case "Invocations":
+		for _, invocation := range m.state.Invocations {
+			if invocation.Status != "COMPLETED" && invocation.Status != "REJECTED" &&
+				invocation.Status != "EXPIRED" && invocation.Status != "CANCELLED" {
+				n++
+			}
+		}
+	case "Runtimes":
+		for _, runtime := range m.state.AgentRuntimes {
+			if runtime.Status == "ONLINE" {
+				n++
+			}
+		}
 	case "Approvals":
 		for _, x := range m.state.Approvals {
 			if x.Status == "PENDING" {
@@ -413,15 +445,21 @@ func (m Model) renderBody(p palette, w, h int) string {
 		bodyContent = m.messageList.View(p, m.state, m.actor, contentW, contentH)
 	case "Agents":
 		bodyContent = m.agentList.View(p, m.state, m.actor, contentW, contentH)
+	case "Invocations":
+		bodyContent = m.invocationList.View(p, m.state, m.actor, contentW, contentH)
+	case "Runtimes":
+		bodyContent = m.runtimeList.View(p, m.state, m.actor, contentW, contentH)
 	case "Approvals":
 		bodyContent = m.approvalList.View(p, m.state, m.actor, contentW, contentH)
 	case "Documents":
 		bodyContent = wrap.Render(m.documents(p))
 	case "Contracts & decisions":
 		bodyContent = wrap.Render(m.decisions(p))
+	case "Project settings":
+		bodyContent = wrap.Render(m.projectSettings(p))
 	case "Blockers":
 		bodyContent = wrap.Render(m.blockers(p))
-	case "Integrity & sync":
+	case "Audit & health":
 		bodyContent = wrap.Render(m.integrity(p))
 	case "Activity":
 		bodyContent = wrap.Render(m.chain(p))
@@ -462,7 +500,7 @@ func box(p palette, title, value, detail string) string {
 	return lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(p.muted).Width(21).Padding(0, 1).Render(lipgloss.NewStyle().Foreground(p.muted).Render(title) + "\n" + lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render(value) + "\n" + detail)
 }
 func (m Model) overview(p palette) string {
-	open, blocked, pending := 0, 0, 0
+	open, blocked, pending, online, running, waiting, failedDeliveries := 0, 0, 0, 0, 0, 0, 0
 	for _, t := range m.state.Tasks {
 		if !t.Archived && t.Status != "COMPLETED" && t.Status != "CANCELLED" {
 			open++
@@ -476,8 +514,38 @@ func (m Model) overview(p palette) string {
 			pending++
 		}
 	}
-	cards := lipgloss.JoinHorizontal(lipgloss.Top, box(p, "ACTIVE WORK", fmt.Sprint(open), "tasks in motion"), " ", box(p, "NEEDS ATTENTION", fmt.Sprint(blocked+pending), "blocks + approvals"), " ", box(p, "INTEGRITY", map[bool]string{true: "VERIFIED", false: "FAILED"}[m.state.Integrity.Verified], fmt.Sprintf("%d signed events", m.state.Integrity.EventCount)))
-	return cards + "\n\n" + lipgloss.NewStyle().Foreground(p.amber).Bold(true).Render("Attention queue") + "\n" + m.attention(p) + "\n\n" + lipgloss.NewStyle().Foreground(p.violet).Bold(true).Render("Event chain") + "\n" + m.chain(p)
+	for _, runtime := range m.state.AgentRuntimes {
+		if runtime.Status == "ONLINE" {
+			online++
+		}
+	}
+	for _, invocation := range m.state.Invocations {
+		switch invocation.Status {
+		case "RUNNING", "CLAIMED":
+			running++
+		case "WAITING":
+			waiting++
+		case "DEAD_LETTER":
+			failedDeliveries++
+		}
+	}
+	cards := lipgloss.JoinHorizontal(
+		lipgloss.Top,
+		box(p, "AGENT WORKFORCE", fmt.Sprintf("%d / %d", online, len(m.state.Agents)), "online / registered"),
+		" ", box(p, "ACTIVE WORK", fmt.Sprintf("%d + %d", open, running), "tasks + invocations"),
+		" ", box(p, "NEEDS ATTENTION", fmt.Sprint(blocked+pending+waiting+failedDeliveries), "blocks · approvals · waits"),
+	)
+	connection := fmt.Sprintf(
+		"%s · server %d · cache %d",
+		empty(m.state.Integrity.Connectivity, "LOCAL"),
+		m.state.Integrity.ServerSequence, m.state.Integrity.CacheSequence,
+	)
+	return cards + "\n\n" +
+		lipgloss.NewStyle().Foreground(p.muted).Render(connection) + "\n\n" +
+		lipgloss.NewStyle().Foreground(p.amber).Bold(true).Render("Attention queue") + "\n" +
+		m.attention(p) + "\n\n" +
+		lipgloss.NewStyle().Foreground(p.violet).Bold(true).Render("Event chain · live project activity") + "\n" +
+		m.chain(p)
 }
 func (m Model) attention(p palette) string {
 	rows := []string{}
@@ -494,10 +562,60 @@ func (m Model) attention(p palette) string {
 			rows = append(rows, "◆ "+a.ID+"  approval: "+a.Action)
 		}
 	}
+	for _, invocation := range m.state.Invocations {
+		switch invocation.Status {
+		case "WAITING":
+			rows = append(rows, "◫ "+invocation.ID+"  "+invocation.Target+" waits: "+invocation.Reason)
+		case "DEAD_LETTER":
+			rows = append(rows, "✕ "+invocation.ID+"  delivery failed: "+invocation.Reason)
+		case "PENDING":
+			rows = append(rows, "→ "+invocation.ID+"  pending delivery to "+invocation.Target)
+		}
+	}
+	for _, runtime := range m.state.AgentRuntimes {
+		if runtime.Status == "REVOKED" || runtime.Health == "DEGRADED" {
+			rows = append(rows, "● "+runtime.ID+"  "+runtime.Status+" · "+runtime.Health)
+		}
+	}
 	if len(rows) == 0 {
 		return lipgloss.NewStyle().Foreground(p.muted).Render("No urgent coordination items. Open a task or review project activity.")
 	}
 	sort.Strings(rows)
+	return strings.Join(rows, "\n")
+}
+
+func (m Model) projectSettings(p palette) string {
+	rows := []string{
+		"AGENT             MODE        TRUSTED ACTORS              SENSITIVE",
+	}
+	for _, agentID := range service.SortedKeys(m.state.Agents) {
+		agent := m.state.Agents[agentID]
+		if agent.PrincipalType != model.PrincipalAgent {
+			continue
+		}
+		policy, configured := m.state.InvocationPolicies[agentID]
+		if !configured {
+			policy = model.InvocationPolicy{AgentID: agentID, Mode: "MANUAL", RequireHumanForSensitive: true}
+		}
+		sensitive := "no"
+		if policy.RequireHumanForSensitive {
+			sensitive = "yes"
+		}
+		rows = append(rows, fmt.Sprintf(
+			"%-17s %-11s %-27s %s",
+			agentID, policy.Mode, strings.Join(policy.TrustedActors, ","), sensitive,
+		))
+	}
+	rows = append(rows, "", "Project control:")
+	rows = append(rows,
+		fmt.Sprintf("  Consistency: %s", empty(m.state.Integrity.Consistency, "LEGACY_LOCAL")),
+		fmt.Sprintf("  Connectivity: %s", empty(m.state.Integrity.Connectivity, "LOCAL")),
+		fmt.Sprintf("  Active agents: %d", len(m.state.Agents)),
+		fmt.Sprintf("  Registered runtimes: %d", len(m.state.AgentRuntimes)),
+		"",
+		"Open Agents and press p to change an invocation policy.",
+		"Open Runtimes to drain, resume, or revoke an agent runtime.",
+	)
 	return strings.Join(rows, "\n")
 }
 func (m Model) documents(p palette) string {
@@ -546,7 +664,7 @@ func (m Model) integrity(p palette) string {
 	if !m.state.Integrity.Verified {
 		mark = "✕"
 	}
-	return fmt.Sprintf("%s Chain verified: %t\n  Signed events: %d\n  Head commit: %s\n  Checkpoint: %s\n  Remote: %s\n\nRun `agent-comms verify` before recovery or migration.", mark, m.state.Integrity.Verified, m.state.Integrity.EventCount, m.state.Integrity.Head, m.state.Integrity.SyncState, empty(m.state.Integrity.Remote, "not configured"))
+	return fmt.Sprintf("%s Chain verified: %t\n  Signed events: %d\n  Head: %s\n  Checkpoint: %s\n  Remote: %s\n  Consistency: %s\n  Connectivity: %s\n  Server sequence: %d\n  Cache sequence: %d\n\nRun `agent-comms verify` before recovery or migration.", mark, m.state.Integrity.Verified, m.state.Integrity.EventCount, m.state.Integrity.Head, m.state.Integrity.SyncState, empty(m.state.Integrity.Remote, "not configured"), empty(m.state.Integrity.Consistency, "LEGACY_LOCAL"), empty(m.state.Integrity.Connectivity, "LOCAL"), m.state.Integrity.ServerSequence, m.state.Integrity.CacheSequence)
 }
 func (m Model) chain(p palette) string {
 	after := max(0, m.state.Integrity.EventCount-7)
