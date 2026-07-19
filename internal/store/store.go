@@ -24,18 +24,24 @@ const Runtime = ".agent-comms"
 var RuntimeVersion = "dev"
 
 type Config struct {
-	SchemaVersion      string `json:"schema_version"`
-	ToolkitVersion     string `json:"toolkit_version,omitempty"`
-	ProjectID          string `json:"project_id"`
-	Owner              string `json:"owner"`
-	DefaultLease       string `json:"default_lease"`
-	StaleGrace         string `json:"stale_grace"`
-	ActiveRetention    string `json:"active_retention"`
-	SummaryLimit       int    `json:"summary_limit"`
-	ArtifactLimitBytes int64  `json:"artifact_limit_bytes"`
-	RequireReview      bool   `json:"require_review"`
-	AdoptionRequired   bool   `json:"adoption_required,omitempty"`
-	AutoSync           bool   `json:"auto_sync,omitempty"`
+	SchemaVersion      string     `json:"schema_version"`
+	ToolkitVersion     string     `json:"toolkit_version,omitempty"`
+	RuntimeMode        string     `json:"runtime_mode,omitempty"`
+	AuthorityURL       string     `json:"authority_url,omitempty"`
+	ServicePublicKey   string     `json:"service_public_key,omitempty"`
+	DaemonEndpoint     string     `json:"daemon_endpoint,omitempty"`
+	LegacyReadOnly     bool       `json:"legacy_read_only,omitempty"`
+	MigratedAt         *time.Time `json:"migrated_at,omitempty"`
+	ProjectID          string     `json:"project_id"`
+	Owner              string     `json:"owner"`
+	DefaultLease       string     `json:"default_lease"`
+	StaleGrace         string     `json:"stale_grace"`
+	ActiveRetention    string     `json:"active_retention"`
+	SummaryLimit       int        `json:"summary_limit"`
+	ArtifactLimitBytes int64      `json:"artifact_limit_bytes"`
+	RequireReview      bool       `json:"require_review"`
+	AdoptionRequired   bool       `json:"adoption_required,omitempty"`
+	AutoSync           bool       `json:"auto_sync,omitempty"`
 }
 type Store struct {
 	Root        string
@@ -235,7 +241,35 @@ func (s *Store) Append(actor, typ, entity string, payload any) (model.Event, err
 }
 
 func (s *Store) AppendWithCredential(actor, typ, entity string, payload any, cred identity.Credential) (model.Event, error) {
-	cfg, _ := s.Config()
+	return s.MutateWithCredential(actor, cred, func() (string, string, any, error) {
+		return typ, entity, payload, nil
+	})
+}
+
+// Mutate resolves the actor credential and executes prepare while holding the
+// cross-process transaction lock. Callers must perform all state-dependent
+// validation in prepare so the validated projection cannot become stale
+// before the event is appended.
+func (s *Store) Mutate(actor string, prepare func() (string, string, any, error)) (model.Event, error) {
+	cfg, err := s.Config()
+	if err != nil {
+		return model.Event{}, err
+	}
+	cred, err := identity.ResolveCredential(s.Credentials, cfg.ProjectID, actor)
+	if err != nil {
+		return model.Event{}, fmt.Errorf("credential for %s: %w", actor, err)
+	}
+	return s.MutateWithCredential(actor, cred, prepare)
+}
+
+func (s *Store) MutateWithCredential(actor string, cred identity.Credential, prepare func() (string, string, any, error)) (model.Event, error) {
+	cfg, err := s.Config()
+	if err != nil {
+		return model.Event{}, err
+	}
+	if cfg.LegacyReadOnly || cfg.RuntimeMode == "service" {
+		return model.Event{}, errors.New("legacy runtime is read-only after service cutover")
+	}
 	release, e := s.acquire(actor)
 	if e != nil {
 		return model.Event{}, e
@@ -247,6 +281,10 @@ func (s *Store) AppendWithCredential(actor, typ, entity string, payload any, cre
 		}
 	}
 	if e = s.Recover(); e != nil {
+		return model.Event{}, e
+	}
+	typ, entity, payload, e := prepare()
+	if e != nil {
 		return model.Event{}, e
 	}
 	raw, e := model.EncodePayload(typ, payload)
@@ -307,6 +345,85 @@ func (s *Store) AppendWithCredential(actor, typ, entity string, payload any, cre
 		}
 	}
 	return ev, nil
+}
+
+func ServiceBootstrap() []byte {
+	return []byte("# Agent Comms managed bootstrap\nruntime = .agent-comms\nmode = service\ninstructions = .agent-comms/AGENT_INSTRUCTIONS.md\n")
+}
+
+func (s *Store) ActivateServiceMode(authorityURL, servicePublicKey, daemonEndpoint string, receipt any) error {
+	if strings.TrimSpace(authorityURL) == "" || strings.TrimSpace(servicePublicKey) == "" || strings.TrimSpace(daemonEndpoint) == "" {
+		return errors.New("authority URL, service public key, and daemon endpoint are required")
+	}
+	release, err := s.acquire("migration")
+	if err != nil {
+		return err
+	}
+	defer release()
+	if err = s.Verify(); err != nil {
+		return fmt.Errorf("verify legacy runtime before service cutover: %w", err)
+	}
+	cfg, err := s.Config()
+	if err != nil {
+		return err
+	}
+	if cfg.RuntimeMode == "service" {
+		if cfg.AuthorityURL == authorityURL && cfg.ServicePublicKey == servicePublicKey && cfg.DaemonEndpoint == daemonEndpoint {
+			return nil
+		}
+		return errors.New("service mode is already active with different configuration")
+	}
+	migrationDir := filepath.Join(s.runtime(), "migrations", "service-cutover")
+	if err = os.MkdirAll(migrationDir, 0o700); err != nil {
+		return err
+	}
+	originalConfig, err := os.ReadFile(filepath.Join(s.runtime(), "config.json"))
+	if err != nil {
+		return err
+	}
+	if err = writeFileSync(filepath.Join(migrationDir, "legacy-config.json"), originalConfig, 0o600); err != nil && !os.IsExist(err) {
+		return err
+	}
+	receiptJSON, err := json.MarshalIndent(receipt, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err = writeFileSync(filepath.Join(migrationDir, "import-receipt.json"), append(receiptJSON, '\n'), 0o600); err != nil && !os.IsExist(err) {
+		return err
+	}
+	now := s.Now()
+	cfg.RuntimeMode = "service"
+	cfg.AuthorityURL = authorityURL
+	cfg.ServicePublicKey = servicePublicKey
+	cfg.DaemonEndpoint = daemonEndpoint
+	cfg.LegacyReadOnly = true
+	cfg.MigratedAt = &now
+	nextConfig, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	configTmp := filepath.Join(s.runtime(), "config.json.service.tmp")
+	if err = writeFileSync(configTmp, append(nextConfig, '\n'), 0o600); err != nil {
+		return err
+	}
+	bootstrap := filepath.Join(s.Root, ".agents")
+	bootstrapTmp := bootstrap + ".service.tmp"
+	if err = writeFileSync(bootstrapTmp, ServiceBootstrap(), 0o644); err != nil {
+		_ = os.Remove(configTmp)
+		return err
+	}
+	if err = os.Rename(configTmp, filepath.Join(s.runtime(), "config.json")); err != nil {
+		_ = os.Remove(bootstrapTmp)
+		return err
+	}
+	if err = os.Rename(bootstrapTmp, bootstrap); err != nil {
+		_ = os.WriteFile(filepath.Join(s.runtime(), "config.json"), originalConfig, 0o600)
+		return err
+	}
+	if err = s.git("add", "config.json", "migrations/service-cutover"); err != nil {
+		return err
+	}
+	return s.git("commit", "--no-gpg-sign", "-m", "Activate authoritative service mode")
 }
 func (s *Store) Events() ([]model.Event, error) {
 	fs, e := filepath.Glob(filepath.Join(s.runtime(), "events", "*.json"))

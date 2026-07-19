@@ -122,6 +122,55 @@ func TestConcurrentWritersAndIntegrity(t *testing.T) {
 		t.Fatal(e)
 	}
 }
+
+func TestConcurrentClaimsRevalidateInsideTransaction(t *testing.T) {
+	s := setup(t)
+	activate(t, s, "alpha", model.PrincipalAgent)
+	activate(t, s, "beta", model.PrincipalAgent)
+	must(t, s, "owner", "task.create", "exclusive", model.TaskCreated{
+		Title: "Exclusive work", Repository: "local", Branch: "feature",
+		Resources: []string{"src/exclusive"},
+	})
+
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	var writers sync.WaitGroup
+	for _, actor := range []string{"alpha", "beta"} {
+		writers.Add(1)
+		go func(actor string) {
+			defer writers.Done()
+			<-start
+			_, err := s.Execute(actor, "task.claim", "exclusive", model.TaskClaimed{})
+			results <- err
+		}(actor)
+	}
+	close(start)
+	writers.Wait()
+	close(results)
+
+	successes := 0
+	failures := 0
+	for err := range results {
+		if err == nil {
+			successes++
+		} else {
+			failures++
+		}
+	}
+	if successes != 1 || failures != 1 {
+		t.Fatalf("concurrent claims: successes=%d failures=%d", successes, failures)
+	}
+	if err := s.Store.Verify(); err != nil {
+		t.Fatal(err)
+	}
+	state, err := s.State()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Tasks["exclusive"].Owner == "" {
+		t.Fatal("successful claim did not establish an owner")
+	}
+}
 func TestBusyError(t *testing.T) {
 	s := setup(t)
 	s.Store.LockTimeout = 50 * time.Millisecond

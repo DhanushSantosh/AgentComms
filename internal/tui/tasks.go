@@ -84,7 +84,9 @@ var (
 	actTakeover      = RowAction{
 		Key: "t", Label: "takeover", EventType: "task.takeover", Confirm: true,
 		Payload: func() any { return model.TaskStatus{} },
-		Prompt:  func(id string) string { return "Take over " + id + "? This requires an existing approved `task.takeover:" + id + "` approval." },
+		Prompt: func(id string) string {
+			return "Take over " + id + "? This requires an existing approved `task.takeover:" + id + "` approval."
+		},
 		OnError: func(err error, id string) error {
 			return fmt.Errorf("%w — request one via `agent-comms approval request --action task.takeover:%s`", err, id)
 		},

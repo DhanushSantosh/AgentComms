@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/DhanushSantosh/AgentComms/internal/identity"
 	"github.com/DhanushSantosh/AgentComms/internal/store"
 	"github.com/fsnotify/fsnotify"
 )
@@ -22,6 +23,11 @@ func (m *Model) EnableFileWatch() {
 		return
 	}
 	dir := filepath.Join(m.svc.Store.Root, store.Runtime, "events")
+	if cfg, cfgErr := m.svc.Store.Config(); cfgErr == nil && cfg.RuntimeMode == "service" {
+		if configDir, dirErr := identity.ConfigDir(); dirErr == nil {
+			dir = configDir
+		}
+	}
 	if err := w.Add(dir); err != nil {
 		_ = w.Close()
 		return

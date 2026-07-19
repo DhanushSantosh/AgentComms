@@ -33,7 +33,9 @@ var (
 	appReject  = RowAction{
 		Key: "x", Label: "reject", EventType: "approval.reject", Confirm: true,
 		Payload: func() any { return model.ApprovalResponse{} },
-		Prompt:  func(id string) string { return "Reject approval " + id + "? The requester will need to submit a new request." },
+		Prompt: func(id string) string {
+			return "Reject approval " + id + "? The requester will need to submit a new request."
+		},
 	}
 )
 

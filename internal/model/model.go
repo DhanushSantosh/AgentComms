@@ -3,24 +3,29 @@ package model
 import (
 	"encoding/json"
 	"time"
+
+	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
 )
 
 const SchemaVersion = "2.0.0"
 
 type Event struct {
-	SchemaVersion  string          `json:"schema_version"`
-	PayloadVersion int             `json:"payload_version"`
-	ID             string          `json:"id"`
-	Sequence       uint64          `json:"sequence"`
-	Time           time.Time       `json:"time"`
-	Actor          string          `json:"actor"`
-	Type           string          `json:"type"`
-	EntityID       string          `json:"entity_id,omitempty"`
-	Data           json.RawMessage `json:"data,omitempty"`
-	PreviousHash   string          `json:"previous_hash,omitempty"`
-	Hash           string          `json:"hash"`
-	Signature      string          `json:"signature"`
-	KeyFingerprint string          `json:"key_fingerprint"`
+	SchemaVersion  string                `json:"schema_version"`
+	PayloadVersion int                   `json:"payload_version"`
+	ID             string                `json:"id"`
+	Sequence       uint64                `json:"sequence"`
+	Time           time.Time             `json:"time"`
+	Actor          string                `json:"actor"`
+	Type           string                `json:"type"`
+	EntityID       string                `json:"entity_id,omitempty"`
+	Data           json.RawMessage       `json:"data,omitempty"`
+	PreviousHash   string                `json:"previous_hash,omitempty"`
+	Hash           string                `json:"hash"`
+	Signature      string                `json:"signature"`
+	KeyFingerprint string                `json:"key_fingerprint"`
+	ServerReceipt  *controlplane.Receipt `json:"server_receipt,omitempty"`
+	Consistency    string                `json:"consistency,omitempty"`
+	Connectivity   string                `json:"connectivity,omitempty"`
 }
 type Agent struct {
 	ID             string        `json:"id"`
@@ -95,14 +100,14 @@ type Artifact struct {
 	Storage   string `json:"storage"`
 }
 type Document struct {
-	ID        string   `json:"id"`
-	Title     string   `json:"title"`
-	Body      string   `json:"body"`
-	Tags      []string `json:"tags,omitempty"`
-	Status    string   `json:"status"`
-	Version   int      `json:"version"`
-	Author    string   `json:"author"`
-	Supersedes string  `json:"supersedes,omitempty"`
+	ID         string   `json:"id"`
+	Title      string   `json:"title"`
+	Body       string   `json:"body"`
+	Tags       []string `json:"tags,omitempty"`
+	Status     string   `json:"status"`
+	Version    int      `json:"version"`
+	Author     string   `json:"author"`
+	Supersedes string   `json:"supersedes,omitempty"`
 }
 type EnvEntry struct {
 	Key       string    `json:"key"`
@@ -111,12 +116,16 @@ type EnvEntry struct {
 	UpdatedBy string    `json:"updated_by"`
 }
 type Integrity struct {
-	Verified      bool   `json:"verified"`
-	EventCount    int    `json:"event_count"`
-	Head          string `json:"head,omitempty"`
-	UnknownEvents int    `json:"unknown_events"`
-	Remote        string `json:"remote,omitempty"`
-	SyncState     string `json:"sync_state"`
+	Verified       bool   `json:"verified"`
+	EventCount     int    `json:"event_count"`
+	Head           string `json:"head,omitempty"`
+	UnknownEvents  int    `json:"unknown_events"`
+	Remote         string `json:"remote,omitempty"`
+	SyncState      string `json:"sync_state"`
+	Consistency    string `json:"consistency,omitempty"`
+	ServerSequence uint64 `json:"server_sequence,omitempty"`
+	CacheSequence  uint64 `json:"cache_sequence,omitempty"`
+	Connectivity   string `json:"connectivity,omitempty"`
 }
 type State struct {
 	Agents    map[string]Agent          `json:"agents"`

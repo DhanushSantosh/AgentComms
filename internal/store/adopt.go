@@ -554,7 +554,14 @@ func (s *Store) CutoverIncomplete() (bool, string) {
 
 func (s *Store) ManagedBootstrapValid() bool {
 	b, e := os.ReadFile(filepath.Join(s.Root, ".agents"))
-	return e == nil && bytes.Equal(b, ManagedBootstrap())
+	if e != nil {
+		return false
+	}
+	cfg, cfgErr := s.Config()
+	if cfgErr == nil && cfg.RuntimeMode == "service" {
+		return bytes.Equal(b, ServiceBootstrap())
+	}
+	return bytes.Equal(b, ManagedBootstrap())
 }
 
 func (s *Store) InstructionsPresent() bool {

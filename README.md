@@ -24,6 +24,7 @@ Source build:
 
 ```sh
 go install github.com/DhanushSantosh/AgentComms/cmd/agent-comms@latest
+go install github.com/DhanushSantosh/AgentComms/cmd/agent-comms-server@latest
 ```
 
 ## Start a project
@@ -82,6 +83,16 @@ Private actor keys are stored in Windows Credential Manager, macOS Keychain, or 
 - `agent-comms env set/get/delete/list` manages a typed per-project environment registry.
 - `agent-comms sync setup/status/push/pull` manages fast-forward-only checkpoints.
 - `agent-comms update check --channel stable|preview` performs an explicit, telemetry-free release check.
+
+## Scalable service mode
+
+For multi-host coordination, the PostgreSQL authority serializes mutations
+and returns service-signed receipts while a per-user daemon maintains a
+rebuildable SQLite WAL cache. Governed mutations fail closed while offline;
+explicit document, message, and artifact-metadata drafts remain local until
+submitted.
+
+See the [service deployment and migration guide](docs/service-deployment.md).
 
 ## Governance defaults
 
