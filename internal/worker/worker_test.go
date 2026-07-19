@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -132,6 +133,58 @@ func TestWorkerResumesBoundCodexSession(t *testing.T) {
 	assertArgumentsContain(t, arguments, "--add-dir", root)
 	assertArgumentsContain(t, arguments, "--ignore-user-config")
 	assertArgumentsExclude(t, arguments, "--ephemeral")
+}
+
+func TestWorkerClaudeCarriesRuntimeFramingOnSystemPrompt(t *testing.T) {
+	instance, root := workerService(t)
+	worker := newTestWorker(t, instance, root)
+	arguments := worker.arguments()
+	found := false
+	for index, argument := range arguments {
+		if argument != "--append-system-prompt" {
+			continue
+		}
+		found = true
+		if index+1 >= len(arguments) {
+			t.Fatal("--append-system-prompt is missing its value")
+		}
+		systemPrompt := arguments[index+1]
+		if !strings.Contains(systemPrompt, "axiom") || !strings.Contains(systemPrompt, actionLinePrefix) {
+			t.Fatalf("system prompt missing expected runtime framing: %q", systemPrompt)
+		}
+	}
+	if !found {
+		t.Fatal("claude worker did not append a system prompt")
+	}
+}
+
+func TestWorkerCodexOmitsAppendSystemPrompt(t *testing.T) {
+	instance, root := workerService(t)
+	executable, err := filepath.Abs(os.Args[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	worker, err := New(Config{
+		Service: instance, Actor: "axiom", RuntimeID: "runtime-axiom",
+		Adapter: "codex", Executable: executable, WorkDir: root,
+		Sandbox: "workspace-write", ListenWait: time.Second,
+		ExecutionTimeout: time.Minute, Once: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertArgumentsExclude(t, worker.arguments(), "--append-system-prompt")
+}
+
+func TestClaudeUserPromptOmitsRuntimeFraming(t *testing.T) {
+	invocation := model.Invocation{ID: "inv-1", RequestedBy: "owner", Priority: "NORMAL", Instruction: "Do the thing"}
+	prompt := claudeUserPrompt(invocation)
+	if strings.Contains(prompt, "autonomous Agent Comms runtime") || strings.Contains(prompt, actionLinePrefix) {
+		t.Fatalf("claude user prompt leaked runtime framing: %q", prompt)
+	}
+	if !strings.Contains(prompt, "inv-1") || !strings.Contains(prompt, "Do the thing") {
+		t.Fatalf("claude user prompt missing invocation details: %q", prompt)
+	}
 }
 
 func TestWorkerRejectsInvalidSessionID(t *testing.T) {
