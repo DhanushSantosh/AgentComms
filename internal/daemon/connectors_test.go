@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -123,17 +124,19 @@ func TestLoadConnectorConfigsRequiresPrivateFileAndAbsoluteExecutable(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = os.WriteFile(path, raw, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err = os.Chmod(path, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := LoadConnectorConfigs(path); err == nil {
-		t.Fatal("world-readable connector configuration was accepted")
-	}
-	if err := os.Chmod(path, 0o600); err != nil {
-		t.Fatal(err)
+	if runtime.GOOS != "windows" {
+		if err = os.WriteFile(path, raw, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err = os.Chmod(path, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := LoadConnectorConfigs(path); err == nil {
+			t.Fatal("world-readable connector configuration was accepted")
+		}
+		if err := os.Chmod(path, 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
 	loaded, err := LoadConnectorConfigs(path)
 	if err != nil {
