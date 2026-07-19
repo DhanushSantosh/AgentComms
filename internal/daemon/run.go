@@ -8,6 +8,7 @@ import (
 
 	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
 	"github.com/DhanushSantosh/AgentComms/internal/localcache"
+	"github.com/DhanushSantosh/AgentComms/internal/personalauthority"
 	"github.com/DhanushSantosh/AgentComms/internal/remote"
 )
 
@@ -19,6 +20,9 @@ type RunConfig struct {
 	CachePath           string
 	Endpoint            string
 	ConnectorConfigPath string
+	RuntimeMode         string
+	PersonalDatabase    string
+	ServicePrivateKey   string
 }
 
 func Run(ctx context.Context, cfg RunConfig) error {
@@ -27,9 +31,25 @@ func Run(ctx context.Context, cfg RunConfig) error {
 		return err
 	}
 	defer cache.Close()
-	client, err := remote.New(cfg.AuthorityURL, controlplane.DefaultRequestTimeout)
-	if err != nil {
-		return err
+	var client authorityClient
+	var personalEngine *personalauthority.Engine
+	if cfg.RuntimeMode == "personal" {
+		signer, signerErr := controlplane.NewSigner(cfg.ServicePrivateKey)
+		if signerErr != nil {
+			return signerErr
+		}
+		personalEngine, err = personalauthority.Open(cfg.PersonalDatabase, signer)
+		if err != nil {
+			return err
+		}
+		defer personalEngine.Close()
+		client = personalEngine
+	} else {
+		remoteClient, remoteErr := remote.New(cfg.AuthorityURL, controlplane.DefaultRequestTimeout)
+		if remoteErr != nil {
+			return remoteErr
+		}
+		client = remoteClient
 	}
 	instance, err := New(cache, client)
 	if err != nil {
