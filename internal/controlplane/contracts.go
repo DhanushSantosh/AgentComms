@@ -26,6 +26,9 @@ const (
 	MaxInvocationTTL      = 7 * 24 * time.Hour
 	DefaultClaimLease     = 15 * time.Minute
 	MaxClaimLease         = time.Hour
+	MaxRuntimesPerProject = 500
+	MaxRuntimeConcurrency = 100
+	MinHeartbeatInterval  = 10 * time.Second
 	CommandClockSkew      = 5 * time.Minute
 	DefaultRequestTimeout = 15 * time.Second
 )

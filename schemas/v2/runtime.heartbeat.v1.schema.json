@@ -1,0 +1,1 @@
+{"$schema":"https://json-schema.org/draft/2020-12/schema","title":"runtime.heartbeat payload v1","type":"object","required":["health"],"properties":{"health":{"enum":["HEALTHY","DEGRADED"]},"active_invocations":{"type":"array","uniqueItems":true,"items":{"type":"string"}}},"additionalProperties":false}

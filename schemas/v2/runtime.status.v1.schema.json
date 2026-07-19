@@ -1,0 +1,1 @@
+{"$schema":"https://json-schema.org/draft/2020-12/schema","title":"runtime status change payload v1","type":"object","properties":{"reason":{"type":"string","maxLength":16384}},"additionalProperties":false}

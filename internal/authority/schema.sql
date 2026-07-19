@@ -141,6 +141,31 @@ CREATE TABLE IF NOT EXISTS invocation_deliveries (
 CREATE INDEX IF NOT EXISTS invocation_deliveries_retry_idx
     ON invocation_deliveries (project_id, status, next_retry_at);
 
+CREATE TABLE IF NOT EXISTS agent_runtimes (
+    project_id TEXT NOT NULL REFERENCES projects(project_id) ON DELETE CASCADE,
+    runtime_id TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    connector TEXT NOT NULL,
+    status TEXT NOT NULL,
+    health TEXT NOT NULL,
+    last_seen_at TIMESTAMPTZ,
+    state JSONB NOT NULL,
+    updated_sequence BIGINT NOT NULL,
+    PRIMARY KEY (project_id, runtime_id)
+);
+
+CREATE INDEX IF NOT EXISTS agent_runtimes_agent_status_idx
+    ON agent_runtimes (project_id, agent_id, status);
+
+CREATE TABLE IF NOT EXISTS invocation_policies (
+    project_id TEXT NOT NULL REFERENCES projects(project_id) ON DELETE CASCADE,
+    agent_id TEXT NOT NULL,
+    mode TEXT NOT NULL,
+    state JSONB NOT NULL,
+    updated_sequence BIGINT NOT NULL,
+    PRIMARY KEY (project_id, agent_id)
+);
+
 CREATE TABLE IF NOT EXISTS message_recipients (
     project_id TEXT NOT NULL,
     message_id TEXT NOT NULL,

@@ -468,6 +468,14 @@ func decodePayload(eventType string, raw json.RawMessage) (any, error) {
 		return *value, nil
 	case *model.InvocationDeliveryFailed:
 		return *value, nil
+	case *model.RuntimeRegistered:
+		return *value, nil
+	case *model.RuntimeHeartbeat:
+		return *value, nil
+	case *model.RuntimeStatusChanged:
+		return *value, nil
+	case *model.InvocationPolicyUpdated:
+		return *value, nil
 	case *model.ApprovalRequested:
 		return *value, nil
 	case *model.ApprovalResponse:
@@ -529,6 +537,7 @@ func loadState(ctx context.Context, tx *sql.Tx, projectID string) (model.State, 
 		Agents: map[string]model.Agent{}, Tasks: map[string]model.Task{},
 		Messages: map[string]model.Message{}, Approvals: map[string]model.Approval{},
 		Invocations: map[string]model.Invocation{}, InvocationDeliveries: map[string]model.InvocationDelivery{},
+		AgentRuntimes: map[string]model.AgentRuntime{}, InvocationPolicies: map[string]model.InvocationPolicy{},
 		Decisions: map[string]model.Decision{}, Documents: map[string]model.Document{},
 		Env: map[string]model.EnvEntry{}, Sessions: map[string]model.SessionPayload{},
 		Artifacts: map[string]model.Artifact{},
@@ -581,6 +590,26 @@ func loadState(ctx context.Context, tx *sql.Tx, projectID string) (model.State, 
 					return err
 				}
 				state.InvocationDeliveries[id] = value
+				return nil
+			})
+		},
+		func() error {
+			return loadProjection(ctx, tx, "agent_runtimes", "runtime_id", projectID, func(id string, raw []byte) error {
+				var value model.AgentRuntime
+				if err := json.Unmarshal(raw, &value); err != nil {
+					return err
+				}
+				state.AgentRuntimes[id] = value
+				return nil
+			})
+		},
+		func() error {
+			return loadProjection(ctx, tx, "invocation_policies", "agent_id", projectID, func(id string, raw []byte) error {
+				var value model.InvocationPolicy
+				if err := json.Unmarshal(raw, &value); err != nil {
+					return err
+				}
+				state.InvocationPolicies[id] = value
 				return nil
 			})
 		},
@@ -657,6 +686,7 @@ func loadProjection(ctx context.Context, tx *sql.Tx, table, idColumn, projectID 
 	allowed := map[string]bool{
 		"agents.agent_id": true, "tasks.task_id": true, "messages.message_id": true,
 		"invocations.invocation_id": true, "invocation_deliveries.delivery_id": true,
+		"agent_runtimes.runtime_id": true, "invocation_policies.agent_id": true,
 		"approvals.approval_id": true, "decisions.decision_id": true,
 		"documents.document_id": true, "artifacts.sha256": true,
 		"environment_entries.entry_key": true, "sessions.session_id": true,
@@ -708,6 +738,12 @@ func persistProjectionChanges(ctx context.Context, tx *sql.Tx, projectID string,
 	if err := persistInvocationDeliveryChanges(ctx, tx, projectID, sequence, before.InvocationDeliveries, after.InvocationDeliveries); err != nil {
 		return err
 	}
+	if err := persistRuntimeChanges(ctx, tx, projectID, sequence, before.AgentRuntimes, after.AgentRuntimes); err != nil {
+		return err
+	}
+	if err := persistInvocationPolicyChanges(ctx, tx, projectID, sequence, before.InvocationPolicies, after.InvocationPolicies); err != nil {
+		return err
+	}
 	if err := persistSimpleChanges(ctx, tx, projectID, sequence, "approvals", "approval_id", before.Approvals, after.Approvals); err != nil {
 		return err
 	}
@@ -724,6 +760,49 @@ func persistProjectionChanges(ctx context.Context, tx *sql.Tx, projectID string,
 		return err
 	}
 	return persistSessions(ctx, tx, projectID, sequence, before.Sessions, after.Sessions)
+}
+
+func persistRuntimeChanges(ctx context.Context, tx *sql.Tx, projectID string, sequence uint64, before, after map[string]model.AgentRuntime) error {
+	for id, runtime := range after {
+		if reflect.DeepEqual(before[id], runtime) {
+			continue
+		}
+		raw, err := json.Marshal(runtime)
+		if err != nil {
+			return err
+		}
+		if _, err = tx.ExecContext(ctx, `INSERT INTO agent_runtimes
+			(project_id,runtime_id,agent_id,connector,status,health,last_seen_at,state,updated_sequence)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+			ON CONFLICT (project_id,runtime_id) DO UPDATE SET agent_id=EXCLUDED.agent_id,
+			connector=EXCLUDED.connector,status=EXCLUDED.status,health=EXCLUDED.health,
+			last_seen_at=EXCLUDED.last_seen_at,state=EXCLUDED.state,updated_sequence=EXCLUDED.updated_sequence`,
+			projectID, id, runtime.AgentID, runtime.Connector, runtime.Status, runtime.Health,
+			nullableTime(runtime.LastSeenAt), raw, sequence); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func persistInvocationPolicyChanges(ctx context.Context, tx *sql.Tx, projectID string, sequence uint64, before, after map[string]model.InvocationPolicy) error {
+	for id, policy := range after {
+		if reflect.DeepEqual(before[id], policy) {
+			continue
+		}
+		raw, err := json.Marshal(policy)
+		if err != nil {
+			return err
+		}
+		if _, err = tx.ExecContext(ctx, `INSERT INTO invocation_policies
+			(project_id,agent_id,mode,state,updated_sequence) VALUES ($1,$2,$3,$4,$5)
+			ON CONFLICT (project_id,agent_id) DO UPDATE SET mode=EXCLUDED.mode,
+			state=EXCLUDED.state,updated_sequence=EXCLUDED.updated_sequence`,
+			projectID, id, policy.Mode, raw, sequence); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func persistInvocationChanges(ctx context.Context, tx *sql.Tx, projectID string, sequence uint64, before, after map[string]model.Invocation) error {

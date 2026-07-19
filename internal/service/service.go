@@ -70,6 +70,7 @@ func (s *Service) State() (model.State, error) {
 	st := model.State{
 		Agents: map[string]model.Agent{}, Tasks: map[string]model.Task{}, Messages: map[string]model.Message{},
 		Invocations: map[string]model.Invocation{}, InvocationDeliveries: map[string]model.InvocationDelivery{},
+		AgentRuntimes: map[string]model.AgentRuntime{}, InvocationPolicies: map[string]model.InvocationPolicy{},
 		Approvals: map[string]model.Approval{}, Decisions: map[string]model.Decision{},
 		Documents: map[string]model.Document{}, Env: map[string]model.EnvEntry{},
 		Sessions: map[string]model.SessionPayload{}, Artifacts: map[string]model.Artifact{},
@@ -217,6 +218,12 @@ func ApplyEvent(s *model.State, e model.Event) error {
 	}
 	if s.InvocationDeliveries == nil {
 		s.InvocationDeliveries = map[string]model.InvocationDelivery{}
+	}
+	if s.AgentRuntimes == nil {
+		s.AgentRuntimes = map[string]model.AgentRuntime{}
+	}
+	if s.InvocationPolicies == nil {
+		s.InvocationPolicies = map[string]model.InvocationPolicy{}
 	}
 	v, x := model.DecodePayload(e.Type, e.Data)
 	if x != nil {
@@ -404,6 +411,41 @@ func ApplyEvent(s *model.State, e model.Event) error {
 		s.InvocationDeliveries[p.DeliveryID] = model.InvocationDelivery{
 			ID: p.DeliveryID, InvocationID: e.EntityID, RuntimeID: p.RuntimeID,
 			Attempt: p.Attempt, Status: status, FailedAt: &now, NextRetryAt: p.NextRetry, Error: p.Error,
+		}
+	case *model.RuntimeRegistered:
+		s.AgentRuntimes[e.EntityID] = model.AgentRuntime{
+			ID: e.EntityID, AgentID: p.AgentID, Connector: p.Connector,
+			ConfigReference: p.ConfigReference, Status: "OFFLINE", Health: "UNKNOWN",
+			MaxConcurrent: p.MaxConcurrent, Scopes: p.Scopes, Capabilities: p.Capabilities,
+			RegisteredAt: e.Time, LastChangedBy: e.Actor,
+		}
+	case *model.RuntimeHeartbeat:
+		runtime := s.AgentRuntimes[e.EntityID]
+		runtime.Status = "ONLINE"
+		runtime.Health = p.Health
+		runtime.ActiveInvocations = p.ActiveInvocations
+		runtime.LastSeenAt = e.Time
+		runtime.LastChangedBy = e.Actor
+		runtime.Reason = ""
+		s.AgentRuntimes[e.EntityID] = runtime
+	case *model.RuntimeStatusChanged:
+		runtime := s.AgentRuntimes[e.EntityID]
+		switch e.Type {
+		case "runtime.drain":
+			runtime.Status = "DRAINING"
+		case "runtime.resume":
+			runtime.Status = "OFFLINE"
+		case "runtime.revoke":
+			runtime.Status = "REVOKED"
+		}
+		runtime.Reason = p.Reason
+		runtime.LastChangedBy = e.Actor
+		s.AgentRuntimes[e.EntityID] = runtime
+	case *model.InvocationPolicyUpdated:
+		s.InvocationPolicies[e.EntityID] = model.InvocationPolicy{
+			AgentID: e.EntityID, Mode: p.Mode, TrustedActors: p.TrustedActors,
+			AllowedScopes: p.AllowedScopes, RequireHumanForSensitive: p.RequireHumanForSensitive,
+			UpdatedBy: e.Actor, UpdatedAt: e.Time,
 		}
 	case *model.ApprovalRequested:
 		s.Approvals[e.EntityID] = model.Approval{ID: e.EntityID, Tier: p.Tier, Action: p.Action, Reason: p.Reason, Status: "PENDING", Requester: e.Actor, Affected: p.Affected}
@@ -828,7 +870,7 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 		}
 		payload = p
 	}
-	if strings.HasPrefix(typ, "invocation.") {
+	if strings.HasPrefix(typ, "invocation.") && typ != "invocation.policy.update" {
 		invocation, exists := st.Invocations[id]
 		switch p := payload.(type) {
 		case model.InvocationRequested:
@@ -848,6 +890,18 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 			requester, _ := active(st, actor)
 			if requester.Role == model.RoleObserver {
 				return nil, errors.New("observer cannot request invocations")
+			}
+			if !actorElevated(st, actor) {
+				policy, configured := st.InvocationPolicies[p.Target]
+				if !configured || policy.Mode == "MANUAL" {
+					if !hasApproval(st, "invocation:"+id) {
+						return nil, errors.New("approved invocation is required by target policy")
+					}
+				} else if policy.Mode == "DISABLED" {
+					return nil, errors.New("target invocation policy is disabled")
+				} else if policy.Mode == "TRUSTED" && !containsString(policy.TrustedActors, actor) {
+					return nil, errors.New("requester is not trusted by target invocation policy")
+				}
 			}
 			if len(p.Instruction)+len(p.ExpectedResult) > controlplane.MaxInvocationBytes {
 				return nil, fmt.Errorf("invocation content exceeds %d bytes", controlplane.MaxInvocationBytes)
@@ -1014,6 +1068,121 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 			return nil, errors.New("invalid invocation payload")
 		}
 	}
+	if strings.HasPrefix(typ, "runtime.") {
+		runtime, exists := st.AgentRuntimes[id]
+		switch p := payload.(type) {
+		case model.RuntimeRegistered:
+			if typ != "runtime.register" {
+				return nil, errors.New("invalid runtime registration transition")
+			}
+			if id == "" || p.AgentID == "" {
+				return nil, errors.New("runtime ID and agent ID are required")
+			}
+			if exists {
+				return nil, errors.New("runtime already exists")
+			}
+			if len(st.AgentRuntimes) >= controlplane.MaxRuntimesPerProject {
+				return nil, fmt.Errorf("runtime count exceeds %d", controlplane.MaxRuntimesPerProject)
+			}
+			target, targetExists := st.Agents[p.AgentID]
+			if !targetExists || target.Status != "ACTIVE" || target.PrincipalType != model.PrincipalAgent {
+				return nil, errors.New("active agent runtime owner is required")
+			}
+			if actor != p.AgentID && !actorElevated(st, actor) {
+				return nil, errors.New("runtime owner, project owner, or orchestrator required")
+			}
+			p.Connector = strings.ToUpper(strings.TrimSpace(p.Connector))
+			validConnector := p.Connector == "MANUAL" || p.Connector == "MCP" ||
+				p.Connector == "LOCAL_PROCESS" || p.Connector == "WEBHOOK" || p.Connector == "QUEUE"
+			if !validConnector {
+				return nil, errors.New("runtime connector must be MANUAL, MCP, LOCAL_PROCESS, WEBHOOK, or QUEUE")
+			}
+			if p.MaxConcurrent < 1 || p.MaxConcurrent > controlplane.MaxRuntimeConcurrency {
+				return nil, fmt.Errorf("runtime concurrency must be from 1 to %d", controlplane.MaxRuntimeConcurrency)
+			}
+			if strings.Contains(strings.ToLower(p.ConfigReference), "secret") ||
+				strings.Contains(strings.ToLower(p.ConfigReference), "token") ||
+				strings.Contains(strings.ToLower(p.ConfigReference), "password") {
+				return nil, errors.New("runtime config reference must not contain secret material")
+			}
+			payload = p
+		case model.RuntimeHeartbeat:
+			if !exists || actor != runtime.AgentID {
+				return nil, errors.New("registered runtime owner required")
+			}
+			if runtime.Status == "REVOKED" || runtime.Status == "DRAINING" {
+				return nil, fmt.Errorf("runtime cannot heartbeat while %s", runtime.Status)
+			}
+			if !runtime.LastSeenAt.IsZero() && now.Sub(runtime.LastSeenAt) < controlplane.MinHeartbeatInterval {
+				return nil, fmt.Errorf("runtime heartbeat interval must be at least %s", controlplane.MinHeartbeatInterval)
+			}
+			p.Health = strings.ToUpper(strings.TrimSpace(p.Health))
+			if p.Health != "HEALTHY" && p.Health != "DEGRADED" {
+				return nil, errors.New("runtime health must be HEALTHY or DEGRADED")
+			}
+			if len(p.ActiveInvocations) > runtime.MaxConcurrent {
+				return nil, errors.New("active invocations exceed runtime concurrency")
+			}
+			seen := map[string]bool{}
+			for _, invocationID := range p.ActiveInvocations {
+				invocation, invocationExists := st.Invocations[invocationID]
+				if !invocationExists || invocation.Target != runtime.AgentID || invocation.RuntimeID != id {
+					return nil, fmt.Errorf("active invocation %s is not assigned to this runtime", invocationID)
+				}
+				if seen[invocationID] {
+					return nil, errors.New("active invocation IDs must be unique")
+				}
+				seen[invocationID] = true
+			}
+			payload = p
+		case model.RuntimeStatusChanged:
+			if !exists {
+				return nil, errors.New("runtime not found")
+			}
+			if typ == "runtime.revoke" {
+				if !actorElevated(st, actor) {
+					return nil, errors.New("owner or orchestrator required to revoke a runtime")
+				}
+				if runtime.Status == "REVOKED" {
+					return nil, errors.New("runtime is already revoked")
+				}
+			} else {
+				if actor != runtime.AgentID && !actorElevated(st, actor) {
+					return nil, errors.New("runtime owner, project owner, or orchestrator required")
+				}
+				if typ == "runtime.drain" && (runtime.Status == "DRAINING" || runtime.Status == "REVOKED") {
+					return nil, fmt.Errorf("runtime cannot drain while %s", runtime.Status)
+				}
+				if typ == "runtime.resume" && runtime.Status != "DRAINING" {
+					return nil, errors.New("draining runtime required")
+				}
+			}
+		default:
+			return nil, errors.New("invalid runtime payload")
+		}
+	}
+	if typ == "invocation.policy.update" {
+		policy, ok := payload.(model.InvocationPolicyUpdated)
+		target, exists := st.Agents[id]
+		if !ok || !exists || target.Status != "ACTIVE" || target.PrincipalType != model.PrincipalAgent {
+			return nil, errors.New("active agent invocation policy target is required")
+		}
+		if !actorElevated(st, actor) {
+			return nil, errors.New("owner or orchestrator required to update invocation policy")
+		}
+		policy.Mode = strings.ToUpper(strings.TrimSpace(policy.Mode))
+		if policy.Mode != "MANUAL" && policy.Mode != "TRUSTED" &&
+			policy.Mode != "AUTOMATIC" && policy.Mode != "DISABLED" {
+			return nil, errors.New("invocation policy must be MANUAL, TRUSTED, AUTOMATIC, or DISABLED")
+		}
+		for _, trustedActor := range policy.TrustedActors {
+			trusted, trustedExists := st.Agents[trustedActor]
+			if !trustedExists || trusted.Status != "ACTIVE" {
+				return nil, fmt.Errorf("trusted actor %s is not active", trustedActor)
+			}
+		}
+		payload = policy
+	}
 	if strings.HasPrefix(typ, "document.") {
 		p := payload.(model.DocumentPayload)
 		switch typ {
@@ -1087,6 +1256,15 @@ func actorElevated(state model.State, actor string) bool {
 	principal, ok := state.Agents[actor]
 	return ok && principal.Status == "ACTIVE" &&
 		(principal.Role == model.RoleOwner || principal.Role == model.RoleOrchestrator)
+}
+
+func containsString(values []string, expected string) bool {
+	for _, value := range values {
+		if value == expected {
+			return true
+		}
+	}
+	return false
 }
 
 func migrationSeedEvent(typ string) bool {

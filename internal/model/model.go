@@ -107,6 +107,31 @@ type InvocationDelivery struct {
 	NextRetryAt  *time.Time `json:"next_retry_at,omitempty"`
 	Error        string     `json:"error,omitempty"`
 }
+type AgentRuntime struct {
+	ID                string    `json:"id"`
+	AgentID           string    `json:"agent_id"`
+	Connector         string    `json:"connector"`
+	ConfigReference   string    `json:"config_reference,omitempty"`
+	Status            string    `json:"status"`
+	Health            string    `json:"health"`
+	MaxConcurrent     int       `json:"max_concurrent"`
+	ActiveInvocations []string  `json:"active_invocations,omitempty"`
+	Scopes            []string  `json:"scopes,omitempty"`
+	Capabilities      []string  `json:"capabilities,omitempty"`
+	RegisteredAt      time.Time `json:"registered_at"`
+	LastSeenAt        time.Time `json:"last_seen_at,omitempty"`
+	LastChangedBy     string    `json:"last_changed_by"`
+	Reason            string    `json:"reason,omitempty"`
+}
+type InvocationPolicy struct {
+	AgentID                  string    `json:"agent_id"`
+	Mode                     string    `json:"mode"`
+	TrustedActors            []string  `json:"trusted_actors,omitempty"`
+	AllowedScopes            []string  `json:"allowed_scopes,omitempty"`
+	RequireHumanForSensitive bool      `json:"require_human_for_sensitive"`
+	UpdatedBy                string    `json:"updated_by"`
+	UpdatedAt                time.Time `json:"updated_at"`
+}
 type Approval struct {
 	ID        string   `json:"id"`
 	Tier      string   `json:"tier"`
@@ -166,6 +191,8 @@ type State struct {
 	Messages             map[string]Message            `json:"messages"`
 	Invocations          map[string]Invocation         `json:"invocations"`
 	InvocationDeliveries map[string]InvocationDelivery `json:"invocation_deliveries"`
+	AgentRuntimes        map[string]AgentRuntime       `json:"agent_runtimes"`
+	InvocationPolicies   map[string]InvocationPolicy   `json:"invocation_policies"`
 	Approvals            map[string]Approval           `json:"approvals"`
 	Decisions            map[string]Decision           `json:"decisions"`
 	Documents            map[string]Document           `json:"documents"`
