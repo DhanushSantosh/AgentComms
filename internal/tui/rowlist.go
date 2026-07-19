@@ -94,7 +94,7 @@ func (r RowList) View(p palette, st model.State, actor string, w, h int) string 
 	t := r.table
 	t.SetColumns(r.source.Columns(w))
 	t.SetWidth(w)
-	t.SetHeight(h)
+	t.SetHeight(max(3, h-3))
 	t.SetStyles(rowListStyles(p))
 	if len(t.Rows()) == 0 {
 		return lipgloss.NewStyle().Foreground(p.muted).Render("No rows here yet.")

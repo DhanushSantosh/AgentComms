@@ -280,10 +280,36 @@ func (m *Model) refreshLists() {
 }
 func (m *Model) applyPalette() {
 	q := strings.ToLower(strings.TrimSpace(m.query))
-	if q == "new task" || q == "create task" {
-		next, _ := m.openTaskForm()
-		*m = next.(Model)
+	if q == "" {
 		return
+	}
+	for _, command := range []struct {
+		names []string
+		view  string
+		open  func(Model) (tea.Model, tea.Cmd)
+	}{
+		{names: []string{"new task", "create task"}, view: "Tasks", open: func(value Model) (tea.Model, tea.Cmd) { return value.openTaskForm() }},
+		{names: []string{"new agent", "create agent", "register agent"}, view: "Agents", open: func(value Model) (tea.Model, tea.Cmd) {
+			return value.openActionForm(agentRegisterForm, "agent.register", "")
+		}},
+		{names: []string{"new message", "create message"}, view: "Inbox", open: func(value Model) (tea.Model, tea.Cmd) {
+			return value.openActionForm(messagePostForm, "message.post", "")
+		}},
+		{names: []string{"new invocation", "create invocation"}, view: "Invocations", open: func(value Model) (tea.Model, tea.Cmd) {
+			return value.openActionForm(invocationRequestForm, "invocation.request", "")
+		}},
+		{names: []string{"new runtime", "create runtime"}, view: "Runtimes", open: func(value Model) (tea.Model, tea.Cmd) {
+			return value.openActionForm(runtimeRegisterForm, "runtime.register", "")
+		}},
+	} {
+		for _, name := range command.names {
+			if q == name {
+				m.openView(command.view)
+				next, _ := command.open(*m)
+				*m = next.(Model)
+				return
+			}
+		}
 	}
 	for i, v := range views {
 		if strings.Contains(strings.ToLower(v), q) {
@@ -511,7 +537,8 @@ func (m Model) renderBody(p palette, w, h int) string {
 	case "Inbox":
 		bodyContent = m.messageList.View(p, m.state, m.actor, contentW, contentH)
 	case "Agents":
-		bodyContent = m.agentList.View(p, m.state, m.actor, contentW, contentH)
+		bodyContent = m.agentControlBar(p, contentW) + "\n\n" +
+			m.agentList.View(p, m.state, m.actor, contentW, max(5, contentH-4))
 	case "Invocations":
 		bodyContent = m.invocationList.View(p, m.state, m.actor, contentW, contentH)
 	case "Runtimes":
@@ -826,8 +853,53 @@ func (m Model) archive(p palette) string {
 	return fmt.Sprintf("%d archived tasks remain in immutable history.\n\nUse `agent-comms search <query>` for full-text event search or `agent-comms export markdown` for a review packet.", n)
 }
 func (m Model) renderPalette(p palette, under string) string {
-	panel := lipgloss.NewStyle().Width(min(62, m.width-8)).Border(lipgloss.DoubleBorder()).BorderForeground(p.cyan).Background(p.ink).Foreground(p.text).Padding(1, 2).Render("COMMAND PALETTE\n\n> " + m.query + "█\n\nType a view name or `new task` · enter run · esc close")
-	return under + "\n" + panel
+	width := min(68, max(36, m.width-8))
+	rows := []string{
+		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("COMMANDS"),
+		lipgloss.NewStyle().Foreground(p.muted).Render("Go to a workspace or start an action."),
+		"",
+		lipgloss.NewStyle().Foreground(p.muted).Render("Command"),
+		lipgloss.NewStyle().Width(width-6).Background(p.panel).Foreground(p.text).
+			Padding(0, 1).Render("> " + m.query + "█"),
+		"",
+	}
+	matches := m.paletteMatches()
+	if len(matches) == 0 {
+		rows = append(rows, lipgloss.NewStyle().Foreground(p.amber).Render("No matching command"))
+	} else {
+		rows = append(rows, lipgloss.NewStyle().Foreground(p.muted).Render("Matches"))
+		for index, match := range matches {
+			marker := "  "
+			style := lipgloss.NewStyle().Foreground(p.text)
+			if index == 0 {
+				marker = "› "
+				style = style.Foreground(p.cyan).Bold(true)
+			}
+			rows = append(rows, style.Render(marker+match))
+		}
+	}
+	rows = append(rows, "", lipgloss.NewStyle().Foreground(p.muted).Render("Type to filter · Enter open · Esc close"))
+	panel := lipgloss.NewStyle().Width(width).Border(lipgloss.NormalBorder()).
+		BorderForeground(p.cyan).Background(p.ink).Foreground(p.text).Padding(1, 2).
+		Render(strings.Join(rows, "\n"))
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, panel,
+		lipgloss.WithWhitespaceStyle(lipgloss.NewStyle().Background(p.ink)))
+}
+
+func (m Model) paletteMatches() []string {
+	query := strings.ToLower(strings.TrimSpace(m.query))
+	commands := []string{"new task", "new agent", "new message", "new invocation", "new runtime"}
+	commands = append(commands, views...)
+	matches := make([]string, 0, 6)
+	for _, command := range commands {
+		if query == "" || strings.Contains(strings.ToLower(command), query) {
+			matches = append(matches, command)
+			if len(matches) == 6 {
+				break
+			}
+		}
+	}
+	return matches
 }
 func empty(v, d string) string {
 	if v == "" {
