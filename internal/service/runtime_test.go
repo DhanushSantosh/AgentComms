@@ -92,3 +92,33 @@ func TestRuntimeConfigReferenceRejectsSecretMaterial(t *testing.T) {
 		t.Fatal("runtime registration persisted apparent secret material")
 	}
 }
+
+func TestNextInvocationPrioritizesUrgencyThenAgeAndHonorsCapacity(t *testing.T) {
+	instance := setup(t)
+	activate(t, instance, "builder", model.PrincipalAgent)
+	must(t, instance, "owner", "runtime.register", "runtime-queue", model.RuntimeRegistered{
+		AgentID: "builder", Connector: "MCP", MaxConcurrent: 1,
+	})
+	must(t, instance, "owner", "invocation.request", "normal", model.InvocationRequested{
+		Target: "builder", Instruction: "Normal work", Priority: "NORMAL",
+	})
+	must(t, instance, "owner", "invocation.request", "urgent", model.InvocationRequested{
+		Target: "builder", Instruction: "Urgent work", Priority: "URGENT",
+	})
+
+	next, found, err := instance.NextInvocation("builder", "runtime-queue")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !found || next.ID != "urgent" {
+		t.Fatalf("next invocation=%+v found=%t, want urgent", next, found)
+	}
+
+	must(t, instance, "builder", "invocation.claim", "urgent", model.InvocationClaimed{RuntimeID: "runtime-queue"})
+	must(t, instance, "builder", "runtime.heartbeat", "runtime-queue", model.RuntimeHeartbeat{
+		Health: "HEALTHY", ActiveInvocations: []string{"urgent"},
+	})
+	if _, found, err = instance.NextInvocation("builder", "runtime-queue"); err != nil || found {
+		t.Fatalf("capacity-bound runtime returned work: found=%t err=%v", found, err)
+	}
+}

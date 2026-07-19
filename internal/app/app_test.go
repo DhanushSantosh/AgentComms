@@ -118,3 +118,39 @@ func TestIncompleteAdoptionBlocksNormalCommands(t *testing.T) {
 		t.Fatalf("unexpected error: %s", err.String())
 	}
 }
+
+func TestInvocationAndRuntimeCLIWorkflow(t *testing.T) {
+	project := t.TempDir()
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
+	var out, stderr bytes.Buffer
+	run := func(args ...string) {
+		t.Helper()
+		out.Reset()
+		stderr.Reset()
+		args = append(args, "--project", project, "--json")
+		if err := Run(args, &out, &stderr); err != nil {
+			t.Fatalf("%v: %v\n%s", args, err, stderr.String())
+		}
+	}
+	run("init", "--non-interactive", "--owner", "owner")
+	run("agent", "register", "--id", "builder")
+	run("agent", "activate", "--id", "builder", "--role", "AGENT", "--scope", "src")
+	run("runtime", "register", "--actor", "builder", "--id", "runtime-builder",
+		"--agent", "builder", "--connector", "MCP", "--max-concurrent", "1")
+	run("invocation", "policy", "set", "--agent", "builder", "--mode", "AUTOMATIC")
+	run("invocation", "request", "--id", "inv-cli", "--to", "builder",
+		"--instruction", "Review the CLI workflow", "--priority", "URGENT")
+	run("invocation", "next", "--actor", "builder", "--runtime", "runtime-builder")
+	if !bytes.Contains(out.Bytes(), []byte(`"found":true`)) ||
+		!bytes.Contains(out.Bytes(), []byte(`"id":"inv-cli"`)) {
+		t.Fatalf("CLI did not return the pending invocation: %s", out.String())
+	}
+	run("invocation", "claim", "--actor", "builder", "--id", "inv-cli", "--runtime", "runtime-builder")
+	run("invocation", "start", "--actor", "builder", "--id", "inv-cli", "--summary", "started")
+	run("invocation", "complete", "--actor", "builder", "--id", "inv-cli", "--summary", "done")
+	run("invocation", "list", "--status", "COMPLETED")
+	if !bytes.Contains(out.Bytes(), []byte(`"status":"COMPLETED"`)) {
+		t.Fatalf("CLI did not return the completed invocation: %s", out.String())
+	}
+}

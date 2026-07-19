@@ -148,7 +148,7 @@ func (c *cli) root() *cobra.Command {
 	f.DurationVar(&c.timeout, "timeout", 10*time.Second, "transaction lock timeout")
 	f.BoolVar(&c.noColor, "no-color", false, "disable ANSI color")
 	f.BoolVarP(&c.quiet, "quiet", "q", false, "suppress non-essential output")
-	r.AddCommand(c.versionCmd(), c.initCmd(), c.doctorCmd(), c.verifyCmd(), c.statusCmd(), c.historyCmd(), c.searchCmd(), c.agentCmd(), c.sessionCmd(), c.taskCmd(), c.messageCmd(), c.decisionCmd(), c.approvalCmd(), c.artifactCmd(), c.documentCmd(), c.envCmd(), c.draftCmd(), c.archiveCmd(), c.exportCmd(), c.syncCmd(), c.profileCmd(), c.configCmd(), c.themeCmd(), c.updateCmd(), c.completionCmd(r), c.agentInstructionsCmd(), c.mcpCmd(), c.watchCmd(), c.tuiCmd(), c.migrateCmd(), c.daemonCmd())
+	r.AddCommand(c.versionCmd(), c.initCmd(), c.doctorCmd(), c.verifyCmd(), c.statusCmd(), c.historyCmd(), c.searchCmd(), c.agentCmd(), c.runtimeCmd(), c.invocationCmd(), c.sessionCmd(), c.taskCmd(), c.messageCmd(), c.decisionCmd(), c.approvalCmd(), c.artifactCmd(), c.documentCmd(), c.envCmd(), c.draftCmd(), c.archiveCmd(), c.exportCmd(), c.syncCmd(), c.profileCmd(), c.configCmd(), c.themeCmd(), c.updateCmd(), c.completionCmd(r), c.agentInstructionsCmd(), c.mcpCmd(), c.watchCmd(), c.tuiCmd(), c.migrateCmd(), c.daemonCmd())
 	return r
 }
 
@@ -474,6 +474,222 @@ func (c *cli) agentCmd() *cobra.Command {
 	root.AddCommand(reg, act, suspend, rotate, list)
 	return root
 }
+func (c *cli) runtimeCmd() *cobra.Command {
+	root := &cobra.Command{Use: "runtime", Short: "Manage agent runtime connectors and presence"}
+	var agentID, connector, configReference string
+	var maxConcurrent int
+	var scopes, capabilities []string
+	register := &cobra.Command{Use: "register", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		id, _ := cmd.Flags().GetString("id")
+		value, err := c.svc.Execute(c.actor, "runtime.register", id, model.RuntimeRegistered{
+			AgentID: agentID, Connector: connector, ConfigReference: configReference,
+			MaxConcurrent: maxConcurrent, Scopes: scopes, Capabilities: capabilities,
+		})
+		if err != nil {
+			return err
+		}
+		return c.emit("runtime.register", value)
+	}}
+	register.Flags().String("id", "", "runtime ID")
+	_ = register.MarkFlagRequired("id")
+	register.Flags().StringVar(&agentID, "agent", "", "agent that owns the runtime")
+	_ = register.MarkFlagRequired("agent")
+	register.Flags().StringVar(&connector, "connector", "MANUAL", "MANUAL, MCP, LOCAL_PROCESS, WEBHOOK, or QUEUE")
+	register.Flags().StringVar(&configReference, "config-reference", "", "non-secret local connector configuration reference")
+	register.Flags().IntVar(&maxConcurrent, "max-concurrent", 1, "maximum concurrent invocations")
+	register.Flags().StringSliceVar(&scopes, "scope", nil, "runtime scope")
+	register.Flags().StringSliceVar(&capabilities, "capability", nil, "runtime capability")
+
+	var health string
+	var activeInvocations []string
+	heartbeat := &cobra.Command{Use: "heartbeat", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		id, _ := cmd.Flags().GetString("id")
+		value, err := c.svc.Execute(c.actor, "runtime.heartbeat", id, model.RuntimeHeartbeat{
+			Health: health, ActiveInvocations: activeInvocations,
+		})
+		if err != nil {
+			return err
+		}
+		return c.emit("runtime.heartbeat", value)
+	}}
+	heartbeat.Flags().String("id", "", "runtime ID")
+	_ = heartbeat.MarkFlagRequired("id")
+	heartbeat.Flags().StringVar(&health, "health", "HEALTHY", "HEALTHY or DEGRADED")
+	heartbeat.Flags().StringSliceVar(&activeInvocations, "active-invocation", nil, "active invocation ID")
+
+	for _, operation := range []string{"drain", "resume", "revoke"} {
+		operation := operation
+		var reason string
+		command := &cobra.Command{Use: operation, Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+			id, _ := cmd.Flags().GetString("id")
+			value, err := c.svc.Execute(c.actor, "runtime."+operation, id, model.RuntimeStatusChanged{Reason: reason})
+			if err != nil {
+				return err
+			}
+			return c.emit("runtime."+operation, value)
+		}}
+		command.Flags().String("id", "", "runtime ID")
+		_ = command.MarkFlagRequired("id")
+		command.Flags().StringVar(&reason, "reason", "", "status-change reason")
+		root.AddCommand(command)
+	}
+	list := &cobra.Command{Use: "list", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		state, err := c.svc.State()
+		if err != nil {
+			return err
+		}
+		return c.emit("runtime.list", state.AgentRuntimes)
+	}}
+	root.AddCommand(register, heartbeat, list)
+	return root
+}
+
+func (c *cli) invocationCmd() *cobra.Command {
+	root := &cobra.Command{Use: "invocation", Short: "Request and process agent invocations"}
+	var target, messageID, taskID, instruction, expectedResult, priority string
+	var expiresIn time.Duration
+	request := &cobra.Command{Use: "request", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		id, _ := cmd.Flags().GetString("id")
+		if id == "" {
+			id = fmt.Sprintf("inv-%d", time.Now().UnixNano())
+		}
+		var deadline *time.Time
+		if expiresIn > 0 {
+			value := time.Now().UTC().Add(expiresIn)
+			deadline = &value
+		}
+		event, err := c.svc.Execute(c.actor, "invocation.request", id, model.InvocationRequested{
+			Target: target, MessageID: messageID, TaskID: taskID, Instruction: instruction,
+			ExpectedResult: expectedResult, Priority: priority, Deadline: deadline,
+		})
+		if err != nil {
+			return err
+		}
+		return c.emit("invocation.request", event)
+	}}
+	request.Flags().String("id", "", "invocation ID (auto-generated if omitted)")
+	request.Flags().StringVar(&target, "to", "", "target agent")
+	_ = request.MarkFlagRequired("to")
+	request.Flags().StringVar(&messageID, "message", "", "related message ID")
+	request.Flags().StringVar(&taskID, "task", "", "related task ID")
+	request.Flags().StringVar(&instruction, "instruction", "", "bounded instruction for the target agent")
+	_ = request.MarkFlagRequired("instruction")
+	request.Flags().StringVar(&expectedResult, "expected-result", "", "expected result")
+	request.Flags().StringVar(&priority, "priority", "NORMAL", "LOW, NORMAL, HIGH, or URGENT")
+	request.Flags().DurationVar(&expiresIn, "expires-in", 0, "deadline relative to now")
+
+	list := &cobra.Command{Use: "list", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		state, err := c.svc.State()
+		if err != nil {
+			return err
+		}
+		status, _ := cmd.Flags().GetString("status")
+		targetFilter, _ := cmd.Flags().GetString("to")
+		result := map[string]model.Invocation{}
+		for id, invocation := range state.Invocations {
+			if status != "" && invocation.Status != strings.ToUpper(status) {
+				continue
+			}
+			if targetFilter != "" && invocation.Target != targetFilter {
+				continue
+			}
+			result[id] = invocation
+		}
+		return c.emit("invocation.list", result)
+	}}
+	list.Flags().String("status", "", "filter by status")
+	list.Flags().String("to", "", "filter by target agent")
+
+	next := &cobra.Command{Use: "next", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		runtimeID, _ := cmd.Flags().GetString("runtime")
+		invocation, found, err := c.svc.NextInvocation(c.actor, runtimeID)
+		if err != nil {
+			return err
+		}
+		return c.emit("invocation.next", map[string]any{"found": found, "invocation": invocation})
+	}}
+	next.Flags().String("runtime", "", "runtime ID used for capacity filtering")
+
+	var runtimeID string
+	claim := payloadStatus(c, "invocation", "claim", func(string) any {
+		return model.InvocationClaimed{RuntimeID: runtimeID}
+	})
+	claim.Flags().StringVar(&runtimeID, "runtime", "", "claiming runtime ID")
+	_ = claim.MarkFlagRequired("runtime")
+	var summary string
+	start := payloadStatus(c, "invocation", "start", func(string) any { return model.InvocationProgress{Summary: summary} })
+	start.Flags().StringVar(&summary, "summary", "", "progress summary")
+	var waitReason string
+	var retryIn time.Duration
+	waitCommand := payloadStatus(c, "invocation", "wait", func(string) any {
+		var nextAttempt *time.Time
+		if retryIn > 0 {
+			value := time.Now().UTC().Add(retryIn)
+			nextAttempt = &value
+		}
+		return model.InvocationWaiting{Reason: waitReason, NextAttemptAt: nextAttempt}
+	})
+	waitCommand.Flags().StringVar(&waitReason, "reason", "", "waiting reason")
+	_ = waitCommand.MarkFlagRequired("reason")
+	waitCommand.Flags().DurationVar(&retryIn, "retry-in", 0, "next attempt relative to now")
+	resume := payloadStatus(c, "invocation", "resume", func(string) any { return model.InvocationProgress{Summary: summary} })
+	resume.Flags().StringVar(&summary, "summary", "", "progress summary")
+	var resultMessage string
+	complete := payloadStatus(c, "invocation", "complete", func(string) any {
+		return model.InvocationCompleted{ResultMessageID: resultMessage, Summary: summary}
+	})
+	complete.Flags().StringVar(&resultMessage, "result-message", "", "result message ID")
+	complete.Flags().StringVar(&summary, "summary", "", "completion summary")
+	_ = complete.MarkFlagRequired("summary")
+	var reason string
+	reject := payloadStatus(c, "invocation", "reject", func(string) any { return model.InvocationRejected{Reason: reason} })
+	reject.Flags().StringVar(&reason, "reason", "", "rejection reason")
+	_ = reject.MarkFlagRequired("reason")
+	expire := payloadStatus(c, "invocation", "expire", func(string) any { return model.InvocationRejected{Reason: reason} })
+	expire.Flags().StringVar(&reason, "reason", "", "expiry reason")
+	_ = expire.MarkFlagRequired("reason")
+
+	policy := c.invocationPolicyCmd()
+	root.AddCommand(request, list, next, claim, start, waitCommand, resume, complete, reject, expire, policy)
+	return root
+}
+
+func (c *cli) invocationPolicyCmd() *cobra.Command {
+	root := &cobra.Command{Use: "policy", Short: "Manage per-agent invocation policy"}
+	var mode string
+	var trustedActors, allowedScopes []string
+	var requireHuman bool
+	set := &cobra.Command{Use: "set", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		agentID, _ := cmd.Flags().GetString("agent")
+		event, err := c.svc.Execute(c.actor, "invocation.policy.update", agentID, model.InvocationPolicyUpdated{
+			Mode: mode, TrustedActors: trustedActors, AllowedScopes: allowedScopes,
+			RequireHumanForSensitive: requireHuman,
+		})
+		if err != nil {
+			return err
+		}
+		return c.emit("invocation.policy.update", event)
+	}}
+	set.Flags().String("agent", "", "target agent")
+	_ = set.MarkFlagRequired("agent")
+	set.Flags().StringVar(&mode, "mode", "MANUAL", "MANUAL, TRUSTED, AUTOMATIC, or DISABLED")
+	set.Flags().StringSliceVar(&trustedActors, "trusted-actor", nil, "actor allowed by TRUSTED mode")
+	set.Flags().StringSliceVar(&allowedScopes, "scope", nil, "allowed invocation scope")
+	set.Flags().BoolVar(&requireHuman, "require-human-for-sensitive", true, "require human approval for sensitive work")
+	show := &cobra.Command{Use: "show", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		agentID, _ := cmd.Flags().GetString("agent")
+		state, err := c.svc.State()
+		if err != nil {
+			return err
+		}
+		return c.emit("invocation.policy.show", state.InvocationPolicies[agentID])
+	}}
+	show.Flags().String("agent", "", "target agent")
+	_ = show.MarkFlagRequired("agent")
+	root.AddCommand(set, show)
+	return root
+}
+
 func (c *cli) sessionCmd() *cobra.Command {
 	root := &cobra.Command{Use: "session"}
 	for _, sub := range []string{"start", "end"} {
