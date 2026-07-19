@@ -19,6 +19,7 @@ var invocationRequestForm = &ActionForm{
 		{Label: "Priority (LOW/NORMAL/HIGH/URGENT)", Placeholder: "NORMAL"},
 		{Label: "Related task ID", Placeholder: ""},
 		{Label: "Related message ID", Placeholder: ""},
+		{Label: "Scopes (comma-separated)", Placeholder: "src"},
 	},
 	Build: func(values []string) (any, error) {
 		priority := strings.ToUpper(values[4])
@@ -27,7 +28,7 @@ var invocationRequestForm = &ActionForm{
 		}
 		return model.InvocationRequested{
 			Target: values[1], Instruction: values[2], ExpectedResult: values[3],
-			Priority: priority, TaskID: values[5], MessageID: values[6],
+			Priority: priority, TaskID: values[5], MessageID: values[6], Scopes: splitCSV(values[7]),
 		}, nil
 	},
 	ResolveID: func(_ string, values []string) string { return values[0] },

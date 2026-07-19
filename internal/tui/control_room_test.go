@@ -110,7 +110,7 @@ func TestControlRoomCreatesInvocationThroughGuidedForm(t *testing.T) {
 	view.rowFocus = true
 	next, _ := view.openCreateForm()
 	view = next.(Model)
-	values := []string{"inv-tui", "builder", "Review this layer", "Post findings", "HIGH", "", ""}
+	values := []string{"inv-tui", "builder", "Review this layer", "Post findings", "HIGH", "", "", "src"}
 	for index, value := range values {
 		view.inputs[index].SetValue(value)
 	}

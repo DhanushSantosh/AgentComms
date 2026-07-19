@@ -2,7 +2,9 @@ package service
 
 import (
 	"testing"
+	"time"
 
+	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 )
 
@@ -120,5 +122,67 @@ func TestNextInvocationPrioritizesUrgencyThenAgeAndHonorsCapacity(t *testing.T) 
 	})
 	if _, found, err = instance.NextInvocation("builder", "runtime-queue"); err != nil || found {
 		t.Fatalf("capacity-bound runtime returned work: found=%t err=%v", found, err)
+	}
+}
+
+func TestInvocationPolicyEnforcesScopesAndSensitiveApproval(t *testing.T) {
+	instance := setup(t)
+	activate(t, instance, "builder", model.PrincipalAgent)
+	activate(t, instance, "alpha", model.PrincipalAgent)
+	must(t, instance, "owner", "invocation.policy.update", "builder", model.InvocationPolicyUpdated{
+		Mode: "AUTOMATIC", AllowedScopes: []string{"src/api"}, RequireHumanForSensitive: true,
+	})
+	if _, err := instance.Execute("alpha", "invocation.request", "scope-denied", model.InvocationRequested{
+		Target: "builder", Instruction: "Modify a UI file", Scopes: []string{"src/ui"},
+	}); err == nil {
+		t.Fatal("invocation exceeded the target policy scopes")
+	}
+	must(t, instance, "alpha", "invocation.request", "scope-allowed", model.InvocationRequested{
+		Target: "builder", Instruction: "Review an API file", Scopes: []string{"src/api"},
+	})
+	must(t, instance, "owner", "task.create", "sensitive-task", model.TaskCreated{
+		Title: "Sensitive change", Repository: "local", Branch: "sensitive",
+		Resources: []string{"src/api"}, Risk: "HIGH",
+	})
+	if _, err := instance.Execute("alpha", "invocation.request", "sensitive-denied", model.InvocationRequested{
+		Target: "builder", TaskID: "sensitive-task", Instruction: "Perform sensitive work",
+	}); err == nil {
+		t.Fatal("sensitive invocation bypassed human approval")
+	}
+	must(t, instance, "owner", "approval.request", "approve-sensitive", model.ApprovalRequested{
+		Tier: "HUMAN", Action: "invocation-sensitive:sensitive-approved", Reason: "approved by user",
+	})
+	must(t, instance, "owner", "approval.approve", "approve-sensitive", model.ApprovalResponse{})
+	must(t, instance, "alpha", "invocation.request", "sensitive-approved", model.InvocationRequested{
+		Target: "builder", TaskID: "sensitive-task", Instruction: "Perform sensitive work",
+	})
+}
+
+func TestRuntimePresenceExpiresWithoutHeartbeat(t *testing.T) {
+	now := time.Now().UTC()
+	state := model.State{AgentRuntimes: map[string]model.AgentRuntime{
+		"fresh": {
+			ID: "fresh", Status: "ONLINE",
+			Health: "HEALTHY", LastSeenAt: now.Add(-controlplane.RuntimeOfflineAfter / 2),
+		},
+		"stale": {
+			ID: "stale", Status: "ONLINE",
+			Health: "HEALTHY", LastSeenAt: now.Add(-controlplane.RuntimeOfflineAfter * 2),
+		},
+		"draining": {
+			ID: "draining", Status: "DRAINING",
+			Health: "HEALTHY", LastSeenAt: now.Add(-controlplane.RuntimeOfflineAfter * 2),
+		},
+	}}
+	RefreshRuntimePresence(&state, now)
+	if state.AgentRuntimes["fresh"].Status != "ONLINE" {
+		t.Fatal("fresh runtime was marked offline")
+	}
+	if state.AgentRuntimes["stale"].Status != "OFFLINE" ||
+		state.AgentRuntimes["stale"].Reason != "heartbeat expired" {
+		t.Fatalf("stale runtime was not expired: %+v", state.AgentRuntimes["stale"])
+	}
+	if state.AgentRuntimes["draining"].Status != "DRAINING" {
+		t.Fatal("draining runtime status was overwritten")
 	}
 }

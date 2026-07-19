@@ -51,6 +51,7 @@ func tools() []map[string]any {
 			"instruction":     map[string]any{"type": "string", "maxLength": controlplane.MaxInvocationBytes},
 			"expected_result": map[string]any{"type": "string"}, "message_id": map[string]any{"type": "string"},
 			"task_id":  map[string]any{"type": "string"},
+			"scopes":   map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 			"priority": map[string]any{"type": "string", "enum": []string{"LOW", "NORMAL", "HIGH", "URGENT"}},
 		}, "id", "target", "instruction"),
 		tool("invocation_next", "Read the next claimable invocation for this agent", map[string]any{
@@ -165,7 +166,8 @@ func call(s *service.Service, actor string, p callParams) (any, error) {
 		return s.Execute(actor, "invocation.request", stringArg(p.Arguments, "id"), model.InvocationRequested{
 			Target: stringArg(p.Arguments, "target"), MessageID: stringArg(p.Arguments, "message_id"),
 			TaskID: stringArg(p.Arguments, "task_id"), Instruction: stringArg(p.Arguments, "instruction"),
-			ExpectedResult: stringArg(p.Arguments, "expected_result"), Priority: stringArg(p.Arguments, "priority"),
+			ExpectedResult: stringArg(p.Arguments, "expected_result"),
+			Scopes:         stringsArg(p.Arguments["scopes"]), Priority: stringArg(p.Arguments, "priority"),
 		})
 	case "invocation_next":
 		invocation, found, err := s.NextInvocation(actor, stringArg(p.Arguments, "runtime_id"))

@@ -644,6 +644,7 @@ func (c *cli) runtimeCmd() *cobra.Command {
 func (c *cli) invocationCmd() *cobra.Command {
 	root := &cobra.Command{Use: "invocation", Short: "Request and process agent invocations"}
 	var target, messageID, taskID, instruction, expectedResult, priority string
+	var invocationScopes []string
 	var expiresIn time.Duration
 	request := &cobra.Command{Use: "request", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		id, _ := cmd.Flags().GetString("id")
@@ -657,7 +658,7 @@ func (c *cli) invocationCmd() *cobra.Command {
 		}
 		event, err := c.svc.Execute(c.actor, "invocation.request", id, model.InvocationRequested{
 			Target: target, MessageID: messageID, TaskID: taskID, Instruction: instruction,
-			ExpectedResult: expectedResult, Priority: priority, Deadline: deadline,
+			ExpectedResult: expectedResult, Scopes: invocationScopes, Priority: priority, Deadline: deadline,
 		})
 		if err != nil {
 			return err
@@ -672,6 +673,7 @@ func (c *cli) invocationCmd() *cobra.Command {
 	request.Flags().StringVar(&instruction, "instruction", "", "bounded instruction for the target agent")
 	_ = request.MarkFlagRequired("instruction")
 	request.Flags().StringVar(&expectedResult, "expected-result", "", "expected result")
+	request.Flags().StringSliceVar(&invocationScopes, "scope", nil, "scope required by the invocation")
 	request.Flags().StringVar(&priority, "priority", "NORMAL", "LOW, NORMAL, HIGH, or URGENT")
 	request.Flags().DurationVar(&expiresIn, "expires-in", 0, "deadline relative to now")
 

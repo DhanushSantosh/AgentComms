@@ -111,6 +111,7 @@ func (e *Engine) State(ctx context.Context, projectID string) (model.State, cont
 		Verified: true, EventCount: int(sequence), Head: head,
 		SyncState: "authoritative",
 	}
+	service.RefreshRuntimePresence(&state, e.now())
 	if err = tx.Commit(); err != nil {
 		return model.State{}, controlplane.ResultMetadata{}, unavailable(err)
 	}
@@ -237,7 +238,7 @@ func (e *Engine) CreateProject(ctx context.Context, projectID, ownerID string) e
 }
 
 func (e *Engine) Mutate(ctx context.Context, command controlplane.Command) (controlplane.Event, controlplane.Receipt, error) {
-	tx, err := e.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
+	tx, err := e.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if err != nil {
 		return controlplane.Event{}, controlplane.Receipt{}, unavailable(err)
 	}

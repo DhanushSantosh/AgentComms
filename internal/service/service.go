@@ -61,6 +61,7 @@ func (s *Service) State() (model.State, error) {
 		state.Integrity.ServerSequence = metadata.ServerSequence
 		state.Integrity.CacheSequence = metadata.CacheSequence
 		state.Integrity.Connectivity = metadata.Connectivity
+		RefreshRuntimePresence(&state, time.Now().UTC())
 		return state, nil
 	}
 	ev, e := s.Store.Events()
@@ -86,6 +87,7 @@ func (s *Service) State() (model.State, error) {
 		}
 	}
 	st.Integrity = model.Integrity{Verified: s.Store.Verify() == nil, EventCount: len(ev), Head: s.Store.Head(), UnknownEvents: unknown, Remote: s.Store.Remote(), SyncState: "local-only"}
+	RefreshRuntimePresence(&st, time.Now().UTC())
 	if st.Integrity.Remote != "" {
 		st.Integrity.SyncState = "configured"
 	}
@@ -378,7 +380,7 @@ func ApplyEvent(s *model.State, e model.Event) error {
 		s.Invocations[e.EntityID] = model.Invocation{
 			ID: e.EntityID, RequestedBy: e.Actor, Target: p.Target, MessageID: p.MessageID,
 			TaskID: p.TaskID, Instruction: p.Instruction, ExpectedResult: p.ExpectedResult,
-			Priority: priority, Status: "PENDING", CreatedAt: e.Time, Deadline: p.Deadline,
+			Scopes: p.Scopes, Priority: priority, Status: "PENDING", CreatedAt: e.Time, Deadline: p.Deadline,
 		}
 	case *model.InvocationNotified:
 		invocation := s.Invocations[e.EntityID]
@@ -947,6 +949,23 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 			if len(p.Instruction)+len(p.ExpectedResult) > controlplane.MaxInvocationBytes {
 				return nil, fmt.Errorf("invocation content exceeds %d bytes", controlplane.MaxInvocationBytes)
 			}
+			if p.TaskID != "" {
+				task, taskExists := st.Tasks[p.TaskID]
+				if !taskExists {
+					return nil, errors.New("related task not found")
+				}
+				if len(p.Scopes) == 0 {
+					p.Scopes = append([]string(nil), task.Resources...)
+				}
+			}
+			if len(p.Scopes) > 0 {
+				if !scopeAllows(requester.Scopes, p.Scopes) && !actorElevated(st, actor) {
+					return nil, errors.New("invocation scopes exceed requester scopes")
+				}
+				if !scopeAllows(target.Scopes, p.Scopes) {
+					return nil, errors.New("invocation scopes exceed target scopes")
+				}
+			}
 			priority := strings.ToUpper(strings.TrimSpace(p.Priority))
 			if priority == "" {
 				priority = "NORMAL"
@@ -979,10 +998,14 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 					return nil, errors.New("related message is not addressed to the invocation target")
 				}
 			}
-			if p.TaskID != "" {
-				if _, taskExists := st.Tasks[p.TaskID]; !taskExists {
-					return nil, errors.New("related task not found")
-				}
+			policy := st.InvocationPolicies[p.Target]
+			if len(policy.AllowedScopes) > 0 && !scopeAllows(policy.AllowedScopes, p.Scopes) {
+				return nil, errors.New("invocation scopes exceed target policy")
+			}
+			if policy.RequireHumanForSensitive && invocationIsSensitive(st, p) &&
+				requester.PrincipalType != model.PrincipalHuman &&
+				!hasApproval(st, "invocation-sensitive:"+id) {
+				return nil, errors.New("human approval is required for sensitive invocation")
 			}
 			payload = p
 		case model.InvocationNotified:
@@ -1317,6 +1340,29 @@ func containsString(values []string, expected string) bool {
 		}
 	}
 	return false
+}
+
+func invocationIsSensitive(state model.State, request model.InvocationRequested) bool {
+	if request.Priority == "URGENT" {
+		return true
+	}
+	if request.TaskID == "" {
+		return false
+	}
+	task, exists := state.Tasks[request.TaskID]
+	return exists && task.Risk != "" && task.Risk != "ROUTINE"
+}
+
+func RefreshRuntimePresence(state *model.State, now time.Time) {
+	for id, runtime := range state.AgentRuntimes {
+		if runtime.Status == "ONLINE" && !runtime.LastSeenAt.IsZero() &&
+			now.Sub(runtime.LastSeenAt) > controlplane.RuntimeOfflineAfter {
+			runtime.Status = "OFFLINE"
+			runtime.Health = "UNKNOWN"
+			runtime.Reason = "heartbeat expired"
+			state.AgentRuntimes[id] = runtime
+		}
+	}
 }
 
 func migrationSeedEvent(typ string) bool {

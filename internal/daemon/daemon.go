@@ -171,6 +171,7 @@ func (d *Daemon) nextInvocation(w http.ResponseWriter, r *http.Request) {
 			writeControlError(w, err)
 			return
 		}
+		service.RefreshRuntimePresence(&state, time.Now().UTC())
 		invocation, found := service.SelectNextInvocation(state, actor, runtimeID, time.Now().UTC())
 		if found || waitDuration == 0 || !time.Now().Before(deadline) {
 			writeJSON(w, http.StatusOK, map[string]any{
@@ -282,6 +283,7 @@ func (d *Daemon) syncProject(ctx context.Context, projectID string) error {
 			if stateErr != nil {
 				return stateErr
 			}
+			service.RefreshRuntimePresence(&state, time.Now().UTC())
 			return d.dispatcher.Dispatch(ctx, projectID, state)
 		}
 		cursor = page.NextCursor
