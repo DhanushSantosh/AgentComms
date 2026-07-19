@@ -15,7 +15,6 @@ import (
 	"github.com/DhanushSantosh/AgentComms/internal/identity"
 	"github.com/DhanushSantosh/AgentComms/internal/localcache"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
-	"github.com/DhanushSantosh/AgentComms/internal/remote"
 	"github.com/DhanushSantosh/AgentComms/internal/service"
 	"github.com/google/uuid"
 )
@@ -28,10 +27,15 @@ const (
 
 type Daemon struct {
 	cache      *localcache.Cache
-	remote     *remote.Client
+	remote     authorityClient
 	syncMu     sync.Mutex
 	syncing    map[string]*syncState
 	dispatcher *Dispatcher
+}
+
+type authorityClient interface {
+	Command(context.Context, controlplane.Command) (controlplane.Event, controlplane.Receipt, error)
+	Events(context.Context, string, controlplane.PageRequest) (controlplane.EventPage, error)
 }
 
 type syncState struct {
@@ -39,7 +43,7 @@ type syncState struct {
 	err  error
 }
 
-func New(cache *localcache.Cache, client *remote.Client) (*Daemon, error) {
+func New(cache *localcache.Cache, client authorityClient) (*Daemon, error) {
 	if cache == nil || client == nil {
 		return nil, errors.New("cache and authority client are required")
 	}
