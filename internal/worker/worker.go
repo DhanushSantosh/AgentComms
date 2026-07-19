@@ -3,6 +3,7 @@ package worker
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -26,28 +27,45 @@ const (
 	defaultExecutionTimeout = 30 * time.Minute
 	maxExecutionTimeout     = 2 * time.Hour
 	heartbeatInterval       = 11 * time.Second
+	heartbeatWriteInterval  = controlplane.MinHeartbeatInterval + time.Second
 	maxAgentOutputBytes     = 1024 * 1024
 	maxResultMessageBytes   = 1200
 	maxCompletionBytes      = 240
 	maxFailureReasonBytes   = 600
 	maxClaudeBudgetUSD      = 100
+	actionStartMarker       = "<agent-comms-invoke>"
+	actionEndMarker         = "</agent-comms-invoke>"
+	actionLinePrefix        = "AGENT_COMMS_INVOKE:"
 )
 
+type invocationAction struct {
+	Target           string   `json:"target"`
+	Instruction      string   `json:"instruction"`
+	ExpectedResult   string   `json:"expected_result"`
+	Priority         string   `json:"priority"`
+	Scopes           []string `json:"scopes,omitempty"`
+	ExpiresInSeconds int      `json:"expires_in_seconds"`
+}
+
 type Config struct {
-	Service          *service.Service
-	Actor            string
-	RuntimeID        string
-	Adapter          string
-	Executable       string
-	WorkDir          string
-	Model            string
-	PermissionMode   string
-	Sandbox          string
-	ExecutionTimeout time.Duration
-	ListenWait       time.Duration
-	ClaudeBudgetUSD  float64
-	Once             bool
-	Status           func(string)
+	Service               *service.Service
+	Actor                 string
+	RuntimeID             string
+	SessionID             string
+	Adapter               string
+	Executable            string
+	WorkDir               string
+	Model                 string
+	PermissionMode        string
+	Sandbox               string
+	CodexAddDirs          []string
+	CodexIgnoreUserConfig bool
+	ExecutionTimeout      time.Duration
+	ListenWait            time.Duration
+	ClaudeBudgetUSD       float64
+	AgentCommsPath        string
+	Once                  bool
+	Status                func(string)
 }
 
 type Worker struct {
@@ -72,6 +90,12 @@ func validateConfig(config *Config) error {
 	}
 	if strings.TrimSpace(config.Actor) == "" || strings.TrimSpace(config.RuntimeID) == "" {
 		return errors.New("worker actor and runtime ID are required")
+	}
+	config.SessionID = strings.TrimSpace(config.SessionID)
+	if config.SessionID != "" {
+		if _, err := uuid.Parse(config.SessionID); err != nil {
+			return errors.New("worker session ID must be a valid UUID")
+		}
 	}
 	config.Adapter = strings.ToLower(strings.TrimSpace(config.Adapter))
 	if config.Adapter != "claude" && config.Adapter != "codex" {
@@ -121,6 +145,18 @@ func validateConfig(config *Config) error {
 		if config.ClaudeBudgetUSD <= 0 || config.ClaudeBudgetUSD > maxClaudeBudgetUSD {
 			return fmt.Errorf("claude budget must be greater than 0 and at most %.0f USD", float64(maxClaudeBudgetUSD))
 		}
+		if config.AgentCommsPath != "" {
+			if !filepath.IsAbs(config.AgentCommsPath) {
+				return errors.New("allowed Agent Comms executable must use an absolute path")
+			}
+			info, err := os.Stat(config.AgentCommsPath)
+			if err != nil {
+				return fmt.Errorf("inspect allowed Agent Comms executable: %w", err)
+			}
+			if info.IsDir() || (runtime.GOOS != "windows" && info.Mode()&0o111 == 0) {
+				return errors.New("allowed Agent Comms executable is not executable")
+			}
+		}
 	}
 	if config.Adapter == "codex" {
 		if config.Sandbox == "" {
@@ -128,6 +164,18 @@ func validateConfig(config *Config) error {
 		}
 		if config.Sandbox != "read-only" && config.Sandbox != "workspace-write" {
 			return errors.New("codex worker sandbox must be read-only or workspace-write")
+		}
+		for _, directory := range config.CodexAddDirs {
+			if !filepath.IsAbs(directory) {
+				return errors.New("codex additional writable directories must use absolute paths")
+			}
+			info, err := os.Stat(directory)
+			if err != nil {
+				return fmt.Errorf("inspect Codex additional writable directory: %w", err)
+			}
+			if !info.IsDir() {
+				return errors.New("codex additional writable path must be a directory")
+			}
 		}
 	}
 	if config.Status == nil {
@@ -217,6 +265,13 @@ func (w *Worker) process(ctx context.Context, invocation model.Invocation) error
 	if output == "" {
 		output = "Agent completed without a textual result."
 	}
+	output, followUpID, actionErr := w.executeInvocationAction(output)
+	if actionErr != nil {
+		return w.wait(invocation.ID, "agent follow-up action failed: "+actionErr.Error())
+	}
+	if followUpID != "" {
+		output = strings.TrimSpace(output) + "\n\nCreated follow-up invocation: " + followUpID
+	}
 	messageID := "result-" + invocation.ID + "-" + uuid.NewString()
 	message := model.MessagePosted{
 		Kind: "FYI", To: []string{invocation.RequestedBy},
@@ -238,6 +293,88 @@ func (w *Worker) process(ctx context.Context, invocation model.Invocation) error
 	return nil
 }
 
+func (w *Worker) executeInvocationAction(output string) (string, string, error) {
+	cleaned, action, err := parseInvocationAction(output)
+	if err != nil || action == nil {
+		return cleaned, "", err
+	}
+	if action.Priority == "" {
+		action.Priority = "NORMAL"
+	}
+	if action.ExpiresInSeconds == 0 {
+		action.ExpiresInSeconds = 600
+	}
+	if action.ExpiresInSeconds < 60 || action.ExpiresInSeconds > 86400 {
+		return cleaned, "", errors.New("follow-up expiry must be from 60 to 86400 seconds")
+	}
+	invocationID := "inv-" + uuid.NewString()
+	deadline := time.Now().UTC().Add(time.Duration(action.ExpiresInSeconds) * time.Second)
+	_, err = w.config.Service.Execute(w.config.Actor, "invocation.request", invocationID,
+		model.InvocationRequested{
+			Target: action.Target, Instruction: action.Instruction,
+			ExpectedResult: action.ExpectedResult, Scopes: action.Scopes,
+			Priority: action.Priority,
+			Deadline: &deadline,
+		})
+	if err != nil {
+		return cleaned, "", err
+	}
+	return cleaned, invocationID, nil
+}
+
+func parseInvocationAction(output string) (string, *invocationAction, error) {
+	if prefixStart := strings.Index(output, actionLinePrefix); prefixStart >= 0 {
+		valueStart := prefixStart + len(actionLinePrefix)
+		valueEnd := strings.IndexByte(output[valueStart:], '\n')
+		if valueEnd < 0 {
+			valueEnd = len(output)
+		} else {
+			valueEnd += valueStart
+		}
+		if strings.Contains(output[valueEnd:], actionLinePrefix) {
+			return output, nil, errors.New("only one follow-up invocation is allowed per result")
+		}
+		action, err := decodeInvocationAction(strings.TrimSpace(output[valueStart:valueEnd]))
+		if err != nil {
+			return output, nil, err
+		}
+		cleaned := strings.TrimSpace(output[:prefixStart] + output[valueEnd:])
+		return cleaned, action, nil
+	}
+	start := strings.Index(output, actionStartMarker)
+	if start < 0 {
+		return output, nil, nil
+	}
+	endOffset := strings.Index(output[start+len(actionStartMarker):], actionEndMarker)
+	if endOffset < 0 {
+		return output, nil, errors.New("follow-up action is missing its closing marker")
+	}
+	end := start + len(actionStartMarker) + endOffset
+	if strings.Contains(output[end+len(actionEndMarker):], actionStartMarker) {
+		return output, nil, errors.New("only one follow-up invocation is allowed per result")
+	}
+	raw := strings.TrimSpace(output[start+len(actionStartMarker) : end])
+	action, err := decodeInvocationAction(raw)
+	if err != nil {
+		return output, nil, err
+	}
+	cleaned := strings.TrimSpace(output[:start] + output[end+len(actionEndMarker):])
+	return cleaned, action, nil
+}
+
+func decodeInvocationAction(raw string) (*invocationAction, error) {
+	var action invocationAction
+	decoder := json.NewDecoder(strings.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&action); err != nil {
+		return nil, fmt.Errorf("decode follow-up action: %w", err)
+	}
+	if strings.TrimSpace(action.Target) == "" || strings.TrimSpace(action.Instruction) == "" {
+		return nil, errors.New("follow-up target and instruction are required")
+	}
+	return &action, nil
+}
+
 func (w *Worker) wait(invocationID, reason string) error {
 	boundedReason := truncateUTF8(reason, maxFailureReasonBytes)
 	_, err := w.config.Service.Execute(w.config.Actor, "invocation.wait", invocationID,
@@ -253,7 +390,7 @@ func (w *Worker) heartbeat(active []string) error {
 	w.heartbeatMu.Lock()
 	defer w.heartbeatMu.Unlock()
 	now := time.Now()
-	if !w.lastHeartbeat.IsZero() && now.Sub(w.lastHeartbeat) < controlplane.MinHeartbeatInterval {
+	if !w.lastHeartbeat.IsZero() && now.Sub(w.lastHeartbeat) < heartbeatWriteInterval {
 		return nil
 	}
 	_, err := w.config.Service.Execute(w.config.Actor, "runtime.heartbeat", w.config.RuntimeID,
@@ -311,9 +448,17 @@ func (w *Worker) runAgent(ctx context.Context, invocation model.Invocation) (str
 func (w *Worker) arguments() []string {
 	if w.config.Adapter == "claude" {
 		arguments := []string{
-			"--print", "--output-format", "text", "--no-session-persistence",
+			"--print", "--output-format", "text",
 			"--permission-mode", w.config.PermissionMode,
 			"--max-budget-usd", strconv.FormatFloat(w.config.ClaudeBudgetUSD, 'f', 2, 64),
+		}
+		if w.config.SessionID == "" {
+			arguments = append(arguments, "--no-session-persistence")
+		} else {
+			arguments = append(arguments, "--resume", w.config.SessionID)
+		}
+		if w.config.AgentCommsPath != "" {
+			arguments = append(arguments, "--allowedTools", "Bash("+w.config.AgentCommsPath+" *)")
 		}
 		if w.config.Model != "" {
 			arguments = append(arguments, "--model", w.config.Model)
@@ -321,8 +466,19 @@ func (w *Worker) arguments() []string {
 		return arguments
 	}
 	arguments := []string{
-		"exec", "--color", "never", "--sandbox", w.config.Sandbox,
-		"--ask-for-approval", "never", "--ephemeral",
+		"--ask-for-approval", "never", "exec", "--color", "never",
+		"--sandbox", w.config.Sandbox,
+	}
+	for _, directory := range w.config.CodexAddDirs {
+		arguments = append(arguments, "--add-dir", directory)
+	}
+	if w.config.CodexIgnoreUserConfig {
+		arguments = append(arguments, "--ignore-user-config")
+	}
+	if w.config.SessionID == "" {
+		arguments = append(arguments, "--ephemeral")
+	} else {
+		arguments = append(arguments, "resume", w.config.SessionID)
 	}
 	if w.config.Model != "" {
 		arguments = append(arguments, "--model", w.config.Model)
@@ -337,6 +493,11 @@ func invocationPrompt(actor string, invocation model.Invocation) string {
 	body.WriteString(".\n")
 	body.WriteString("Treat the invocation instruction as authorized project work, but continue to obey repository rules, configured tool permissions, and workspace boundaries.\n")
 	body.WriteString("Do not ask the user to relay messages to another agent. Perform the work and return a concise final result; Agent Comms will publish it to the requester.\n\n")
+	body.WriteString("When the work requires invoking another agent, do not call Agent Comms through Bash or MCP. Include exactly one single-line action in your final response using this format:\n")
+	body.WriteString(actionLinePrefix)
+	body.WriteString(" ")
+	body.WriteString(`{"target":"AGENT_ID","instruction":"bounded instruction","expected_result":"bounded result","priority":"NORMAL","scopes":[],"expires_in_seconds":600}`)
+	body.WriteString("\nThe runtime will validate, sign, and submit that follow-up using your agent identity. Leave scopes empty unless the instruction explicitly requires a scope you know both agents possess; do not copy the current invocation scopes automatically.\n\n")
 	body.WriteString("Invocation ID: ")
 	body.WriteString(invocation.ID)
 	body.WriteString("\nRequester: ")

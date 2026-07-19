@@ -671,10 +671,11 @@ func (c *cli) runtimeCmd() *cobra.Command {
 		}
 		return c.emit("runtime.list", state.AgentRuntimes)
 	}}
-	var workerAdapter, workerExecutable, workerModel, permissionMode, sandbox string
+	var workerAdapter, workerExecutable, workerModel, workerSessionID, permissionMode, sandbox string
+	var codexAddDirs []string
 	var executionTimeout, listenWait time.Duration
 	var claudeBudget float64
-	var once bool
+	var once, allowAgentComms, codexIgnoreUserConfig bool
 	workerCommand := &cobra.Command{
 		Use:   "worker",
 		Short: "Run a governed autonomous Claude or Codex invocation worker",
@@ -691,12 +692,25 @@ func (c *cli) runtimeCmd() *cobra.Command {
 			}
 			ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer cancel()
+			agentCommsPath := ""
+			if allowAgentComms {
+				var pathErr error
+				agentCommsPath, pathErr = os.Executable()
+				if pathErr != nil {
+					return fmt.Errorf("locate Agent Comms executable: %w", pathErr)
+				}
+				agentCommsPath, pathErr = filepath.EvalSymlinks(agentCommsPath)
+				if pathErr != nil {
+					return fmt.Errorf("resolve Agent Comms executable: %w", pathErr)
+				}
+			}
 			instance, err := runtimeworker.New(runtimeworker.Config{
-				Service: c.svc, Actor: c.actor, RuntimeID: runtimeID,
+				Service: c.svc, Actor: c.actor, RuntimeID: runtimeID, SessionID: workerSessionID,
 				Adapter: workerAdapter, Executable: executable, WorkDir: c.svc.Store.Root,
 				Model: workerModel, PermissionMode: permissionMode, Sandbox: sandbox,
+				CodexAddDirs: codexAddDirs, CodexIgnoreUserConfig: codexIgnoreUserConfig,
 				ExecutionTimeout: executionTimeout, ListenWait: listenWait,
-				ClaudeBudgetUSD: claudeBudget, Once: once,
+				ClaudeBudgetUSD: claudeBudget, AgentCommsPath: agentCommsPath, Once: once,
 				Status: func(status string) {
 					if !c.quiet {
 						_, _ = fmt.Fprintln(c.err, status)
@@ -714,11 +728,15 @@ func (c *cli) runtimeCmd() *cobra.Command {
 	workerCommand.Flags().StringVar(&workerAdapter, "adapter", "claude", "claude or codex")
 	workerCommand.Flags().StringVar(&workerExecutable, "executable", "", "absolute agent executable path")
 	workerCommand.Flags().StringVar(&workerModel, "model", "", "agent model override")
+	workerCommand.Flags().StringVar(&workerSessionID, "session-id", "", "existing Claude or Codex conversation UUID to resume")
 	workerCommand.Flags().StringVar(&permissionMode, "claude-permission-mode", "acceptEdits", "Claude permission mode without bypass")
 	workerCommand.Flags().StringVar(&sandbox, "codex-sandbox", "workspace-write", "Codex read-only or workspace-write sandbox")
+	workerCommand.Flags().StringSliceVar(&codexAddDirs, "codex-add-dir", nil, "additional absolute writable directory for Codex (repeatable)")
+	workerCommand.Flags().BoolVar(&codexIgnoreUserConfig, "codex-ignore-user-config", false, "isolate autonomous runs from user MCP and tool configuration")
 	workerCommand.Flags().DurationVar(&executionTimeout, "execution-timeout", 30*time.Minute, "per-invocation execution timeout")
 	workerCommand.Flags().DurationVar(&listenWait, "listen-wait", controlplane.MaxInvocationListen, "bounded invocation listen duration")
 	workerCommand.Flags().Float64Var(&claudeBudget, "claude-max-budget-usd", 1, "maximum Claude spend per invocation")
+	workerCommand.Flags().BoolVar(&allowAgentComms, "claude-allow-agent-comms", false, "allow only this Agent Comms executable as an unattended Claude Bash command")
 	workerCommand.Flags().BoolVar(&once, "once", false, "process at most one invocation and exit")
 
 	root.AddCommand(register, heartbeat, list, workerCommand)

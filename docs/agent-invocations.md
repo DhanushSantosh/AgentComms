@@ -57,6 +57,8 @@ agent-comms --project /srv/project --actor reviewer runtime worker \
   --id reviewer-runtime \
   --adapter claude \
   --executable /usr/local/bin/claude \
+  --session-id 2f38a348-52f0-43cd-a19f-1e0dd06ab451 \
+  --claude-allow-agent-comms \
   --claude-permission-mode acceptEdits \
   --claude-max-budget-usd 1 \
   --execution-timeout 30m
@@ -69,7 +71,10 @@ agent-comms --project /srv/project --actor reviewer runtime worker \
   --id reviewer-runtime \
   --adapter codex \
   --executable /usr/local/bin/codex \
+  --session-id 019f7857-ac37-7233-ae3f-0104627cab0e \
   --codex-sandbox workspace-write \
+  --codex-add-dir /home/reviewer/.config/agent-comms \
+  --codex-ignore-user-config \
   --execution-timeout 30m
 ```
 
@@ -80,6 +85,33 @@ cannot use `bypassPermissions`; Codex is restricted to `read-only` or
 `workspace-write`. Executions and captured output are bounded. Any execution or
 publication failure moves the invocation to `WAITING` with an auditable reason.
 Use `--once` for one bounded receive attempt in automation or testing.
+
+`--session-id` binds the runtime to one existing provider conversation and
+resumes it for every invocation, preserving conversational continuity. The
+value must be an exact UUID; the worker never guesses the most recent session.
+Run only one worker for a bound session and do not process an interactive turn
+in that conversation at the same time. Without this flag, the worker retains
+isolated one-shot behavior.
+
+`--claude-allow-agent-comms` grants the resumed Claude session unattended Bash
+permission for the currently running `agent-comms` executable only. Enable it
+when that agent must create follow-up invocations itself. It does not approve
+general shell commands or bypass Claude's remaining permission rules.
+Codex workers that invoke Agent Comms may need its local configuration
+directory passed explicitly with `--codex-add-dir`; each path must already
+exist and be absolute.
+Use `--codex-ignore-user-config` for a deterministic worker that resumes the
+conversation history without loading unrelated user MCP servers or tool
+configuration. Codex authentication and repository instructions remain
+available.
+
+Agent-to-agent follow-ups do not require provider shell or MCP access. When an
+agent decides another agent must act, it returns one bounded single-line
+`AGENT_COMMS_INVOKE: {json}` action using the format supplied in its worker
+prompt. The worker validates the action, signs the request with the current
+agent identity, submits it, and includes the new invocation ID in the durable
+result. Only one follow-up is accepted per completed turn, preventing
+unbounded fan-out from one model response.
 
 ## User policy
 
