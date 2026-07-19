@@ -28,6 +28,7 @@ type Model struct {
 	svc            *service.Service
 	state          model.State
 	actor          string
+	projectID      string
 	width, height  int
 	view, cursor   int
 	palette        bool
@@ -52,12 +53,16 @@ type Model struct {
 
 func New(s *service.Service, actor string) (Model, error) {
 	st, e := s.State()
+	projectID := "local project"
+	if config, err := s.Store.Config(); err == nil && config.ProjectID != "" {
+		projectID = config.ProjectID
+	}
 	hc := false
 	if uc, err := identity.LoadUserConfig(); err == nil && uc.Theme == "high-contrast" {
 		hc = true
 	}
 	return Model{
-		svc: s, state: st, actor: actor, width: 100, height: 30, highContrast: hc,
+		svc: s, state: st, actor: actor, projectID: projectID, width: 100, height: 30, highContrast: hc,
 		taskList: newRowList(taskRowSource{}), messageList: newRowList(messageRowSource{}),
 		approvalList: newRowList(approvalRowSource{}), agentList: newRowList(agentRowSource{}),
 		invocationList: newRowList(invocationRowSource{}), runtimeList: newRowList(runtimeRowSource{}),
@@ -152,6 +157,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "/", "ctrl+p":
 			m.palette = true
+		case "o":
+			m.openView("Overview")
+		case "g":
+			m.openView("Agents")
+		case "i":
+			m.openView("Invocations")
 		case "r":
 			m.refresh()
 		case "?":
@@ -173,6 +184,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+func (m *Model) openView(name string) {
+	for index, viewName := range views {
+		if viewName == name {
+			m.view = index
+			m.cursor = index
+			m.notice = "Opened " + name
+			return
+		}
+	}
 }
 func (m *Model) refresh() {
 	m.state, m.err = m.svc.State()
@@ -326,7 +348,7 @@ func (m Model) View() tea.View {
 	v := tea.NewView(screen)
 	v.AltScreen = true
 	v.MouseMode = tea.MouseModeCellMotion
-	v.WindowTitle = "Agent Comms · Signal room"
+	v.WindowTitle = "Agent Comms · Project Control"
 	return v
 }
 func (m Model) sidebarWidth() int {
@@ -352,9 +374,23 @@ func (m Model) sidebarWidth() int {
 }
 func (m Model) renderSidebar(p palette, w, h int) string {
 	title := lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("◉ AGENT COMMS")
-	sub := lipgloss.NewStyle().Foreground(p.muted).Render("SIGNAL ROOM")
+	sub := lipgloss.NewStyle().Foreground(p.muted).Render(truncate(m.projectID, max(8, w-2)))
 	rows := []string{title, sub, ""}
+	groups := map[int]string{
+		0: "CONTROL",
+		1: "WORK",
+		4: "PEOPLE",
+		5: "GOVERN",
+		9: "RECORDS",
+	}
+	showGroups := h >= 31
 	for i, name := range views {
+		if group := groups[i]; showGroups && group != "" {
+			if i > 0 {
+				rows = append(rows, "")
+			}
+			rows = append(rows, lipgloss.NewStyle().Foreground(p.muted).Faint(true).Render(group))
+		}
 		marker := "  "
 		style := lipgloss.NewStyle().Foreground(p.muted)
 		if i == m.cursor {
@@ -372,7 +408,7 @@ func (m Model) renderSidebar(p palette, w, h int) string {
 		}
 		rows = append(rows, style.Render(fmt.Sprintf("%s%s %s", marker, label, badge)))
 	}
-	rows = append(rows, "", lipgloss.NewStyle().Foreground(p.muted).Render("/ commands   ? help"))
+	rows = append(rows, "", lipgloss.NewStyle().Foreground(p.muted).Render("[/] commands  [?] help"))
 	return lipgloss.NewStyle().Width(w).Height(h).Padding(1).Background(p.ink).Foreground(p.text).Render(strings.Join(rows, "\n"))
 }
 func (m Model) badge(name string) string {
@@ -420,8 +456,16 @@ func (m Model) badge(name string) string {
 	return fmt.Sprintf("%d", n)
 }
 func (m Model) renderBody(p palette, w, h int) string {
-	header := lipgloss.NewStyle().Foreground(p.text).Bold(true).Render(views[m.view])
-	meta := lipgloss.NewStyle().Foreground(p.muted).Render(fmt.Sprintf("profile %s · %d events · %s", m.actor, m.state.Integrity.EventCount, m.state.Integrity.SyncState))
+	title := views[m.view]
+	if title == "Overview" {
+		title = "PROJECT CONTROL"
+	}
+	header := lipgloss.NewStyle().Foreground(p.text).Bold(true).Render(title)
+	meta := lipgloss.NewStyle().Foreground(p.muted).Render(fmt.Sprintf(
+		"%s  /  %s  ·  %s  ·  seq %d",
+		m.projectID, m.actor, empty(m.state.Integrity.Connectivity, "LOCAL"),
+		max(m.state.Integrity.ServerSequence, m.state.Integrity.CacheSequence),
+	))
 	pane := lipgloss.NewStyle().Width(w).Height(h).Padding(1, 2).Background(p.panel).Foreground(p.text)
 	if m.form != "" {
 		content := m.renderForm(p)
@@ -496,56 +540,108 @@ func (m Model) renderForm(p palette) string {
 	}
 	return lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(p.cyan).Padding(1, 2).Render(strings.Join(rows, "\n"))
 }
-func box(p palette, title, value, detail string) string {
-	return lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(p.muted).Width(21).Padding(0, 1).Render(lipgloss.NewStyle().Foreground(p.muted).Render(title) + "\n" + lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render(value) + "\n" + detail)
-}
 func (m Model) overview(p palette) string {
-	open, blocked, pending, online, running, waiting, failedDeliveries := 0, 0, 0, 0, 0, 0, 0
+	contentWidth := max(28, m.width-m.sidebarWidth()-7)
+	open, running := 0, 0
 	for _, t := range m.state.Tasks {
 		if !t.Archived && t.Status != "COMPLETED" && t.Status != "CANCELLED" {
 			open++
-		}
-		if t.Status == "BLOCKED" {
-			blocked++
-		}
-	}
-	for _, a := range m.state.Approvals {
-		if a.Status == "PENDING" {
-			pending++
-		}
-	}
-	for _, runtime := range m.state.AgentRuntimes {
-		if runtime.Status == "ONLINE" {
-			online++
 		}
 	}
 	for _, invocation := range m.state.Invocations {
 		switch invocation.Status {
 		case "RUNNING", "CLAIMED":
 			running++
-		case "WAITING":
-			waiting++
-		case "DEAD_LETTER":
-			failedDeliveries++
 		}
 	}
-	cards := lipgloss.JoinHorizontal(
-		lipgloss.Top,
-		box(p, "AGENT WORKFORCE", fmt.Sprintf("%d / %d", online, len(m.state.Agents)), "online / registered"),
-		" ", box(p, "ACTIVE WORK", fmt.Sprintf("%d + %d", open, running), "tasks + invocations"),
-		" ", box(p, "NEEDS ATTENTION", fmt.Sprint(blocked+pending+waiting+failedDeliveries), "blocks · approvals · waits"),
+	status := fmt.Sprintf(
+		"%d agents  ·  %d active tasks  ·  %d active invocations  ·  %d signed events",
+		len(m.state.Agents), open, running, m.state.Integrity.EventCount,
 	)
-	connection := fmt.Sprintf(
-		"%s · server %d · cache %d",
-		empty(m.state.Integrity.Connectivity, "LOCAL"),
-		m.state.Integrity.ServerSequence, m.state.Integrity.CacheSequence,
-	)
-	return cards + "\n\n" +
-		lipgloss.NewStyle().Foreground(p.muted).Render(connection) + "\n\n" +
-		lipgloss.NewStyle().Foreground(p.amber).Bold(true).Render("Attention queue") + "\n" +
-		m.attention(p) + "\n\n" +
-		lipgloss.NewStyle().Foreground(p.violet).Bold(true).Render("Event chain · live project activity") + "\n" +
-		m.chain(p)
+	workforceWidth := contentWidth
+	attentionWidth := contentWidth
+	if contentWidth >= 78 {
+		attentionWidth = max(25, contentWidth/3)
+		workforceWidth = contentWidth - attentionWidth - 2
+	}
+	workforce := m.section(p, "AGENT WORKFORCE", "signal / identity / current obligation", m.workforce(p, workforceWidth-4), workforceWidth)
+	attention := m.section(p, "ATTENTION", "items requiring intervention", m.attention(p), attentionWidth)
+	top := workforce + "\n\n" + attention
+	if contentWidth >= 78 {
+		top = lipgloss.JoinHorizontal(lipgloss.Top, workforce, "  ", attention)
+	}
+	activity := m.section(p, "LIVE ACTIVITY", "append-only project history", m.chain(p), contentWidth)
+	keys := lipgloss.NewStyle().Foreground(p.muted).Render("[g] agents   [i] invocations   [n] create   [r] refresh   [/] commands")
+	return lipgloss.NewStyle().Foreground(p.cyan).Render(status) + "\n\n" + top + "\n\n" + activity + "\n" + keys
+}
+
+func (m Model) section(p palette, title, subtitle, body string, width int) string {
+	heading := lipgloss.NewStyle().Foreground(p.text).Bold(true).Render(title)
+	description := lipgloss.NewStyle().Foreground(p.muted).Render(subtitle)
+	return lipgloss.NewStyle().
+		Width(max(20, width)).
+		Border(lipgloss.NormalBorder()).
+		BorderForeground(p.muted).
+		Padding(0, 1).
+		Render(heading + "\n" + description + "\n\n" + body)
+}
+
+func (m Model) workforce(p palette, width int) string {
+	if len(m.state.Agents) == 0 {
+		return lipgloss.NewStyle().Foreground(p.muted).Render("No agents registered.")
+	}
+	rows := []string{}
+	if width >= 54 {
+		rows = append(rows, lipgloss.NewStyle().Foreground(p.muted).Render(
+			fmt.Sprintf("%-12s %-14s %-10s %s", "SIGNAL", "AGENT", "ROLE", "CURRENT WORK"),
+		))
+	}
+	for _, agentID := range service.SortedKeys(m.state.Agents) {
+		agent := m.state.Agents[agentID]
+		signal := "○ OFFLINE"
+		if agent.PrincipalType == model.PrincipalHuman {
+			signal = "◆ CONTROL"
+		}
+		for _, runtime := range m.state.AgentRuntimes {
+			if runtime.AgentID != agentID {
+				continue
+			}
+			switch {
+			case runtime.Health == "DEGRADED":
+				signal = "▲ DEGRADED"
+			case runtime.Status == "ONLINE":
+				signal = "● ONLINE"
+			case runtime.Status == "DRAINING":
+				signal = "◐ DRAINING"
+			default:
+				signal = "○ " + runtime.Status
+			}
+		}
+		work := "available"
+		for _, invocation := range m.state.Invocations {
+			if invocation.Target == agentID && (invocation.Status == "CLAIMED" || invocation.Status == "RUNNING" || invocation.Status == "WAITING") {
+				work = strings.ToLower(invocation.Status) + " · " + invocation.Instruction
+				break
+			}
+		}
+		if work == "available" {
+			for _, task := range m.state.Tasks {
+				if task.Owner == agentID && !task.Archived && task.Status != "COMPLETED" && task.Status != "CANCELLED" {
+					work = strings.ToLower(task.Status) + " · " + task.Title
+					break
+				}
+			}
+		}
+		if width < 54 {
+			rows = append(rows, fmt.Sprintf("%-12s %s\n             %s", signal, agentID, truncate(work, width-13)))
+			continue
+		}
+		rows = append(rows, fmt.Sprintf(
+			"%-12s %-14s %-10s %s",
+			signal, truncate(agent.DisplayName, 13), strings.ToLower(string(agent.Role)), truncate(work, max(10, width-42)),
+		))
+	}
+	return strings.Join(rows, "\n")
 }
 func (m Model) attention(p palette) string {
 	rows := []string{}
@@ -578,7 +674,8 @@ func (m Model) attention(p palette) string {
 		}
 	}
 	if len(rows) == 0 {
-		return lipgloss.NewStyle().Foreground(p.muted).Render("No urgent coordination items. Open a task or review project activity.")
+		return lipgloss.NewStyle().Foreground(p.cyan).Render("✓ CLEAR") + "\n" +
+			lipgloss.NewStyle().Foreground(p.muted).Render("No intervention needed.")
 	}
 	sort.Strings(rows)
 	return strings.Join(rows, "\n")
@@ -708,6 +805,20 @@ func empty(v, d string) string {
 		return d
 	}
 	return v
+}
+
+func truncate(value string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	runes := []rune(value)
+	if len(runes) <= width {
+		return value
+	}
+	if width == 1 {
+		return "…"
+	}
+	return string(runes[:width-1]) + "…"
 }
 func Run(s *service.Service, actor string, in io.Reader, out io.Writer) error {
 	m, e := New(s, actor)
