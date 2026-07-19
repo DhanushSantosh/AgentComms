@@ -7,6 +7,12 @@ CREATE TABLE IF NOT EXISTS projects (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS project_settings (
+    project_id TEXT PRIMARY KEY REFERENCES projects(project_id) ON DELETE CASCADE,
+    state JSONB NOT NULL,
+    updated_sequence BIGINT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS actor_keys (
     project_id TEXT NOT NULL REFERENCES projects(project_id) ON DELETE CASCADE,
     actor_id TEXT NOT NULL,

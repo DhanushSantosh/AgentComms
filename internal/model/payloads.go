@@ -146,6 +146,14 @@ type InvocationPolicyUpdated struct {
 	AllowedScopes            []string `json:"allowed_scopes,omitempty"`
 	RequireHumanForSensitive bool     `json:"require_human_for_sensitive"`
 }
+type ProjectSettingsUpdated struct {
+	DefaultLease       string `json:"default_lease"`
+	StaleGrace         string `json:"stale_grace"`
+	ActiveRetention    string `json:"active_retention"`
+	SummaryLimit       int    `json:"summary_limit"`
+	ArtifactLimitBytes int64  `json:"artifact_limit_bytes"`
+	RequireReview      bool   `json:"require_review"`
+}
 type ApprovalRequested struct {
 	Tier      string     `json:"tier"`
 	Action    string     `json:"action"`
@@ -199,7 +207,8 @@ var payloadFactories = map[string]func() any{
 	"message.post": func() any { return &MessagePosted{} }, "message.ack": func() any { return &MessageResponse{} }, "message.reject": func() any { return &MessageResponse{} }, "message.complete": func() any { return &MessageResponse{} }, "message.resolve": func() any { return &MessageResponse{} },
 	"invocation.request": func() any { return &InvocationRequested{} }, "invocation.notify": func() any { return &InvocationNotified{} }, "invocation.claim": func() any { return &InvocationClaimed{} }, "invocation.start": func() any { return &InvocationProgress{} }, "invocation.wait": func() any { return &InvocationWaiting{} }, "invocation.resume": func() any { return &InvocationProgress{} }, "invocation.complete": func() any { return &InvocationCompleted{} }, "invocation.reject": func() any { return &InvocationRejected{} }, "invocation.expire": func() any { return &InvocationRejected{} }, "invocation.cancel": func() any { return &InvocationRejected{} }, "invocation.delivery-failed": func() any { return &InvocationDeliveryFailed{} },
 	"runtime.register": func() any { return &RuntimeRegistered{} }, "runtime.heartbeat": func() any { return &RuntimeHeartbeat{} }, "runtime.drain": func() any { return &RuntimeStatusChanged{} }, "runtime.resume": func() any { return &RuntimeStatusChanged{} }, "runtime.revoke": func() any { return &RuntimeStatusChanged{} }, "invocation.policy.update": func() any { return &InvocationPolicyUpdated{} },
-	"approval.request": func() any { return &ApprovalRequested{} }, "approval.approve": func() any { return &ApprovalResponse{} }, "approval.reject": func() any { return &ApprovalResponse{} },
+	"project.settings.update": func() any { return &ProjectSettingsUpdated{} },
+	"approval.request":        func() any { return &ApprovalRequested{} }, "approval.approve": func() any { return &ApprovalResponse{} }, "approval.reject": func() any { return &ApprovalResponse{} },
 	"decision.create": func() any { return &DecisionPayload{} }, "decision.supersede": func() any { return &DecisionPayload{} }, "session.start": func() any { return &SessionPayload{} }, "session.end": func() any { return &SessionPayload{} },
 	"artifact.add": func() any { return &ArtifactAdded{} }, "archive.run": func() any { return &ArchiveRun{} },
 	"document.create": func() any { return &DocumentPayload{} }, "document.update": func() any { return &DocumentPayload{} }, "document.supersede": func() any { return &DocumentPayload{} },

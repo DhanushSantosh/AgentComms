@@ -47,6 +47,8 @@ type Model struct {
 	agentList      RowList
 	invocationList RowList
 	runtimeList    RowList
+	settingsFocus  bool
+	settingsCursor int
 	confirm        *confirmState
 	watcher        *fsnotify.Watcher
 }
@@ -90,6 +92,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	if m.rowFocus {
 		return m.updateRowList(msg)
+	}
+	if m.settingsFocus {
+		return m.updateSettings(msg)
 	}
 	switch v := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -154,6 +159,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "Runtimes":
 				m.rowFocus = true
 				m.runtimeList.Refresh(m.state, m.actor)
+			case "Project settings":
+				m.settingsFocus = true
 			}
 		case "/", "ctrl+p":
 			m.palette = true
@@ -500,7 +507,7 @@ func (m Model) renderBody(p palette, w, h int) string {
 	case "Contracts & decisions":
 		bodyContent = wrap.Render(m.decisions(p))
 	case "Project settings":
-		bodyContent = wrap.Render(m.projectSettings(p))
+		bodyContent = m.projectSettings(p, contentW, contentH)
 	case "Blockers":
 		bodyContent = wrap.Render(m.blockers(p))
 	case "Audit & health":
@@ -681,40 +688,6 @@ func (m Model) attention(p palette) string {
 	return strings.Join(rows, "\n")
 }
 
-func (m Model) projectSettings(p palette) string {
-	rows := []string{
-		"AGENT             MODE        TRUSTED ACTORS              SENSITIVE",
-	}
-	for _, agentID := range service.SortedKeys(m.state.Agents) {
-		agent := m.state.Agents[agentID]
-		if agent.PrincipalType != model.PrincipalAgent {
-			continue
-		}
-		policy, configured := m.state.InvocationPolicies[agentID]
-		if !configured {
-			policy = model.InvocationPolicy{AgentID: agentID, Mode: "MANUAL", RequireHumanForSensitive: true}
-		}
-		sensitive := "no"
-		if policy.RequireHumanForSensitive {
-			sensitive = "yes"
-		}
-		rows = append(rows, fmt.Sprintf(
-			"%-17s %-11s %-27s %s",
-			agentID, policy.Mode, strings.Join(policy.TrustedActors, ","), sensitive,
-		))
-	}
-	rows = append(rows, "", "Project control:")
-	rows = append(rows,
-		fmt.Sprintf("  Consistency: %s", empty(m.state.Integrity.Consistency, "LEGACY_LOCAL")),
-		fmt.Sprintf("  Connectivity: %s", empty(m.state.Integrity.Connectivity, "LOCAL")),
-		fmt.Sprintf("  Active agents: %d", len(m.state.Agents)),
-		fmt.Sprintf("  Registered runtimes: %d", len(m.state.AgentRuntimes)),
-		"",
-		"Open Agents and press p to change an invocation policy.",
-		"Open Runtimes to drain, resume, or revoke an agent runtime.",
-	)
-	return strings.Join(rows, "\n")
-}
 func (m Model) documents(p palette) string {
 	rows := []string{"STATUS    VERSION  DOCUMENT             AUTHOR        TAGS"}
 	for _, id := range service.SortedKeys(m.state.Documents) {
