@@ -71,7 +71,7 @@ func LoadConnectorConfigs(path string) (map[string]ConnectorConfig, error) {
 	if err != nil {
 		return nil, fmt.Errorf("inspect connector config: %w", err)
 	}
-	if info.Mode().Perm()&0o077 != 0 {
+	if !connectorConfigPermissionsPrivate(info) {
 		return nil, errors.New("connector config must not be accessible by group or other users")
 	}
 	if info.Size() > maxConnectorConfigBytes {
