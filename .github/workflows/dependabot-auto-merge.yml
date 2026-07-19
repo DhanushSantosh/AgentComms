@@ -1,0 +1,54 @@
+name: dependabot-auto-merge
+
+on:
+  pull_request:
+    branches: [dev]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  enable-auto-merge:
+    if: >-
+      github.event.pull_request.user.login == 'dependabot[bot]' &&
+      github.event.pull_request.base.ref == 'dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Read Dependabot metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@d7267f607e9d3fb96fc2fbe83e0af444713e90b7 # v2.4.0
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Classify update
+        id: policy
+        shell: bash
+        env:
+          UPDATE_TYPE: ${{ steps.metadata.outputs.update-type }}
+        run: |
+          set -euo pipefail
+          case "$UPDATE_TYPE" in
+            version-update:semver-patch|version-update:semver-minor|security-update:semver-patch|security-update:semver-minor)
+              echo "eligible=true" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "eligible=false" >> "$GITHUB_OUTPUT"
+              ;;
+          esac
+
+      - name: Approve eligible update
+        if: steps.policy.outputs.eligible == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: gh pr review --approve "$PR_URL"
+
+      - name: Enable squash auto-merge
+        if: steps.policy.outputs.eligible == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: gh pr merge --auto --squash "$PR_URL"
