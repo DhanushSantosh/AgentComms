@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 )
 
@@ -25,11 +26,31 @@ func TestControlRoomRendersWorkforceAndOperationalViews(t *testing.T) {
 	}
 	for _, expected := range []string{
 		"AGENT WORKFORCE", "Command", "Work", "Team", "Relay", "Project",
-		"inv-control", "Overview", "My work", "LIVE ACTIVITY",
+		"inv-control", "Overview", "My work", "LIVE ACTIVITY", "YOU ARE HERE",
 	} {
 		if !strings.Contains(rendered, expected) {
 			t.Errorf("control room missing %q", expected)
 		}
+	}
+}
+
+func TestArrowNavigationMovesBetweenHubsAndTabs(t *testing.T) {
+	instance := newTestService(t)
+	view, err := New(instance, "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	view = pressKey(t, view, tea.KeyPressMsg(tea.Key{Code: tea.KeyRight}))
+	if got := views[view.view]; got != "My work" {
+		t.Fatalf("right arrow selected %q, want My work", got)
+	}
+	view = pressKey(t, view, tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
+	if got := views[view.view]; got != "Tasks" {
+		t.Fatalf("down arrow selected %q, want Tasks", got)
+	}
+	view = pressKey(t, view, tea.KeyPressMsg(tea.Key{Code: tea.KeyRight}))
+	if got := views[view.view]; got != "Documents" {
+		t.Fatalf("right arrow selected %q, want Documents", got)
 	}
 }
 
