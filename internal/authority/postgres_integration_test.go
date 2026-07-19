@@ -120,6 +120,14 @@ func TestPostgresTransactionalAuthority(t *testing.T) {
 	if state.Tasks["exclusive"].Owner == "" {
 		t.Fatal("exclusive task has no owner")
 	}
+	if _, _, err = mutate("alpha", alpha, "runtime.register", "runtime-alpha",
+		model.RuntimeRegistered{AgentID: "alpha", Connector: "MCP", MaxConcurrent: 2}, uuid.NewString()); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = mutate("alpha", alpha, "runtime.heartbeat", "runtime-alpha",
+		model.RuntimeHeartbeat{Health: "HEALTHY"}, uuid.NewString()); err != nil {
+		t.Fatal(err)
+	}
 	if _, _, err = mutate("owner", owner, "invocation.request", "inv-exclusive",
 		model.InvocationRequested{Target: "alpha", Instruction: "Perform one exclusive action"}, uuid.NewString()); err != nil {
 		t.Fatal(err)
@@ -155,6 +163,9 @@ func TestPostgresTransactionalAuthority(t *testing.T) {
 	}
 	if state.Invocations["inv-exclusive"].Status != "CLAIMED" {
 		t.Fatalf("invocation is not claimed: %+v", state.Invocations["inv-exclusive"])
+	}
+	if state.AgentRuntimes["runtime-alpha"].Status != "ONLINE" {
+		t.Fatalf("runtime is not online: %+v", state.AgentRuntimes["runtime-alpha"])
 	}
 	if err = engine.VerifyRange(context.Background(), projectID, 1, 0); err != nil {
 		t.Fatal(err)
