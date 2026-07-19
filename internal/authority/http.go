@@ -17,6 +17,7 @@ import (
 
 const (
 	maxHTTPBodyBytes     = controlplane.MaxCommandBytes + 16*1024
+	maxImportBodyBytes   = 32 * 1024 * 1024
 	defaultAdmission     = 256
 	defaultRatePerSecond = 100
 	defaultRateBurst     = 200
@@ -91,7 +92,64 @@ func (s *HTTPServer) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/projects/{project}/imports/legacy/batches", s.importLegacyBatch)
 	mux.HandleFunc("POST /v1/projects/{project}/imports/legacy/finalize", s.finalizeLegacyImport)
 	mux.HandleFunc("GET /v1/projects/{project}/imports/legacy", s.legacyImportStatus)
+	mux.HandleFunc("POST /v1/projects/{project}/imports/attested", s.beginAttestedImport)
+	mux.HandleFunc("POST /v1/projects/{project}/imports/attested/batches", s.importAttestedBatch)
+	mux.HandleFunc("POST /v1/projects/{project}/imports/attested/finalize", s.finalizeAttestedImport)
 	return s.middleware(mux)
+}
+
+func (s *HTTPServer) beginAttestedImport(w http.ResponseWriter, r *http.Request) {
+	if !s.authorizeMigration(w, r) {
+		return
+	}
+	var request controlplane.AttestedImportStart
+	if !decodeJSON(w, r, &request) {
+		return
+	}
+	if request.ProjectID != r.PathValue("project") {
+		writeError(w, http.StatusBadRequest, &controlplane.Error{Code: controlplane.CodeValidation, Message: "path and import project IDs differ"})
+		return
+	}
+	status, err := s.engine.BeginAttestedImport(r.Context(), request)
+	if err != nil {
+		writeControlError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, status)
+}
+
+func (s *HTTPServer) importAttestedBatch(w http.ResponseWriter, r *http.Request) {
+	if !s.authorizeMigration(w, r) {
+		return
+	}
+	var batch controlplane.AttestedImportBatch
+	if !decodeJSONLimit(w, r, &batch, maxImportBodyBytes) {
+		return
+	}
+	status, err := s.engine.ImportAttestedBatch(r.Context(), r.PathValue("project"), batch)
+	if err != nil {
+		writeControlError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, status)
+}
+
+func (s *HTTPServer) finalizeAttestedImport(w http.ResponseWriter, r *http.Request) {
+	if !s.authorizeMigration(w, r) {
+		return
+	}
+	var request struct {
+		ProjectionHash string `json:"projection_hash"`
+	}
+	if !decodeJSON(w, r, &request) {
+		return
+	}
+	status, err := s.engine.FinalizeAttestedImport(r.Context(), r.PathValue("project"), request.ProjectionHash)
+	if err != nil {
+		writeControlError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, status)
 }
 
 func (s *HTTPServer) authorizeMigration(w http.ResponseWriter, r *http.Request) bool {
@@ -135,7 +193,7 @@ func (s *HTTPServer) importLegacyBatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var batch LegacyImportBatch
-	if !decodeJSON(w, r, &batch) {
+	if !decodeJSONLimit(w, r, &batch, maxImportBodyBytes) {
 		return
 	}
 	status, err := s.engine.ImportLegacyBatch(r.Context(), r.PathValue("project"), batch)
@@ -396,7 +454,11 @@ func pageRequest(r *http.Request) (controlplane.PageRequest, error) {
 }
 
 func decodeJSON(w http.ResponseWriter, r *http.Request, target any) bool {
-	r.Body = http.MaxBytesReader(w, r.Body, maxHTTPBodyBytes)
+	return decodeJSONLimit(w, r, target, maxHTTPBodyBytes)
+}
+
+func decodeJSONLimit(w http.ResponseWriter, r *http.Request, target any, limit int64) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, limit)
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {

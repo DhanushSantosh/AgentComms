@@ -110,7 +110,7 @@ func handle(s *service.Service, actor string, q request) response {
 	r := response{JSONRPC: "2.0", ID: q.ID}
 	switch q.Method {
 	case "initialize":
-		r.Result = map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{"tools": map[string]any{}}, "serverInfo": map[string]any{"name": "agent-comms", "version": "0.2.0-preview.1"}}
+		r.Result = map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{"tools": map[string]any{}}, "serverInfo": map[string]any{"name": "agent-comms", "version": "0.2.0-preview.2"}}
 	case "notifications/initialized":
 		r.Result = map[string]any{}
 	case "tools/list":

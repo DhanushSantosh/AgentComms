@@ -146,6 +146,18 @@ type EventRecord struct {
 	Receipt Receipt `json:"receipt"`
 }
 
+type AttestedImportStart struct {
+	ProjectID       string `json:"project_id"`
+	SourcePublicKey string `json:"source_public_key"`
+	SourceHeadHash  string `json:"source_head_hash"`
+	ExpectedEvents  uint64 `json:"expected_events"`
+}
+
+type AttestedImportBatch struct {
+	FromSequence uint64        `json:"from_sequence"`
+	Records      []EventRecord `json:"records"`
+}
+
 type Draft struct {
 	ProjectID string          `json:"project_id"`
 	ID        string          `json:"id"`

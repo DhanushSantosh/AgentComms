@@ -13,6 +13,10 @@ import (
 
 	"github.com/DhanushSantosh/AgentComms/internal/authority"
 	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
+	"github.com/DhanushSantosh/AgentComms/internal/daemonclient"
+	"github.com/DhanushSantosh/AgentComms/internal/identity"
+	"github.com/DhanushSantosh/AgentComms/internal/personalauthority"
+	"github.com/DhanushSantosh/AgentComms/internal/personalmigration"
 	"github.com/DhanushSantosh/AgentComms/internal/remote"
 	"github.com/DhanushSantosh/AgentComms/internal/service"
 	"github.com/DhanushSantosh/AgentComms/internal/store"
@@ -47,6 +51,7 @@ func Migrate(ctx context.Context, cfg Config) (Result, error) {
 	if batchSize > authority.MaxImportBatchEvents {
 		return Result{}, fmt.Errorf("batch size cannot exceed %d", authority.MaxImportBatchEvents)
 	}
+	cfg.BatchSize = batchSize
 	legacy := store.Open(cfg.ProjectRoot)
 	if err := legacy.Verify(); err != nil {
 		return Result{}, fmt.Errorf("verify legacy runtime: %w", err)
@@ -55,8 +60,14 @@ func Migrate(ctx context.Context, cfg Config) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	if runtimeConfig.RuntimeMode == "service" || runtimeConfig.LegacyReadOnly {
+	if runtimeConfig.RuntimeMode == "service" {
 		return Result{}, errors.New("project is already in service mode")
+	}
+	if runtimeConfig.RuntimeMode == "personal" {
+		return migratePersonal(ctx, cfg, legacy, runtimeConfig)
+	}
+	if runtimeConfig.LegacyReadOnly {
+		return Result{}, errors.New("legacy runtime is already read-only")
 	}
 	events, rawEvents, err := readLegacyEvents(cfg.ProjectRoot)
 	if err != nil {
@@ -121,6 +132,143 @@ func Migrate(ctx context.Context, cfg Config) (Result, error) {
 		ProjectID: runtimeConfig.ProjectID, ImportedEvents: status.ImportedSequence,
 		ProjectionHash: projectionHash, State: "ACTIVATED", Receipt: status.Receipt,
 	}, nil
+}
+
+func migratePersonal(ctx context.Context, cfg Config, projectStore *store.Store, runtimeConfig store.Config) (Result, error) {
+	if err := stopPersonalDaemon(ctx, runtimeConfig.DaemonEndpoint); err != nil {
+		return Result{}, err
+	}
+	credential, err := identity.ResolveCredential(projectStore.Credentials, runtimeConfig.ProjectID, personalmigration.AuthorityActor)
+	if err != nil {
+		return Result{}, fmt.Errorf("resolve personal authority key: %w", err)
+	}
+	signer, err := controlplane.NewSigner(credential.PrivateKey)
+	if err != nil {
+		return Result{}, err
+	}
+	engine, err := personalauthority.Open(personalmigration.DatabasePath(cfg.ProjectRoot), signer)
+	if err != nil {
+		return Result{}, err
+	}
+	engineOpen := true
+	defer func() {
+		if engineOpen {
+			_ = engine.Close()
+		}
+	}()
+	if err = engine.FreezeProject(ctx, runtimeConfig.ProjectID); err != nil {
+		return Result{}, fmt.Errorf("freeze personal authority for migration: %w", err)
+	}
+	state, metadata, err := engine.State(ctx, runtimeConfig.ProjectID)
+	if err != nil {
+		return Result{}, err
+	}
+	if metadata.ServerSequence == 0 || state.Integrity.Head == "" {
+		return Result{}, errors.New("personal authority has no events")
+	}
+	projectionHash := service.ProjectionHash(state)
+	client, err := remote.NewMigration(cfg.AuthorityURL, cfg.MigrationToken, 30*time.Second)
+	if err != nil {
+		return Result{}, err
+	}
+	if err = retry(ctx, func() error {
+		return client.CreateProject(ctx, runtimeConfig.ProjectID, runtimeConfig.Owner)
+	}); err != nil {
+		return Result{}, err
+	}
+	start := controlplane.AttestedImportStart{
+		ProjectID: runtimeConfig.ProjectID, SourcePublicKey: runtimeConfig.ServicePublicKey,
+		SourceHeadHash: state.Integrity.Head, ExpectedEvents: metadata.ServerSequence,
+	}
+	var status authority.LegacyImportStatus
+	if err = retry(ctx, func() error {
+		return client.BeginAttestedImport(ctx, runtimeConfig.ProjectID, start, &status)
+	}); err != nil {
+		return Result{}, err
+	}
+	for status.ImportedSequence < metadata.ServerSequence {
+		page, pageErr := engine.Events(ctx, runtimeConfig.ProjectID, controlplane.PageRequest{
+			Cursor: controlplane.EncodeCursor(status.ImportedSequence), Limit: cfg.BatchSize,
+		})
+		if pageErr != nil {
+			return Result{}, pageErr
+		}
+		if len(page.Items) == 0 {
+			return Result{}, errors.New("personal event stream ended before the declared head")
+		}
+		batch := controlplane.AttestedImportBatch{
+			FromSequence: status.ImportedSequence + 1, Records: page.Items,
+		}
+		if err = retry(ctx, func() error {
+			return client.ImportAttestedBatch(ctx, runtimeConfig.ProjectID, batch, &status)
+		}); err != nil {
+			return Result{}, err
+		}
+	}
+	if err = retry(ctx, func() error {
+		return client.FinalizeAttestedImport(ctx, runtimeConfig.ProjectID,
+			map[string]string{"projection_hash": projectionHash}, &status)
+	}); err != nil {
+		return Result{}, err
+	}
+	if status.State != "READY" || status.Receipt == nil ||
+		!controlplane.VerifyReceipt(*status.Receipt, cfg.ServicePublicKey) {
+		return Result{}, errors.New("authority did not return a valid ready import receipt")
+	}
+	if err = engine.Close(); err != nil {
+		return Result{}, fmt.Errorf("close personal authority before cutover: %w", err)
+	}
+	engineOpen = false
+	if err = projectStore.ActivateServiceMode(cfg.AuthorityURL, cfg.ServicePublicKey, cfg.DaemonEndpoint, status.Receipt); err != nil {
+		return Result{}, fmt.Errorf("authority import succeeded but local cutover failed: %w", err)
+	}
+	for _, databaseFile := range []string{
+		personalmigration.DatabasePath(cfg.ProjectRoot),
+		personalmigration.DatabasePath(cfg.ProjectRoot) + "-wal",
+		personalmigration.DatabasePath(cfg.ProjectRoot) + "-shm",
+	} {
+		if chmodErr := os.Chmod(databaseFile, 0o400); chmodErr != nil && !os.IsNotExist(chmodErr) {
+			return Result{}, fmt.Errorf("make personal migration evidence read-only: %w", chmodErr)
+		}
+	}
+	return Result{
+		ProjectID: runtimeConfig.ProjectID, ImportedEvents: status.ImportedSequence,
+		ProjectionHash: projectionHash, State: "ACTIVATED", Receipt: status.Receipt,
+	}, nil
+}
+
+func stopPersonalDaemon(ctx context.Context, endpoint string) error {
+	client, err := daemonclient.New(endpoint, time.Second)
+	if err != nil {
+		return err
+	}
+	shutdownCtx, cancel := context.WithTimeout(ctx, time.Second)
+	err = client.Shutdown(shutdownCtx)
+	cancel()
+	if err != nil {
+		var controlErr *controlplane.Error
+		if errors.As(err, &controlErr) &&
+			(controlErr.Code == controlplane.CodeOffline || controlErr.Code == controlplane.CodeUnavailable) {
+			return nil
+		}
+		return fmt.Errorf("stop personal daemon before migration: %w", err)
+	}
+	for attempt := 0; attempt < 30; attempt++ {
+		healthCtx, healthCancel := context.WithTimeout(ctx, 100*time.Millisecond)
+		healthErr := client.Healthy(healthCtx)
+		healthCancel()
+		if healthErr != nil {
+			return nil
+		}
+		timer := time.NewTimer(50 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
+	return errors.New("personal daemon did not stop before migration")
 }
 
 func retry(ctx context.Context, operation func() error) error {

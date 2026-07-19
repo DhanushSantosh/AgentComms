@@ -2,6 +2,7 @@ package personalauthority
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -125,5 +126,15 @@ func TestTransactionalAuthorityRejectsConcurrentClaims(t *testing.T) {
 	}
 	if metadata.Consistency != "PERSONAL_AUTHORITATIVE" || metadata.Connectivity != "LOCAL" {
 		t.Fatalf("unexpected metadata: %+v", metadata)
+	}
+	if err = engine.FreezeProject(context.Background(), projectID); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = mutate("owner", owner, "task.create", "after-freeze", model.TaskCreated{
+		Title: "After freeze", Repository: "local", Branch: "main",
+	}, uuid.NewString())
+	var controlErr *controlplane.Error
+	if !errors.As(err, &controlErr) || controlErr.Code != controlplane.CodeUnavailable {
+		t.Fatalf("mutation after freeze error=%v, want UNAVAILABLE", err)
 	}
 }

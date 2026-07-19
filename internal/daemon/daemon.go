@@ -26,11 +26,15 @@ const (
 )
 
 type Daemon struct {
-	cache      *localcache.Cache
-	remote     authorityClient
-	syncMu     sync.Mutex
-	syncing    map[string]*syncState
-	dispatcher *Dispatcher
+	cache       *localcache.Cache
+	remote      authorityClient
+	syncMu      sync.Mutex
+	syncing     map[string]*syncState
+	dispatcher  *Dispatcher
+	personal    bool
+	shutdown    func()
+	runtimeMode string
+	projectID   string
 }
 
 type authorityClient interface {
@@ -53,8 +57,11 @@ func New(cache *localcache.Cache, client authorityClient) (*Daemon, error) {
 func (d *Daemon) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health/live", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]string{"status": "live"})
+		writeJSON(w, http.StatusOK, map[string]string{
+			"status": "live", "runtime_mode": d.runtimeMode, "project_id": d.projectID,
+		})
 	})
+	mux.HandleFunc("POST /v1/admin/shutdown", d.shutdownDaemon)
 	mux.HandleFunc("POST /v1/projects/{project}/commands", d.command)
 	mux.HandleFunc("GET /v1/projects/{project}/state", d.state)
 	mux.HandleFunc("GET /v1/projects/{project}/events", d.events)
@@ -66,8 +73,43 @@ func (d *Daemon) Handler() http.Handler {
 	return mux
 }
 
+func (d *Daemon) shutdownDaemon(w http.ResponseWriter, _ *http.Request) {
+	if d.shutdown == nil {
+		writeControlError(w, &controlplane.Error{Code: controlplane.CodeUnavailable, Message: "daemon shutdown is unavailable"})
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]bool{"shutting_down": true})
+	go d.shutdown()
+}
+
 func (d *Daemon) SetDispatcher(dispatcher *Dispatcher) {
 	d.dispatcher = dispatcher
+}
+
+func (d *Daemon) SetPersonalMode(personal bool) {
+	d.personal = personal
+}
+
+func (d *Daemon) SetShutdown(shutdown func()) {
+	d.shutdown = shutdown
+}
+
+func (d *Daemon) SetIdentity(runtimeMode, projectID string) {
+	d.runtimeMode = runtimeMode
+	d.projectID = projectID
+}
+
+func (d *Daemon) metadata(sequence uint64, receipt *controlplane.Receipt) controlplane.ResultMetadata {
+	if d.personal {
+		return controlplane.ResultMetadata{
+			Consistency: "PERSONAL_AUTHORITATIVE", ServerSequence: sequence,
+			CacheSequence: sequence, Receipt: receipt, Connectivity: "LOCAL",
+		}
+	}
+	return controlplane.ResultMetadata{
+		Consistency: "AUTHORITATIVE", ServerSequence: sequence,
+		CacheSequence: sequence, Receipt: receipt, Connectivity: "ONLINE",
+	}
 }
 
 func (d *Daemon) verify(w http.ResponseWriter, r *http.Request) {
@@ -100,17 +142,17 @@ func (d *Daemon) command(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err = d.cache.Apply(r.Context(), event, receipt); err != nil {
-		writeControlError(w, &controlplane.Error{
-			Code:    controlplane.CodeUnavailable,
-			Message: "command committed authoritatively but local cache update failed: " + err.Error(),
-		})
-		return
+		if syncErr := d.Sync(r.Context(), command.ProjectID); syncErr != nil {
+			writeControlError(w, &controlplane.Error{
+				Code: controlplane.CodeUnavailable,
+				Message: "command committed authoritatively but local cache recovery failed: " +
+					err.Error() + "; sync: " + syncErr.Error(),
+			})
+			return
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"event": event, "metadata": controlplane.ResultMetadata{
-			Consistency: "AUTHORITATIVE", ServerSequence: event.Sequence, CacheSequence: event.Sequence,
-			Receipt: &receipt, Connectivity: "ONLINE",
-		},
+		"event": event, "metadata": d.metadata(event.Sequence, &receipt),
 	})
 }
 
@@ -129,9 +171,7 @@ func (d *Daemon) state(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if syncErr == nil {
-		metadata.Consistency = "AUTHORITATIVE_CACHE"
-		metadata.ServerSequence = metadata.CacheSequence
-		metadata.Connectivity = "ONLINE"
+		metadata = d.metadata(metadata.CacheSequence, nil)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"state": state, "metadata": metadata})
 }
@@ -202,7 +242,7 @@ func (d *Daemon) sync(w http.ResponseWriter, r *http.Request) {
 		writeControlError(w, err)
 		return
 	}
-	metadata.Connectivity = "ONLINE"
+	metadata = d.metadata(metadata.CacheSequence, nil)
 	writeJSON(w, http.StatusOK, map[string]any{"synced": true, "metadata": metadata})
 }
 
@@ -314,7 +354,10 @@ func (d *Daemon) submitConnectorCommand(ctx context.Context, projectID, actor, e
 	if err != nil {
 		return err
 	}
-	return d.cache.Apply(ctx, event, receipt)
+	if err = d.cache.Apply(ctx, event, receipt); err != nil {
+		return d.Sync(ctx, projectID)
+	}
+	return nil
 }
 
 func localPageRequest(r *http.Request) (controlplane.PageRequest, error) {

@@ -267,7 +267,7 @@ func (s *Store) MutateWithCredential(actor string, cred identity.Credential, pre
 	if err != nil {
 		return model.Event{}, err
 	}
-	if cfg.LegacyReadOnly || cfg.RuntimeMode == "service" {
+	if cfg.LegacyReadOnly || cfg.RuntimeMode == "service" || cfg.RuntimeMode == "personal" {
 		return model.Event{}, errors.New("legacy runtime is read-only after service cutover")
 	}
 	release, e := s.acquire(actor)
@@ -349,6 +349,88 @@ func (s *Store) MutateWithCredential(actor string, cred identity.Credential, pre
 
 func ServiceBootstrap() []byte {
 	return []byte("# Agent Comms managed bootstrap\nruntime = .agent-comms\nmode = service\ninstructions = .agent-comms/AGENT_INSTRUCTIONS.md\n")
+}
+
+func PersonalBootstrap() []byte {
+	return []byte("# Agent Comms managed bootstrap\nruntime = .agent-comms\nmode = personal\ninstructions = .agent-comms/AGENT_INSTRUCTIONS.md\n")
+}
+
+func (s *Store) ActivatePersonalMode(servicePublicKey, daemonEndpoint string, receipt any) error {
+	if strings.TrimSpace(servicePublicKey) == "" || strings.TrimSpace(daemonEndpoint) == "" {
+		return errors.New("service public key and daemon endpoint are required")
+	}
+	release, err := s.acquire("migration")
+	if err != nil {
+		return err
+	}
+	defer release()
+	if err = s.Verify(); err != nil {
+		return fmt.Errorf("verify legacy runtime before personal cutover: %w", err)
+	}
+	cfg, err := s.Config()
+	if err != nil {
+		return err
+	}
+	if cfg.RuntimeMode == "personal" {
+		if cfg.ServicePublicKey == servicePublicKey && cfg.DaemonEndpoint == daemonEndpoint {
+			return nil
+		}
+		return errors.New("personal mode is already active with different configuration")
+	}
+	if cfg.RuntimeMode == "service" {
+		return errors.New("cannot downgrade an active service-mode project to personal mode")
+	}
+	migrationDir := filepath.Join(s.runtime(), "migrations", "personal-cutover")
+	if err = os.MkdirAll(migrationDir, 0o700); err != nil {
+		return err
+	}
+	originalConfig, err := os.ReadFile(filepath.Join(s.runtime(), "config.json"))
+	if err != nil {
+		return err
+	}
+	if err = writeFileSync(filepath.Join(migrationDir, "legacy-config.json"), originalConfig, 0o600); err != nil {
+		return err
+	}
+	receiptJSON, err := json.MarshalIndent(receipt, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err = writeFileSync(filepath.Join(migrationDir, "import-receipt.json"), append(receiptJSON, '\n'), 0o600); err != nil {
+		return err
+	}
+	now := s.Now()
+	cfg.RuntimeMode = "personal"
+	cfg.AuthorityURL = ""
+	cfg.ServicePublicKey = servicePublicKey
+	cfg.DaemonEndpoint = daemonEndpoint
+	cfg.LegacyReadOnly = true
+	cfg.MigratedAt = &now
+	nextConfig, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	configTmp := filepath.Join(s.runtime(), "config.json.personal.tmp")
+	if err = writeFileSync(configTmp, append(nextConfig, '\n'), 0o600); err != nil {
+		return err
+	}
+	bootstrap := filepath.Join(s.Root, ".agents")
+	bootstrapTmp := bootstrap + ".personal.tmp"
+	if err = writeFileSync(bootstrapTmp, PersonalBootstrap(), 0o644); err != nil {
+		_ = os.Remove(configTmp)
+		return err
+	}
+	if err = os.Rename(configTmp, filepath.Join(s.runtime(), "config.json")); err != nil {
+		_ = os.Remove(bootstrapTmp)
+		return err
+	}
+	if err = os.Rename(bootstrapTmp, bootstrap); err != nil {
+		_ = os.WriteFile(filepath.Join(s.runtime(), "config.json"), originalConfig, 0o600)
+		return err
+	}
+	if err = s.git("add", "config.json", "migrations/personal-cutover"); err != nil {
+		return err
+	}
+	return s.git("commit", "--no-gpg-sign", "-m", "Activate personal authority mode")
 }
 
 func (s *Store) ActivateServiceMode(authorityURL, servicePublicKey, daemonEndpoint string, receipt any) error {

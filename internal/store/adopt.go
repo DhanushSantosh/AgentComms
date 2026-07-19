@@ -558,8 +558,13 @@ func (s *Store) ManagedBootstrapValid() bool {
 		return false
 	}
 	cfg, cfgErr := s.Config()
-	if cfgErr == nil && cfg.RuntimeMode == "service" {
-		return bytes.Equal(b, ServiceBootstrap())
+	if cfgErr == nil {
+		switch cfg.RuntimeMode {
+		case "service":
+			return bytes.Equal(b, ServiceBootstrap())
+		case "personal":
+			return bytes.Equal(b, PersonalBootstrap())
+		}
 	}
 	return bytes.Equal(b, ManagedBootstrap())
 }

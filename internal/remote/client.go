@@ -115,6 +115,21 @@ func (c *Client) LegacyImportStatus(ctx context.Context, projectID string, respo
 		fmt.Sprintf("/v1/projects/%s/imports/legacy", url.PathEscape(projectID)), nil, response)
 }
 
+func (c *Client) BeginAttestedImport(ctx context.Context, projectID string, request any, response any) error {
+	return c.doJSON(ctx, http.MethodPost,
+		fmt.Sprintf("/v1/projects/%s/imports/attested", url.PathEscape(projectID)), request, response)
+}
+
+func (c *Client) ImportAttestedBatch(ctx context.Context, projectID string, request any, response any) error {
+	return c.doJSON(ctx, http.MethodPost,
+		fmt.Sprintf("/v1/projects/%s/imports/attested/batches", url.PathEscape(projectID)), request, response)
+}
+
+func (c *Client) FinalizeAttestedImport(ctx context.Context, projectID string, request any, response any) error {
+	return c.doJSON(ctx, http.MethodPost,
+		fmt.Sprintf("/v1/projects/%s/imports/attested/finalize", url.PathEscape(projectID)), request, response)
+}
+
 func (c *Client) doJSON(ctx context.Context, method, path string, requestBody, responseBody any) error {
 	var body io.Reader
 	if requestBody != nil {
