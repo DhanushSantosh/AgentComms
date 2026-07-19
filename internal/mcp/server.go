@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 	"github.com/DhanushSantosh/AgentComms/internal/service"
 )
@@ -38,7 +39,10 @@ func tool(name, description string, properties map[string]any, required ...strin
 func tools() []map[string]any {
 	return []map[string]any{
 		tool("status", "Read the governed project state", map[string]any{}),
-		tool("history", "Read immutable signed events", map[string]any{}),
+		tool("history", "Read a bounded page of immutable signed events", map[string]any{
+			"cursor": map[string]any{"type": "string"},
+			"limit":  map[string]any{"type": "integer", "minimum": 1, "maximum": controlplane.MaxPageSize},
+		}),
 		tool("task_create", "Create a coordination task", map[string]any{"id": map[string]any{"type": "string"}, "title": map[string]any{"type": "string"}, "repository": map[string]any{"type": "string"}, "branch": map[string]any{"type": "string"}, "resources": map[string]any{"type": "array", "items": map[string]any{"type": "string"}}}, "id", "title", "repository", "branch", "resources"),
 		tool("task_claim", "Claim an open task with a protected lease", map[string]any{"id": map[string]any{"type": "string"}}, "id"),
 		tool("message_post", "Post a typed durable message", map[string]any{"id": map[string]any{"type": "string"}, "kind": map[string]any{"type": "string", "enum": []string{"FYI", "ACTION", "CONTRACT", "BLOCKER", "DECISION"}}, "to": map[string]any{"type": "array", "items": map[string]any{"type": "string"}}, "subject": map[string]any{"type": "string"}, "body": map[string]any{"type": "string"}}, "id", "kind", "to", "subject"),
@@ -47,6 +51,7 @@ func tools() []map[string]any {
 }
 func Serve(s *service.Service, actor string, in io.Reader, out io.Writer) error {
 	scan := bufio.NewScanner(in)
+	scan.Buffer(make([]byte, 64*1024), controlplane.MaxCommandBytes)
 	enc := json.NewEncoder(out)
 	for scan.Scan() {
 		var q request
@@ -95,12 +100,20 @@ func call(s *service.Service, actor string, p callParams) (any, error) {
 	case "status":
 		return s.State()
 	case "history":
-		return s.Store.Events()
+		limit := 0
+		if raw, ok := p.Arguments["limit"].(float64); ok {
+			limit = int(raw)
+		}
+		return s.History(controlplane.PageRequest{Cursor: stringArg(p.Arguments, "cursor"), Limit: limit})
 	case "verify":
-		if e := s.Store.Verify(); e != nil {
+		if e := s.Verify(0, 0); e != nil {
 			return nil, e
 		}
-		return map[string]any{"verified": true, "head": s.Store.Head()}, nil
+		state, e := s.State()
+		if e != nil {
+			return nil, e
+		}
+		return map[string]any{"verified": true, "head": state.Integrity.Head, "consistency": state.Integrity.Consistency}, nil
 	case "task_create":
 		id, _ := p.Arguments["id"].(string)
 		res := stringsArg(p.Arguments["resources"])

@@ -12,11 +12,17 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"time"
 
+	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
+	"github.com/DhanushSantosh/AgentComms/internal/daemon"
+	"github.com/DhanushSantosh/AgentComms/internal/daemonclient"
+	"github.com/DhanushSantosh/AgentComms/internal/hybridmigration"
 	"github.com/DhanushSantosh/AgentComms/internal/identity"
 	"github.com/DhanushSantosh/AgentComms/internal/mcp"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
@@ -82,7 +88,7 @@ func Run(args []string, stdout, stderr io.Writer) error {
 func (c *cli) root() *cobra.Command {
 	r := &cobra.Command{Use: "agent-comms", Short: "Governed coordination for concurrent agents", Version: Version, PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		c.cmd = cmd.CommandPath()
-		if cmd.Name() == "version" || cmd.Name() == "init" || cmd.Name() == "completion" || (cmd.Name() == "update" && cmd.Parent() == cmd.Root()) || cmd.Name() == "agent-instructions" {
+		if cmd.Name() == "version" || cmd.Name() == "init" || cmd.Name() == "completion" || (cmd.Name() == "update" && cmd.Parent() == cmd.Root()) || cmd.Name() == "agent-instructions" || cmd.CommandPath() == "agent-comms daemon serve" {
 			return nil
 		}
 		root := c.project
@@ -103,6 +109,11 @@ func (c *cli) root() *cobra.Command {
 			return fmt.Errorf("open project runtime: %w", e)
 		}
 		c.svc.Store.LockTimeout = c.timeout
+		if cfg.RuntimeMode == "service" {
+			if e = ensureDaemon(root, cfg); e != nil {
+				return e
+			}
+		}
 		if c.actor == "" {
 			c.actor = os.Getenv("AGENT_COMMS_ACTOR")
 		}
@@ -137,7 +148,7 @@ func (c *cli) root() *cobra.Command {
 	f.DurationVar(&c.timeout, "timeout", 10*time.Second, "transaction lock timeout")
 	f.BoolVar(&c.noColor, "no-color", false, "disable ANSI color")
 	f.BoolVarP(&c.quiet, "quiet", "q", false, "suppress non-essential output")
-	r.AddCommand(c.versionCmd(), c.initCmd(), c.doctorCmd(), c.verifyCmd(), c.statusCmd(), c.historyCmd(), c.searchCmd(), c.agentCmd(), c.sessionCmd(), c.taskCmd(), c.messageCmd(), c.decisionCmd(), c.approvalCmd(), c.artifactCmd(), c.documentCmd(), c.envCmd(), c.archiveCmd(), c.exportCmd(), c.syncCmd(), c.profileCmd(), c.configCmd(), c.themeCmd(), c.updateCmd(), c.completionCmd(r), c.agentInstructionsCmd(), c.mcpCmd(), c.watchCmd(), c.tuiCmd(), c.migrateCmd())
+	r.AddCommand(c.versionCmd(), c.initCmd(), c.doctorCmd(), c.verifyCmd(), c.statusCmd(), c.historyCmd(), c.searchCmd(), c.agentCmd(), c.sessionCmd(), c.taskCmd(), c.messageCmd(), c.decisionCmd(), c.approvalCmd(), c.artifactCmd(), c.documentCmd(), c.envCmd(), c.draftCmd(), c.archiveCmd(), c.exportCmd(), c.syncCmd(), c.profileCmd(), c.configCmd(), c.themeCmd(), c.updateCmd(), c.completionCmd(r), c.agentInstructionsCmd(), c.mcpCmd(), c.watchCmd(), c.tuiCmd(), c.migrateCmd(), c.daemonCmd())
 	return r
 }
 
@@ -170,6 +181,10 @@ func (c *cli) emit(command string, v any) error {
 	return e
 }
 func errorCode(e error) string {
+	var controlErr *controlplane.Error
+	if errors.As(e, &controlErr) {
+		return string(controlErr.Code)
+	}
 	var b *store.BusyError
 	if errors.As(e, &b) {
 		return "BUSY"
@@ -202,6 +217,12 @@ func exitCode(e error) int {
 		return 6
 	case "EXTERNAL":
 		return 7
+	case "OFFLINE", "UNAVAILABLE":
+		return 8
+	case "CONFLICT", "STALE_PRECONDITION":
+		return 9
+	case "RATE_LIMITED":
+		return 10
 	}
 	return 1
 }
@@ -251,7 +272,7 @@ func (c *cli) initCmd() *cobra.Command {
 func (c *cli) doctorCmd() *cobra.Command {
 	var explain bool
 	cmd := &cobra.Command{Use: "doctor", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
-		verify := c.svc.Store.Verify()
+		verify := c.svc.Verify(0, 0)
 		cfg, e := c.svc.Store.Config()
 		if e != nil {
 			return e
@@ -314,6 +335,11 @@ func (c *cli) doctorCmd() *cobra.Command {
 			}
 		}
 		r := map[string]any{"integrity": verify == nil, "schema_version": cfg.SchemaVersion, "binary_version": Version, "runtime_toolkit_version": cfg.ToolkitVersion, "runtime": filepath.Join(c.svc.Store.Root, store.Runtime), "git_head": c.svc.Store.Head(), "remote": c.svc.Store.Remote(), "telemetry": false, "healthy": len(findings) == 0, "findings": findings}
+		if cfg.RuntimeMode == "service" {
+			r["runtime_mode"] = "service"
+			r["authority_url"] = cfg.AuthorityURL
+			r["legacy_read_only"] = cfg.LegacyReadOnly
+		}
 		if verify != nil {
 			r["integrity_error"] = verify.Error()
 		}
@@ -328,13 +354,25 @@ func (c *cli) doctorCmd() *cobra.Command {
 	return cmd
 }
 func (c *cli) verifyCmd() *cobra.Command {
-	return &cobra.Command{Use: "verify", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
-		if e := c.svc.Store.Verify(); e != nil {
+	var from, to uint64
+	cmd := &cobra.Command{Use: "verify", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		if e := c.svc.Verify(from, to); e != nil {
 			return e
 		}
-		ev, _ := c.svc.Store.Events()
-		return c.emit("verify", map[string]any{"verified": true, "events": len(ev), "head": c.svc.Store.Head()})
+		state, e := c.svc.State()
+		if e != nil {
+			return e
+		}
+		return c.emit("verify", map[string]any{
+			"verified": true, "events": state.Integrity.EventCount, "head": state.Integrity.Head,
+			"from": from, "to": to, "consistency": state.Integrity.Consistency,
+			"server_sequence": state.Integrity.ServerSequence, "cache_sequence": state.Integrity.CacheSequence,
+			"connectivity": state.Integrity.Connectivity,
+		})
 	}}
+	cmd.Flags().Uint64Var(&from, "from", 0, "first event sequence to verify")
+	cmd.Flags().Uint64Var(&to, "to", 0, "last event sequence to verify (zero means current head)")
+	return cmd
 }
 func (c *cli) statusCmd() *cobra.Command {
 	return &cobra.Command{Use: "status", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
@@ -346,23 +384,30 @@ func (c *cli) statusCmd() *cobra.Command {
 	}}
 }
 func (c *cli) historyCmd() *cobra.Command {
-	return &cobra.Command{Use: "history", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
-		v, e := c.svc.Store.Events()
+	var cursor string
+	var limit int
+	cmd := &cobra.Command{Use: "history", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		v, e := c.svc.History(controlplane.PageRequest{Cursor: cursor, Limit: limit})
 		if e != nil {
 			return e
 		}
 		return c.emit("history", v)
 	}}
+	cmd.Flags().StringVar(&cursor, "cursor", "", "opaque pagination cursor")
+	cmd.Flags().IntVar(&limit, "limit", controlplane.DefaultPageSize, "events per page")
+	return cmd
 }
 func (c *cli) searchCmd() *cobra.Command {
-	return &cobra.Command{Use: "search <query>", Args: cobra.MinimumNArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	var cursor string
+	var limit int
+	cmd := &cobra.Command{Use: "search <query>", Args: cobra.MinimumNArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		q := strings.ToLower(strings.Join(args, " "))
-		ev, e := c.svc.Store.Events()
+		page, e := c.svc.History(controlplane.PageRequest{Cursor: cursor, Limit: limit})
 		if e != nil {
 			return e
 		}
-		out := []model.Event{}
-		for _, v := range ev {
+		out := []controlplane.EventRecord{}
+		for _, v := range page.Items {
 			b, _ := json.Marshal(v)
 			if strings.Contains(strings.ToLower(string(b)), q) {
 				out = append(out, v)
@@ -372,8 +417,14 @@ func (c *cli) searchCmd() *cobra.Command {
 		if e != nil {
 			return e
 		}
-		return c.emit("search", map[string]any{"current_events": out, "legacy_evidence": legacy})
+		return c.emit("search", map[string]any{
+			"current_events": out, "legacy_evidence": legacy,
+			"next_cursor": page.NextCursor, "metadata": page.Metadata,
+		})
 	}}
+	cmd.Flags().StringVar(&cursor, "cursor", "", "opaque pagination cursor")
+	cmd.Flags().IntVar(&limit, "limit", controlplane.DefaultPageSize, "events scanned per page")
+	return cmd
 }
 func (c *cli) agentCmd() *cobra.Command {
 	root := &cobra.Command{Use: "agent"}
@@ -828,41 +879,116 @@ func (c *cli) envCmd() *cobra.Command {
 	root := &cobra.Command{Use: "env"}
 	var key, value string
 	set := &cobra.Command{Use: "set", RunE: func(cmd *cobra.Command, args []string) error {
-		if key == "" && len(args) > 0 { key = args[0] }
-		if value == "" && len(args) > 1 { value = args[1] }
-		if key == "" { return errors.New("key required (use --key or positional argument)") }
+		if key == "" && len(args) > 0 {
+			key = args[0]
+		}
+		if value == "" && len(args) > 1 {
+			value = args[1]
+		}
+		if key == "" {
+			return errors.New("key required (use --key or positional argument)")
+		}
 		v, e := c.svc.Execute(c.actor, "env.set", "", model.EnvSetPayload{Key: key, Value: value})
-		if e != nil { return e }
+		if e != nil {
+			return e
+		}
 		return c.emit("env.set", v)
 	}}
 	set.Flags().StringVar(&key, "key", "", "key")
 	set.Flags().StringVar(&value, "value", "", "value")
 	get := &cobra.Command{Use: "get", RunE: func(cmd *cobra.Command, args []string) error {
-		if key == "" && len(args) > 0 { key = args[0] }
-		if key == "" { return errors.New("key required (use --key or positional argument)") }
+		if key == "" && len(args) > 0 {
+			key = args[0]
+		}
+		if key == "" {
+			return errors.New("key required (use --key or positional argument)")
+		}
 		st, e := c.svc.State()
-		if e != nil { return e }
+		if e != nil {
+			return e
+		}
 		entry, ok := st.Env[key]
-		if !ok { return fmt.Errorf("key %q not found", key) }
+		if !ok {
+			return fmt.Errorf("key %q not found", key)
+		}
 		return c.emit("env.get", entry)
 	}}
 	get.Flags().StringVar(&key, "key", "", "key")
 	del := &cobra.Command{Use: "delete", RunE: func(cmd *cobra.Command, args []string) error {
-		if key == "" && len(args) > 0 { key = args[0] }
-		if key == "" { return errors.New("key required (use --key or positional argument)") }
+		if key == "" && len(args) > 0 {
+			key = args[0]
+		}
+		if key == "" {
+			return errors.New("key required (use --key or positional argument)")
+		}
 		v, e := c.svc.Execute(c.actor, "env.delete", "", model.EnvDeletePayload{Key: key})
-		if e != nil { return e }
+		if e != nil {
+			return e
+		}
 		return c.emit("env.delete", v)
 	}}
 	del.Flags().StringVar(&key, "key", "", "key")
 	list := &cobra.Command{Use: "list", RunE: func(cmd *cobra.Command, args []string) error {
 		st, e := c.svc.State()
-		if e != nil { return e }
+		if e != nil {
+			return e
+		}
 		return c.emit("env.list", st.Env)
 	}}
 	root.AddCommand(set, get, del, list)
 	return root
 }
+
+func (c *cli) draftCmd() *cobra.Command {
+	root := &cobra.Command{Use: "draft", Short: "Manage non-authoritative local drafts"}
+	var id, kind, body, bodyFile string
+	save := &cobra.Command{Use: "save", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		if id == "" || kind == "" {
+			return errors.New("--id and --kind are required")
+		}
+		if body != "" && bodyFile != "" {
+			return errors.New("use only one of --body or --body-file")
+		}
+		var raw []byte
+		var e error
+		if bodyFile != "" {
+			raw, e = os.ReadFile(bodyFile)
+			if e != nil {
+				return e
+			}
+		} else if body != "" {
+			raw = []byte(body)
+		} else {
+			return errors.New("--body or --body-file is required")
+		}
+		if !json.Valid(raw) {
+			raw, e = json.Marshal(map[string]string{"content": string(raw)})
+			if e != nil {
+				return e
+			}
+		}
+		if e = c.svc.SaveDraft(id, strings.ToLower(kind), json.RawMessage(raw)); e != nil {
+			return e
+		}
+		return c.emit("draft.save", map[string]any{"id": id, "kind": strings.ToLower(kind), "authoritative": false})
+	}}
+	save.Flags().StringVar(&id, "id", "", "draft ID")
+	save.Flags().StringVar(&kind, "kind", "", "document, message, or artifact")
+	save.Flags().StringVar(&body, "body", "", "draft JSON or text")
+	save.Flags().StringVar(&bodyFile, "body-file", "", "read draft content from a file")
+	var limit int
+	list := &cobra.Command{Use: "list", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		drafts, e := c.svc.Drafts(limit)
+		if e != nil {
+			return e
+		}
+		return c.emit("draft.list", map[string]any{"drafts": drafts, "authoritative": false})
+	}}
+	list.Flags().IntVar(&limit, "limit", controlplane.DefaultPageSize, "maximum drafts to return")
+	root.AddCommand(save, list)
+	return root
+}
+
 func (c *cli) archiveCmd() *cobra.Command {
 	return &cobra.Command{Use: "archive", RunE: func(cmd *cobra.Command, args []string) error {
 		v, e := c.svc.Archive(c.actor)
@@ -903,6 +1029,13 @@ func (c *cli) syncCmd() *cobra.Command {
 	root := &cobra.Command{Use: "sync"}
 	var url string
 	setup := &cobra.Command{Use: "setup", RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, e := c.svc.Store.Config()
+		if e != nil {
+			return e
+		}
+		if cfg.RuntimeMode == "service" {
+			return errors.New("service mode uses the configured authority; Git checkpoint setup is unavailable")
+		}
 		if e := c.svc.Store.SetupRemote(url); e != nil {
 			return e
 		}
@@ -910,15 +1043,51 @@ func (c *cli) syncCmd() *cobra.Command {
 	}}
 	setup.Flags().StringVar(&url, "url", "", "checkpoint Git URL")
 	status := &cobra.Command{Use: "status", RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, e := c.svc.Store.Config()
+		if e != nil {
+			return e
+		}
+		if cfg.RuntimeMode == "service" {
+			state, stateErr := c.svc.State()
+			if stateErr != nil {
+				return stateErr
+			}
+			return c.emit("sync.status", map[string]any{
+				"state": state.Integrity.Connectivity, "authority": cfg.AuthorityURL,
+				"server_sequence": state.Integrity.ServerSequence, "cache_sequence": state.Integrity.CacheSequence,
+			})
+		}
 		return c.emit("sync.status", map[string]string{"remote": c.svc.Store.Remote(), "state": map[bool]string{true: "configured", false: "local-only"}[c.svc.Store.Remote() != ""]})
 	}}
 	push := &cobra.Command{Use: "push", RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, e := c.svc.Store.Config()
+		if e != nil {
+			return e
+		}
+		if cfg.RuntimeMode == "service" {
+			metadata, syncErr := c.svc.Sync()
+			if syncErr != nil {
+				return syncErr
+			}
+			return c.emit("sync.push", map[string]any{"synced": true, "metadata": metadata})
+		}
 		if e := c.svc.Store.Checkpoint(); e != nil {
 			return e
 		}
 		return c.emit("sync.push", map[string]bool{"pushed": true})
 	}}
 	pull := &cobra.Command{Use: "pull", RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, e := c.svc.Store.Config()
+		if e != nil {
+			return e
+		}
+		if cfg.RuntimeMode == "service" {
+			metadata, syncErr := c.svc.Sync()
+			if syncErr != nil {
+				return syncErr
+			}
+			return c.emit("sync.pull", map[string]any{"synced": true, "metadata": metadata})
+		}
 		if e := c.svc.Store.SyncPull(); e != nil {
 			return e
 		}
@@ -1243,6 +1412,95 @@ func (c *cli) tuiCmd() *cobra.Command {
 		return tuiterm.Run(c.svc, c.actor, os.Stdin, c.out)
 	}}
 }
+
+func (c *cli) daemonCmd() *cobra.Command {
+	root := &cobra.Command{Use: "daemon", Hidden: true}
+	serve := &cobra.Command{Use: "serve", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		projectRoot := c.project
+		if projectRoot == "" {
+			var err error
+			projectRoot, err = os.Getwd()
+			if err != nil {
+				return err
+			}
+		}
+		projectStore := store.Open(projectRoot)
+		cfg, err := projectStore.Config()
+		if err != nil {
+			return err
+		}
+		if cfg.RuntimeMode != "service" {
+			return errors.New("daemon requires an activated service-mode project")
+		}
+		configDir, err := identity.ConfigDir()
+		if err != nil {
+			return err
+		}
+		cachePath := os.Getenv("AGENT_COMMS_CACHE_PATH")
+		if cachePath == "" {
+			cachePath = filepath.Join(configDir, "cache.db")
+		}
+		ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
+		defer stop()
+		return daemon.Run(ctx, daemon.RunConfig{
+			AuthorityURL: cfg.AuthorityURL, ServicePublicKey: cfg.ServicePublicKey,
+			CachePath: cachePath, Endpoint: cfg.DaemonEndpoint,
+		})
+	}}
+	root.AddCommand(serve)
+	return root
+}
+
+func ensureDaemon(projectRoot string, cfg store.Config) error {
+	client, err := daemonclient.New(cfg.DaemonEndpoint, 300*time.Millisecond)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	err = client.Healthy(ctx)
+	cancel()
+	if err == nil {
+		return nil
+	}
+	executable, executableErr := os.Executable()
+	if executableErr != nil {
+		return executableErr
+	}
+	configDir, configErr := identity.ConfigDir()
+	if configErr != nil {
+		return configErr
+	}
+	if mkdirErr := os.MkdirAll(configDir, 0o700); mkdirErr != nil {
+		return mkdirErr
+	}
+	logFile, logErr := os.OpenFile(filepath.Join(configDir, "daemon.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if logErr != nil {
+		return logErr
+	}
+	process := exec.Command(executable, "daemon", "serve", "--project", projectRoot)
+	process.Stdout = logFile
+	process.Stderr = logFile
+	if startErr := process.Start(); startErr != nil {
+		_ = logFile.Close()
+		return fmt.Errorf("start local daemon: %w", startErr)
+	}
+	_ = process.Process.Release()
+	_ = logFile.Close()
+	for attempt := 0; attempt < 30; attempt++ {
+		time.Sleep(100 * time.Millisecond)
+		healthCtx, healthCancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+		healthErr := client.Healthy(healthCtx)
+		healthCancel()
+		if healthErr == nil {
+			return nil
+		}
+	}
+	return &controlplane.Error{
+		Code:    controlplane.CodeUnavailable,
+		Message: "local daemon did not become ready; inspect " + filepath.Join(configDir, "daemon.log"),
+	}
+}
+
 func (c *cli) migrateCmd() *cobra.Command {
 	root := &cobra.Command{Use: "migrate"}
 	status := &cobra.Command{Use: "status", RunE: func(cmd *cobra.Command, args []string) error {
@@ -1250,7 +1508,7 @@ func (c *cli) migrateCmd() *cobra.Command {
 		if e != nil {
 			return e
 		}
-		r := map[string]any{"current": cfg.SchemaVersion, "target": model.SchemaVersion, "required": cfg.SchemaVersion != model.SchemaVersion}
+		r := map[string]any{"current": cfg.SchemaVersion, "target": model.SchemaVersion, "required": cfg.SchemaVersion != model.SchemaVersion, "runtime_mode": cfg.RuntimeMode, "legacy_read_only": cfg.LegacyReadOnly}
 		if cutover, x := c.svc.Store.Cutover(); x == nil {
 			r["cutover"] = cutover
 			if manifest, mx := c.svc.Store.LegacyManifest(); mx == nil {
@@ -1374,6 +1632,35 @@ func (c *cli) migrateCmd() *cobra.Command {
 		}
 		return c.emit("migrate.extract-context", out)
 	}}
-	root.AddCommand(status, apply, adopt, seed, requireAcks, ack, activate, rollback, recoverCmd, extractCmd)
+	var authorityURL, servicePublicKey, daemonEndpoint, migrationToken string
+	var serviceYes bool
+	var batchSize int
+	serviceCmd := &cobra.Command{Use: "service", Short: "Migrate verified v2 history to the authoritative service", RunE: func(cmd *cobra.Command, args []string) error {
+		if !serviceYes {
+			return errors.New("--yes is required to make the verified legacy runtime read-only after import")
+		}
+		if migrationToken == "" {
+			migrationToken = os.Getenv("AGENT_COMMS_MIGRATION_TOKEN")
+		}
+		result, e := hybridmigration.Migrate(cmd.Context(), hybridmigration.Config{
+			ProjectRoot: c.svc.Store.Root, AuthorityURL: authorityURL,
+			ServicePublicKey: servicePublicKey, DaemonEndpoint: daemonEndpoint,
+			MigrationToken: migrationToken, BatchSize: batchSize,
+		})
+		if e != nil {
+			return e
+		}
+		return c.emit("migrate.service", result)
+	}}
+	serviceCmd.Flags().StringVar(&authorityURL, "authority-url", "", "authoritative service URL")
+	serviceCmd.Flags().StringVar(&servicePublicKey, "service-public-key", "", "base64 Ed25519 service public key")
+	serviceCmd.Flags().StringVar(&daemonEndpoint, "daemon-endpoint", "", "local daemon socket or named pipe")
+	serviceCmd.Flags().StringVar(&migrationToken, "migration-token", "", "migration bearer token (or AGENT_COMMS_MIGRATION_TOKEN)")
+	serviceCmd.Flags().IntVar(&batchSize, "batch-size", 100, "idempotent import batch size")
+	serviceCmd.Flags().BoolVarP(&serviceYes, "yes", "y", false, "activate service mode after verified import")
+	_ = serviceCmd.MarkFlagRequired("authority-url")
+	_ = serviceCmd.MarkFlagRequired("service-public-key")
+	_ = serviceCmd.MarkFlagRequired("daemon-endpoint")
+	root.AddCommand(status, apply, adopt, seed, requireAcks, ack, activate, rollback, recoverCmd, extractCmd, serviceCmd)
 	return root
 }

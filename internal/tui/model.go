@@ -11,6 +11,7 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
 	"github.com/DhanushSantosh/AgentComms/internal/identity"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 	"github.com/DhanushSantosh/AgentComms/internal/service"
@@ -548,16 +549,20 @@ func (m Model) integrity(p palette) string {
 	return fmt.Sprintf("%s Chain verified: %t\n  Signed events: %d\n  Head commit: %s\n  Checkpoint: %s\n  Remote: %s\n\nRun `agent-comms verify` before recovery or migration.", mark, m.state.Integrity.Verified, m.state.Integrity.EventCount, m.state.Integrity.Head, m.state.Integrity.SyncState, empty(m.state.Integrity.Remote, "not configured"))
 }
 func (m Model) chain(p palette) string {
-	ev, e := m.svc.Store.Events()
+	after := max(0, m.state.Integrity.EventCount-7)
+	cursor := ""
+	if after > 0 {
+		cursor = controlplane.EncodeCursor(uint64(after))
+	}
+	page, e := m.svc.History(controlplane.PageRequest{Cursor: cursor, Limit: 7})
 	if e != nil {
 		return e.Error()
 	}
-	start := max(0, len(ev)-7)
 	rows := []string{}
-	for i := start; i < len(ev); i++ {
-		v := ev[i]
+	for i, record := range page.Items {
+		v := record.Event
 		joint := "├─"
-		if i == len(ev)-1 {
+		if i == len(page.Items)-1 {
 			joint = "└─"
 		}
 		rows = append(rows, fmt.Sprintf("%s %04d  %-22s %s · %s", joint, v.Sequence, v.Type, v.Actor, v.EntityID))

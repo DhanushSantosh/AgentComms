@@ -1,0 +1,33 @@
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: agent_comms
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_USER: agent_comms
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agent_comms -d agent_comms"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  authority:
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      AGENT_COMMS_DATABASE_URL: postgres://agent_comms:${POSTGRES_PASSWORD}@postgres:5432/agent_comms?sslmode=disable
+      AGENT_COMMS_LISTEN: 0.0.0.0:8787
+      AGENT_COMMS_MIGRATION_TOKEN: ${AGENT_COMMS_MIGRATION_TOKEN:?set AGENT_COMMS_MIGRATION_TOKEN}
+      AGENT_COMMS_SERVICE_PRIVATE_KEY: ${AGENT_COMMS_SERVICE_PRIVATE_KEY:?set AGENT_COMMS_SERVICE_PRIVATE_KEY}
+    ports:
+      - "127.0.0.1:8787:8787"
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
