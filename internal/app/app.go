@@ -30,6 +30,7 @@ import (
 	"github.com/DhanushSantosh/AgentComms/internal/service"
 	"github.com/DhanushSantosh/AgentComms/internal/store"
 	tuiterm "github.com/DhanushSantosh/AgentComms/internal/tui"
+	runtimeworker "github.com/DhanushSantosh/AgentComms/internal/worker"
 	"github.com/spf13/cobra"
 )
 
@@ -670,7 +671,57 @@ func (c *cli) runtimeCmd() *cobra.Command {
 		}
 		return c.emit("runtime.list", state.AgentRuntimes)
 	}}
-	root.AddCommand(register, heartbeat, list)
+	var workerAdapter, workerExecutable, workerModel, permissionMode, sandbox string
+	var executionTimeout, listenWait time.Duration
+	var claudeBudget float64
+	var once bool
+	workerCommand := &cobra.Command{
+		Use:   "worker",
+		Short: "Run a governed autonomous Claude or Codex invocation worker",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			runtimeID, _ := cmd.Flags().GetString("id")
+			executable := workerExecutable
+			if executable == "" {
+				var lookupErr error
+				executable, lookupErr = exec.LookPath(workerAdapter)
+				if lookupErr != nil {
+					return fmt.Errorf("locate %s executable: %w", workerAdapter, lookupErr)
+				}
+			}
+			ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+			defer cancel()
+			instance, err := runtimeworker.New(runtimeworker.Config{
+				Service: c.svc, Actor: c.actor, RuntimeID: runtimeID,
+				Adapter: workerAdapter, Executable: executable, WorkDir: c.svc.Store.Root,
+				Model: workerModel, PermissionMode: permissionMode, Sandbox: sandbox,
+				ExecutionTimeout: executionTimeout, ListenWait: listenWait,
+				ClaudeBudgetUSD: claudeBudget, Once: once,
+				Status: func(status string) {
+					if !c.quiet {
+						_, _ = fmt.Fprintln(c.err, status)
+					}
+				},
+			})
+			if err != nil {
+				return err
+			}
+			return instance.Run(ctx)
+		},
+	}
+	workerCommand.Flags().String("id", "", "registered runtime ID")
+	_ = workerCommand.MarkFlagRequired("id")
+	workerCommand.Flags().StringVar(&workerAdapter, "adapter", "claude", "claude or codex")
+	workerCommand.Flags().StringVar(&workerExecutable, "executable", "", "absolute agent executable path")
+	workerCommand.Flags().StringVar(&workerModel, "model", "", "agent model override")
+	workerCommand.Flags().StringVar(&permissionMode, "claude-permission-mode", "acceptEdits", "Claude permission mode without bypass")
+	workerCommand.Flags().StringVar(&sandbox, "codex-sandbox", "workspace-write", "Codex read-only or workspace-write sandbox")
+	workerCommand.Flags().DurationVar(&executionTimeout, "execution-timeout", 30*time.Minute, "per-invocation execution timeout")
+	workerCommand.Flags().DurationVar(&listenWait, "listen-wait", controlplane.MaxInvocationListen, "bounded invocation listen duration")
+	workerCommand.Flags().Float64Var(&claudeBudget, "claude-max-budget-usd", 1, "maximum Claude spend per invocation")
+	workerCommand.Flags().BoolVar(&once, "once", false, "process at most one invocation and exit")
+
+	root.AddCommand(register, heartbeat, list, workerCommand)
 	return root
 }
 

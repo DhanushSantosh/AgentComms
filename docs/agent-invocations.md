@@ -42,6 +42,45 @@ seconds and claims it transactionally by default. Agent hosts repeat the
 bounded listen after a timeout or completed invocation. Competing runtime
 instances cannot both claim the same invocation.
 
+## Autonomous runtime workers
+
+`runtime worker` turns a registered runtime into a complete responder rather
+than a claim-only listener. It invokes Claude or Codex directly, supplies the
+durable invocation as the prompt, publishes the agent's result to the
+requester, and completes the invocation without a user asking the interactive
+agent to check its inbox.
+
+Run a Claude worker under a process supervisor:
+
+```sh
+agent-comms --project /srv/project --actor reviewer runtime worker \
+  --id reviewer-runtime \
+  --adapter claude \
+  --executable /usr/local/bin/claude \
+  --claude-permission-mode acceptEdits \
+  --claude-max-budget-usd 1 \
+  --execution-timeout 30m
+```
+
+Run a Codex worker with workspace writes:
+
+```sh
+agent-comms --project /srv/project --actor reviewer runtime worker \
+  --id reviewer-runtime \
+  --adapter codex \
+  --executable /usr/local/bin/codex \
+  --codex-sandbox workspace-write \
+  --execution-timeout 30m
+```
+
+The worker is intentionally foreground-only so systemd, launchd, a container
+runtime, or the agent host controls restarts and shutdown. Each process handles
+one invocation at a time. Claude requires a per-invocation spend limit and
+cannot use `bypassPermissions`; Codex is restricted to `read-only` or
+`workspace-write`. Executions and captured output are bounded. Any execution or
+publication failure moves the invocation to `WAITING` with an auditable reason.
+Use `--once` for one bounded receive attempt in automation or testing.
+
 ## User policy
 
 Owners and orchestrators configure each target agent:
