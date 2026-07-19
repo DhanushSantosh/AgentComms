@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -83,7 +84,7 @@ func validateConfig(config *Config) error {
 	if err != nil {
 		return fmt.Errorf("inspect worker executable: %w", err)
 	}
-	if info.IsDir() || info.Mode()&0o111 == 0 {
+	if info.IsDir() || (runtime.GOOS != "windows" && info.Mode()&0o111 == 0) {
 		return errors.New("worker executable is not executable")
 	}
 	if !filepath.IsAbs(config.WorkDir) {
