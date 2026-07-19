@@ -33,7 +33,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var Version = "0.2.0-preview.2"
+var Version = "0.1.0"
 
 const APIVersion = "agent-comms/v1"
 

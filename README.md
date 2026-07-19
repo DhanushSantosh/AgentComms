@@ -2,11 +2,11 @@
 
 Agent Comms is a terminal-native coordination system for humans and automated agents working in one shared repository. It provides protected work leases, typed durable messages, governed approvals, actor-bound signatures, an immutable audit trail, a deterministic JSON CLI, and a rich terminal control room.
 
-> v0.2 is a preview. Runtime migrations may be required before v1.
+> v0.1 is a preview. Runtime migrations may be required before v1.
 
 ## Install
 
-Official releases are verified with SHA-256 and Sigstore. The preview currently requires `cosign`; native Windows Authenticode and macOS notarization are planned after v0.2.
+Official releases are verified with SHA-256 and Sigstore. The preview currently requires `cosign`; native Windows Authenticode and macOS notarization are planned after v0.1.
 
 Windows PowerShell:
 

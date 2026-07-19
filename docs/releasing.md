@@ -2,13 +2,36 @@
 
 Releases are readiness-based and follow Semantic Versioning: `v0.x.y-preview.n`, `v0.x.y-rc.n`, and `v0.x.y`. After v1, breaking public-contract changes require a major version.
 
+## Release nicknames
+
+Every release is presented as an episode of an American science-fiction series.
+The canonical Git tag remains machine-safe SemVer, while the annotated tag
+message and GitHub release title use:
+
+`v<version> — “<Episode Title>”`
+
+The episode title must:
+
+- describe the defining user-facing change in that release;
+- be short enough to scan in release lists;
+- never repeat a previous release nickname;
+- avoid names of real television series, characters, or episodes.
+
+Prereleases follow the same convention. For example:
+`v0.2.0-preview.1 — “Signal Lost”`.
+
+The `v0.1.0` release is nicknamed **“The Control Room”** for its operator-console
+TUI, agent controls, command palette, and resilient local control plane.
+
 ## Promotion
 
 1. Open a release pull request from `dev` to `main`.
 2. Confirm full platform, race, vulnerability, contamination, installer, migration, and end-to-end checks.
 3. Curate `CHANGELOG.md`, release notes, migrations, compatibility statements, and known limitations.
 4. Obtain core-maintainer review and merge using a merge commit.
-5. A release/security maintainer creates the protected SemVer tag on the resulting `main` commit.
+5. A release/security maintainer chooses a unique change-reflective episode
+   nickname, records it in the changelog, and creates the protected annotated
+   SemVer tag on the resulting `main` commit.
 6. Approve the protected GitHub `release` environment.
 7. Automation builds and publishes binaries, checksums, SBOMs, provenance, and keyless Cosign bundles.
 8. Verify a clean install and signature from the published assets.
