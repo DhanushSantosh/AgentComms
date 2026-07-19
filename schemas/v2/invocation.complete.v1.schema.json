@@ -1,0 +1,1 @@
+{"$schema":"https://json-schema.org/draft/2020-12/schema","title":"invocation.complete payload v1","type":"object","required":["summary"],"properties":{"result_message_id":{"type":"string"},"summary":{"type":"string","minLength":1,"maxLength":16384}},"additionalProperties":false}

@@ -74,6 +74,39 @@ type Message struct {
 	Status     string           `json:"status"`
 	Recipients []RecipientState `json:"recipients"`
 }
+type Invocation struct {
+	ID              string     `json:"id"`
+	RequestedBy     string     `json:"requested_by"`
+	Target          string     `json:"target"`
+	MessageID       string     `json:"message_id,omitempty"`
+	TaskID          string     `json:"task_id,omitempty"`
+	Instruction     string     `json:"instruction"`
+	ExpectedResult  string     `json:"expected_result,omitempty"`
+	Priority        string     `json:"priority"`
+	Status          string     `json:"status"`
+	CreatedAt       time.Time  `json:"created_at"`
+	Deadline        *time.Time `json:"deadline,omitempty"`
+	ClaimedBy       string     `json:"claimed_by,omitempty"`
+	RuntimeID       string     `json:"runtime_id,omitempty"`
+	ClaimUntil      *time.Time `json:"claim_until,omitempty"`
+	StartedAt       *time.Time `json:"started_at,omitempty"`
+	CompletedAt     *time.Time `json:"completed_at,omitempty"`
+	NextAttemptAt   *time.Time `json:"next_attempt_at,omitempty"`
+	ResultMessageID string     `json:"result_message_id,omitempty"`
+	Summary         string     `json:"summary,omitempty"`
+	Reason          string     `json:"reason,omitempty"`
+}
+type InvocationDelivery struct {
+	ID           string     `json:"id"`
+	InvocationID string     `json:"invocation_id"`
+	RuntimeID    string     `json:"runtime_id,omitempty"`
+	Attempt      int        `json:"attempt"`
+	Status       string     `json:"status"`
+	NotifiedAt   *time.Time `json:"notified_at,omitempty"`
+	FailedAt     *time.Time `json:"failed_at,omitempty"`
+	NextRetryAt  *time.Time `json:"next_retry_at,omitempty"`
+	Error        string     `json:"error,omitempty"`
+}
 type Approval struct {
 	ID        string   `json:"id"`
 	Tier      string   `json:"tier"`
@@ -128,14 +161,16 @@ type Integrity struct {
 	Connectivity   string `json:"connectivity,omitempty"`
 }
 type State struct {
-	Agents    map[string]Agent          `json:"agents"`
-	Tasks     map[string]Task           `json:"tasks"`
-	Messages  map[string]Message        `json:"messages"`
-	Approvals map[string]Approval       `json:"approvals"`
-	Decisions map[string]Decision       `json:"decisions"`
-	Documents map[string]Document       `json:"documents"`
-	Env       map[string]EnvEntry       `json:"env"`
-	Sessions  map[string]SessionPayload `json:"sessions"`
-	Artifacts map[string]Artifact       `json:"artifacts"`
-	Integrity Integrity                 `json:"integrity"`
+	Agents               map[string]Agent              `json:"agents"`
+	Tasks                map[string]Task               `json:"tasks"`
+	Messages             map[string]Message            `json:"messages"`
+	Invocations          map[string]Invocation         `json:"invocations"`
+	InvocationDeliveries map[string]InvocationDelivery `json:"invocation_deliveries"`
+	Approvals            map[string]Approval           `json:"approvals"`
+	Decisions            map[string]Decision           `json:"decisions"`
+	Documents            map[string]Document           `json:"documents"`
+	Env                  map[string]EnvEntry           `json:"env"`
+	Sessions             map[string]SessionPayload     `json:"sessions"`
+	Artifacts            map[string]Artifact           `json:"artifacts"`
+	Integrity            Integrity                     `json:"integrity"`
 }

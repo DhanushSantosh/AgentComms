@@ -452,6 +452,22 @@ func decodePayload(eventType string, raw json.RawMessage) (any, error) {
 		return *value, nil
 	case *model.MessageResponse:
 		return *value, nil
+	case *model.InvocationRequested:
+		return *value, nil
+	case *model.InvocationNotified:
+		return *value, nil
+	case *model.InvocationClaimed:
+		return *value, nil
+	case *model.InvocationProgress:
+		return *value, nil
+	case *model.InvocationWaiting:
+		return *value, nil
+	case *model.InvocationCompleted:
+		return *value, nil
+	case *model.InvocationRejected:
+		return *value, nil
+	case *model.InvocationDeliveryFailed:
+		return *value, nil
 	case *model.ApprovalRequested:
 		return *value, nil
 	case *model.ApprovalResponse:
@@ -512,6 +528,7 @@ func loadState(ctx context.Context, tx *sql.Tx, projectID string) (model.State, 
 	state := model.State{
 		Agents: map[string]model.Agent{}, Tasks: map[string]model.Task{},
 		Messages: map[string]model.Message{}, Approvals: map[string]model.Approval{},
+		Invocations: map[string]model.Invocation{}, InvocationDeliveries: map[string]model.InvocationDelivery{},
 		Decisions: map[string]model.Decision{}, Documents: map[string]model.Document{},
 		Env: map[string]model.EnvEntry{}, Sessions: map[string]model.SessionPayload{},
 		Artifacts: map[string]model.Artifact{},
@@ -544,6 +561,26 @@ func loadState(ctx context.Context, tx *sql.Tx, projectID string) (model.State, 
 					return err
 				}
 				state.Messages[id] = v
+				return nil
+			})
+		},
+		func() error {
+			return loadProjection(ctx, tx, "invocations", "invocation_id", projectID, func(id string, raw []byte) error {
+				var value model.Invocation
+				if err := json.Unmarshal(raw, &value); err != nil {
+					return err
+				}
+				state.Invocations[id] = value
+				return nil
+			})
+		},
+		func() error {
+			return loadProjection(ctx, tx, "invocation_deliveries", "delivery_id", projectID, func(id string, raw []byte) error {
+				var value model.InvocationDelivery
+				if err := json.Unmarshal(raw, &value); err != nil {
+					return err
+				}
+				state.InvocationDeliveries[id] = value
 				return nil
 			})
 		},
@@ -619,6 +656,7 @@ func loadState(ctx context.Context, tx *sql.Tx, projectID string) (model.State, 
 func loadProjection(ctx context.Context, tx *sql.Tx, table, idColumn, projectID string, accept func(string, []byte) error) error {
 	allowed := map[string]bool{
 		"agents.agent_id": true, "tasks.task_id": true, "messages.message_id": true,
+		"invocations.invocation_id": true, "invocation_deliveries.delivery_id": true,
 		"approvals.approval_id": true, "decisions.decision_id": true,
 		"documents.document_id": true, "artifacts.sha256": true,
 		"environment_entries.entry_key": true, "sessions.session_id": true,
@@ -664,6 +702,12 @@ func persistProjectionChanges(ctx context.Context, tx *sql.Tx, projectID string,
 	if err := persistSimpleChanges(ctx, tx, projectID, sequence, "messages", "message_id", before.Messages, after.Messages); err != nil {
 		return err
 	}
+	if err := persistInvocationChanges(ctx, tx, projectID, sequence, before.Invocations, after.Invocations); err != nil {
+		return err
+	}
+	if err := persistInvocationDeliveryChanges(ctx, tx, projectID, sequence, before.InvocationDeliveries, after.InvocationDeliveries); err != nil {
+		return err
+	}
 	if err := persistSimpleChanges(ctx, tx, projectID, sequence, "approvals", "approval_id", before.Approvals, after.Approvals); err != nil {
 		return err
 	}
@@ -680,6 +724,52 @@ func persistProjectionChanges(ctx context.Context, tx *sql.Tx, projectID string,
 		return err
 	}
 	return persistSessions(ctx, tx, projectID, sequence, before.Sessions, after.Sessions)
+}
+
+func persistInvocationChanges(ctx context.Context, tx *sql.Tx, projectID string, sequence uint64, before, after map[string]model.Invocation) error {
+	for id, invocation := range after {
+		if reflect.DeepEqual(before[id], invocation) {
+			continue
+		}
+		raw, err := json.Marshal(invocation)
+		if err != nil {
+			return err
+		}
+		if _, err = tx.ExecContext(ctx, `INSERT INTO invocations
+			(project_id,invocation_id,target_id,requested_by,status,deadline,claim_until,state,updated_sequence)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+			ON CONFLICT (project_id,invocation_id) DO UPDATE SET target_id=EXCLUDED.target_id,
+			requested_by=EXCLUDED.requested_by,status=EXCLUDED.status,deadline=EXCLUDED.deadline,
+			claim_until=EXCLUDED.claim_until,state=EXCLUDED.state,updated_sequence=EXCLUDED.updated_sequence`,
+			projectID, id, invocation.Target, invocation.RequestedBy, invocation.Status,
+			invocation.Deadline, invocation.ClaimUntil, raw, sequence); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func persistInvocationDeliveryChanges(ctx context.Context, tx *sql.Tx, projectID string, sequence uint64, before, after map[string]model.InvocationDelivery) error {
+	for id, delivery := range after {
+		if reflect.DeepEqual(before[id], delivery) {
+			continue
+		}
+		raw, err := json.Marshal(delivery)
+		if err != nil {
+			return err
+		}
+		if _, err = tx.ExecContext(ctx, `INSERT INTO invocation_deliveries
+			(project_id,delivery_id,invocation_id,runtime_id,attempt,status,next_retry_at,state,updated_sequence)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+			ON CONFLICT (project_id,delivery_id) DO UPDATE SET invocation_id=EXCLUDED.invocation_id,
+			runtime_id=EXCLUDED.runtime_id,attempt=EXCLUDED.attempt,status=EXCLUDED.status,
+			next_retry_at=EXCLUDED.next_retry_at,state=EXCLUDED.state,updated_sequence=EXCLUDED.updated_sequence`,
+			projectID, id, delivery.InvocationID, delivery.RuntimeID, delivery.Attempt,
+			delivery.Status, delivery.NextRetryAt, raw, sequence); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func upsertAgent(ctx context.Context, tx *sql.Tx, projectID string, sequence uint64, agent model.Agent) error {

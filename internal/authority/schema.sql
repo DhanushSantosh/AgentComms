@@ -106,6 +106,41 @@ CREATE TABLE IF NOT EXISTS messages (
     PRIMARY KEY (project_id, message_id)
 );
 
+CREATE TABLE IF NOT EXISTS invocations (
+    project_id TEXT NOT NULL REFERENCES projects(project_id) ON DELETE CASCADE,
+    invocation_id TEXT NOT NULL,
+    target_id TEXT NOT NULL,
+    requested_by TEXT NOT NULL,
+    status TEXT NOT NULL,
+    deadline TIMESTAMPTZ,
+    claim_until TIMESTAMPTZ,
+    state JSONB NOT NULL,
+    updated_sequence BIGINT NOT NULL,
+    PRIMARY KEY (project_id, invocation_id)
+);
+
+CREATE INDEX IF NOT EXISTS invocations_target_status_idx
+    ON invocations (project_id, target_id, status, updated_sequence);
+
+CREATE TABLE IF NOT EXISTS invocation_deliveries (
+    project_id TEXT NOT NULL,
+    delivery_id TEXT NOT NULL,
+    invocation_id TEXT NOT NULL,
+    runtime_id TEXT NOT NULL DEFAULT '',
+    attempt INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    next_retry_at TIMESTAMPTZ,
+    state JSONB NOT NULL,
+    updated_sequence BIGINT NOT NULL,
+    PRIMARY KEY (project_id, delivery_id),
+    FOREIGN KEY (project_id, invocation_id)
+        REFERENCES invocations(project_id, invocation_id) ON DELETE CASCADE,
+    CHECK (attempt > 0 AND attempt <= 10)
+);
+
+CREATE INDEX IF NOT EXISTS invocation_deliveries_retry_idx
+    ON invocation_deliveries (project_id, status, next_retry_at);
+
 CREATE TABLE IF NOT EXISTS message_recipients (
     project_id TEXT NOT NULL,
     message_id TEXT NOT NULL,
