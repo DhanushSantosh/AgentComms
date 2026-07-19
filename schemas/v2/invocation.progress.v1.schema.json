@@ -1,0 +1,1 @@
+{"$schema":"https://json-schema.org/draft/2020-12/schema","title":"invocation progress payload v1","type":"object","properties":{"summary":{"type":"string","maxLength":16384}},"additionalProperties":false}

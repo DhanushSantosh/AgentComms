@@ -120,6 +120,42 @@ func TestPostgresTransactionalAuthority(t *testing.T) {
 	if state.Tasks["exclusive"].Owner == "" {
 		t.Fatal("exclusive task has no owner")
 	}
+	if _, _, err = mutate("owner", owner, "invocation.request", "inv-exclusive",
+		model.InvocationRequested{Target: "alpha", Instruction: "Perform one exclusive action"}, uuid.NewString()); err != nil {
+		t.Fatal(err)
+	}
+	invocationStart := make(chan struct{})
+	invocationResults := make(chan error, 2)
+	var invocationWriters sync.WaitGroup
+	for _, runtimeID := range []string{"runtime-a", "runtime-b"} {
+		invocationWriters.Add(1)
+		go func(runtimeID string) {
+			defer invocationWriters.Done()
+			<-invocationStart
+			_, _, claimErr := mutate("alpha", alpha, "invocation.claim", "inv-exclusive",
+				model.InvocationClaimed{RuntimeID: runtimeID}, uuid.NewString())
+			invocationResults <- claimErr
+		}(runtimeID)
+	}
+	close(invocationStart)
+	invocationWriters.Wait()
+	close(invocationResults)
+	invocationSuccesses := 0
+	for result := range invocationResults {
+		if result == nil {
+			invocationSuccesses++
+		}
+	}
+	if invocationSuccesses != 1 {
+		t.Fatalf("successful concurrent invocation claims=%d, want 1", invocationSuccesses)
+	}
+	state, _, err = engine.State(context.Background(), projectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Invocations["inv-exclusive"].Status != "CLAIMED" {
+		t.Fatalf("invocation is not claimed: %+v", state.Invocations["inv-exclusive"])
+	}
 	if err = engine.VerifyRange(context.Background(), projectID, 1, 0); err != nil {
 		t.Fatal(err)
 	}

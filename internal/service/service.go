@@ -67,7 +67,13 @@ func (s *Service) State() (model.State, error) {
 	if e != nil {
 		return model.State{}, e
 	}
-	st := model.State{Agents: map[string]model.Agent{}, Tasks: map[string]model.Task{}, Messages: map[string]model.Message{}, Approvals: map[string]model.Approval{}, Decisions: map[string]model.Decision{}, Documents: map[string]model.Document{}, Env: map[string]model.EnvEntry{}, Sessions: map[string]model.SessionPayload{}, Artifacts: map[string]model.Artifact{}}
+	st := model.State{
+		Agents: map[string]model.Agent{}, Tasks: map[string]model.Task{}, Messages: map[string]model.Message{},
+		Invocations: map[string]model.Invocation{}, InvocationDeliveries: map[string]model.InvocationDelivery{},
+		Approvals: map[string]model.Approval{}, Decisions: map[string]model.Decision{},
+		Documents: map[string]model.Document{}, Env: map[string]model.EnvEntry{},
+		Sessions: map[string]model.SessionPayload{}, Artifacts: map[string]model.Artifact{},
+	}
 	unknown := 0
 	for _, v := range ev {
 		if !model.KnownEventType(v.Type) {
@@ -206,6 +212,12 @@ func (s *Service) Drafts(limit int) ([]controlplane.Draft, error) {
 	return s.remote.Drafts(ctx, cfg.ProjectID, limit)
 }
 func ApplyEvent(s *model.State, e model.Event) error {
+	if s.Invocations == nil {
+		s.Invocations = map[string]model.Invocation{}
+	}
+	if s.InvocationDeliveries == nil {
+		s.InvocationDeliveries = map[string]model.InvocationDelivery{}
+	}
 	v, x := model.DecodePayload(e.Type, e.Data)
 	if x != nil {
 		return x
@@ -313,6 +325,85 @@ func ApplyEvent(s *model.State, e model.Event) error {
 				t.Status = "OPEN"
 				s.Tasks[m.TaskID] = t
 			}
+		}
+	case *model.InvocationRequested:
+		priority := strings.ToUpper(strings.TrimSpace(p.Priority))
+		if priority == "" {
+			priority = "NORMAL"
+		}
+		s.Invocations[e.EntityID] = model.Invocation{
+			ID: e.EntityID, RequestedBy: e.Actor, Target: p.Target, MessageID: p.MessageID,
+			TaskID: p.TaskID, Instruction: p.Instruction, ExpectedResult: p.ExpectedResult,
+			Priority: priority, Status: "PENDING", CreatedAt: e.Time, Deadline: p.Deadline,
+		}
+	case *model.InvocationNotified:
+		invocation := s.Invocations[e.EntityID]
+		now := e.Time
+		invocation.Status = "NOTIFIED"
+		s.Invocations[e.EntityID] = invocation
+		s.InvocationDeliveries[p.DeliveryID] = model.InvocationDelivery{
+			ID: p.DeliveryID, InvocationID: e.EntityID, RuntimeID: p.RuntimeID,
+			Attempt: p.Attempt, Status: "NOTIFIED", NotifiedAt: &now,
+		}
+	case *model.InvocationClaimed:
+		invocation := s.Invocations[e.EntityID]
+		now := p.ClaimUntil
+		invocation.Status = "CLAIMED"
+		invocation.ClaimedBy = e.Actor
+		invocation.RuntimeID = p.RuntimeID
+		invocation.ClaimUntil = &now
+		s.Invocations[e.EntityID] = invocation
+	case *model.InvocationProgress:
+		invocation := s.Invocations[e.EntityID]
+		invocation.Status = "RUNNING"
+		if invocation.StartedAt == nil {
+			now := e.Time
+			invocation.StartedAt = &now
+		}
+		invocation.Summary = p.Summary
+		invocation.Reason = ""
+		invocation.NextAttemptAt = nil
+		s.Invocations[e.EntityID] = invocation
+	case *model.InvocationWaiting:
+		invocation := s.Invocations[e.EntityID]
+		invocation.Status = "WAITING"
+		invocation.Reason = p.Reason
+		invocation.NextAttemptAt = p.NextAttemptAt
+		s.Invocations[e.EntityID] = invocation
+	case *model.InvocationCompleted:
+		invocation := s.Invocations[e.EntityID]
+		now := e.Time
+		invocation.Status = "COMPLETED"
+		invocation.CompletedAt = &now
+		invocation.ResultMessageID = p.ResultMessageID
+		invocation.Summary = p.Summary
+		s.Invocations[e.EntityID] = invocation
+	case *model.InvocationRejected:
+		invocation := s.Invocations[e.EntityID]
+		now := e.Time
+		if e.Type == "invocation.expire" {
+			invocation.Status = "EXPIRED"
+		} else {
+			invocation.Status = "REJECTED"
+		}
+		invocation.CompletedAt = &now
+		invocation.Reason = p.Reason
+		s.Invocations[e.EntityID] = invocation
+	case *model.InvocationDeliveryFailed:
+		invocation := s.Invocations[e.EntityID]
+		now := e.Time
+		status := "FAILED"
+		if p.Final {
+			status = "DEAD_LETTER"
+			invocation.Status = status
+			invocation.CompletedAt = &now
+			invocation.Reason = p.Error
+		}
+		invocation.NextAttemptAt = p.NextRetry
+		s.Invocations[e.EntityID] = invocation
+		s.InvocationDeliveries[p.DeliveryID] = model.InvocationDelivery{
+			ID: p.DeliveryID, InvocationID: e.EntityID, RuntimeID: p.RuntimeID,
+			Attempt: p.Attempt, Status: status, FailedAt: &now, NextRetryAt: p.NextRetry, Error: p.Error,
 		}
 	case *model.ApprovalRequested:
 		s.Approvals[e.EntityID] = model.Approval{ID: e.EntityID, Tier: p.Tier, Action: p.Action, Reason: p.Reason, Status: "PENDING", Requester: e.Actor, Affected: p.Affected}
@@ -737,6 +828,192 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 		}
 		payload = p
 	}
+	if strings.HasPrefix(typ, "invocation.") {
+		invocation, exists := st.Invocations[id]
+		switch p := payload.(type) {
+		case model.InvocationRequested:
+			if typ != "invocation.request" {
+				return nil, errors.New("invalid invocation request transition")
+			}
+			if id == "" || strings.TrimSpace(p.Target) == "" || strings.TrimSpace(p.Instruction) == "" {
+				return nil, errors.New("invocation ID, target, and instruction are required")
+			}
+			if exists {
+				return nil, errors.New("invocation already exists")
+			}
+			target, targetExists := st.Agents[p.Target]
+			if !targetExists || target.Status != "ACTIVE" || target.PrincipalType != model.PrincipalAgent {
+				return nil, errors.New("active agent invocation target is required")
+			}
+			requester, _ := active(st, actor)
+			if requester.Role == model.RoleObserver {
+				return nil, errors.New("observer cannot request invocations")
+			}
+			if len(p.Instruction)+len(p.ExpectedResult) > controlplane.MaxInvocationBytes {
+				return nil, fmt.Errorf("invocation content exceeds %d bytes", controlplane.MaxInvocationBytes)
+			}
+			priority := strings.ToUpper(strings.TrimSpace(p.Priority))
+			if priority == "" {
+				priority = "NORMAL"
+			}
+			if priority != "LOW" && priority != "NORMAL" && priority != "HIGH" && priority != "URGENT" {
+				return nil, errors.New("invocation priority must be LOW, NORMAL, HIGH, or URGENT")
+			}
+			p.Priority = priority
+			if p.Deadline != nil {
+				if !p.Deadline.After(now) {
+					return nil, errors.New("invocation deadline must be in the future")
+				}
+				if p.Deadline.After(now.Add(controlplane.MaxInvocationTTL)) {
+					return nil, fmt.Errorf("invocation deadline exceeds %s", controlplane.MaxInvocationTTL)
+				}
+			}
+			if p.MessageID != "" {
+				message, messageExists := st.Messages[p.MessageID]
+				if !messageExists {
+					return nil, errors.New("related message not found")
+				}
+				addressed := false
+				for _, recipient := range message.To {
+					if recipient == p.Target {
+						addressed = true
+						break
+					}
+				}
+				if !addressed {
+					return nil, errors.New("related message is not addressed to the invocation target")
+				}
+			}
+			if p.TaskID != "" {
+				if _, taskExists := st.Tasks[p.TaskID]; !taskExists {
+					return nil, errors.New("related task not found")
+				}
+			}
+			payload = p
+		case model.InvocationNotified:
+			if !exists {
+				return nil, errors.New("invocation not found")
+			}
+			if invocation.Status != "PENDING" && invocation.Status != "NOTIFIED" {
+				return nil, fmt.Errorf("cannot notify invocation while %s", invocation.Status)
+			}
+			if actor != invocation.RequestedBy && actor != invocation.Target && !actorElevated(st, actor) {
+				return nil, errors.New("invocation requester, target, owner, or orchestrator required")
+			}
+			if strings.TrimSpace(p.DeliveryID) == "" || p.Attempt < 1 || p.Attempt > controlplane.MaxDeliveryAttempts {
+				return nil, fmt.Errorf("delivery ID and attempt from 1 to %d are required", controlplane.MaxDeliveryAttempts)
+			}
+			if _, duplicate := st.InvocationDeliveries[p.DeliveryID]; duplicate {
+				return nil, errors.New("invocation delivery already exists")
+			}
+		case model.InvocationClaimed:
+			if !exists {
+				return nil, errors.New("invocation not found")
+			}
+			if actor != invocation.Target {
+				return nil, errors.New("invocation target required")
+			}
+			if invocation.Status != "PENDING" && invocation.Status != "NOTIFIED" {
+				return nil, fmt.Errorf("invocation is no longer claimable while %s", invocation.Status)
+			}
+			if invocation.Deadline != nil && !invocation.Deadline.After(now) {
+				return nil, errors.New("invocation deadline has passed")
+			}
+			if strings.TrimSpace(p.RuntimeID) == "" {
+				return nil, errors.New("runtime ID is required")
+			}
+			if p.ClaimUntil.IsZero() {
+				p.ClaimUntil = now.Add(controlplane.DefaultClaimLease)
+			}
+			if !p.ClaimUntil.After(now) || p.ClaimUntil.After(now.Add(controlplane.MaxClaimLease)) {
+				return nil, fmt.Errorf("claim lease must be within %s", controlplane.MaxClaimLease)
+			}
+			payload = p
+		case model.InvocationProgress:
+			if !exists {
+				return nil, errors.New("invocation not found")
+			}
+			if actor != invocation.Target {
+				return nil, errors.New("invocation target required")
+			}
+			if typ == "invocation.start" && invocation.Status != "CLAIMED" {
+				return nil, fmt.Errorf("claimed invocation required, currently %s", invocation.Status)
+			}
+			if typ == "invocation.resume" && invocation.Status != "WAITING" {
+				return nil, fmt.Errorf("waiting invocation required, currently %s", invocation.Status)
+			}
+		case model.InvocationWaiting:
+			if !exists || actor != invocation.Target {
+				return nil, errors.New("active invocation target required")
+			}
+			if invocation.Status != "RUNNING" {
+				return nil, fmt.Errorf("running invocation required, currently %s", invocation.Status)
+			}
+			if strings.TrimSpace(p.Reason) == "" {
+				return nil, errors.New("waiting reason is required")
+			}
+			if p.NextAttemptAt != nil && !p.NextAttemptAt.After(now) {
+				return nil, errors.New("next attempt must be in the future")
+			}
+		case model.InvocationCompleted:
+			if !exists || actor != invocation.Target {
+				return nil, errors.New("active invocation target required")
+			}
+			if invocation.Status != "RUNNING" && invocation.Status != "WAITING" {
+				return nil, fmt.Errorf("running or waiting invocation required, currently %s", invocation.Status)
+			}
+			if strings.TrimSpace(p.Summary) == "" {
+				return nil, errors.New("completion summary is required")
+			}
+			if p.ResultMessageID != "" {
+				result, resultExists := st.Messages[p.ResultMessageID]
+				if !resultExists || result.From != actor {
+					return nil, errors.New("result message authored by the invocation target is required")
+				}
+			}
+		case model.InvocationRejected:
+			if !exists {
+				return nil, errors.New("invocation not found")
+			}
+			if strings.TrimSpace(p.Reason) == "" {
+				return nil, errors.New("rejection or expiry reason is required")
+			}
+			if typ == "invocation.reject" {
+				if actor != invocation.Target || (invocation.Status != "PENDING" && invocation.Status != "NOTIFIED" && invocation.Status != "CLAIMED") {
+					return nil, errors.New("open invocation target required")
+				}
+			} else if typ == "invocation.expire" {
+				if actor != invocation.RequestedBy && !actorElevated(st, actor) {
+					return nil, errors.New("invocation requester, owner, or orchestrator required")
+				}
+				if invocation.Deadline == nil || invocation.Deadline.After(now) {
+					return nil, errors.New("expired invocation deadline is required")
+				}
+			}
+		case model.InvocationDeliveryFailed:
+			if !exists {
+				return nil, errors.New("invocation not found")
+			}
+			if actor != invocation.RequestedBy && actor != invocation.Target && !actorElevated(st, actor) {
+				return nil, errors.New("invocation requester, target, owner, or orchestrator required")
+			}
+			if strings.TrimSpace(p.DeliveryID) == "" || strings.TrimSpace(p.Error) == "" ||
+				p.Attempt < 1 || p.Attempt > controlplane.MaxDeliveryAttempts {
+				return nil, errors.New("valid delivery ID, attempt, and error are required")
+			}
+			if _, duplicate := st.InvocationDeliveries[p.DeliveryID]; duplicate {
+				return nil, errors.New("invocation delivery already exists")
+			}
+			if p.Final && p.Attempt < controlplane.MaxDeliveryAttempts {
+				return nil, fmt.Errorf("delivery cannot dead-letter before attempt %d", controlplane.MaxDeliveryAttempts)
+			}
+			if !p.Final && (p.NextRetry == nil || !p.NextRetry.After(now)) {
+				return nil, errors.New("future retry time is required for a retryable delivery failure")
+			}
+		default:
+			return nil, errors.New("invalid invocation payload")
+		}
+	}
 	if strings.HasPrefix(typ, "document.") {
 		p := payload.(model.DocumentPayload)
 		switch typ {
@@ -804,6 +1081,12 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 		}
 	}
 	return payload, nil
+}
+
+func actorElevated(state model.State, actor string) bool {
+	principal, ok := state.Agents[actor]
+	return ok && principal.Status == "ACTIVE" &&
+		(principal.Role == model.RoleOwner || principal.Role == model.RoleOrchestrator)
 }
 
 func migrationSeedEvent(typ string) bool {

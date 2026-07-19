@@ -21,6 +21,11 @@ const (
 	MaxDraftBytes         = 5 * 1024 * 1024
 	MaxDraftsPerProject   = 1_000
 	MaxDraftStorageBytes  = 50 * 1024 * 1024
+	MaxInvocationBytes    = 16 * 1024
+	MaxDeliveryAttempts   = 10
+	MaxInvocationTTL      = 7 * 24 * time.Hour
+	DefaultClaimLease     = 15 * time.Minute
+	MaxClaimLease         = time.Hour
 	CommandClockSkew      = 5 * time.Minute
 	DefaultRequestTimeout = 15 * time.Second
 )

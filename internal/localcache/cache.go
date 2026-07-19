@@ -408,6 +408,7 @@ func emptyState() model.State {
 	return model.State{
 		Agents: map[string]model.Agent{}, Tasks: map[string]model.Task{},
 		Messages: map[string]model.Message{}, Approvals: map[string]model.Approval{},
+		Invocations: map[string]model.Invocation{}, InvocationDeliveries: map[string]model.InvocationDelivery{},
 		Decisions: map[string]model.Decision{}, Documents: map[string]model.Document{},
 		Env: map[string]model.EnvEntry{}, Sessions: map[string]model.SessionPayload{},
 		Artifacts: map[string]model.Artifact{},
