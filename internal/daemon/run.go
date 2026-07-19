@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
@@ -23,6 +24,7 @@ type RunConfig struct {
 	RuntimeMode         string
 	PersonalDatabase    string
 	ServicePrivateKey   string
+	ProjectID           string
 }
 
 func Run(ctx context.Context, cfg RunConfig) error {
@@ -55,6 +57,13 @@ func Run(ctx context.Context, cfg RunConfig) error {
 	if err != nil {
 		return err
 	}
+	instance.SetPersonalMode(cfg.RuntimeMode == "personal")
+	instance.SetIdentity(cfg.RuntimeMode, cfg.ProjectID)
+	shutdownRequested := make(chan struct{})
+	var shutdownOnce sync.Once
+	instance.SetShutdown(func() {
+		shutdownOnce.Do(func() { close(shutdownRequested) })
+	})
 	configs, err := LoadConnectorConfigs(cfg.ConnectorConfigPath)
 	if err != nil {
 		return err
@@ -82,6 +91,10 @@ func Run(ctx context.Context, cfg RunConfig) error {
 		}
 		return err
 	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), daemonShutdownTimeout)
+		defer cancel()
+		return server.Shutdown(shutdownCtx)
+	case <-shutdownRequested:
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), daemonShutdownTimeout)
 		defer cancel()
 		return server.Shutdown(shutdownCtx)

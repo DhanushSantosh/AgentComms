@@ -24,15 +24,16 @@ import (
 )
 
 type Service struct {
-	Store     *store.Store
-	remote    *daemonclient.Client
-	remoteErr error
+	Store         *store.Store
+	remote        *daemonclient.Client
+	remoteErr     error
+	recoverRemote func() error
 }
 
 func New(root string) *Service {
 	instance := &Service{Store: store.Open(root)}
 	cfg, err := instance.Store.Config()
-	if err != nil || cfg.RuntimeMode != "service" {
+	if err != nil || (cfg.RuntimeMode != "service" && cfg.RuntimeMode != "personal") {
 		return instance
 	}
 	if cfg.DaemonEndpoint == "" {
@@ -41,6 +42,10 @@ func New(root string) *Service {
 	}
 	instance.remote, instance.remoteErr = daemonclient.New(cfg.DaemonEndpoint, controlplane.DefaultRequestTimeout)
 	return instance
+}
+
+func (s *Service) SetRemoteRecovery(recoverRemote func() error) {
+	s.recoverRemote = recoverRemote
 }
 func (s *Service) State() (model.State, error) {
 	if s.remoteErr != nil {
@@ -678,7 +683,39 @@ func (s *Service) executeRemote(actor, typ, id string, payload any) (model.Event
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), controlplane.DefaultRequestTimeout)
 	defer cancel()
-	event, metadata, err := s.remote.Command(ctx, command)
+	var event controlplane.Event
+	var metadata controlplane.ResultMetadata
+	for attempt := 0; attempt < 3; attempt++ {
+		event, metadata, err = s.remote.Command(ctx, command)
+		if err == nil {
+			break
+		}
+		var controlErr *controlplane.Error
+		if !errors.As(err, &controlErr) ||
+			(controlErr.Code != controlplane.CodeOffline && controlErr.Code != controlplane.CodeUnavailable &&
+				controlErr.Code != controlplane.CodeRateLimited) {
+			break
+		}
+		if s.recoverRemote != nil &&
+			(controlErr.Code == controlplane.CodeOffline || controlErr.Code == controlplane.CodeUnavailable) {
+			if recoveryErr := s.recoverRemote(); recoveryErr != nil {
+				err = recoveryErr
+				break
+			}
+		}
+		delay := time.Duration(50*(1<<attempt)) * time.Millisecond
+		if controlErr.RetryAfter > delay {
+			delay = controlErr.RetryAfter
+		}
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			err = ctx.Err()
+			attempt = 3
+		case <-timer.C:
+		}
+	}
 	if err != nil {
 		return model.Event{}, err
 	}

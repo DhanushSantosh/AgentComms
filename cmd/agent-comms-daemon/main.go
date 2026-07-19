@@ -53,6 +53,7 @@ func run() error {
 		AuthorityURL: authorityURL, ServicePublicKey: serverPublicKey,
 		CachePath: cachePath, Endpoint: endpoint,
 		ConnectorConfigPath: strings.TrimSpace(os.Getenv("AGENT_COMMS_CONNECTOR_CONFIG")),
+		RuntimeMode:         "service", ProjectID: "*",
 	})
 }
 

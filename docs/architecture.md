@@ -1,8 +1,26 @@
 # Architecture
 
 CLI, TUI, and stdio MCP are adapters around one transport-neutral application
-service. A project runs in either legacy mode or authoritative service mode;
-the managed bootstrap records the selected runtime.
+service. A project runs in personal mode, authoritative service mode, or the
+read-only legacy compatibility mode; the managed bootstrap records the
+selected runtime.
+
+## Personal mode
+
+Personal mode is the default for agents and clients on one machine. A
+per-project daemon is the sole writer to an authoritative SQLite WAL database.
+Every mutation verifies the actor-signed command, checks idempotency, reloads
+and validates current state, appends an event, updates the projection and head,
+and stores a project-scoped service-signed receipt in one transaction.
+
+CLI, TUI, and stdio MCP use the daemon's local socket. The daemon starts on
+demand and reports `PERSONAL_AUTHORITATIVE` consistency with `LOCAL`
+connectivity. It requires no listening TCP port, container runtime, or database
+server. SQLite database files and the signing key are user-private; the key is
+stored in the platform credential store.
+
+Personal mode coordinates concurrent processes on one machine. It does not
+claim multi-host availability or PostgreSQL service-mode load targets.
 
 ## Authoritative service mode
 
@@ -46,14 +64,15 @@ compares deterministic projections, stores a server-signed import receipt,
 and atomically switches the bootstrap. The legacy runtime then becomes
 read-only migration evidence.
 
-## Legacy mode
+## Legacy compatibility mode
 
-Unmigrated projects retain the schema-v2 filesystem engine. Writers hold one
+Unmigrated projects may retain the schema-v2 filesystem engine during the
+preview compatibility window. Writers hold one
 cross-process runtime lock across validation and publication, fsync a
 temporary event, atomically rename it, and commit the checkpoint to the
 isolated runtime Git repository. This mode is retained for single-host
 compatibility and recovery, not high-contention coordination.
 
-In both modes, private actor keys live in platform keyrings. The target
+In all modes, private actor keys live in platform keyrings. The target
 repository receives a compact `.agents` bootstrap; credentials are never
 stored in project history.

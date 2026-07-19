@@ -26,13 +26,14 @@ import (
 	"github.com/DhanushSantosh/AgentComms/internal/identity"
 	"github.com/DhanushSantosh/AgentComms/internal/mcp"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
+	"github.com/DhanushSantosh/AgentComms/internal/personalmigration"
 	"github.com/DhanushSantosh/AgentComms/internal/service"
 	"github.com/DhanushSantosh/AgentComms/internal/store"
 	tuiterm "github.com/DhanushSantosh/AgentComms/internal/tui"
 	"github.com/spf13/cobra"
 )
 
-var Version = "0.2.0-preview.1"
+var Version = "0.2.0-preview.2"
 
 const APIVersion = "agent-comms/v1"
 
@@ -109,7 +110,10 @@ func (c *cli) root() *cobra.Command {
 			return fmt.Errorf("open project runtime: %w", e)
 		}
 		c.svc.Store.LockTimeout = c.timeout
-		if cfg.RuntimeMode == "service" {
+		c.svc.SetRemoteRecovery(func() error { return ensureDaemon(root, cfg) })
+		needsDaemon := cmd.CommandPath() != "agent-comms migrate service" &&
+			cmd.CommandPath() != "agent-comms migrate personal"
+		if needsDaemon && (cfg.RuntimeMode == "service" || cfg.RuntimeMode == "personal") {
 			if e = ensureDaemon(root, cfg); e != nil {
 				return e
 			}
@@ -233,6 +237,7 @@ func (c *cli) versionCmd() *cobra.Command {
 }
 func (c *cli) initCmd() *cobra.Command {
 	var owner string
+	var mode string
 	var yes bool
 	cmd := &cobra.Command{Use: "init", Short: "Initialize Agent Comms in a Git project", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		root := c.project
@@ -252,6 +257,9 @@ func (c *cli) initCmd() *cobra.Command {
 		if owner == "" {
 			return errors.New("--owner is required in non-interactive mode")
 		}
+		if mode != "personal" && mode != "legacy" {
+			return errors.New("--mode must be personal or legacy")
+		}
 		if !yes && !c.nonInteractive {
 			fmt.Fprintf(c.out, "\nCreate .agents and isolated .agent-comms runtime in %s? [y/N] ", root)
 			scan := bufio.NewScanner(os.Stdin)
@@ -263,9 +271,27 @@ func (c *cli) initCmd() *cobra.Command {
 		if e := s.Store.Init(owner); e != nil {
 			return e
 		}
-		return c.emit("init", map[string]any{"project": root, "runtime": filepath.Join(root, store.Runtime), "owner": owner, "remote": "local-only", "next": []string{"agent-comms tui", "agent-comms agent register --id builder --principal-type AGENT"}})
+		result := map[string]any{
+			"project": root, "runtime": filepath.Join(root, store.Runtime), "owner": owner,
+			"next": []string{"agent-comms tui", "agent-comms agent register --id builder --principal-type AGENT"},
+		}
+		switch mode {
+		case "personal":
+			migrationResult, e := personalmigration.Migrate(cmd.Context(), s.Store)
+			if e != nil {
+				return fmt.Errorf("initialize personal authority: %w", e)
+			}
+			result["runtime_mode"] = "personal"
+			result["database"] = personalmigration.DatabasePath(root)
+			result["imported_events"] = migrationResult.ImportedEvents
+		case "legacy":
+			result["runtime_mode"] = "legacy"
+			result["remote"] = "local-only"
+		}
+		return c.emit("init", result)
 	}}
 	cmd.Flags().StringVar(&owner, "owner", "", "owner principal ID")
+	cmd.Flags().StringVar(&mode, "mode", "personal", "runtime mode: personal or legacy")
 	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "confirm initialization")
 	return cmd
 }
@@ -335,9 +361,13 @@ func (c *cli) doctorCmd() *cobra.Command {
 			}
 		}
 		r := map[string]any{"integrity": verify == nil, "schema_version": cfg.SchemaVersion, "binary_version": Version, "runtime_toolkit_version": cfg.ToolkitVersion, "runtime": filepath.Join(c.svc.Store.Root, store.Runtime), "git_head": c.svc.Store.Head(), "remote": c.svc.Store.Remote(), "telemetry": false, "healthy": len(findings) == 0, "findings": findings}
-		if cfg.RuntimeMode == "service" {
-			r["runtime_mode"] = "service"
-			r["authority_url"] = cfg.AuthorityURL
+		if cfg.RuntimeMode == "service" || cfg.RuntimeMode == "personal" {
+			r["runtime_mode"] = cfg.RuntimeMode
+			if cfg.RuntimeMode == "service" {
+				r["authority_url"] = cfg.AuthorityURL
+			} else {
+				r["database"] = personalmigration.DatabasePath(c.svc.Store.Root)
+			}
 			r["legacy_read_only"] = cfg.LegacyReadOnly
 		}
 		if verify != nil {
@@ -1351,8 +1381,8 @@ func (c *cli) syncCmd() *cobra.Command {
 		if e != nil {
 			return e
 		}
-		if cfg.RuntimeMode == "service" {
-			return errors.New("service mode uses the configured authority; Git checkpoint setup is unavailable")
+		if cfg.RuntimeMode == "service" || cfg.RuntimeMode == "personal" {
+			return errors.New("authoritative modes do not use Git checkpoints")
 		}
 		if e := c.svc.Store.SetupRemote(url); e != nil {
 			return e
@@ -1365,7 +1395,7 @@ func (c *cli) syncCmd() *cobra.Command {
 		if e != nil {
 			return e
 		}
-		if cfg.RuntimeMode == "service" {
+		if cfg.RuntimeMode == "service" || cfg.RuntimeMode == "personal" {
 			state, stateErr := c.svc.State()
 			if stateErr != nil {
 				return stateErr
@@ -1382,7 +1412,7 @@ func (c *cli) syncCmd() *cobra.Command {
 		if e != nil {
 			return e
 		}
-		if cfg.RuntimeMode == "service" {
+		if cfg.RuntimeMode == "service" || cfg.RuntimeMode == "personal" {
 			metadata, syncErr := c.svc.Sync()
 			if syncErr != nil {
 				return syncErr
@@ -1399,7 +1429,7 @@ func (c *cli) syncCmd() *cobra.Command {
 		if e != nil {
 			return e
 		}
-		if cfg.RuntimeMode == "service" {
+		if cfg.RuntimeMode == "service" || cfg.RuntimeMode == "personal" {
 			metadata, syncErr := c.svc.Sync()
 			if syncErr != nil {
 				return syncErr
@@ -1747,16 +1777,27 @@ func (c *cli) daemonCmd() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		if cfg.RuntimeMode != "service" {
-			return errors.New("daemon requires an activated service-mode project")
+		if cfg.RuntimeMode != "service" && cfg.RuntimeMode != "personal" {
+			return errors.New("daemon requires an activated personal- or service-mode project")
 		}
-		configDir, err := identity.ConfigDir()
-		if err != nil {
-			return err
+		cachePath := personalmigration.ProjectionPath(projectRoot)
+		if cfg.RuntimeMode == "service" {
+			configDir, configErr := identity.ConfigDir()
+			if configErr != nil {
+				return configErr
+			}
+			cachePath = os.Getenv("AGENT_COMMS_CACHE_PATH")
+			if cachePath == "" {
+				cachePath = filepath.Join(configDir, "cache.db")
+			}
 		}
-		cachePath := os.Getenv("AGENT_COMMS_CACHE_PATH")
-		if cachePath == "" {
-			cachePath = filepath.Join(configDir, "cache.db")
+		servicePrivateKey := ""
+		if cfg.RuntimeMode == "personal" {
+			credential, credentialErr := identity.ResolveCredential(projectStore.Credentials, cfg.ProjectID, personalmigration.AuthorityActor)
+			if credentialErr != nil {
+				return fmt.Errorf("resolve personal authority signing key: %w", credentialErr)
+			}
+			servicePrivateKey = credential.PrivateKey
 		}
 		ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
 		defer stop()
@@ -1764,6 +1805,8 @@ func (c *cli) daemonCmd() *cobra.Command {
 			AuthorityURL: cfg.AuthorityURL, ServicePublicKey: cfg.ServicePublicKey,
 			CachePath: cachePath, Endpoint: cfg.DaemonEndpoint,
 			ConnectorConfigPath: strings.TrimSpace(os.Getenv("AGENT_COMMS_CONNECTOR_CONFIG")),
+			RuntimeMode:         cfg.RuntimeMode, PersonalDatabase: personalmigration.DatabasePath(projectRoot),
+			ServicePrivateKey: servicePrivateKey, ProjectID: cfg.ProjectID,
 		})
 	}}
 	root.AddCommand(serve)
@@ -1776,10 +1819,28 @@ func ensureDaemon(projectRoot string, cfg store.Config) error {
 		return err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
-	err = client.Healthy(ctx)
+	health, err := client.Health(ctx)
 	cancel()
 	if err == nil {
-		return nil
+		if health.RuntimeMode == cfg.RuntimeMode &&
+			(health.ProjectID == cfg.ProjectID || (cfg.RuntimeMode == "service" && health.ProjectID == "*")) {
+			return nil
+		}
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), time.Second)
+		shutdownErr := client.Shutdown(shutdownCtx)
+		shutdownCancel()
+		if shutdownErr != nil {
+			return fmt.Errorf("daemon endpoint is owned by %s project %s", health.RuntimeMode, health.ProjectID)
+		}
+		for attempt := 0; attempt < 20; attempt++ {
+			waitCtx, waitCancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+			_, waitErr := client.Health(waitCtx)
+			waitCancel()
+			if waitErr != nil {
+				break
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
 	}
 	executable, executableErr := os.Executable()
 	if executableErr != nil {
@@ -1951,6 +2012,18 @@ func (c *cli) migrateCmd() *cobra.Command {
 		}
 		return c.emit("migrate.extract-context", out)
 	}}
+	var personalYes bool
+	personalCmd := &cobra.Command{Use: "personal", Short: "Migrate verified legacy history to the local SQLite authority", RunE: func(cmd *cobra.Command, args []string) error {
+		if !personalYes {
+			return errors.New("--yes is required to make the verified legacy runtime read-only after import")
+		}
+		result, e := personalmigration.Migrate(cmd.Context(), c.svc.Store)
+		if e != nil {
+			return e
+		}
+		return c.emit("migrate.personal", result)
+	}}
+	personalCmd.Flags().BoolVarP(&personalYes, "yes", "y", false, "activate personal mode after verified import")
 	var authorityURL, servicePublicKey, daemonEndpoint, migrationToken string
 	var serviceYes bool
 	var batchSize int
@@ -1980,6 +2053,6 @@ func (c *cli) migrateCmd() *cobra.Command {
 	_ = serviceCmd.MarkFlagRequired("authority-url")
 	_ = serviceCmd.MarkFlagRequired("service-public-key")
 	_ = serviceCmd.MarkFlagRequired("daemon-endpoint")
-	root.AddCommand(status, apply, adopt, seed, requireAcks, ack, activate, rollback, recoverCmd, extractCmd, serviceCmd)
+	root.AddCommand(status, apply, adopt, seed, requireAcks, ack, activate, rollback, recoverCmd, extractCmd, personalCmd, serviceCmd)
 	return root
 }

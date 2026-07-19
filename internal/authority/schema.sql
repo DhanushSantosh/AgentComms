@@ -257,3 +257,7 @@ CREATE TABLE IF NOT EXISTS legacy_imports (
     receipt JSONB,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+ALTER TABLE legacy_imports ADD COLUMN IF NOT EXISTS source_kind TEXT NOT NULL DEFAULT 'legacy';
+ALTER TABLE legacy_imports ADD COLUMN IF NOT EXISTS source_public_key TEXT NOT NULL DEFAULT '';
+ALTER TABLE legacy_imports ADD COLUMN IF NOT EXISTS source_head_hash TEXT NOT NULL DEFAULT '';

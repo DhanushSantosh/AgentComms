@@ -35,6 +35,54 @@ func TestInitInNonGitDir(t *testing.T) {
 	if e != nil {
 		t.Fatalf("non-Git init should succeed: %v", e)
 	}
+	config, configErr := service.New(d).Store.Config()
+	if configErr != nil {
+		t.Fatal(configErr)
+	}
+	if config.RuntimeMode != "personal" || !config.LegacyReadOnly {
+		t.Fatalf("new project did not default to personal mode: %+v", config)
+	}
+}
+
+func TestMigratePersonalCommandRequiresConfirmationAndActivates(t *testing.T) {
+	project := t.TempDir()
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
+	var out, stderr bytes.Buffer
+	if err := Run([]string{"init", "--project", project, "--non-interactive", "--owner", "owner", "--mode", "legacy", "--json"}, &out, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	stderr.Reset()
+	if err := Run([]string{"migrate", "personal", "--project", project, "--json"}, &out, &stderr); err == nil {
+		t.Fatal("personal cutover did not require explicit confirmation")
+	}
+	out.Reset()
+	stderr.Reset()
+	if err := Run([]string{"migrate", "personal", "--project", project, "--yes", "--json"}, &out, &stderr); err != nil {
+		t.Fatalf("personal cutover failed: %v\n%s", err, stderr.String())
+	}
+	config, err := service.New(project).Store.Config()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.RuntimeMode != "personal" {
+		t.Fatalf("runtime mode=%q, want personal", config.RuntimeMode)
+	}
+}
+
+func TestInitRejectsInvalidModeBeforeWritingRuntime(t *testing.T) {
+	project := t.TempDir()
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
+	var out, stderr bytes.Buffer
+	err := Run([]string{"init", "--project", project, "--non-interactive", "--owner", "owner", "--mode", "unknown", "--json"}, &out, &stderr)
+	if err == nil {
+		t.Fatal("invalid mode was accepted")
+	}
+	if _, statErr := os.Stat(filepath.Join(project, ".agent-comms")); !os.IsNotExist(statErr) {
+		t.Fatalf("invalid mode wrote a runtime: %v", statErr)
+	}
 }
 func TestCompletion(t *testing.T) {
 	var out, err bytes.Buffer
@@ -56,7 +104,7 @@ func TestDoctorReportsRuntimeAndBootstrapProblems(t *testing.T) {
 	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(d, "user"))
 	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(d, "credentials"))
 	var out, err bytes.Buffer
-	if e := Run([]string{"init", "--project", d, "--non-interactive", "--owner", "owner", "--json"}, &out, &err); e != nil {
+	if e := Run([]string{"init", "--project", d, "--non-interactive", "--owner", "owner", "--mode", "legacy", "--json"}, &out, &err); e != nil {
 		t.Fatal(e)
 	}
 	out.Reset()
@@ -133,7 +181,7 @@ func TestInvocationAndRuntimeCLIWorkflow(t *testing.T) {
 			t.Fatalf("%v: %v\n%s", args, err, stderr.String())
 		}
 	}
-	run("init", "--non-interactive", "--owner", "owner")
+	run("init", "--non-interactive", "--owner", "owner", "--mode", "legacy")
 	run("agent", "register", "--id", "builder")
 	run("agent", "activate", "--id", "builder", "--role", "AGENT", "--scope", "src")
 	run("runtime", "register", "--actor", "builder", "--id", "runtime-builder",

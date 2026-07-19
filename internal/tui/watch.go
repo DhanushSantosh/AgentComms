@@ -23,9 +23,14 @@ func (m *Model) EnableFileWatch() {
 		return
 	}
 	dir := filepath.Join(m.svc.Store.Root, store.Runtime, "events")
-	if cfg, cfgErr := m.svc.Store.Config(); cfgErr == nil && cfg.RuntimeMode == "service" {
-		if configDir, dirErr := identity.ConfigDir(); dirErr == nil {
-			dir = configDir
+	if cfg, cfgErr := m.svc.Store.Config(); cfgErr == nil {
+		switch cfg.RuntimeMode {
+		case "service":
+			if configDir, dirErr := identity.ConfigDir(); dirErr == nil {
+				dir = configDir
+			}
+		case "personal":
+			dir = filepath.Join(m.svc.Store.Root, store.Runtime, "cache")
 		}
 	}
 	if err := w.Add(dir); err != nil {

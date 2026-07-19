@@ -23,6 +23,12 @@ type Client struct {
 	http *http.Client
 }
 
+type Health struct {
+	Status      string `json:"status"`
+	RuntimeMode string `json:"runtime_mode"`
+	ProjectID   string `json:"project_id"`
+}
+
 func New(endpoint string, timeout time.Duration) (*Client, error) {
 	if endpoint == "" {
 		return nil, errors.New("daemon endpoint is required")
@@ -80,7 +86,18 @@ func (c *Client) Verify(ctx context.Context, projectID string, from, to uint64) 
 }
 
 func (c *Client) Healthy(ctx context.Context) error {
-	return c.do(ctx, http.MethodGet, "/health/live", nil, &map[string]any{})
+	_, err := c.Health(ctx)
+	return err
+}
+
+func (c *Client) Health(ctx context.Context) (Health, error) {
+	var health Health
+	err := c.do(ctx, http.MethodGet, "/health/live", nil, &health)
+	return health, err
+}
+
+func (c *Client) Shutdown(ctx context.Context) error {
+	return c.do(ctx, http.MethodPost, "/v1/admin/shutdown", map[string]any{}, &map[string]any{})
 }
 
 func (c *Client) Sync(ctx context.Context, projectID string) (controlplane.ResultMetadata, error) {

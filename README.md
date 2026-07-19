@@ -29,12 +29,26 @@ go install github.com/DhanushSantosh/AgentComms/cmd/agent-comms-server@latest
 
 ## Start a project
 
-Initialise anywhere — no target Git repo needed. `.agent-comms/` is its own private Git repository:
+Initialise anywhere — no target Git repo needed. New projects use zero-setup
+personal mode: a per-project daemon owns an authoritative SQLite WAL database,
+and starts automatically on the first command. PostgreSQL and Docker are not
+required for agents running on one machine.
 
 ```sh
 agent-comms init
 agent-comms tui
 ```
+
+During the preview, the former filesystem engine can still be selected
+explicitly for compatibility:
+
+```sh
+agent-comms init --mode legacy
+agent-comms migrate personal --yes
+```
+
+The migration command verifies and imports the complete signed legacy history
+before making the filesystem runtime read-only.
 
 If the project already contains a `.agents` file, plain initialization refuses to proceed. Use the governed, byte-preserving [legacy adoption workflow](docs/legacy-adoption.md); no confirmation flag can bypass preservation.
 
@@ -80,7 +94,7 @@ Private actor keys are stored in Windows Credential Manager, macOS Keychain, or 
 
 ## Interfaces
 
-- `agent-comms tui` opens the Signal Room interface.
+- `agent-comms tui` opens the Project Control interface.
 - `--json` produces a versioned `agent-comms/v1` envelope and stable error class.
 - `agent-comms mcp` runs a stdio MCP server using the same authorization service.
 - `agent-comms completion <shell>` generates PowerShell, Bash, Zsh, or Fish completion.
@@ -89,9 +103,14 @@ Private actor keys are stored in Windows Credential Manager, macOS Keychain, or 
 - `agent-comms sync setup/status/push/pull` manages fast-forward-only checkpoints.
 - `agent-comms update check --channel stable|preview` performs an explicit, telemetry-free release check.
 
-## Scalable service mode
+## Runtime modes
 
-For multi-host coordination, the PostgreSQL authority serializes mutations
+Personal mode is the default for one user account and one machine. CLI, TUI,
+MCP, and local agent runtimes share one daemon and authoritative SQLite
+database. Commands remain actor-signed, transactional, idempotent, sequenced,
+receipt-signed, and locally streamable.
+
+For multi-host team coordination, the PostgreSQL authority serializes mutations
 and returns service-signed receipts while a per-user daemon maintains a
 rebuildable SQLite WAL cache. Governed mutations fail closed while offline;
 explicit document, message, and artifact-metadata drafts remain local until

@@ -1,4 +1,8 @@
-# Service deployment
+# Team service deployment
+
+This deployment is needed when users or agents coordinate across multiple
+machines. Local-only projects should use the default personal mode and do not
+need this stack.
 
 The authority is a stateless Go service backed by PostgreSQL. PostgreSQL is
 the source of truth; Git is retained only as migration evidence and an
@@ -41,8 +45,8 @@ Connection-pool and admission limits are controlled with
 
 ## Migrating a project
 
-From the legacy project root, use the server public key printed by a
-development server or provisioned alongside the production private key:
+From a personal- or legacy-mode project root, use the server public key printed
+by a development server or provisioned alongside the production private key:
 
 ```sh
 agent-comms migrate service \
@@ -51,8 +55,9 @@ agent-comms migrate service \
   --migration-token "$AGENT_COMMS_MIGRATION_TOKEN"
 ```
 
-Migration verifies and locks the complete legacy history, records the legacy
-Git head, resumes idempotent batches, compares server and local projections,
-stores a server-signed import receipt, and switches the bootstrap atomically.
-After cutover, legacy writes are rejected and cached reads are served by the
-per-user daemon.
+Legacy migration verifies and locks the complete signed filesystem history.
+Personal migration verifies the SQLite event chain and every project-scoped
+authority receipt. Both paths resume idempotent batches, compare server and
+local projections, store a new server-signed import receipt, and switch the
+bootstrap atomically. After cutover, the prior authority remains read-only
+migration evidence and cached reads are served by the per-user daemon.

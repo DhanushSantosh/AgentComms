@@ -77,6 +77,12 @@ func Open(path, serverPublicKey string) (*Cache, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("initialize local cache: %w", err)
 	}
+	for _, databaseFile := range []string{path, path + "-wal", path + "-shm"} {
+		if chmodErr := os.Chmod(databaseFile, 0o600); chmodErr != nil && !os.IsNotExist(chmodErr) {
+			_ = db.Close()
+			return nil, fmt.Errorf("secure local cache: %w", chmodErr)
+		}
+	}
 	return &Cache{db: db, serverPublicKey: serverPublicKey, now: func() time.Time { return time.Now().UTC() }}, nil
 }
 
@@ -153,8 +159,9 @@ func (c *Cache) Apply(ctx context.Context, event controlplane.Event, receipt con
 func (c *Cache) State(ctx context.Context, projectID string) (model.State, controlplane.ResultMetadata, error) {
 	var raw []byte
 	var sequence uint64
-	err := c.db.QueryRowContext(ctx, `SELECT state_json,server_sequence FROM projects WHERE project_id=?`,
-		projectID).Scan(&raw, &sequence)
+	var head string
+	err := c.db.QueryRowContext(ctx, `SELECT state_json,server_sequence,server_head FROM projects WHERE project_id=?`,
+		projectID).Scan(&raw, &sequence, &head)
 	if errors.Is(err, sql.ErrNoRows) {
 		return model.State{}, controlplane.ResultMetadata{}, &controlplane.Error{Code: controlplane.CodeOffline, Message: "project is not available in the local cache"}
 	}
@@ -164,6 +171,9 @@ func (c *Cache) State(ctx context.Context, projectID string) (model.State, contr
 	var state model.State
 	if err = json.Unmarshal(raw, &state); err != nil {
 		return state, controlplane.ResultMetadata{}, err
+	}
+	state.Integrity = model.Integrity{
+		Verified: true, EventCount: int(sequence), Head: head, SyncState: "verified-cache",
 	}
 	return state, controlplane.ResultMetadata{
 		Consistency: "CACHED", CacheSequence: sequence, Connectivity: "OFFLINE",
