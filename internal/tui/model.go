@@ -143,7 +143,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "left":
 			m.moveHubView(-1)
 		case "right":
-			m.focusCurrentView()
+			m.moveHubView(1)
 		case "[":
 			m.moveHubView(-1)
 		case "]":
@@ -424,10 +424,15 @@ func (m Model) renderSidebar(p palette, w, h int) string {
 			style = style.Foreground(p.cyan).Bold(true)
 		}
 		rows = append(rows, style.Render(marker+hub.Name), "")
+		if i == activeHub {
+			rows = append(rows, lipgloss.NewStyle().Foreground(p.text).PaddingLeft(2).
+				Render("└ "+truncate(views[m.view], max(8, w-5))), "")
+		}
 	}
 	rows = append(rows,
 		"",
-		lipgloss.NewStyle().Foreground(p.muted).Render("↑↓ hub  [ ] tab"),
+		lipgloss.NewStyle().Foreground(p.muted).Render("↑↓ hub  ←→ tab"),
+		lipgloss.NewStyle().Foreground(p.muted).Render("Enter open  Esc back"),
 		lipgloss.NewStyle().Foreground(p.muted).Render("[/] commands"),
 	)
 	return lipgloss.NewStyle().Width(w).Height(h).Padding(1).Background(p.ink).Foreground(p.text).Render(strings.Join(rows, "\n"))
@@ -534,19 +539,29 @@ func (m Model) renderBody(p palette, w, h int) string {
 	} else if m.notice != "" {
 		content += "\n\n" + lipgloss.NewStyle().Foreground(p.cyan).MaxWidth(contentW).Render(m.notice)
 	}
-	return pane.Render(meta + "\n" + tabs + "\n\n" + header + "\n\n" + content)
+	return pane.Render(meta + "\n" + tabs + "\n\n" + header + "\n\n" + content + "\n\n" + m.navigationIndicator(p))
 }
 
 func (m Model) commandRail(p palette, width int) string {
 	sequence := max(m.state.Integrity.ServerSequence, m.state.Integrity.CacheSequence)
 	freshness := empty(m.state.Integrity.Connectivity, "LOCAL")
+	hub := navigationHubs[m.activeHubIndex()].Name
 	left := lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("LIVE")
-	detail := fmt.Sprintf("  %s  ·  %s  ·  seq %d", truncate(m.actor, 18), freshness, sequence)
+	detail := fmt.Sprintf("  %s / %s  ·  %s  ·  seq %d", hub, views[m.view], freshness, sequence)
 	authority := strings.ToLower(string(m.state.Agents[m.actor].Role))
 	right := "authority " + empty(authority, "unknown")
 	gap := max(1, width-lipgloss.Width(left+detail)-lipgloss.Width(right)-4)
 	return left + lipgloss.NewStyle().Foreground(p.muted).Render(detail) +
 		strings.Repeat(" ", gap) + lipgloss.NewStyle().Foreground(p.amber).Render(right)
+}
+
+func (m Model) navigationIndicator(p palette) string {
+	hub := navigationHubs[m.activeHubIndex()].Name
+	location := lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("YOU ARE HERE") +
+		lipgloss.NewStyle().Foreground(p.text).Render("  "+hub+"  ›  "+views[m.view])
+	controls := lipgloss.NewStyle().Foreground(p.muted).
+		Render("↑↓ change hub   ←→ change tab   Enter open workspace   / commands")
+	return location + "\n" + controls
 }
 
 func (m Model) renderHubTabs(p palette, width int) string {
