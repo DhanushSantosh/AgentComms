@@ -58,7 +58,6 @@ func keyEnter() tea.KeyPressMsg        { return tea.KeyPressMsg(tea.Key{Code: te
 func enterTasksView(t *testing.T, m Model) Model {
 	t.Helper()
 	m = pressKey(t, m, keyText("j"))
-	m = pressKey(t, m, keyText("j"))
 	m = pressKey(t, m, keyEnter())
 	if !m.rowFocus {
 		t.Fatal("expected row focus after entering Tasks")

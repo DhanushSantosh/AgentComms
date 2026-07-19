@@ -61,6 +61,35 @@ func (s *Store) runtime() string {
 	return filepath.Join(s.Root, Runtime)
 }
 func (s *Store) SetCredentialStore(c identity.Store) { s.Credentials = c }
+
+// EnsureRuntimeHidden keeps private runtime state out of the host repository's
+// untracked-file surface without changing the project's shared .gitignore.
+func (s *Store) EnsureRuntimeHidden() error {
+	excludePath := filepath.Join(s.Root, ".git", "info", "exclude")
+	content, err := os.ReadFile(excludePath)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read Git exclude file: %w", err)
+	}
+	const rule = "/.agent-comms/"
+	for _, line := range strings.Split(string(content), "\n") {
+		if strings.TrimSpace(line) == rule {
+			return nil
+		}
+	}
+	if len(content) > 0 && content[len(content)-1] != '\n' {
+		content = append(content, '\n')
+	}
+	content = append(content, rule...)
+	content = append(content, '\n')
+	if err = os.WriteFile(excludePath, content, 0o644); err != nil {
+		return fmt.Errorf("hide runtime from Git status: %w", err)
+	}
+	return nil
+}
+
 func (s *Store) Config() (Config, error) {
 	b, e := os.ReadFile(filepath.Join(s.runtime(), "config.json"))
 	if e != nil {
@@ -105,6 +134,10 @@ func (s *Store) Init(owner string) error {
 	if e = os.Rename(stage, r); e != nil {
 		_ = os.RemoveAll(stage)
 		return fmt.Errorf("publish runtime: %w", e)
+	}
+	if e = s.EnsureRuntimeHidden(); e != nil {
+		_ = os.RemoveAll(r)
+		return e
 	}
 	bootstrapTmp := bootstrap + ".agent-comms.tmp"
 	if e = writeFileSync(bootstrapTmp, ManagedBootstrap(), 0644); e != nil {

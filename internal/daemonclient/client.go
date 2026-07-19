@@ -24,9 +24,10 @@ type Client struct {
 }
 
 type Health struct {
-	Status      string `json:"status"`
-	RuntimeMode string `json:"runtime_mode"`
-	ProjectID   string `json:"project_id"`
+	Status          string `json:"status"`
+	RuntimeMode     string `json:"runtime_mode"`
+	ProjectID       string `json:"project_id"`
+	ProtocolVersion int    `json:"protocol_version"`
 }
 
 func New(endpoint string, timeout time.Duration) (*Client, error) {

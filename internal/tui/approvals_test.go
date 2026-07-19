@@ -45,8 +45,8 @@ func TestApprovalActionsForStates(t *testing.T) {
 
 func enterApprovalsView(t *testing.T, m Model) Model {
 	t.Helper()
-	for i := 0; i < 5; i++ {
-		m = pressKey(t, m, keyText("j"))
+	for i := 0; i < 3; i++ {
+		m = pressKey(t, m, keyText("]"))
 	}
 	m = pressKey(t, m, keyEnter())
 	if !m.rowFocus {

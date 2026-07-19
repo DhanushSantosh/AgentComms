@@ -109,6 +109,9 @@ func (c *cli) root() *cobra.Command {
 		if e != nil {
 			return fmt.Errorf("open project runtime: %w", e)
 		}
+		if e = c.svc.Store.EnsureRuntimeHidden(); e != nil {
+			return e
+		}
 		c.svc.Store.LockTimeout = c.timeout
 		c.svc.SetRemoteRecovery(func() error { return ensureDaemon(root, cfg) })
 		needsDaemon := cmd.CommandPath() != "agent-comms migrate service" &&
@@ -1823,14 +1826,15 @@ func ensureDaemon(projectRoot string, cfg store.Config) error {
 	cancel()
 	if err == nil {
 		if health.RuntimeMode == cfg.RuntimeMode &&
-			(health.ProjectID == cfg.ProjectID || (cfg.RuntimeMode == "service" && health.ProjectID == "*")) {
+			(health.ProjectID == cfg.ProjectID || (cfg.RuntimeMode == "service" && health.ProjectID == "*")) &&
+			health.ProtocolVersion == controlplane.LocalDaemonProtocolVersion {
 			return nil
 		}
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), time.Second)
 		shutdownErr := client.Shutdown(shutdownCtx)
 		shutdownCancel()
 		if shutdownErr != nil {
-			return fmt.Errorf("daemon endpoint is owned by %s project %s", health.RuntimeMode, health.ProjectID)
+			return fmt.Errorf("replace incompatible daemon for %s project %s: %w", health.RuntimeMode, health.ProjectID, shutdownErr)
 		}
 		for attempt := 0; attempt < 20; attempt++ {
 			waitCtx, waitCancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
