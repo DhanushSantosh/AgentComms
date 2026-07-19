@@ -123,7 +123,7 @@ func TestDoctorReportsRuntimeAndBootstrapProblems(t *testing.T) {
 	var cfg map[string]any
 	b, _ := os.ReadFile(cfgPath)
 	_ = json.Unmarshal(b, &cfg)
-	cfg["toolkit_version"] = "0.1.0"
+	cfg["toolkit_version"] = "9.9.9"
 	b, _ = json.Marshal(cfg)
 	_ = os.WriteFile(cfgPath, b, 0600)
 	_ = os.Remove(filepath.Join(d, ".agents"))
