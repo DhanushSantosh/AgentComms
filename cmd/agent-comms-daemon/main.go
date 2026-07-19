@@ -52,6 +52,7 @@ func run() error {
 	return daemon.Run(ctx, daemon.RunConfig{
 		AuthorityURL: authorityURL, ServicePublicKey: serverPublicKey,
 		CachePath: cachePath, Endpoint: endpoint,
+		ConnectorConfigPath: strings.TrimSpace(os.Getenv("AGENT_COMMS_CONNECTOR_CONFIG")),
 	})
 }
 

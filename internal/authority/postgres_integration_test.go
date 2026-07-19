@@ -132,6 +132,31 @@ func TestPostgresTransactionalAuthority(t *testing.T) {
 		model.InvocationRequested{Target: "alpha", Instruction: "Perform one exclusive action"}, uuid.NewString()); err != nil {
 		t.Fatal(err)
 	}
+	notificationStart := make(chan struct{})
+	notificationResults := make(chan error, 2)
+	var notificationWriters sync.WaitGroup
+	for _, deliveryID := range []string{"delivery-a", "delivery-b"} {
+		notificationWriters.Add(1)
+		go func(deliveryID string) {
+			defer notificationWriters.Done()
+			<-notificationStart
+			_, _, notifyErr := mutate("owner", owner, "invocation.notify", "inv-exclusive",
+				model.InvocationNotified{DeliveryID: deliveryID, RuntimeID: "runtime-alpha", Attempt: 1}, uuid.NewString())
+			notificationResults <- notifyErr
+		}(deliveryID)
+	}
+	close(notificationStart)
+	notificationWriters.Wait()
+	close(notificationResults)
+	notificationSuccesses := 0
+	for result := range notificationResults {
+		if result == nil {
+			notificationSuccesses++
+		}
+	}
+	if notificationSuccesses != 1 {
+		t.Fatalf("successful concurrent notification reservations=%d, want 1", notificationSuccesses)
+	}
 	invocationStart := make(chan struct{})
 	invocationResults := make(chan error, 2)
 	var invocationWriters sync.WaitGroup

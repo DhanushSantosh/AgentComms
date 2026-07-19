@@ -14,10 +14,11 @@ import (
 const daemonShutdownTimeout = 10 * time.Second
 
 type RunConfig struct {
-	AuthorityURL     string
-	ServicePublicKey string
-	CachePath        string
-	Endpoint         string
+	AuthorityURL        string
+	ServicePublicKey    string
+	CachePath           string
+	Endpoint            string
+	ConnectorConfigPath string
 }
 
 func Run(ctx context.Context, cfg RunConfig) error {
@@ -34,6 +35,15 @@ func Run(ctx context.Context, cfg RunConfig) error {
 	if err != nil {
 		return err
 	}
+	configs, err := LoadConnectorConfigs(cfg.ConnectorConfigPath)
+	if err != nil {
+		return err
+	}
+	dispatcher, err := NewDispatcher(configs, instance.submitConnectorCommand)
+	if err != nil {
+		return err
+	}
+	instance.SetDispatcher(dispatcher)
 	listener, err := ListenLocal(cfg.Endpoint)
 	if err != nil {
 		return err
