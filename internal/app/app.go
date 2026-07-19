@@ -743,6 +743,30 @@ func (c *cli) invocationCmd() *cobra.Command {
 	next.Flags().String("runtime", "", "runtime ID used for capacity filtering")
 
 	var runtimeID string
+	var listenDuration time.Duration
+	var autoClaim bool
+	listen := &cobra.Command{Use: "listen", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		invocation, found, err := c.svc.ListenInvocation(c.actor, runtimeID, listenDuration)
+		if err != nil {
+			return err
+		}
+		result := map[string]any{"found": found, "invocation": invocation, "claimed": false}
+		if found && autoClaim {
+			event, claimErr := c.svc.Execute(c.actor, "invocation.claim", invocation.ID,
+				model.InvocationClaimed{RuntimeID: runtimeID})
+			if claimErr != nil {
+				return claimErr
+			}
+			result["claimed"] = true
+			result["claim_event"] = event
+		}
+		return c.emit("invocation.listen", result)
+	}}
+	listen.Flags().StringVar(&runtimeID, "runtime", "", "connected runtime ID")
+	_ = listen.MarkFlagRequired("runtime")
+	listen.Flags().DurationVar(&listenDuration, "wait", controlplane.MaxInvocationListen, "bounded listen duration")
+	listen.Flags().BoolVar(&autoClaim, "claim", true, "atomically claim a delivered invocation")
+
 	claim := payloadStatus(c, "invocation", "claim", func(string) any {
 		return model.InvocationClaimed{RuntimeID: runtimeID}
 	})
@@ -785,7 +809,7 @@ func (c *cli) invocationCmd() *cobra.Command {
 	_ = cancelInvocation.MarkFlagRequired("reason")
 
 	policy := c.invocationPolicyCmd()
-	root.AddCommand(request, list, next, claim, start, waitCommand, resume, complete, reject, expire, cancelInvocation, policy)
+	root.AddCommand(request, list, next, listen, claim, start, waitCommand, resume, complete, reject, expire, cancelInvocation, policy)
 	return root
 }
 

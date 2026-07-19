@@ -81,6 +81,32 @@ func (c *Client) Events(ctx context.Context, projectID string, page controlplane
 	return response, err
 }
 
+func (c *Client) NextInvocation(
+	ctx context.Context,
+	projectID string,
+	actor string,
+	runtimeID string,
+	wait time.Duration,
+) (model.Invocation, bool, controlplane.ResultMetadata, error) {
+	if wait < 0 || wait > controlplane.MaxInvocationListen {
+		return model.Invocation{}, false, controlplane.ResultMetadata{},
+			fmt.Errorf("invocation listen duration must be from 0 to %s", controlplane.MaxInvocationListen)
+	}
+	query := url.Values{"actor": []string{actor}}
+	if runtimeID != "" {
+		query.Set("runtime", runtimeID)
+	}
+	query.Set("wait_ms", strconv.FormatInt(wait.Milliseconds(), 10))
+	path := fmt.Sprintf("/v1/projects/%s/invocations/next?%s", url.PathEscape(projectID), query.Encode())
+	var response struct {
+		Found      bool                        `json:"found"`
+		Invocation model.Invocation            `json:"invocation"`
+		Metadata   controlplane.ResultMetadata `json:"metadata"`
+	}
+	err := c.do(ctx, http.MethodGet, path, nil, &response)
+	return response.Invocation, response.Found, response.Metadata, err
+}
+
 func (c *Client) Verify(ctx context.Context, projectID string, from, to uint64) error {
 	return c.do(ctx, http.MethodPost, fmt.Sprintf("/v1/projects/%s/verify", url.PathEscape(projectID)),
 		map[string]uint64{"from": from, "to": to}, &map[string]any{})

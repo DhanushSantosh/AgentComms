@@ -32,7 +32,8 @@ func TestInitializeAndToolCatalog(t *testing.T) {
 	}
 	for _, want := range []string{
 		"agent-comms", "task_create", "message_post", "invocation_request",
-		"invocation_next", "invocation_claim", "runtime_register", "runtime_heartbeat", "verify",
+		"invocation_next", "invocation_listen", "invocation_claim",
+		"runtime_register", "runtime_heartbeat", "verify",
 	} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("missing %s", want)
@@ -69,14 +70,14 @@ func TestInvocationToolsReturnAndClaimWork(t *testing.T) {
 		t.Fatal(err)
 	}
 	input := strings.Join([]string{
-		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"invocation_next","arguments":{"runtime_id":"runtime-builder"}}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"invocation_claim","arguments":{"id":"inv-mcp","runtime_id":"runtime-builder"}}}`,
+		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"invocation_listen","arguments":{"runtime_id":"runtime-builder","wait_seconds":1}}}`,
 	}, "\n") + "\n"
 	var output bytes.Buffer
 	if err := Serve(instance, "builder", strings.NewReader(input), &output); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(output.String(), `"found":true`) ||
+		!strings.Contains(output.String(), `"claimed":true`) ||
 		!strings.Contains(output.String(), `"type":"invocation.claim"`) {
 		t.Fatalf("unexpected invocation tool output: %s", output.String())
 	}

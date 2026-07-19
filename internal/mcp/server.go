@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
@@ -57,6 +58,11 @@ func tools() []map[string]any {
 		tool("invocation_next", "Read the next claimable invocation for this agent", map[string]any{
 			"runtime_id": map[string]any{"type": "string"},
 		}),
+		tool("invocation_listen", "Wait for and optionally claim the next invocation pushed to this connected runtime", map[string]any{
+			"runtime_id":   map[string]any{"type": "string"},
+			"wait_seconds": map[string]any{"type": "integer", "minimum": 1, "maximum": int(controlplane.MaxInvocationListen / time.Second)},
+			"auto_claim":   map[string]any{"type": "boolean", "default": true},
+		}, "runtime_id"),
 		tool("invocation_claim", "Exclusively claim an invocation for a runtime", map[string]any{
 			"id": map[string]any{"type": "string"}, "runtime_id": map[string]any{"type": "string"},
 		}, "id", "runtime_id"),
@@ -175,6 +181,30 @@ func call(s *service.Service, actor string, p callParams) (any, error) {
 			return nil, err
 		}
 		return map[string]any{"found": found, "invocation": invocation}, nil
+	case "invocation_listen":
+		waitSeconds := intArg(p.Arguments, "wait_seconds")
+		if waitSeconds == 0 {
+			waitSeconds = int(controlplane.MaxInvocationListen / time.Second)
+		}
+		invocation, found, err := s.ListenInvocation(
+			actor,
+			stringArg(p.Arguments, "runtime_id"),
+			time.Duration(waitSeconds)*time.Second,
+		)
+		if err != nil || !found {
+			return map[string]any{"found": found, "invocation": invocation}, err
+		}
+		result := map[string]any{"found": true, "invocation": invocation, "claimed": false}
+		if boolArg(p.Arguments, "auto_claim", true) {
+			event, claimErr := s.Execute(actor, "invocation.claim", invocation.ID,
+				model.InvocationClaimed{RuntimeID: stringArg(p.Arguments, "runtime_id")})
+			if claimErr != nil {
+				return nil, claimErr
+			}
+			result["claimed"] = true
+			result["claim_event"] = event
+		}
+		return result, nil
 	case "invocation_claim":
 		return s.Execute(actor, "invocation.claim", stringArg(p.Arguments, "id"),
 			model.InvocationClaimed{RuntimeID: stringArg(p.Arguments, "runtime_id")})
@@ -212,6 +242,14 @@ func stringArg(m map[string]any, k string) string { v, _ := m[k].(string); retur
 func intArg(m map[string]any, key string) int {
 	value, _ := m[key].(float64)
 	return int(value)
+}
+func boolArg(values map[string]any, key string, fallback bool) bool {
+	value, found := values[key]
+	if !found {
+		return fallback
+	}
+	result, ok := value.(bool)
+	return ok && result
 }
 func stringsArg(v any) []string {
 	a, _ := v.([]any)

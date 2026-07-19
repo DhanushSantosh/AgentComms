@@ -496,7 +496,8 @@ func (m Model) renderBody(p palette, w, h int) string {
 		bodyContent = m.agentControlBar(p, contentW) + "\n\n" +
 			m.agentList.View(p, m.state, m.actor, contentW, max(5, contentH-4))
 	case "Invocations":
-		bodyContent = m.invocationList.View(p, m.state, m.actor, contentW, contentH)
+		bodyContent = m.invocationControlBar(p, contentW) + "\n\n" +
+			m.invocationList.View(p, m.state, m.actor, contentW, max(5, contentH-4))
 	case "Runtimes":
 		bodyContent = m.runtimeList.View(p, m.state, m.actor, contentW, contentH)
 	case "Approvals":

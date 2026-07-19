@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -102,6 +104,57 @@ func TestLocalProcessConnectorReceivesBoundedEnvelope(t *testing.T) {
 	if received.ProjectID != envelope.ProjectID || received.Invocation.ID != envelope.Invocation.ID ||
 		received.Runtime.ID != envelope.Runtime.ID {
 		t.Fatalf("connector received unexpected envelope: %+v", received)
+	}
+}
+
+func TestWebhookConnectorPushesInvocation(t *testing.T) {
+	received := make(chan InvocationEnvelope, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPost || request.Header.Get("Authorization") != "Bearer relay-token" {
+			http.Error(response, "invalid relay request", http.StatusBadRequest)
+			return
+		}
+		var envelope InvocationEnvelope
+		if err := json.NewDecoder(request.Body).Decode(&envelope); err != nil {
+			http.Error(response, err.Error(), http.StatusBadRequest)
+			return
+		}
+		received <- envelope
+		response.WriteHeader(http.StatusAccepted)
+	}))
+	defer server.Close()
+	config := ConnectorConfig{
+		Type: "WEBHOOK", Endpoint: server.URL,
+		Headers: map[string]string{"Authorization": "Bearer relay-token"},
+		Timeout: time.Second,
+	}
+	if err := validateConnectorConfig("builder-webhook", config); err != nil {
+		t.Fatal(err)
+	}
+	envelope := InvocationEnvelope{
+		ProjectID:  "project",
+		Invocation: model.Invocation{ID: "inv-webhook", Target: "builder"},
+		Runtime:    model.AgentRuntime{ID: "runtime-webhook", AgentID: "builder"},
+	}
+	if err := launchConnector(context.Background(), config, envelope); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case delivered := <-received:
+		if delivered.Invocation.ID != envelope.Invocation.ID || delivered.Runtime.ID != envelope.Runtime.ID {
+			t.Fatalf("unexpected webhook envelope: %+v", delivered)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("webhook invocation was not delivered")
+	}
+}
+
+func TestWebhookConnectorRejectsInsecureRemoteEndpoint(t *testing.T) {
+	err := validateConnectorConfig("remote", ConnectorConfig{
+		Type: "WEBHOOK", Endpoint: "http://example.com/invocations",
+	})
+	if err == nil {
+		t.Fatal("insecure remote webhook endpoint was accepted")
 	}
 }
 

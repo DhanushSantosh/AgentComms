@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	LocalDaemonProtocolVersion = 2
+	LocalDaemonProtocolVersion = 3
 	MaxCommandBytes            = 256 * 1024
 	MaxRecipients              = 100
 	DefaultPageSize            = 100
@@ -23,6 +23,7 @@ const (
 	MaxDraftsPerProject        = 1_000
 	MaxDraftStorageBytes       = 50 * 1024 * 1024
 	MaxInvocationBytes         = 16 * 1024
+	MaxInvocationListen        = 10 * time.Second
 	MaxDeliveryAttempts        = 10
 	MaxInvocationTTL           = 7 * 24 * time.Hour
 	DefaultClaimLease          = 15 * time.Minute

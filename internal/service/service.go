@@ -117,12 +117,39 @@ func (s *Service) Verify(from, to uint64) error {
 }
 
 func (s *Service) NextInvocation(actor, runtimeID string) (model.Invocation, bool, error) {
-	state, err := s.State()
-	if err != nil {
-		return model.Invocation{}, false, err
+	return s.ListenInvocation(actor, runtimeID, 0)
+}
+
+func (s *Service) ListenInvocation(actor, runtimeID string, wait time.Duration) (model.Invocation, bool, error) {
+	if wait < 0 || wait > controlplane.MaxInvocationListen {
+		return model.Invocation{}, false,
+			fmt.Errorf("invocation listen duration must be from 0 to %s", controlplane.MaxInvocationListen)
 	}
-	invocation, found := SelectNextInvocation(state, actor, runtimeID, time.Now().UTC())
-	return invocation, found, nil
+	if s.remoteErr != nil {
+		return model.Invocation{}, false, s.remoteErr
+	}
+	if s.remote != nil {
+		cfg, err := s.Store.Config()
+		if err != nil {
+			return model.Invocation{}, false, err
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), wait+controlplane.DefaultRequestTimeout)
+		defer cancel()
+		invocation, found, _, err := s.remote.NextInvocation(ctx, cfg.ProjectID, actor, runtimeID, wait)
+		return invocation, found, err
+	}
+	deadline := time.Now().Add(wait)
+	for {
+		state, err := s.State()
+		if err != nil {
+			return model.Invocation{}, false, err
+		}
+		invocation, found := SelectNextInvocation(state, actor, runtimeID, time.Now().UTC())
+		if found || wait == 0 || !time.Now().Before(deadline) {
+			return invocation, found, nil
+		}
+		time.Sleep(min(250*time.Millisecond, time.Until(deadline)))
+	}
 }
 
 func SelectNextInvocation(state model.State, actor, runtimeID string, now time.Time) (model.Invocation, bool) {

@@ -125,6 +125,36 @@ func TestNextInvocationPrioritizesUrgencyThenAgeAndHonorsCapacity(t *testing.T) 
 	}
 }
 
+func TestListenInvocationReceivesNewWorkWithoutPolling(t *testing.T) {
+	instance := setup(t)
+	activate(t, instance, "builder", model.PrincipalAgent)
+	must(t, instance, "owner", "runtime.register", "runtime-listener", model.RuntimeRegistered{
+		AgentID: "builder", Connector: "MCP", MaxConcurrent: 1,
+	})
+	type result struct {
+		invocation model.Invocation
+		found      bool
+		err        error
+	}
+	delivered := make(chan result, 1)
+	go func() {
+		invocation, found, err := instance.ListenInvocation("builder", "runtime-listener", time.Second)
+		delivered <- result{invocation: invocation, found: found, err: err}
+	}()
+	time.Sleep(50 * time.Millisecond)
+	must(t, instance, "owner", "invocation.request", "pushed", model.InvocationRequested{
+		Target: "builder", Instruction: "Act on pushed work", Priority: "HIGH",
+	})
+	select {
+	case received := <-delivered:
+		if received.err != nil || !received.found || received.invocation.ID != "pushed" {
+			t.Fatalf("unexpected listen result: %+v", received)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("connected runtime did not receive invocation")
+	}
+}
+
 func TestInvocationPolicyEnforcesScopesAndSensitiveApproval(t *testing.T) {
 	instance := setup(t)
 	activate(t, instance, "builder", model.PrincipalAgent)

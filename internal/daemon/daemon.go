@@ -20,9 +20,10 @@ import (
 )
 
 const (
-	maxLocalBodyBytes = controlplane.MaxCommandBytes + 16*1024
-	syncPageSize      = controlplane.MaxPageSize
-	syncTimeout       = 10 * time.Second
+	maxLocalBodyBytes   = controlplane.MaxCommandBytes + 16*1024
+	syncPageSize        = controlplane.MaxPageSize
+	syncTimeout         = 10 * time.Second
+	maxRuntimeListeners = 128
 )
 
 type Daemon struct {
@@ -35,6 +36,7 @@ type Daemon struct {
 	shutdown    func()
 	runtimeMode string
 	projectID   string
+	listeners   chan struct{}
 }
 
 type authorityClient interface {
@@ -51,7 +53,10 @@ func New(cache *localcache.Cache, client authorityClient) (*Daemon, error) {
 	if cache == nil || client == nil {
 		return nil, errors.New("cache and authority client are required")
 	}
-	return &Daemon{cache: cache, remote: client, syncing: map[string]*syncState{}}, nil
+	return &Daemon{
+		cache: cache, remote: client, syncing: map[string]*syncState{},
+		listeners: make(chan struct{}, maxRuntimeListeners),
+	}, nil
 }
 
 func (d *Daemon) Handler() http.Handler {
@@ -202,11 +207,26 @@ func (d *Daemon) nextInvocation(w http.ResponseWriter, r *http.Request) {
 	waitDuration := time.Duration(0)
 	if raw := r.URL.Query().Get("wait_ms"); raw != "" {
 		milliseconds, err := strconv.Atoi(raw)
-		if err != nil || milliseconds < 0 || milliseconds > 30_000 {
-			writeControlError(w, &controlplane.Error{Code: controlplane.CodeValidation, Message: "wait_ms must be from 0 to 30000"})
+		if err != nil || milliseconds < 0 || time.Duration(milliseconds)*time.Millisecond > controlplane.MaxInvocationListen {
+			writeControlError(w, &controlplane.Error{
+				Code:    controlplane.CodeValidation,
+				Message: fmt.Sprintf("wait_ms must be from 0 to %d", controlplane.MaxInvocationListen.Milliseconds()),
+			})
 			return
 		}
 		waitDuration = time.Duration(milliseconds) * time.Millisecond
+	}
+	if waitDuration > 0 {
+		select {
+		case d.listeners <- struct{}{}:
+			defer func() { <-d.listeners }()
+		default:
+			writeControlError(w, &controlplane.Error{
+				Code: controlplane.CodeRateLimited, Message: "connected runtime listener capacity is exhausted",
+				RetryAfter: time.Second,
+			})
+			return
+		}
 	}
 	deadline := time.Now().Add(waitDuration)
 	for {

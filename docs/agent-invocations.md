@@ -30,6 +30,18 @@ Equivalent MCP tools are available for runtimes embedded in an agent host.
 Owners can cancel non-terminal work with
 `agent-comms invocation cancel --id inv-123 --reason "superseded"`.
 
+Connected runtimes should hold a bounded listen open instead of polling:
+
+```sh
+agent-comms invocation listen \
+  --actor reviewer --runtime reviewer-runtime --wait 10s --claim
+```
+
+The equivalent `invocation_listen` MCP tool waits for pushed work for up to ten
+seconds and claims it transactionally by default. Agent hosts repeat the
+bounded listen after a timeout or completed invocation. Competing runtime
+instances cannot both claim the same invocation.
+
 ## User policy
 
 Owners and orchestrators configure each target agent:
@@ -87,6 +99,30 @@ The daemon reserves a delivery before launching a connector. Failed launches
 use exponential backoff, stop after ten attempts, and become `DEAD_LETTER`.
 MCP connectors must be online; manual connectors create an auditable
 notification for the human control room.
+
+Webhook connectors push the same bounded envelope to an agent host:
+
+```json
+{
+  "connectors": {
+    "reviewer-webhook": {
+      "type": "WEBHOOK",
+      "endpoint": "https://agents.example.internal/invocations",
+      "headers": {
+        "Authorization": "Bearer secret-from-this-private-file"
+      },
+      "timeout": "10s"
+    }
+  }
+}
+```
+
+Register it with `--connector WEBHOOK --config-reference reviewer-webhook`.
+Remote webhook endpoints must use HTTPS; loopback HTTP is allowed for local
+agent hosts. Redirects are rejected, headers and responses are bounded, and
+connector secrets remain outside project history. A successful webhook wake-up
+returns a 2xx response; the target then uses `invocation_listen` or the normal
+claim/start/complete tools to acknowledge and process the invocation.
 
 An online runtime becomes offline when its heartbeat is older than 45 seconds.
 Draining and revoked states are never overwritten by heartbeat expiry.

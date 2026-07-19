@@ -1,9 +1,11 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 
 	"charm.land/bubbles/v2/table"
+	"charm.land/lipgloss/v2"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 	"github.com/DhanushSantosh/AgentComms/internal/service"
 )
@@ -87,6 +89,35 @@ var (
 	invReject   = RowAction{Key: "j", Label: "reject", EventType: "invocation.reject", Form: invocationReasonForm("Reject invocation", "The target agent must provide a reason.")}
 	invCancel   = RowAction{Key: "k", Label: "cancel", EventType: "invocation.cancel", Form: invocationReasonForm("Cancel invocation", "Owners, orchestrators, or the requester may cancel active work.")}
 )
+
+func (m Model) invocationControlBar(p palette, width int) string {
+	pending, active, failed := 0, 0, 0
+	for _, invocation := range m.state.Invocations {
+		switch invocation.Status {
+		case "PENDING", "NOTIFIED":
+			pending++
+		case "CLAIMED", "RUNNING", "WAITING":
+			active++
+		case "DEAD_LETTER":
+			failed++
+		}
+	}
+	mode := "NAVIGATION · Enter to manage selected invocation"
+	color := p.muted
+	if m.rowFocus {
+		mode = "MANAGE MODE · ↑/↓ select · Esc returns to navigation"
+		color = p.cyan
+	}
+	title := lipgloss.NewStyle().Foreground(color).Bold(true).Render(mode)
+	status := lipgloss.NewStyle().Foreground(p.text).Render(
+		fmt.Sprintf("Pending %d   Active %d   Dead letter %d", pending, active, failed),
+	)
+	actions := lipgloss.NewStyle().Foreground(p.amber).Render(
+		"[n] invoke agent   [r] refresh   [Enter] manage selected",
+	)
+	return lipgloss.NewStyle().Width(width).BorderLeft(true).BorderStyle(lipgloss.ThickBorder()).
+		BorderForeground(color).PaddingLeft(1).Render(title + "\n" + status + "\n" + actions)
+}
 
 type invocationRowSource struct{}
 

@@ -1,10 +1,15 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -22,6 +27,9 @@ const (
 	maxConnectorConfigBytes = 256 * 1024
 	maxConnectorArgs        = 64
 	maxConnectorArgBytes    = 4 * 1024
+	maxConnectorHeaders     = 32
+	maxConnectorHeaderBytes = 8 * 1024
+	maxConnectorResponse    = 64 * 1024
 	baseDeliveryBackoff     = 2 * time.Second
 	maxDeliveryBackoff      = 5 * time.Minute
 )
@@ -32,6 +40,8 @@ type ConnectorConfig struct {
 	Arguments        []string          `json:"arguments,omitempty"`
 	WorkingDirectory string            `json:"working_directory,omitempty"`
 	Environment      map[string]string `json:"environment,omitempty"`
+	Endpoint         string            `json:"endpoint,omitempty"`
+	Headers          map[string]string `json:"headers,omitempty"`
 	Timeout          time.Duration     `json:"-"`
 }
 
@@ -45,6 +55,8 @@ type connectorConfigJSON struct {
 	Arguments        []string          `json:"arguments,omitempty"`
 	WorkingDirectory string            `json:"working_directory,omitempty"`
 	Environment      map[string]string `json:"environment,omitempty"`
+	Endpoint         string            `json:"endpoint,omitempty"`
+	Headers          map[string]string `json:"headers,omitempty"`
 	Timeout          string            `json:"timeout,omitempty"`
 }
 
@@ -99,7 +111,8 @@ func LoadConnectorConfigs(path string) (map[string]ConnectorConfig, error) {
 		config := ConnectorConfig{
 			Type: strings.ToUpper(value.Type), Executable: value.Executable,
 			Arguments: value.Arguments, WorkingDirectory: value.WorkingDirectory,
-			Environment: value.Environment, Timeout: timeout,
+			Environment: value.Environment, Endpoint: value.Endpoint, Headers: value.Headers,
+			Timeout: timeout,
 		}
 		if err = validateConnectorConfig(reference, config); err != nil {
 			return nil, err
@@ -113,8 +126,12 @@ func validateConnectorConfig(reference string, config ConnectorConfig) error {
 	if strings.TrimSpace(reference) == "" {
 		return errors.New("connector configuration reference is required")
 	}
-	if config.Type != "MANUAL" && config.Type != "MCP" && config.Type != "LOCAL_PROCESS" {
-		return fmt.Errorf("connector %s type must be MANUAL, MCP, or LOCAL_PROCESS", reference)
+	if config.Type != "MANUAL" && config.Type != "MCP" &&
+		config.Type != "LOCAL_PROCESS" && config.Type != "WEBHOOK" {
+		return fmt.Errorf("connector %s type must be MANUAL, MCP, LOCAL_PROCESS, or WEBHOOK", reference)
+	}
+	if config.Type == "WEBHOOK" {
+		return validateWebhookConfig(reference, config)
 	}
 	if config.Type != "LOCAL_PROCESS" {
 		return nil
@@ -140,6 +157,40 @@ func validateConnectorConfig(reference string, config ConnectorConfig) error {
 		}
 	}
 	return nil
+}
+
+func validateWebhookConfig(reference string, config ConnectorConfig) error {
+	endpoint, err := url.Parse(config.Endpoint)
+	if err != nil || endpoint.Host == "" || endpoint.User != nil {
+		return fmt.Errorf("connector %s webhook endpoint is invalid", reference)
+	}
+	if endpoint.Scheme != "https" && !(endpoint.Scheme == "http" && isLoopbackHost(endpoint.Hostname())) {
+		return fmt.Errorf("connector %s webhook endpoint must use HTTPS or loopback HTTP", reference)
+	}
+	if len(config.Headers) > maxConnectorHeaders {
+		return fmt.Errorf("connector %s has too many webhook headers", reference)
+	}
+	headerBytes := 0
+	for key, value := range config.Headers {
+		headerBytes += len(key) + len(value)
+		if strings.TrimSpace(key) == "" || strings.ContainsAny(key, "\r\n:") ||
+			strings.ContainsAny(value, "\r\n") || strings.EqualFold(key, "Host") ||
+			strings.EqualFold(key, "Content-Length") {
+			return fmt.Errorf("connector %s webhook header %q is invalid", reference, key)
+		}
+	}
+	if headerBytes > maxConnectorHeaderBytes {
+		return fmt.Errorf("connector %s webhook headers exceed the size limit", reference)
+	}
+	return nil
+}
+
+func isLoopbackHost(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	address := net.ParseIP(host)
+	return address != nil && address.IsLoopback()
 }
 
 func NewDispatcher(configs map[string]ConnectorConfig, submit commandSubmitter) (*Dispatcher, error) {
@@ -235,7 +286,7 @@ func (d *Dispatcher) selectRuntime(state model.State, invocation model.Invocatio
 		if config.Type == "MCP" && runtime.Status != "ONLINE" {
 			continue
 		}
-		if config.Type == "WEBHOOK" || config.Type == "QUEUE" {
+		if config.Type == "QUEUE" {
 			continue
 		}
 		return runtime, config, true
@@ -246,6 +297,9 @@ func (d *Dispatcher) selectRuntime(state model.State, invocation model.Invocatio
 func launchConnector(ctx context.Context, config ConnectorConfig, envelope InvocationEnvelope) error {
 	if config.Type == "MANUAL" || config.Type == "MCP" {
 		return nil
+	}
+	if config.Type == "WEBHOOK" {
+		return launchWebhook(ctx, config, envelope)
 	}
 	if config.Type != "LOCAL_PROCESS" {
 		return fmt.Errorf("unsupported connector type %s", config.Type)
@@ -281,6 +335,47 @@ func launchConnector(ctx context.Context, config ConnectorConfig, envelope Invoc
 	}
 	command.Stdin = strings.NewReader(string(payload))
 	return command.Run()
+}
+
+func launchWebhook(ctx context.Context, config ConnectorConfig, envelope InvocationEnvelope) error {
+	payload, err := json.Marshal(envelope)
+	if err != nil {
+		return err
+	}
+	timeout := config.Timeout
+	if timeout <= 0 {
+		timeout = defaultConnectorTimeout
+	}
+	requestCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	request, err := http.NewRequestWithContext(requestCtx, http.MethodPost, config.Endpoint, bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("User-Agent", "agent-comms-runtime-relay")
+	for key, value := range config.Headers {
+		request.Header.Set(key, value)
+	}
+	client := &http.Client{
+		Timeout: timeout,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return errors.New("webhook redirects are disabled")
+		},
+	}
+	response, err := client.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	_, readErr := io.Copy(io.Discard, io.LimitReader(response.Body, maxConnectorResponse))
+	if readErr != nil {
+		return readErr
+	}
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		return fmt.Errorf("webhook returned %s", response.Status)
+	}
+	return nil
 }
 
 func replaceConnectorVariables(value string, envelope InvocationEnvelope) string {
