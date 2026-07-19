@@ -80,6 +80,7 @@ func (s *Service) State() (model.State, error) {
 		Approvals: map[string]model.Approval{}, Decisions: map[string]model.Decision{},
 		Documents: map[string]model.Document{}, Env: map[string]model.EnvEntry{},
 		Sessions: map[string]model.SessionPayload{}, Artifacts: map[string]model.Artifact{},
+		ProjectSettings: model.DefaultProjectSettings(),
 	}
 	unknown := 0
 	for _, v := range ev {
@@ -296,11 +297,13 @@ func ApplyEvent(s *model.State, e model.Event) error {
 		t.Offers = append(t.Offers, model.Offer{ID: e.ID, To: p.To, ExpiresAt: p.ExpiresAt, Status: "PENDING"})
 		s.Tasks[e.EntityID] = t
 	case *model.TaskClaimed:
+		settings := model.EffectiveProjectSettings(s.ProjectSettings)
+		staleGrace, _ := time.ParseDuration(settings.StaleGrace)
 		t := s.Tasks[e.EntityID]
 		t.Owner = e.Actor
 		t.Status = "CLAIMED"
 		t.LeaseUntil = p.LeaseUntil
-		t.StaleUntil = p.LeaseUntil.Add(time.Hour)
+		t.StaleUntil = p.LeaseUntil.Add(staleGrace)
 		if p.Worktree != "" {
 			t.Worktree = p.Worktree
 		}
@@ -311,9 +314,11 @@ func ApplyEvent(s *model.State, e model.Event) error {
 		}
 		s.Tasks[e.EntityID] = t
 	case *model.TaskRenewed:
+		settings := model.EffectiveProjectSettings(s.ProjectSettings)
+		staleGrace, _ := time.ParseDuration(settings.StaleGrace)
 		t := s.Tasks[e.EntityID]
 		t.LeaseUntil = p.LeaseUntil
-		t.StaleUntil = p.LeaseUntil.Add(time.Hour)
+		t.StaleUntil = p.LeaseUntil.Add(staleGrace)
 		s.Tasks[e.EntityID] = t
 	case *model.TaskHandoff:
 		t := s.Tasks[e.EntityID]
@@ -344,10 +349,13 @@ func ApplyEvent(s *model.State, e model.Event) error {
 			t.Owner = e.Actor
 			t.HandoffTo = ""
 		case "task.takeover":
+			settings := model.EffectiveProjectSettings(s.ProjectSettings)
+			defaultLease, _ := time.ParseDuration(settings.DefaultLease)
+			staleGrace, _ := time.ParseDuration(settings.StaleGrace)
 			t.Owner = e.Actor
 			t.Status = "CLAIMED"
-			t.LeaseUntil = e.Time.Add(4 * time.Hour)
-			t.StaleUntil = t.LeaseUntil.Add(time.Hour)
+			t.LeaseUntil = e.Time.Add(defaultLease)
+			t.StaleUntil = t.LeaseUntil.Add(staleGrace)
 		}
 		s.Tasks[e.EntityID] = t
 	case *model.MessagePosted:
@@ -495,6 +503,13 @@ func ApplyEvent(s *model.State, e model.Event) error {
 			AllowedScopes: p.AllowedScopes, RequireHumanForSensitive: p.RequireHumanForSensitive,
 			UpdatedBy: e.Actor, UpdatedAt: e.Time,
 		}
+	case *model.ProjectSettingsUpdated:
+		s.ProjectSettings = model.ProjectSettings{
+			DefaultLease: p.DefaultLease, StaleGrace: p.StaleGrace,
+			ActiveRetention: p.ActiveRetention, SummaryLimit: p.SummaryLimit,
+			ArtifactLimitBytes: p.ArtifactLimitBytes, RequireReview: p.RequireReview,
+			UpdatedBy: e.Actor, UpdatedAt: e.Time,
+		}
 	case *model.ApprovalRequested:
 		s.Approvals[e.EntityID] = model.Approval{ID: e.EntityID, Tier: p.Tier, Action: p.Action, Reason: p.Reason, Status: "PENDING", Requester: e.Actor, Affected: p.Affected}
 	case *model.ApprovalResponse:
@@ -605,7 +620,7 @@ func active(st model.State, actor string) (model.Agent, error) {
 	return a, nil
 }
 func elevated(typ string) bool {
-	return typ == "approval.approve" || typ == "approval.reject" || typ == "agent.activate" || typ == "agent.suspend" || typ == "agent.rotate-key"
+	return typ == "approval.approve" || typ == "approval.reject" || typ == "agent.activate" || typ == "agent.suspend" || typ == "agent.rotate-key" || typ == "project.settings.update"
 }
 func hasApproval(st model.State, action string) bool {
 	for _, a := range st.Approvals {
@@ -775,6 +790,31 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 			return nil, errors.New("valid activation role is required")
 		}
 	}
+	if typ == "project.settings.update" {
+		settings, ok := payload.(model.ProjectSettingsUpdated)
+		if !ok {
+			return nil, errors.New("invalid project settings payload")
+		}
+		lease, leaseErr := time.ParseDuration(settings.DefaultLease)
+		grace, graceErr := time.ParseDuration(settings.StaleGrace)
+		retention, retentionErr := time.ParseDuration(settings.ActiveRetention)
+		if leaseErr != nil || lease < 15*time.Minute || lease > 24*time.Hour {
+			return nil, errors.New("default lease must be between 15m and 24h")
+		}
+		if graceErr != nil || grace < 5*time.Minute || grace > 24*time.Hour {
+			return nil, errors.New("stale grace must be between 5m and 24h")
+		}
+		if retentionErr != nil || retention < 24*time.Hour || retention > 8760*time.Hour {
+			return nil, errors.New("active retention must be between 24h and 8760h")
+		}
+		if settings.SummaryLimit < 256 || settings.SummaryLimit > controlplane.MaxCommandBytes {
+			return nil, fmt.Errorf("summary limit must be between 256 and %d", controlplane.MaxCommandBytes)
+		}
+		const minArtifactBytes = 1024
+		if settings.ArtifactLimitBytes < minArtifactBytes || settings.ArtifactLimitBytes > controlplane.MaxDraftStorageBytes {
+			return nil, fmt.Errorf("artifact limit must be between %d and %d bytes", minArtifactBytes, controlplane.MaxDraftStorageBytes)
+		}
+	}
 	if strings.HasPrefix(typ, "task.") {
 		t, exists := st.Tasks[id]
 		if typ != "task.create" && !exists {
@@ -789,6 +829,8 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 				return nil, errors.New("task already exists")
 			}
 		case model.TaskClaimed:
+			settings := model.EffectiveProjectSettings(st.ProjectSettings)
+			defaultLease, _ := time.ParseDuration(settings.DefaultLease)
 			a, _ := active(st, actor)
 			if a.Role == model.RoleObserver {
 				return nil, errors.New("observer cannot claim tasks")
@@ -806,7 +848,7 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 					}
 				}
 			}
-			p.LeaseUntil = now.Add(4 * time.Hour)
+			p.LeaseUntil = now.Add(defaultLease)
 			if t.Worktree != "" && p.Worktree == "" {
 				p.Worktree = t.Worktree
 			}
@@ -822,13 +864,15 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 			}
 			payload = p
 		case model.TaskRenewed:
+			settings := model.EffectiveProjectSettings(st.ProjectSettings)
+			defaultLease, _ := time.ParseDuration(settings.DefaultLease)
 			if t.Owner != actor {
 				return nil, errors.New("task owner required")
 			}
 			if strings.TrimSpace(p.Progress) == "" {
 				return nil, errors.New("progress summary is required")
 			}
-			p.LeaseUntil = now.Add(4 * time.Hour)
+			p.LeaseUntil = now.Add(defaultLease)
 			payload = p
 		case model.TaskHandoff:
 			if t.Owner != actor {
@@ -848,7 +892,8 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 			if typ == "task.takeover" && !hasApproval(st, "task.takeover:"+id) {
 				return nil, errors.New("approved takeover is required")
 			}
-			if typ == "task.complete" && t.Risk != "ROUTINE" {
+			settings := model.EffectiveProjectSettings(st.ProjectSettings)
+			if typ == "task.complete" && (t.Risk != "ROUTINE" || settings.RequireReview) {
 				if t.Status != "REVIEW" {
 					return nil, errors.New("elevated task requires review before completion")
 				}
@@ -1511,10 +1556,16 @@ func (s *Service) AddArtifact(actor, path string) (model.Event, error) {
 	if e != nil {
 		return model.Event{}, e
 	}
+	settings := model.DefaultProjectSettings()
+	if state, stateErr := s.State(); stateErr == nil {
+		settings = model.EffectiveProjectSettings(state.ProjectSettings)
+	} else if cfg.ArtifactLimitBytes > 0 {
+		settings.ArtifactLimitBytes = cfg.ArtifactLimitBytes
+	}
 	storage := "git"
-	if n > cfg.ArtifactLimitBytes {
+	if n > settings.ArtifactLimitBytes {
 		if _, e = os.Stat(filepath.Join(s.Store.Root, store.Runtime, ".gitattributes")); e != nil {
-			return model.Event{}, errors.New("artifact exceeds 5 MiB; configure Git LFS first")
+			return model.Event{}, fmt.Errorf("artifact exceeds the project limit of %d bytes; configure Git LFS first", settings.ArtifactLimitBytes)
 		}
 		storage = "git-lfs"
 	}

@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "project.settings.update payload v1",
+  "type": "object",
+  "required": [
+    "default_lease",
+    "stale_grace",
+    "active_retention",
+    "summary_limit",
+    "artifact_limit_bytes",
+    "require_review"
+  ],
+  "properties": {
+    "default_lease": {
+      "type": "string",
+      "minLength": 2
+    },
+    "stale_grace": {
+      "type": "string",
+      "minLength": 2
+    },
+    "active_retention": {
+      "type": "string",
+      "minLength": 2
+    },
+    "summary_limit": {
+      "type": "integer",
+      "minimum": 256,
+      "maximum": 262144
+    },
+    "artifact_limit_bytes": {
+      "type": "integer",
+      "minimum": 1024,
+      "maximum": 52428800
+    },
+    "require_review": {
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": false
+}

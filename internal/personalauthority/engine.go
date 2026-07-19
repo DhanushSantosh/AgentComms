@@ -495,6 +495,7 @@ func emptyState() model.State {
 		Approvals:            map[string]model.Approval{}, Decisions: map[string]model.Decision{},
 		Documents: map[string]model.Document{}, Env: map[string]model.EnvEntry{},
 		Sessions: map[string]model.SessionPayload{}, Artifacts: map[string]model.Artifact{},
+		ProjectSettings: model.DefaultProjectSettings(),
 	}
 }
 

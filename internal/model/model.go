@@ -186,6 +186,44 @@ type Integrity struct {
 	CacheSequence  uint64 `json:"cache_sequence,omitempty"`
 	Connectivity   string `json:"connectivity,omitempty"`
 }
+type ProjectSettings struct {
+	DefaultLease       string    `json:"default_lease"`
+	StaleGrace         string    `json:"stale_grace"`
+	ActiveRetention    string    `json:"active_retention"`
+	SummaryLimit       int       `json:"summary_limit"`
+	ArtifactLimitBytes int64     `json:"artifact_limit_bytes"`
+	RequireReview      bool      `json:"require_review"`
+	UpdatedBy          string    `json:"updated_by,omitempty"`
+	UpdatedAt          time.Time `json:"updated_at,omitempty"`
+}
+
+func DefaultProjectSettings() ProjectSettings {
+	return ProjectSettings{
+		DefaultLease: "4h", StaleGrace: "1h", ActiveRetention: "168h",
+		SummaryLimit: 1200, ArtifactLimitBytes: 5 * 1024 * 1024,
+	}
+}
+
+func EffectiveProjectSettings(settings ProjectSettings) ProjectSettings {
+	defaults := DefaultProjectSettings()
+	if settings.DefaultLease == "" {
+		settings.DefaultLease = defaults.DefaultLease
+	}
+	if settings.StaleGrace == "" {
+		settings.StaleGrace = defaults.StaleGrace
+	}
+	if settings.ActiveRetention == "" {
+		settings.ActiveRetention = defaults.ActiveRetention
+	}
+	if settings.SummaryLimit == 0 {
+		settings.SummaryLimit = defaults.SummaryLimit
+	}
+	if settings.ArtifactLimitBytes == 0 {
+		settings.ArtifactLimitBytes = defaults.ArtifactLimitBytes
+	}
+	return settings
+}
+
 type State struct {
 	Agents               map[string]Agent              `json:"agents"`
 	Tasks                map[string]Task               `json:"tasks"`
@@ -200,5 +238,6 @@ type State struct {
 	Env                  map[string]EnvEntry           `json:"env"`
 	Sessions             map[string]SessionPayload     `json:"sessions"`
 	Artifacts            map[string]Artifact           `json:"artifacts"`
+	ProjectSettings      ProjectSettings               `json:"project_settings"`
 	Integrity            Integrity                     `json:"integrity"`
 }

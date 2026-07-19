@@ -477,6 +477,8 @@ func decodePayload(eventType string, raw json.RawMessage) (any, error) {
 		return *value, nil
 	case *model.InvocationPolicyUpdated:
 		return *value, nil
+	case *model.ProjectSettingsUpdated:
+		return *value, nil
 	case *model.ApprovalRequested:
 		return *value, nil
 	case *model.ApprovalResponse:
@@ -541,7 +543,8 @@ func loadState(ctx context.Context, tx *sql.Tx, projectID string) (model.State, 
 		AgentRuntimes: map[string]model.AgentRuntime{}, InvocationPolicies: map[string]model.InvocationPolicy{},
 		Decisions: map[string]model.Decision{}, Documents: map[string]model.Document{},
 		Env: map[string]model.EnvEntry{}, Sessions: map[string]model.SessionPayload{},
-		Artifacts: map[string]model.Artifact{},
+		Artifacts:       map[string]model.Artifact{},
+		ProjectSettings: model.DefaultProjectSettings(),
 	}
 	loaders := []func() error{
 		func() error {
@@ -680,6 +683,15 @@ func loadState(ctx context.Context, tx *sql.Tx, projectID string) (model.State, 
 			return state, unavailable(err)
 		}
 	}
+	var settingsRaw []byte
+	err := tx.QueryRowContext(ctx, "SELECT state FROM project_settings WHERE project_id=$1", projectID).Scan(&settingsRaw)
+	if err == nil {
+		if err = json.Unmarshal(settingsRaw, &state.ProjectSettings); err != nil {
+			return state, unavailable(err)
+		}
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return state, unavailable(err)
+	}
 	return state, nil
 }
 
@@ -714,6 +726,17 @@ func loadProjection(ctx context.Context, tx *sql.Tx, table, idColumn, projectID 
 }
 
 func persistProjectionChanges(ctx context.Context, tx *sql.Tx, projectID string, sequence uint64, before, after model.State) error {
+	if !reflect.DeepEqual(before.ProjectSettings, after.ProjectSettings) {
+		raw, err := json.Marshal(after.ProjectSettings)
+		if err != nil {
+			return err
+		}
+		if _, err = tx.ExecContext(ctx, `INSERT INTO project_settings (project_id,state,updated_sequence)
+			VALUES ($1,$2,$3) ON CONFLICT (project_id) DO UPDATE SET
+			state=EXCLUDED.state,updated_sequence=EXCLUDED.updated_sequence`, projectID, raw, sequence); err != nil {
+			return err
+		}
+	}
 	for id, value := range after.Agents {
 		if reflect.DeepEqual(before.Agents[id], value) {
 			continue
