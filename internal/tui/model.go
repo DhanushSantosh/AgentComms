@@ -80,7 +80,7 @@ func New(s *service.Service, actor string) (Model, error) {
 		svc: s, state: st, actor: actor, projectID: projectID, width: 100, height: 30, highContrast: hc,
 		taskList: newRowList(taskRowSource{}), messageList: newRowList(messageRowSource{}),
 		approvalList: newRowList(approvalRowSource{}), agentList: newRowList(agentRowSource{}),
-		invocationList: newRowList(invocationRowSource{}), runtimeList: newRowList(runtimeRowSource{}),
+		invocationList: newRowList(invocationRowSource{}), runtimeList: newRowList(runtimeRowSource{root: s.Store.Root}),
 	}, e
 }
 func (m Model) Init() tea.Cmd {

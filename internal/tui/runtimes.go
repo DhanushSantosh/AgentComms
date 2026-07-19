@@ -7,6 +7,7 @@ import (
 	"charm.land/bubbles/v2/table"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 	"github.com/DhanushSantosh/AgentComms/internal/service"
+	"github.com/DhanushSantosh/AgentComms/internal/sessionbind"
 )
 
 var runtimeRegisterForm = &ActionForm{
@@ -52,19 +53,20 @@ var (
 	}
 )
 
-type runtimeRowSource struct{}
+type runtimeRowSource struct{ root string }
 
 func (runtimeRowSource) Columns(width int) []table.Column {
-	status, health, agent, connector, load := 11, 10, 15, 15, 9
-	reference := max(12, width-status-health-agent-connector-load)
+	status, health, agent, connector, load, session := 11, 10, 15, 15, 9, 17
+	reference := max(12, width-status-health-agent-connector-load-session)
 	return []table.Column{
 		{Title: "STATUS", Width: status}, {Title: "HEALTH", Width: health},
 		{Title: "AGENT", Width: agent}, {Title: "CONNECTOR", Width: connector},
-		{Title: "LOAD", Width: load}, {Title: "CONFIG", Width: reference},
+		{Title: "LOAD", Width: load}, {Title: "SESSION", Width: session},
+		{Title: "CONFIG", Width: reference},
 	}
 }
 
-func (runtimeRowSource) Rows(state model.State, _ string, _ bool) []table.Row {
+func (r runtimeRowSource) Rows(state model.State, _ string, _ bool) []table.Row {
 	ids := service.SortedKeys(state.AgentRuntimes)
 	rows := make([]table.Row, 0, len(ids))
 	for _, id := range ids {
@@ -72,10 +74,28 @@ func (runtimeRowSource) Rows(state model.State, _ string, _ bool) []table.Row {
 		rows = append(rows, table.Row{
 			runtime.Status, runtime.Health, runtime.AgentID, runtime.Connector,
 			strconv.Itoa(len(runtime.ActiveInvocations)) + "/" + strconv.Itoa(runtime.MaxConcurrent),
-			runtime.ConfigReference,
+			r.sessionLabel(id), runtime.ConfigReference,
 		})
 	}
 	return rows
+}
+
+// sessionLabel shows the locally captured provider session bound to a
+// runtime, if any. This is local cache metadata (see internal/sessionbind),
+// never the signed project event chain.
+func (r runtimeRowSource) sessionLabel(runtimeID string) string {
+	if r.root == "" {
+		return "unbound"
+	}
+	binding, ok, err := sessionbind.Load(r.root, runtimeID)
+	if err != nil || !ok {
+		return "unbound"
+	}
+	id := binding.SessionID
+	if len(id) > 8 {
+		id = id[:8]
+	}
+	return binding.Adapter + ":" + id
 }
 
 func (runtimeRowSource) RowID(index int, state model.State, _ string, _ bool) string {
