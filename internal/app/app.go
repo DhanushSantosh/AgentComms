@@ -28,6 +28,7 @@ import (
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 	"github.com/DhanushSantosh/AgentComms/internal/personalmigration"
 	"github.com/DhanushSantosh/AgentComms/internal/service"
+	"github.com/DhanushSantosh/AgentComms/internal/sessionbind"
 	"github.com/DhanushSantosh/AgentComms/internal/store"
 	tuiterm "github.com/DhanushSantosh/AgentComms/internal/tui"
 	runtimeworker "github.com/DhanushSantosh/AgentComms/internal/worker"
@@ -188,6 +189,23 @@ func (c *cli) emit(command string, v any) error {
 	_, e = fmt.Fprintln(c.out, string(b))
 	return e
 }
+
+// captureRuntimeSession opportunistically binds a freshly registered runtime
+// to the current Claude conversation, if any. It is best-effort: a missing
+// or unsaveable binding never fails registration itself.
+func (c *cli) captureRuntimeSession(runtimeID string) {
+	sessionID, adapter := sessionbind.Capture()
+	if sessionID == "" {
+		return
+	}
+	if err := sessionbind.Save(c.svc.Store.Root, runtimeID, sessionID, adapter); err != nil {
+		return
+	}
+	if !c.quiet {
+		_, _ = fmt.Fprintf(c.err, "captured %s session %s for runtime %s\n", adapter, sessionID, runtimeID)
+	}
+}
+
 func errorCode(e error) string {
 	var controlErr *controlplane.Error
 	if errors.As(e, &controlErr) {
@@ -619,6 +637,7 @@ func (c *cli) runtimeCmd() *cobra.Command {
 		if err != nil {
 			return err
 		}
+		c.captureRuntimeSession(id)
 		return c.emit("runtime.register", value)
 	}}
 	register.Flags().String("id", "", "runtime ID")
@@ -682,6 +701,14 @@ func (c *cli) runtimeCmd() *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			runtimeID, _ := cmd.Flags().GetString("id")
+			if workerSessionID == "" {
+				if binding, ok, lookupErr := sessionbind.Load(c.svc.Store.Root, runtimeID); lookupErr == nil && ok && binding.Adapter == workerAdapter {
+					workerSessionID = binding.SessionID
+					if !c.quiet {
+						_, _ = fmt.Fprintf(c.err, "using captured %s session %s for runtime %s\n", binding.Adapter, binding.SessionID, runtimeID)
+					}
+				}
+			}
 			executable := workerExecutable
 			if executable == "" {
 				var lookupErr error
@@ -739,7 +766,50 @@ func (c *cli) runtimeCmd() *cobra.Command {
 	workerCommand.Flags().BoolVar(&allowAgentComms, "claude-allow-agent-comms", false, "allow only this Agent Comms executable as an unattended Claude Bash command")
 	workerCommand.Flags().BoolVar(&once, "once", false, "process at most one invocation and exit")
 
-	root.AddCommand(register, heartbeat, list, workerCommand)
+	var bindSessionID string
+	bindSession := &cobra.Command{
+		Use:   "bind-session",
+		Short: "Capture the current Claude conversation and bind it to a registered runtime",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			sessionID, adapter := sessionbind.Capture()
+			if sessionID == "" {
+				return errors.New("no supported provider session was found in the current environment (set CLAUDE_CODE_SESSION_ID, or run this from inside a live Claude Code session)")
+			}
+			if err := sessionbind.Save(c.svc.Store.Root, bindSessionID, sessionID, adapter); err != nil {
+				return err
+			}
+			return c.emit("runtime.bind-session", map[string]any{
+				"runtime_id": bindSessionID, "adapter": adapter, "session_id": sessionID,
+			})
+		},
+	}
+	bindSession.Flags().StringVar(&bindSessionID, "id", "", "runtime ID")
+	_ = bindSession.MarkFlagRequired("id")
+
+	var sessionRuntimeID string
+	sessionShow := &cobra.Command{
+		Use:   "session",
+		Short: "Show the locally captured session binding for a runtime",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			binding, ok, err := sessionbind.Load(c.svc.Store.Root, sessionRuntimeID)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				return c.emit("runtime.session", map[string]any{"runtime_id": sessionRuntimeID, "bound": false})
+			}
+			return c.emit("runtime.session", map[string]any{
+				"runtime_id": sessionRuntimeID, "bound": true, "adapter": binding.Adapter,
+				"session_id": binding.SessionID, "captured_at": binding.CapturedAt,
+			})
+		},
+	}
+	sessionShow.Flags().StringVar(&sessionRuntimeID, "id", "", "runtime ID")
+	_ = sessionShow.MarkFlagRequired("id")
+
+	root.AddCommand(register, heartbeat, list, workerCommand, bindSession, sessionShow)
 	return root
 }
 
