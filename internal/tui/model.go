@@ -463,50 +463,6 @@ func (m Model) renderSidebar(p palette, w, h int) string {
 	)
 	return lipgloss.NewStyle().Width(w).Height(h).Padding(1).Background(p.ink).Foreground(p.text).Render(strings.Join(rows, "\n"))
 }
-func (m Model) badge(name string) string {
-	n := 0
-	switch name {
-	case "Tasks":
-		n = len(m.state.Tasks)
-	case "Inbox":
-		for _, x := range m.state.Messages {
-			if x.Status == "OPEN" {
-				n++
-			}
-		}
-	case "Agents":
-		n = len(m.state.Agents)
-	case "Invocations":
-		for _, invocation := range m.state.Invocations {
-			if invocation.Status != "COMPLETED" && invocation.Status != "REJECTED" &&
-				invocation.Status != "EXPIRED" && invocation.Status != "CANCELLED" {
-				n++
-			}
-		}
-	case "Runtimes":
-		for _, runtime := range m.state.AgentRuntimes {
-			if runtime.Status == "ONLINE" {
-				n++
-			}
-		}
-	case "Approvals":
-		for _, x := range m.state.Approvals {
-			if x.Status == "PENDING" {
-				n++
-			}
-		}
-	case "Blockers":
-		for _, x := range m.state.Tasks {
-			if x.Status == "BLOCKED" {
-				n++
-			}
-		}
-	}
-	if n == 0 {
-		return ""
-	}
-	return fmt.Sprintf("%d", n)
-}
 func (m Model) renderBody(p palette, w, h int) string {
 	title := views[m.view]
 	if title == "Overview" {
