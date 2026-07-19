@@ -148,7 +148,7 @@ func (c *cli) root() *cobra.Command {
 	f.DurationVar(&c.timeout, "timeout", 10*time.Second, "transaction lock timeout")
 	f.BoolVar(&c.noColor, "no-color", false, "disable ANSI color")
 	f.BoolVarP(&c.quiet, "quiet", "q", false, "suppress non-essential output")
-	r.AddCommand(c.versionCmd(), c.initCmd(), c.doctorCmd(), c.verifyCmd(), c.statusCmd(), c.historyCmd(), c.searchCmd(), c.agentCmd(), c.runtimeCmd(), c.invocationCmd(), c.sessionCmd(), c.taskCmd(), c.messageCmd(), c.decisionCmd(), c.approvalCmd(), c.artifactCmd(), c.documentCmd(), c.envCmd(), c.draftCmd(), c.archiveCmd(), c.exportCmd(), c.syncCmd(), c.profileCmd(), c.configCmd(), c.themeCmd(), c.updateCmd(), c.completionCmd(r), c.agentInstructionsCmd(), c.mcpCmd(), c.watchCmd(), c.tuiCmd(), c.migrateCmd(), c.daemonCmd())
+	r.AddCommand(c.versionCmd(), c.initCmd(), c.doctorCmd(), c.verifyCmd(), c.statusCmd(), c.controlCmd(), c.historyCmd(), c.searchCmd(), c.agentCmd(), c.runtimeCmd(), c.invocationCmd(), c.sessionCmd(), c.taskCmd(), c.messageCmd(), c.decisionCmd(), c.approvalCmd(), c.artifactCmd(), c.documentCmd(), c.envCmd(), c.draftCmd(), c.archiveCmd(), c.exportCmd(), c.syncCmd(), c.profileCmd(), c.configCmd(), c.themeCmd(), c.updateCmd(), c.completionCmd(r), c.agentInstructionsCmd(), c.mcpCmd(), c.watchCmd(), c.tuiCmd(), c.migrateCmd(), c.daemonCmd())
 	return r
 }
 
@@ -382,6 +382,103 @@ func (c *cli) statusCmd() *cobra.Command {
 		}
 		return c.emit("status", v)
 	}}
+}
+func (c *cli) controlCmd() *cobra.Command {
+	root := &cobra.Command{Use: "control", Short: "Inspect the human project control plane"}
+	overview := &cobra.Command{Use: "overview", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		state, err := c.svc.State()
+		if err != nil {
+			return err
+		}
+		counts := map[string]int{
+			"agents": len(state.Agents), "runtimes": len(state.AgentRuntimes),
+			"tasks": len(state.Tasks), "invocations": len(state.Invocations),
+			"online_runtimes": 0, "draining_runtimes": 0, "pending_approvals": 0,
+		}
+		for _, runtime := range state.AgentRuntimes {
+			if runtime.Status == "ONLINE" {
+				counts["online_runtimes"]++
+			}
+			if runtime.Status == "DRAINING" {
+				counts["draining_runtimes"]++
+			}
+		}
+		for _, invocation := range state.Invocations {
+			counts["invocations_"+strings.ToLower(invocation.Status)]++
+		}
+		for _, task := range state.Tasks {
+			counts["tasks_"+strings.ToLower(task.Status)]++
+		}
+		for _, approval := range state.Approvals {
+			if approval.Status == "PENDING" {
+				counts["pending_approvals"]++
+			}
+		}
+		return c.emit("control.overview", map[string]any{
+			"counts": counts, "integrity": state.Integrity,
+		})
+	}}
+	attention := &cobra.Command{Use: "attention", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		state, err := c.svc.State()
+		if err != nil {
+			return err
+		}
+		blockedTasks := map[string]model.Task{}
+		pendingApprovals := map[string]model.Approval{}
+		waitingInvocations := map[string]model.Invocation{}
+		failedDeliveries := map[string]model.Invocation{}
+		degradedRuntimes := map[string]model.AgentRuntime{}
+		for id, task := range state.Tasks {
+			if task.Status == "BLOCKED" {
+				blockedTasks[id] = task
+			}
+		}
+		for id, approval := range state.Approvals {
+			if approval.Status == "PENDING" {
+				pendingApprovals[id] = approval
+			}
+		}
+		for id, invocation := range state.Invocations {
+			if invocation.Status == "WAITING" {
+				waitingInvocations[id] = invocation
+			}
+			if invocation.Status == "DEAD_LETTER" {
+				failedDeliveries[id] = invocation
+			}
+		}
+		for id, runtime := range state.AgentRuntimes {
+			if runtime.Health == "DEGRADED" || runtime.Status == "REVOKED" {
+				degradedRuntimes[id] = runtime
+			}
+		}
+		return c.emit("control.attention", map[string]any{
+			"blocked_tasks": blockedTasks, "pending_approvals": pendingApprovals,
+			"waiting_invocations": waitingInvocations, "failed_deliveries": failedDeliveries,
+			"degraded_runtimes": degradedRuntimes,
+		})
+	}}
+	settings := &cobra.Command{Use: "settings", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		state, err := c.svc.State()
+		if err != nil {
+			return err
+		}
+		config, err := c.svc.Store.Config()
+		if err != nil {
+			return err
+		}
+		return c.emit("control.settings", map[string]any{
+			"runtime_mode": config.RuntimeMode, "authority_url": config.AuthorityURL,
+			"invocation_policies": state.InvocationPolicies,
+			"limits": map[string]any{
+				"max_runtime_concurrency": controlplane.MaxRuntimeConcurrency,
+				"max_delivery_attempts":   controlplane.MaxDeliveryAttempts,
+				"max_invocation_bytes":    controlplane.MaxInvocationBytes,
+				"max_invocation_ttl":      controlplane.MaxInvocationTTL.String(),
+			},
+		})
+	}}
+	root.AddCommand(overview, attention, settings)
+	return root
 }
 func (c *cli) historyCmd() *cobra.Command {
 	var cursor string
@@ -648,9 +745,12 @@ func (c *cli) invocationCmd() *cobra.Command {
 	expire := payloadStatus(c, "invocation", "expire", func(string) any { return model.InvocationRejected{Reason: reason} })
 	expire.Flags().StringVar(&reason, "reason", "", "expiry reason")
 	_ = expire.MarkFlagRequired("reason")
+	cancelInvocation := payloadStatus(c, "invocation", "cancel", func(string) any { return model.InvocationRejected{Reason: reason} })
+	cancelInvocation.Flags().StringVar(&reason, "reason", "", "cancellation reason")
+	_ = cancelInvocation.MarkFlagRequired("reason")
 
 	policy := c.invocationPolicyCmd()
-	root.AddCommand(request, list, next, claim, start, waitCommand, resume, complete, reject, expire, policy)
+	root.AddCommand(request, list, next, claim, start, waitCommand, resume, complete, reject, expire, cancelInvocation, policy)
 	return root
 }
 

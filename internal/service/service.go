@@ -427,6 +427,8 @@ func ApplyEvent(s *model.State, e model.Event) error {
 		now := e.Time
 		if e.Type == "invocation.expire" {
 			invocation.Status = "EXPIRED"
+		} else if e.Type == "invocation.cancel" {
+			invocation.Status = "CANCELLED"
 		} else {
 			invocation.Status = "REJECTED"
 		}
@@ -1081,6 +1083,15 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 				}
 				if invocation.Deadline == nil || invocation.Deadline.After(now) {
 					return nil, errors.New("expired invocation deadline is required")
+				}
+			} else if typ == "invocation.cancel" {
+				if actor != invocation.RequestedBy && !actorElevated(st, actor) {
+					return nil, errors.New("invocation requester, owner, or orchestrator required")
+				}
+				if invocation.Status == "COMPLETED" || invocation.Status == "REJECTED" ||
+					invocation.Status == "EXPIRED" || invocation.Status == "CANCELLED" ||
+					invocation.Status == "DEAD_LETTER" {
+					return nil, fmt.Errorf("cannot cancel invocation while %s", invocation.Status)
 				}
 			}
 		case model.InvocationDeliveryFailed:
