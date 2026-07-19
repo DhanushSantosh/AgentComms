@@ -108,6 +108,39 @@ func (s *Service) Verify(from, to uint64) error {
 	return s.Store.Verify()
 }
 
+func (s *Service) NextInvocation(actor, runtimeID string) (model.Invocation, bool, error) {
+	state, err := s.State()
+	if err != nil {
+		return model.Invocation{}, false, err
+	}
+	if runtimeID != "" {
+		runtime, exists := state.AgentRuntimes[runtimeID]
+		if !exists || runtime.AgentID != actor || runtime.Status == "DRAINING" ||
+			runtime.Status == "REVOKED" || len(runtime.ActiveInvocations) >= runtime.MaxConcurrent {
+			return model.Invocation{}, false, nil
+		}
+	}
+	var selected model.Invocation
+	found := false
+	priorityRank := map[string]int{"URGENT": 4, "HIGH": 3, "NORMAL": 2, "LOW": 1}
+	now := time.Now().UTC()
+	for _, invocation := range state.Invocations {
+		if invocation.Target != actor || (invocation.Status != "PENDING" && invocation.Status != "NOTIFIED") {
+			continue
+		}
+		if invocation.Deadline != nil && !invocation.Deadline.After(now) {
+			continue
+		}
+		if !found || priorityRank[invocation.Priority] > priorityRank[selected.Priority] ||
+			(priorityRank[invocation.Priority] == priorityRank[selected.Priority] &&
+				invocation.CreatedAt.Before(selected.CreatedAt)) {
+			selected = invocation
+			found = true
+		}
+	}
+	return selected, found, nil
+}
+
 func (s *Service) History(page controlplane.PageRequest) (controlplane.EventPage, error) {
 	if s.remoteErr != nil {
 		return controlplane.EventPage{}, s.remoteErr
