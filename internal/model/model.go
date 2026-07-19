@@ -82,6 +82,7 @@ type Invocation struct {
 	TaskID          string     `json:"task_id,omitempty"`
 	Instruction     string     `json:"instruction"`
 	ExpectedResult  string     `json:"expected_result,omitempty"`
+	Scopes          []string   `json:"scopes,omitempty"`
 	Priority        string     `json:"priority"`
 	Status          string     `json:"status"`
 	CreatedAt       time.Time  `json:"created_at"`

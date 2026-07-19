@@ -29,6 +29,7 @@ const (
 	MaxRuntimesPerProject = 500
 	MaxRuntimeConcurrency = 100
 	MinHeartbeatInterval  = 10 * time.Second
+	RuntimeOfflineAfter   = 45 * time.Second
 	CommandClockSkew      = 5 * time.Minute
 	DefaultRequestTimeout = 15 * time.Second
 )

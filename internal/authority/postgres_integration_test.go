@@ -2,6 +2,7 @@ package authority
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"sync"
 	"testing"
@@ -191,6 +192,39 @@ func TestPostgresTransactionalAuthority(t *testing.T) {
 	}
 	if state.AgentRuntimes["runtime-alpha"].Status != "ONLINE" {
 		t.Fatalf("runtime is not online: %+v", state.AgentRuntimes["runtime-alpha"])
+	}
+	const concurrentInvocations = 100
+	loadResults := make(chan error, concurrentInvocations)
+	var loadWriters sync.WaitGroup
+	loadStart := make(chan struct{})
+	for index := range concurrentInvocations {
+		loadWriters.Add(1)
+		go func(index int) {
+			defer loadWriters.Done()
+			<-loadStart
+			_, _, loadErr := mutate("owner", owner, "invocation.request",
+				fmt.Sprintf("inv-load-%03d", index),
+				model.InvocationRequested{Target: "beta", Instruction: "Concurrent invocation load"},
+				uuid.NewString())
+			loadResults <- loadErr
+		}(index)
+	}
+	close(loadStart)
+	loadWriters.Wait()
+	close(loadResults)
+	for loadErr := range loadResults {
+		if loadErr != nil {
+			t.Fatalf("concurrent invocation load failed: %v", loadErr)
+		}
+	}
+	state, _, err = engine.State(context.Background(), projectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index := range concurrentInvocations {
+		if _, exists := state.Invocations[fmt.Sprintf("inv-load-%03d", index)]; !exists {
+			t.Fatalf("concurrent invocation %d was lost", index)
+		}
 	}
 	if err = engine.VerifyRange(context.Background(), projectID, 1, 0); err != nil {
 		t.Fatal(err)

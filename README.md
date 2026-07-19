@@ -67,6 +67,11 @@ agent-comms message resolve --id blocker-001  # auto-closes linked BLOCKED task
 agent-comms env set --key CI_BRANCH --value main
 agent-comms env get --key CI_BRANCH
 
+agent-comms control overview
+agent-comms invocation request --to reviewer \
+  --instruction "Review the current change" --scope src
+agent-comms invocation next --actor reviewer --runtime reviewer-runtime
+
 agent-comms verify --json
 agent-comms export markdown --output audit.md
 ```

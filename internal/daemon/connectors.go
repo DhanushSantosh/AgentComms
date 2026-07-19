@@ -149,6 +149,15 @@ func NewDispatcher(configs map[string]ConnectorConfig, submit commandSubmitter) 
 	if configs == nil {
 		configs = map[string]ConnectorConfig{}
 	}
+	for reference, config := range configs {
+		if config.Timeout <= 0 {
+			config.Timeout = defaultConnectorTimeout
+			configs[reference] = config
+		}
+		if err := validateConnectorConfig(reference, config); err != nil {
+			return nil, err
+		}
+	}
 	return &Dispatcher{
 		configs: configs, submit: submit, now: func() time.Time { return time.Now().UTC() },
 		launch: launchConnector,

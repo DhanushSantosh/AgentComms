@@ -27,6 +27,8 @@ agent-comms invocation complete --actor reviewer --id inv-123 --summary "Review 
 ```
 
 Equivalent MCP tools are available for runtimes embedded in an agent host.
+Owners can cancel non-terminal work with
+`agent-comms invocation cancel --id inv-123 --reason "superseded"`.
 
 ## User policy
 
@@ -46,7 +48,14 @@ Modes are:
 - `DISABLED`: agent-originated invocation is disabled.
 
 Owners and orchestrators retain emergency control. Sensitive work continues to
-use the existing human approval system.
+use the existing human approval system. Invocation scopes must fit both the
+requester and target agent scopes and, when configured, the target policy's
+allowed scopes. A non-routine related task or an urgent invocation requires a
+human approval when `require_human_for_sensitive` is enabled.
+
+`agent-comms control overview`, `control attention`, and `control settings`
+provide automation-friendly views of the same project control plane shown in
+the TUI.
 
 ## Local connector configuration
 
@@ -78,3 +87,6 @@ The daemon reserves a delivery before launching a connector. Failed launches
 use exponential backoff, stop after ten attempts, and become `DEAD_LETTER`.
 MCP connectors must be online; manual connectors create an auditable
 notification for the human control room.
+
+An online runtime becomes offline when its heartbeat is older than 45 seconds.
+Draining and revoked states are never overwritten by heartbeat expiry.
