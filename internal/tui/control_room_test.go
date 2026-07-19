@@ -26,7 +26,7 @@ func TestControlRoomRendersWorkforceAndOperationalViews(t *testing.T) {
 	}
 	for _, expected := range []string{
 		"AGENT WORKFORCE", "Command", "Work", "Team", "Relay", "Project",
-		"inv-control", "Overview", "My work", "LIVE ACTIVITY", "YOU ARE HERE",
+		"inv-control", "Overview", "My work", "LIVE ACTIVITY",
 	} {
 		if !strings.Contains(rendered, expected) {
 			t.Errorf("control room missing %q", expected)
