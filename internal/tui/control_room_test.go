@@ -54,6 +54,43 @@ func TestArrowNavigationMovesBetweenHubsAndTabs(t *testing.T) {
 	}
 }
 
+func TestAgentControlsAreVisibleBeforeEnteringManageMode(t *testing.T) {
+	instance := newTestService(t)
+	view, err := New(instance, "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	view.openView("Agents")
+	rendered := view.View().Content
+	for _, expected := range []string{
+		"NAVIGATION · Enter to manage selected agent",
+		"Selected: owner",
+		"[n] register agent",
+		"[s] suspend",
+		"[z] rotate key",
+	} {
+		if !strings.Contains(rendered, expected) {
+			t.Errorf("agent workspace missing %q", expected)
+		}
+	}
+}
+
+func TestCommandPaletteShowsInputAndMatchingCommands(t *testing.T) {
+	instance := newTestService(t)
+	view, err := New(instance, "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	view.palette = true
+	view.query = "agent"
+	rendered := view.View().Content
+	for _, expected := range []string{"COMMANDS", "Command", "> agent█", "new agent", "Agents"} {
+		if !strings.Contains(rendered, expected) {
+			t.Errorf("command palette missing %q", expected)
+		}
+	}
+}
+
 func TestInvocationRowActionsFollowStateAndAuthority(t *testing.T) {
 	state := model.State{Agents: map[string]model.Agent{
 		"builder": {ID: "builder", Role: model.RoleAgent, Status: "ACTIVE"},
