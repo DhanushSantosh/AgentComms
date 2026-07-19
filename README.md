@@ -93,6 +93,8 @@ explicit document, message, and artifact-metadata drafts remain local until
 submitted.
 
 See the [service deployment and migration guide](docs/service-deployment.md).
+See the [agent invocation protocol](docs/agent-invocations.md) for runtime
+registration, wakeups, delivery guarantees, and invocation policy.
 
 ## Governance defaults
 

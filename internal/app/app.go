@@ -1661,6 +1661,7 @@ func (c *cli) daemonCmd() *cobra.Command {
 		return daemon.Run(ctx, daemon.RunConfig{
 			AuthorityURL: cfg.AuthorityURL, ServicePublicKey: cfg.ServicePublicKey,
 			CachePath: cachePath, Endpoint: cfg.DaemonEndpoint,
+			ConnectorConfigPath: strings.TrimSpace(os.Getenv("AGENT_COMMS_CONNECTOR_CONFIG")),
 		})
 	}}
 	root.AddCommand(serve)

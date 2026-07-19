@@ -7,12 +7,17 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
+	"github.com/DhanushSantosh/AgentComms/internal/identity"
 	"github.com/DhanushSantosh/AgentComms/internal/localcache"
+	"github.com/DhanushSantosh/AgentComms/internal/model"
 	"github.com/DhanushSantosh/AgentComms/internal/remote"
+	"github.com/DhanushSantosh/AgentComms/internal/service"
+	"github.com/google/uuid"
 )
 
 const (
@@ -22,10 +27,11 @@ const (
 )
 
 type Daemon struct {
-	cache   *localcache.Cache
-	remote  *remote.Client
-	syncMu  sync.Mutex
-	syncing map[string]*syncState
+	cache      *localcache.Cache
+	remote     *remote.Client
+	syncMu     sync.Mutex
+	syncing    map[string]*syncState
+	dispatcher *Dispatcher
 }
 
 type syncState struct {
@@ -48,11 +54,16 @@ func (d *Daemon) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/projects/{project}/commands", d.command)
 	mux.HandleFunc("GET /v1/projects/{project}/state", d.state)
 	mux.HandleFunc("GET /v1/projects/{project}/events", d.events)
+	mux.HandleFunc("GET /v1/projects/{project}/invocations/next", d.nextInvocation)
 	mux.HandleFunc("POST /v1/projects/{project}/sync", d.sync)
 	mux.HandleFunc("POST /v1/projects/{project}/verify", d.verify)
 	mux.HandleFunc("POST /v1/projects/{project}/drafts", d.saveDraft)
 	mux.HandleFunc("GET /v1/projects/{project}/drafts", d.drafts)
 	return mux
+}
+
+func (d *Daemon) SetDispatcher(dispatcher *Dispatcher) {
+	d.dispatcher = dispatcher
 }
 
 func (d *Daemon) verify(w http.ResponseWriter, r *http.Request) {
@@ -134,6 +145,46 @@ func (d *Daemon) events(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
+}
+
+func (d *Daemon) nextInvocation(w http.ResponseWriter, r *http.Request) {
+	actor := strings.TrimSpace(r.URL.Query().Get("actor"))
+	runtimeID := strings.TrimSpace(r.URL.Query().Get("runtime"))
+	if actor == "" {
+		writeControlError(w, &controlplane.Error{Code: controlplane.CodeValidation, Message: "actor is required"})
+		return
+	}
+	waitDuration := time.Duration(0)
+	if raw := r.URL.Query().Get("wait_ms"); raw != "" {
+		milliseconds, err := strconv.Atoi(raw)
+		if err != nil || milliseconds < 0 || milliseconds > 30_000 {
+			writeControlError(w, &controlplane.Error{Code: controlplane.CodeValidation, Message: "wait_ms must be from 0 to 30000"})
+			return
+		}
+		waitDuration = time.Duration(milliseconds) * time.Millisecond
+	}
+	deadline := time.Now().Add(waitDuration)
+	for {
+		_ = d.Sync(r.Context(), r.PathValue("project"))
+		state, metadata, err := d.cache.State(r.Context(), r.PathValue("project"))
+		if err != nil {
+			writeControlError(w, err)
+			return
+		}
+		invocation, found := service.SelectNextInvocation(state, actor, runtimeID, time.Now().UTC())
+		if found || waitDuration == 0 || !time.Now().Before(deadline) {
+			writeJSON(w, http.StatusOK, map[string]any{
+				"found": found, "invocation": invocation, "metadata": metadata,
+			})
+			return
+		}
+		select {
+		case <-r.Context().Done():
+			writeControlError(w, &controlplane.Error{Code: controlplane.CodeUnavailable, Message: r.Context().Err().Error()})
+			return
+		case <-time.After(250 * time.Millisecond):
+		}
+	}
 }
 
 func (d *Daemon) sync(w http.ResponseWriter, r *http.Request) {
@@ -224,10 +275,40 @@ func (d *Daemon) syncProject(ctx context.Context, projectID string) error {
 			}
 		}
 		if page.NextCursor == "" {
-			return nil
+			if d.dispatcher == nil {
+				return nil
+			}
+			state, _, stateErr := d.cache.State(ctx, projectID)
+			if stateErr != nil {
+				return stateErr
+			}
+			return d.dispatcher.Dispatch(ctx, projectID, state)
 		}
 		cursor = page.NextCursor
 	}
+}
+
+func (d *Daemon) submitConnectorCommand(ctx context.Context, projectID, actor, eventType, entityID string, payload any) error {
+	raw, err := model.EncodePayload(eventType, payload)
+	if err != nil {
+		return err
+	}
+	credential, err := identity.ResolveCredential(identity.DefaultStore(), projectID, actor)
+	if err != nil {
+		return fmt.Errorf("resolve connector credential for %s: %w", actor, err)
+	}
+	command := controlplane.Command{
+		ProjectID: projectID, Actor: actor, Type: eventType, EntityID: entityID,
+		Payload: raw, IdempotencyKey: uuid.NewString(), IssuedAt: time.Now().UTC(),
+	}
+	if err = command.Sign(credential.PrivateKey); err != nil {
+		return err
+	}
+	event, receipt, err := d.remote.Command(ctx, command)
+	if err != nil {
+		return err
+	}
+	return d.cache.Apply(ctx, event, receipt)
 }
 
 func localPageRequest(r *http.Request) (controlplane.PageRequest, error) {

@@ -113,17 +113,21 @@ func (s *Service) NextInvocation(actor, runtimeID string) (model.Invocation, boo
 	if err != nil {
 		return model.Invocation{}, false, err
 	}
+	invocation, found := SelectNextInvocation(state, actor, runtimeID, time.Now().UTC())
+	return invocation, found, nil
+}
+
+func SelectNextInvocation(state model.State, actor, runtimeID string, now time.Time) (model.Invocation, bool) {
 	if runtimeID != "" {
 		runtime, exists := state.AgentRuntimes[runtimeID]
 		if !exists || runtime.AgentID != actor || runtime.Status == "DRAINING" ||
 			runtime.Status == "REVOKED" || len(runtime.ActiveInvocations) >= runtime.MaxConcurrent {
-			return model.Invocation{}, false, nil
+			return model.Invocation{}, false
 		}
 	}
 	var selected model.Invocation
 	found := false
 	priorityRank := map[string]int{"URGENT": 4, "HIGH": 3, "NORMAL": 2, "LOW": 1}
-	now := time.Now().UTC()
 	for _, invocation := range state.Invocations {
 		if invocation.Target != actor || (invocation.Status != "PENDING" && invocation.Status != "NOTIFIED") {
 			continue
@@ -138,7 +142,7 @@ func (s *Service) NextInvocation(actor, runtimeID string) (model.Invocation, boo
 			found = true
 		}
 	}
-	return selected, found, nil
+	return selected, found
 }
 
 func (s *Service) History(page controlplane.PageRequest) (controlplane.EventPage, error) {
@@ -438,6 +442,8 @@ func ApplyEvent(s *model.State, e model.Event) error {
 			invocation.Status = status
 			invocation.CompletedAt = &now
 			invocation.Reason = p.Error
+		} else {
+			invocation.Status = "PENDING"
 		}
 		invocation.NextAttemptAt = p.NextRetry
 		s.Invocations[e.EntityID] = invocation
@@ -981,7 +987,7 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 			if !exists {
 				return nil, errors.New("invocation not found")
 			}
-			if invocation.Status != "PENDING" && invocation.Status != "NOTIFIED" {
+			if invocation.Status != "PENDING" {
 				return nil, fmt.Errorf("cannot notify invocation while %s", invocation.Status)
 			}
 			if actor != invocation.RequestedBy && actor != invocation.Target && !actorElevated(st, actor) {
@@ -1088,8 +1094,10 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 				p.Attempt < 1 || p.Attempt > controlplane.MaxDeliveryAttempts {
 				return nil, errors.New("valid delivery ID, attempt, and error are required")
 			}
-			if _, duplicate := st.InvocationDeliveries[p.DeliveryID]; duplicate {
-				return nil, errors.New("invocation delivery already exists")
+			delivery, deliveryExists := st.InvocationDeliveries[p.DeliveryID]
+			if !deliveryExists || delivery.InvocationID != id || delivery.Status != "NOTIFIED" ||
+				delivery.Attempt != p.Attempt {
+				return nil, errors.New("matching notified delivery is required")
 			}
 			if p.Final && p.Attempt < controlplane.MaxDeliveryAttempts {
 				return nil, fmt.Errorf("delivery cannot dead-letter before attempt %d", controlplane.MaxDeliveryAttempts)

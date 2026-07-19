@@ -99,6 +99,39 @@ func TestInvocationClaimIsExclusive(t *testing.T) {
 	}
 }
 
+func TestInvocationNotificationReservationIsExclusive(t *testing.T) {
+	instance := setup(t)
+	activate(t, instance, "builder", model.PrincipalAgent)
+	must(t, instance, "owner", "invocation.request", "inv-notify", model.InvocationRequested{
+		Target: "builder", Instruction: "Wake one runtime",
+	})
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	var wait sync.WaitGroup
+	for _, deliveryID := range []string{"delivery-a", "delivery-b"} {
+		wait.Add(1)
+		go func(deliveryID string) {
+			defer wait.Done()
+			<-start
+			_, err := instance.Execute("owner", "invocation.notify", "inv-notify",
+				model.InvocationNotified{DeliveryID: deliveryID, Attempt: 1})
+			results <- err
+		}(deliveryID)
+	}
+	close(start)
+	wait.Wait()
+	close(results)
+	successes := 0
+	for err := range results {
+		if err == nil {
+			successes++
+		}
+	}
+	if successes != 1 {
+		t.Fatalf("notification reservations succeeded %d times, want 1", successes)
+	}
+}
+
 func TestInvocationDeliveryDeadLettersOnlyAtAttemptLimit(t *testing.T) {
 	instance := setup(t)
 	activate(t, instance, "builder", model.PrincipalAgent)
@@ -112,6 +145,9 @@ func TestInvocationDeliveryDeadLettersOnlyAtAttemptLimit(t *testing.T) {
 	if err == nil {
 		t.Fatal("delivery dead-lettered before the maximum attempt")
 	}
+	must(t, instance, "owner", "invocation.notify", "inv-dead", model.InvocationNotified{
+		DeliveryID: "delivery-final", Attempt: controlplane.MaxDeliveryAttempts,
+	})
 	must(t, instance, "owner", "invocation.delivery-failed", "inv-dead", model.InvocationDeliveryFailed{
 		DeliveryID: "delivery-final", Attempt: controlplane.MaxDeliveryAttempts,
 		Error: "runtime unavailable", Final: true,
