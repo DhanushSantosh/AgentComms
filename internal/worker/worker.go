@@ -60,7 +60,6 @@ type Config struct {
 	Sandbox               string
 	CodexAddDirs          []string
 	CodexIgnoreUserConfig bool
-	CodexHome             string
 	ExecutionTimeout      time.Duration
 	ListenWait            time.Duration
 	ClaudeBudgetUSD       float64
@@ -176,18 +175,6 @@ func validateConfig(config *Config) error {
 			}
 			if !info.IsDir() {
 				return errors.New("codex additional writable path must be a directory")
-			}
-		}
-		if config.CodexHome != "" {
-			if !filepath.IsAbs(config.CodexHome) {
-				return errors.New("codex home must be an absolute path")
-			}
-			info, err := os.Stat(config.CodexHome)
-			if err != nil {
-				return fmt.Errorf("inspect codex home: %w", err)
-			}
-			if !info.IsDir() {
-				return errors.New("codex home must be a directory")
 			}
 		}
 	}
@@ -440,7 +427,7 @@ func (w *Worker) runAgent(ctx context.Context, invocation model.Invocation) (str
 	arguments := w.arguments()
 	command := exec.CommandContext(ctx, w.config.Executable, arguments...)
 	command.Dir = w.config.WorkDir
-	command.Env = agentEnvironment(os.Environ(), w.config.Adapter, w.config.CodexHome)
+	command.Env = os.Environ()
 	command.Stdin = strings.NewReader(prompt)
 	stdout := &boundedBuffer{limit: maxAgentOutputBytes}
 	stderr := &boundedBuffer{limit: maxAgentOutputBytes}
@@ -461,30 +448,6 @@ func (w *Worker) runAgent(ctx context.Context, invocation model.Invocation) (str
 		return "", fmt.Errorf("agent output exceeded %d bytes", maxAgentOutputBytes)
 	}
 	return stdout.String(), nil
-}
-
-// agentEnvironment overrides CODEX_HOME for a Codex worker when a dedicated
-// home is configured. Without this, a Codex worker inherits ~/.codex and
-// therefore the same auth.json as any interactive Codex session on the
-// machine; on ChatGPT-plan auth that means the autonomous worker and the
-// operator's interactive usage draw from one shared, non-retryable usage
-// quota (Codex's own UsageLimitReached error is not retried; it requires the
-// plan window to reset, an upgrade, or a separate auth). Pointing the
-// worker at its own CODEX_HOME, logged in separately (ideally with an
-// API key billed to the organization instead of the shared ChatGPT plan),
-// isolates its usage entirely.
-func agentEnvironment(base []string, adapter, codexHome string) []string {
-	if adapter != "codex" || codexHome == "" {
-		return base
-	}
-	environment := make([]string, 0, len(base)+1)
-	for _, entry := range base {
-		if strings.HasPrefix(entry, "CODEX_HOME=") {
-			continue
-		}
-		environment = append(environment, entry)
-	}
-	return append(environment, "CODEX_HOME="+codexHome)
 }
 
 func (w *Worker) arguments() []string {
