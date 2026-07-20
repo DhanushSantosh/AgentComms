@@ -61,8 +61,27 @@ func TestCaptureReadsClaudeSessionEnv(t *testing.T) {
 	}
 }
 
+func TestCaptureReadsCodexThreadEnv(t *testing.T) {
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "")
+	t.Setenv("CODEX_THREAD_ID", "019e5408-3ef4-7db3-b584-03ad8f399199")
+	sessionID, adapter := Capture()
+	if sessionID != "019e5408-3ef4-7db3-b584-03ad8f399199" || adapter != "codex" {
+		t.Fatalf("unexpected capture: session=%q adapter=%q", sessionID, adapter)
+	}
+}
+
+func TestCapturePrefersClaudeWhenBothPresent(t *testing.T) {
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "3c48b78d-184f-4c66-ae96-4d7294075d36")
+	t.Setenv("CODEX_THREAD_ID", "019e5408-3ef4-7db3-b584-03ad8f399199")
+	sessionID, adapter := Capture()
+	if sessionID != "3c48b78d-184f-4c66-ae96-4d7294075d36" || adapter != "claude" {
+		t.Fatalf("expected claude to win when both are set, got session=%q adapter=%q", sessionID, adapter)
+	}
+}
+
 func TestCaptureReportsNothingWithoutProviderEnv(t *testing.T) {
 	t.Setenv("CLAUDE_CODE_SESSION_ID", "")
+	t.Setenv("CODEX_THREAD_ID", "")
 	sessionID, adapter := Capture()
 	if sessionID != "" || adapter != "" {
 		t.Fatalf("expected no capture, got session=%q adapter=%q", sessionID, adapter)

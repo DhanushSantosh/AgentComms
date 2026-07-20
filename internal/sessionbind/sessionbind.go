@@ -28,11 +28,21 @@ func Path(projectRoot string) string {
 
 // Capture inspects the current process environment for a provider-native
 // session identifier. It reports an empty adapter when no supported
-// provider environment variable is present. Codex does not export one, so
-// only Claude conversations can be captured this way today.
+// provider environment variable is present.
+//
+// Claude Code exports CLAUDE_CODE_SESSION_ID to every process it spawns.
+// Codex exports CODEX_THREAD_ID (codex-rs/protocol/src/shell_environment.rs)
+// to commands run by its shell tool, injected even when the configured
+// shell_environment_policy restricts inherited variables to an include_only
+// list — so it survives a restrictive policy the way an ordinary env var
+// would not. Both are the same identifier accepted by that provider's
+// `resume`/`--session-id` flag.
 func Capture() (sessionID, adapter string) {
 	if id := strings.TrimSpace(os.Getenv("CLAUDE_CODE_SESSION_ID")); id != "" {
 		return id, "claude"
+	}
+	if id := strings.TrimSpace(os.Getenv("CODEX_THREAD_ID")); id != "" {
+		return id, "codex"
 	}
 	return "", ""
 }
