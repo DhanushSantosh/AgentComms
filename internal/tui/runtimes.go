@@ -56,13 +56,13 @@ var (
 type runtimeRowSource struct{ root string }
 
 func (runtimeRowSource) Columns(width int) []table.Column {
-	status, health, agent, connector, load, session := 11, 10, 15, 15, 9, 17
-	reference := max(12, width-status-health-agent-connector-load-session)
+	status, health, agent, connector, load, provider, session := 11, 10, 15, 15, 9, 9, 38
+	reference := max(12, width-status-health-agent-connector-load-provider-session)
 	return []table.Column{
 		{Title: "STATUS", Width: status}, {Title: "HEALTH", Width: health},
 		{Title: "AGENT", Width: agent}, {Title: "CONNECTOR", Width: connector},
-		{Title: "LOAD", Width: load}, {Title: "SESSION", Width: session},
-		{Title: "CONFIG", Width: reference},
+		{Title: "LOAD", Width: load}, {Title: "PROVIDER", Width: provider},
+		{Title: "SESSION / THREAD ID", Width: session}, {Title: "CONFIG", Width: reference},
 	}
 }
 
@@ -71,31 +71,37 @@ func (r runtimeRowSource) Rows(state model.State, _ string, _ bool) []table.Row 
 	rows := make([]table.Row, 0, len(ids))
 	for _, id := range ids {
 		runtime := state.AgentRuntimes[id]
+		provider, session := r.sessionBinding(id)
 		rows = append(rows, table.Row{
 			runtime.Status, runtime.Health, runtime.AgentID, runtime.Connector,
 			strconv.Itoa(len(runtime.ActiveInvocations)) + "/" + strconv.Itoa(runtime.MaxConcurrent),
-			r.sessionLabel(id), runtime.ConfigReference,
+			provider, session, runtime.ConfigReference,
 		})
 	}
 	return rows
 }
 
-// sessionLabel shows the locally captured provider session bound to a
-// runtime, if any. This is local cache metadata (see internal/sessionbind),
-// never the signed project event chain.
-func (r runtimeRowSource) sessionLabel(runtimeID string) string {
+// sessionBinding shows exactly which AI service provider and conversation a
+// runtime is locally bound to, if any. This is local cache metadata (see
+// internal/sessionbind), never the signed project event chain: it reflects
+// whatever the operator's worker process last captured or was told to bind
+// to, not a live, verified connection.
+func (r runtimeRowSource) sessionBinding(runtimeID string) (provider, session string) {
 	if r.root == "" {
-		return "unbound"
+		return "—", "unbound"
 	}
 	binding, ok, err := sessionbind.Load(r.root, runtimeID)
 	if err != nil || !ok {
-		return "unbound"
+		return "—", "unbound"
 	}
-	id := binding.SessionID
-	if len(id) > 8 {
-		id = id[:8]
+	switch binding.Adapter {
+	case "claude":
+		return "Claude", binding.SessionID
+	case "codex":
+		return "Codex", binding.SessionID
+	default:
+		return binding.Adapter, binding.SessionID
 	}
-	return binding.Adapter + ":" + id
 }
 
 func (runtimeRowSource) RowID(index int, state model.State, _ string, _ bool) string {
