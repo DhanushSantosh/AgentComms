@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -201,6 +202,70 @@ func TestWorkerRejectsInvalidSessionID(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("ambiguous session selector was accepted")
+	}
+}
+
+func TestWorkerAcceptsDedicatedCodexHome(t *testing.T) {
+	instance, root := workerService(t)
+	executable, err := filepath.Abs(os.Args[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	codexHome := t.TempDir()
+	if _, err := New(Config{
+		Service: instance, Actor: "axiom", RuntimeID: "runtime-axiom",
+		Adapter: "codex", Executable: executable, WorkDir: root,
+		Sandbox: "workspace-write", ListenWait: time.Second,
+		ExecutionTimeout: time.Minute, Once: true, CodexHome: codexHome,
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestWorkerRejectsCodexHomeThatIsNotADirectory(t *testing.T) {
+	instance, root := workerService(t)
+	executable, err := filepath.Abs(os.Args[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	notADirectory := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(notADirectory, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := New(Config{
+		Service: instance, Actor: "axiom", RuntimeID: "runtime-axiom",
+		Adapter: "codex", Executable: executable, WorkDir: root,
+		Sandbox: "workspace-write", ListenWait: time.Second,
+		ExecutionTimeout: time.Minute, Once: true, CodexHome: notADirectory,
+	}); err == nil {
+		t.Fatal("expected a non-directory codex home to be rejected")
+	}
+}
+
+func TestAgentEnvironmentOverridesCodexHomeForCodexOnly(t *testing.T) {
+	base := []string{"PATH=/usr/bin", "CODEX_HOME=/home/user/.codex", "HOME=/home/user"}
+	codexEnv := agentEnvironment(base, "codex", "/tmp/damon-codex-home")
+	found := false
+	for _, entry := range codexEnv {
+		if entry == "CODEX_HOME=/tmp/damon-codex-home" {
+			found = true
+		}
+		if strings.HasPrefix(entry, "CODEX_HOME=") && entry != "CODEX_HOME=/tmp/damon-codex-home" {
+			t.Fatalf("stale CODEX_HOME entry survived: %q", entry)
+		}
+	}
+	if !found {
+		t.Fatal("expected the dedicated codex home to be set")
+	}
+
+	claudeEnv := agentEnvironment(base, "claude", "/tmp/damon-codex-home")
+	if !reflect.DeepEqual(claudeEnv, base) {
+		t.Fatalf("claude adapter must not be touched, got %v", claudeEnv)
+	}
+
+	unset := agentEnvironment(base, "codex", "")
+	if !reflect.DeepEqual(unset, base) {
+		t.Fatalf("empty codex home must leave the environment untouched, got %v", unset)
 	}
 }
 

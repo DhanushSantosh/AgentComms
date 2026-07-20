@@ -690,7 +690,7 @@ func (c *cli) runtimeCmd() *cobra.Command {
 		}
 		return c.emit("runtime.list", state.AgentRuntimes)
 	}}
-	var workerAdapter, workerExecutable, workerModel, workerSessionID, permissionMode, sandbox string
+	var workerAdapter, workerExecutable, workerModel, workerSessionID, permissionMode, sandbox, codexHome string
 	var codexAddDirs []string
 	var executionTimeout, listenWait time.Duration
 	var claudeBudget float64
@@ -735,7 +735,7 @@ func (c *cli) runtimeCmd() *cobra.Command {
 				Service: c.svc, Actor: c.actor, RuntimeID: runtimeID, SessionID: workerSessionID,
 				Adapter: workerAdapter, Executable: executable, WorkDir: c.svc.Store.Root,
 				Model: workerModel, PermissionMode: permissionMode, Sandbox: sandbox,
-				CodexAddDirs: codexAddDirs, CodexIgnoreUserConfig: codexIgnoreUserConfig,
+				CodexAddDirs: codexAddDirs, CodexIgnoreUserConfig: codexIgnoreUserConfig, CodexHome: codexHome,
 				ExecutionTimeout: executionTimeout, ListenWait: listenWait,
 				ClaudeBudgetUSD: claudeBudget, AgentCommsPath: agentCommsPath, Once: once,
 				Status: func(status string) {
@@ -759,6 +759,7 @@ func (c *cli) runtimeCmd() *cobra.Command {
 	workerCommand.Flags().StringVar(&permissionMode, "claude-permission-mode", "acceptEdits", "Claude permission mode without bypass")
 	workerCommand.Flags().StringVar(&sandbox, "codex-sandbox", "workspace-write", "Codex read-only or workspace-write sandbox")
 	workerCommand.Flags().StringSliceVar(&codexAddDirs, "codex-add-dir", nil, "additional absolute writable directory for Codex (repeatable)")
+	workerCommand.Flags().StringVar(&codexHome, "codex-home", "", "dedicated CODEX_HOME for this worker, isolating its auth and usage quota from interactive Codex sessions")
 	workerCommand.Flags().BoolVar(&codexIgnoreUserConfig, "codex-ignore-user-config", false, "isolate autonomous runs from user MCP and tool configuration")
 	workerCommand.Flags().DurationVar(&executionTimeout, "execution-timeout", 30*time.Minute, "per-invocation execution timeout")
 	workerCommand.Flags().DurationVar(&listenWait, "listen-wait", controlplane.MaxInvocationListen, "bounded invocation listen duration")
