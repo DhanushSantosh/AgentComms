@@ -1,0 +1,1 @@
+{"$schema":"https://json-schema.org/draft/2020-12/schema","title":"document payload v1 compatibility index","description":"Compatibility reference only. Event-specific schemas are authoritative.","oneOf":[{"$ref":"document.create.v1.schema.json"},{"$ref":"document.update.v1.schema.json"},{"$ref":"document.supersede.v1.schema.json"}]}

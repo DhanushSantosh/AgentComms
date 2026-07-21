@@ -53,6 +53,7 @@ type TaskOffered struct {
 type TaskClaimed struct {
 	LeaseUntil time.Time `json:"lease_until"`
 	OfferID    string    `json:"offer_id,omitempty"`
+	Worktree   string    `json:"worktree,omitempty"`
 }
 type TaskRenewed struct {
 	LeaseUntil time.Time `json:"lease_until"`
@@ -82,6 +83,76 @@ type MessagePosted struct {
 type MessageResponse struct {
 	Response string `json:"response"`
 	Note     string `json:"note,omitempty"`
+}
+type InvocationRequested struct {
+	Target         string     `json:"target"`
+	MessageID      string     `json:"message_id,omitempty"`
+	TaskID         string     `json:"task_id,omitempty"`
+	Instruction    string     `json:"instruction"`
+	ExpectedResult string     `json:"expected_result,omitempty"`
+	Scopes         []string   `json:"scopes,omitempty"`
+	Priority       string     `json:"priority,omitempty"`
+	Deadline       *time.Time `json:"deadline,omitempty"`
+}
+type InvocationNotified struct {
+	DeliveryID string `json:"delivery_id"`
+	RuntimeID  string `json:"runtime_id,omitempty"`
+	Attempt    int    `json:"attempt"`
+}
+type InvocationClaimed struct {
+	RuntimeID  string    `json:"runtime_id"`
+	ClaimUntil time.Time `json:"claim_until"`
+}
+type InvocationProgress struct {
+	Summary string `json:"summary,omitempty"`
+}
+type InvocationWaiting struct {
+	Reason        string     `json:"reason"`
+	NextAttemptAt *time.Time `json:"next_attempt_at,omitempty"`
+}
+type InvocationCompleted struct {
+	ResultMessageID string `json:"result_message_id,omitempty"`
+	Summary         string `json:"summary"`
+}
+type InvocationRejected struct {
+	Reason string `json:"reason"`
+}
+type InvocationDeliveryFailed struct {
+	DeliveryID string     `json:"delivery_id"`
+	RuntimeID  string     `json:"runtime_id,omitempty"`
+	Attempt    int        `json:"attempt"`
+	Error      string     `json:"error"`
+	NextRetry  *time.Time `json:"next_retry,omitempty"`
+	Final      bool       `json:"final"`
+}
+type RuntimeRegistered struct {
+	AgentID         string   `json:"agent_id"`
+	Connector       string   `json:"connector"`
+	ConfigReference string   `json:"config_reference,omitempty"`
+	MaxConcurrent   int      `json:"max_concurrent"`
+	Scopes          []string `json:"scopes,omitempty"`
+	Capabilities    []string `json:"capabilities,omitempty"`
+}
+type RuntimeHeartbeat struct {
+	Health            string   `json:"health"`
+	ActiveInvocations []string `json:"active_invocations,omitempty"`
+}
+type RuntimeStatusChanged struct {
+	Reason string `json:"reason,omitempty"`
+}
+type InvocationPolicyUpdated struct {
+	Mode                     string   `json:"mode"`
+	TrustedActors            []string `json:"trusted_actors,omitempty"`
+	AllowedScopes            []string `json:"allowed_scopes,omitempty"`
+	RequireHumanForSensitive bool     `json:"require_human_for_sensitive"`
+}
+type ProjectSettingsUpdated struct {
+	DefaultLease       string `json:"default_lease"`
+	StaleGrace         string `json:"stale_grace"`
+	ActiveRetention    string `json:"active_retention"`
+	SummaryLimit       int    `json:"summary_limit"`
+	ArtifactLimitBytes int64  `json:"artifact_limit_bytes"`
+	RequireReview      bool   `json:"require_review"`
 }
 type ApprovalRequested struct {
 	Tier      string     `json:"tier"`
@@ -116,14 +187,32 @@ type ArchiveRun struct {
 	Before  time.Time `json:"before"`
 	TaskIDs []string  `json:"task_ids"`
 }
+type EnvSetPayload struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+type EnvDeletePayload struct {
+	Key string `json:"key"`
+}
+type DocumentPayload struct {
+	Title         string   `json:"title,omitempty"`
+	Body          string   `json:"body,omitempty"`
+	Tags          []string `json:"tags,omitempty"`
+	ReplacementID string   `json:"replacement_id,omitempty"`
+}
 
 var payloadFactories = map[string]func() any{
 	"agent.register": func() any { return &AgentRegistered{} }, "agent.activate": func() any { return &AgentActivated{} }, "agent.suspend": func() any { return &TaskStatus{} }, "agent.rotate-key": func() any { return &AgentKeyRotated{} },
 	"task.create": func() any { return &TaskCreated{} }, "task.offer": func() any { return &TaskOffered{} }, "task.claim": func() any { return &TaskClaimed{} }, "task.start": func() any { return &TaskStatus{} }, "task.renew": func() any { return &TaskRenewed{} }, "task.block": func() any { return &TaskStatus{} }, "task.review": func() any { return &TaskStatus{} }, "task.complete": func() any { return &TaskStatus{} }, "task.cancel": func() any { return &TaskStatus{} }, "task.handoff": func() any { return &TaskHandoff{} }, "task.handoff.accept": func() any { return &TaskStatus{} }, "task.takeover": func() any { return &TaskStatus{} },
 	"message.post": func() any { return &MessagePosted{} }, "message.ack": func() any { return &MessageResponse{} }, "message.reject": func() any { return &MessageResponse{} }, "message.complete": func() any { return &MessageResponse{} }, "message.resolve": func() any { return &MessageResponse{} },
-	"approval.request": func() any { return &ApprovalRequested{} }, "approval.approve": func() any { return &ApprovalResponse{} }, "approval.reject": func() any { return &ApprovalResponse{} },
+	"invocation.request": func() any { return &InvocationRequested{} }, "invocation.notify": func() any { return &InvocationNotified{} }, "invocation.claim": func() any { return &InvocationClaimed{} }, "invocation.start": func() any { return &InvocationProgress{} }, "invocation.wait": func() any { return &InvocationWaiting{} }, "invocation.resume": func() any { return &InvocationProgress{} }, "invocation.complete": func() any { return &InvocationCompleted{} }, "invocation.reject": func() any { return &InvocationRejected{} }, "invocation.expire": func() any { return &InvocationRejected{} }, "invocation.cancel": func() any { return &InvocationRejected{} }, "invocation.delivery-failed": func() any { return &InvocationDeliveryFailed{} },
+	"runtime.register": func() any { return &RuntimeRegistered{} }, "runtime.heartbeat": func() any { return &RuntimeHeartbeat{} }, "runtime.drain": func() any { return &RuntimeStatusChanged{} }, "runtime.resume": func() any { return &RuntimeStatusChanged{} }, "runtime.revoke": func() any { return &RuntimeStatusChanged{} }, "invocation.policy.update": func() any { return &InvocationPolicyUpdated{} },
+	"project.settings.update": func() any { return &ProjectSettingsUpdated{} },
+	"approval.request":        func() any { return &ApprovalRequested{} }, "approval.approve": func() any { return &ApprovalResponse{} }, "approval.reject": func() any { return &ApprovalResponse{} },
 	"decision.create": func() any { return &DecisionPayload{} }, "decision.supersede": func() any { return &DecisionPayload{} }, "session.start": func() any { return &SessionPayload{} }, "session.end": func() any { return &SessionPayload{} },
 	"artifact.add": func() any { return &ArtifactAdded{} }, "archive.run": func() any { return &ArchiveRun{} },
+	"document.create": func() any { return &DocumentPayload{} }, "document.update": func() any { return &DocumentPayload{} }, "document.supersede": func() any { return &DocumentPayload{} },
+	"env.set": func() any { return &EnvSetPayload{} }, "env.delete": func() any { return &EnvDeletePayload{} },
 }
 
 func EncodePayload(typ string, value any) (json.RawMessage, error) {

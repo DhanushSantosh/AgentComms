@@ -2,36 +2,58 @@ name: signed-release
 on:
   push:
     tags: ['v*']
-  workflow_dispatch:
 permissions:
   contents: write
   id-token: write
   attestations: write
 jobs:
   release:
+    environment: release
+    timeout-minutes: 45
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with: {fetch-depth: 0}
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with: {go-version: '1.26.5', cache: true}
-      - uses: sigstore/cosign-installer@v4.1.2
+      - name: Verify protected tag ancestry and format
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-(preview|rc)\.[0-9]+)?$ ]]
+          git fetch origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+      - run: go test ./...
+      - run: go vet ./...
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
       - run: |
           set -euo pipefail
           mkdir dist
           for target in windows/amd64 windows/arm64 linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
             GOOS=${target%/*}; GOARCH=${target#*/}; ext=""; [ "$GOOS" = windows ] && ext=.exe
-            name="agent-comms-${GOOS}-${GOARCH}${ext}"
-            CGO_ENABLED=0 GOOS=$GOOS GOARCH=$GOARCH go build -trimpath -ldflags="-s -w -X github.com/DhanushSantosh/AgentComms/internal/app.Version=${GITHUB_REF_NAME#v}" -o "dist/$name" ./cmd/agent-comms
+            for command in agent-comms agent-comms-daemon agent-comms-server; do
+              name="${command}-${GOOS}-${GOARCH}${ext}"
+              CGO_ENABLED=0 GOOS=$GOOS GOARCH=$GOARCH go build -trimpath -ldflags="-s -w -X github.com/DhanushSantosh/AgentComms/internal/app.Version=${GITHUB_REF_NAME#v}" -o "dist/$name" "./cmd/$command"
+            done
           done
           cd dist
           sha256sum agent-comms-* > checksums.txt
           for asset in agent-comms-*; do cosign sign-blob --yes --bundle "${asset}.bundle" "$asset"; done
-      - uses: anchore/sbom-action@v0
+      - uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
         with: {path: dist, format: spdx-json, output-file: dist/sbom.spdx.json}
-      - uses: actions/attest-build-provenance@v3
+      - uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
         with: {subject-path: 'dist/agent-comms-*'}
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           prerelease: ${{ contains(github.ref_name, 'preview') || contains(github.ref_name, 'rc') }}
           generate_release_notes: true
-          files: dist/*
+          files: |
+            dist/agent-comms-windows-amd64.exe
+            dist/agent-comms-windows-arm64.exe
+            dist/agent-comms-linux-amd64
+            dist/agent-comms-linux-arm64
+            dist/agent-comms-darwin-amd64
+            dist/agent-comms-darwin-arm64
+            dist/agent-comms-daemon-*
+            dist/agent-comms-server-*
+            dist/checksums.txt

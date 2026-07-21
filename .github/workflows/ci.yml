@@ -1,17 +1,23 @@
 name: ci
 on: [push, pull_request]
 permissions: {contents: read}
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   test:
-    strategy: {matrix: {os: [ubuntu-latest, windows-latest, macos-latest]}}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix: {os: [ubuntu-latest, windows-latest, macos-latest]}
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with: {go-version: '1.26.5', cache: true}
       - run: go test ./...
       - run: go vet ./...
-      - run: go run honnef.co/go/tools/cmd/staticcheck@latest ./...
+      - run: go run honnef.co/go/tools/cmd/staticcheck@v0.7.0 ./...
       - run: go test -race ./...
         if: runner.os != 'Windows'
       - name: Validate PowerShell installer
@@ -25,21 +31,26 @@ jobs:
         if: runner.os != 'Windows'
         run: sh -n install.sh
   security:
+    timeout-minutes: 20
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with: {go-version: '1.26.5'}
-      - run: go install golang.org/x/vuln/cmd/govulncheck@latest
+      - run: go install golang.org/x/vuln/cmd/govulncheck@v1.6.0
       - run: govulncheck ./...
       - run: go test ./internal/contamination
   cross-build:
+    timeout-minutes: 20
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with: {go-version: '1.26.5'}
       - run: |
           for target in windows/amd64 windows/arm64 linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
-            GOOS=${target%/*}; GOARCH=${target#*/}; CGO_ENABLED=0 GOOS=$GOOS GOARCH=$GOARCH go build ./cmd/agent-comms
+            GOOS=${target%/*}; GOARCH=${target#*/}
+            for command in agent-comms agent-comms-daemon agent-comms-server; do
+              CGO_ENABLED=0 GOOS=$GOOS GOARCH=$GOARCH go build "./cmd/$command"
+            done
           done

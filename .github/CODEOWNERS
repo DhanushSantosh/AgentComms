@@ -1,0 +1,21 @@
+# Fallback ownership. Replace individual entries with GitHub teams as the
+# maintainer group grows.
+* @DhanushSantosh
+
+# Security, identity, durable state, and release engineering require explicit
+# core-maintainer review.
+/internal/identity/ @DhanushSantosh
+/internal/store/ @DhanushSantosh
+/internal/service/ @DhanushSantosh
+/schemas/ @DhanushSantosh
+/SECURITY.md @DhanushSantosh
+/docs/threat-model.md @DhanushSantosh
+/.github/workflows/ @DhanushSantosh
+/install.ps1 @DhanushSantosh
+/install.sh @DhanushSantosh
+/docs/release-verification.md @DhanushSantosh
+
+# Public interfaces and user experience.
+/internal/app/ @DhanushSantosh
+/internal/mcp/ @DhanushSantosh
+/internal/tui/ @DhanushSantosh

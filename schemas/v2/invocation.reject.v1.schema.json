@@ -1,0 +1,1 @@
+{"$schema":"https://json-schema.org/draft/2020-12/schema","title":"invocation rejection or expiry payload v1","type":"object","required":["reason"],"properties":{"reason":{"type":"string","minLength":1,"maxLength":16384}},"additionalProperties":false}

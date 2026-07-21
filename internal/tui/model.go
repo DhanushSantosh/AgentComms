@@ -11,35 +11,103 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
+	"github.com/DhanushSantosh/AgentComms/internal/identity"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 	"github.com/DhanushSantosh/AgentComms/internal/service"
+	"github.com/fsnotify/fsnotify"
 )
 
-var views = []string{"Overview", "My work", "Tasks", "Inbox", "Agents", "Approvals", "Contracts & decisions", "Blockers", "Integrity & sync", "Activity", "Archive search"}
+var views = []string{
+	"Overview", "My work", "Tasks", "Inbox", "Agents", "Approvals", "Invocations",
+	"Runtimes", "Project settings", "Documents", "Contracts & decisions",
+	"Blockers", "Audit & health", "Activity", "Archive search",
+}
+
+type navigationHub struct {
+	Name  string
+	Views []string
+}
+
+var navigationHubs = []navigationHub{
+	{Name: "Command", Views: []string{"Overview", "My work", "Blockers", "Approvals"}},
+	{Name: "Work", Views: []string{"Tasks", "Documents", "Contracts & decisions", "Archive search"}},
+	{Name: "Team", Views: []string{"Agents", "Runtimes"}},
+	{Name: "Relay", Views: []string{"Inbox", "Invocations", "Activity"}},
+	{Name: "Project", Views: []string{"Project settings", "Audit & health"}},
+}
 
 type Model struct {
-	svc           *service.Service
-	state         model.State
-	actor         string
-	width, height int
-	view, cursor  int
-	palette       bool
-	query, notice string
-	err           error
-	highContrast  bool
-	form          string
-	inputs        []textinput.Model
-	formFocus     int
+	svc            *service.Service
+	state          model.State
+	actor          string
+	projectID      string
+	width, height  int
+	view, cursor   int
+	palette        bool
+	query, notice  string
+	err            error
+	highContrast   bool
+	form           string
+	inputs         []textinput.Model
+	formFocus      int
+	formTaskID     string
+	formSpec       *ActionForm
+	rowFocus       bool
+	taskList       RowList
+	messageList    RowList
+	approvalList   RowList
+	agentList      RowList
+	invocationList RowList
+	runtimeList    RowList
+	settingsFocus  bool
+	settingsCursor int
+	confirm        *confirmState
+	watcher        *fsnotify.Watcher
 }
 
 func New(s *service.Service, actor string) (Model, error) {
 	st, e := s.State()
-	return Model{svc: s, state: st, actor: actor, width: 100, height: 30}, e
+	projectID := "local project"
+	if config, err := s.Store.Config(); err == nil && config.ProjectID != "" {
+		projectID = config.ProjectID
+	}
+	hc := false
+	if uc, err := identity.LoadUserConfig(); err == nil && uc.Theme == "high-contrast" {
+		hc = true
+	}
+	return Model{
+		svc: s, state: st, actor: actor, projectID: projectID, width: 100, height: 30, highContrast: hc,
+		taskList: newRowList(taskRowSource{}), messageList: newRowList(messageRowSource{}),
+		approvalList: newRowList(approvalRowSource{}), agentList: newRowList(agentRowSource{}),
+		invocationList: newRowList(invocationRowSource{}), runtimeList: newRowList(runtimeRowSource{root: s.Store.Root}),
+	}, e
 }
-func (m Model) Init() tea.Cmd { return tea.RequestBackgroundColor }
+func (m Model) Init() tea.Cmd {
+	if m.watcher != nil {
+		return tea.Batch(tea.RequestBackgroundColor, watchEventsCmd(m.watcher))
+	}
+	return tea.RequestBackgroundColor
+}
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if _, ok := msg.(fsEventMsg); ok {
+		m.refreshSilent()
+		if m.watcher != nil {
+			return m, watchEventsCmd(m.watcher)
+		}
+		return m, nil
+	}
 	if m.form != "" {
 		return m.updateForm(msg)
+	}
+	if m.confirm != nil {
+		return m.updateConfirm(msg)
+	}
+	if m.rowFocus {
+		return m.updateRowList(msg)
+	}
+	if m.settingsFocus {
+		return m.updateSettings(msg)
 	}
 	switch v := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -69,43 +137,179 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "q", "ctrl+c":
 			return m, tea.Quit
 		case "up", "k":
-			if m.cursor > 0 {
-				m.cursor--
-			}
+			m.moveHub(-1)
 		case "down", "j":
-			if m.cursor < len(views)-1 {
-				m.cursor++
-			}
+			m.moveHub(1)
+		case "left":
+			m.moveHubView(-1)
+		case "right":
+			m.moveHubView(1)
+		case "[":
+			m.moveHubView(-1)
+		case "]":
+			m.moveHubView(1)
 		case "enter":
 			m.view = m.cursor
+			m.focusCurrentView()
 		case "/", "ctrl+p":
 			m.palette = true
+		case "o":
+			m.openView("Overview")
+		case "g":
+			m.openView("Agents")
+		case "i":
+			m.openView("Invocations")
 		case "r":
 			m.refresh()
 		case "?":
-			m.notice = "↑/↓ navigate · enter open · / commands · r refresh · q quit"
+			m.notice = "↑/↓ navigate · → open · ← back · / commands · a switch actor · r refresh · q quit"
 		case "h":
 			m.highContrast = !m.highContrast
-		case "n":
-			if views[m.view] == "Tasks" || views[m.view] == "My work" {
-				return m.openTaskForm()
+			theme := "auto"
+			if m.highContrast {
+				theme = "high-contrast"
 			}
+			if uc, err := identity.LoadUserConfig(); err == nil {
+				uc.Theme = theme
+				_ = identity.SaveUserConfig(uc)
+			}
+		case "n":
+			return m.openCreateForm()
+		case "a":
+			return m.openActorSwitchForm()
 		}
 	}
 	return m, nil
+}
+
+func (m *Model) openView(name string) {
+	for index, viewName := range views {
+		if viewName == name {
+			m.view = index
+			m.cursor = index
+			m.notice = "Opened " + name
+			return
+		}
+	}
+}
+
+func (m *Model) activeHubIndex() int {
+	current := views[m.view]
+	for hubIndex, hub := range navigationHubs {
+		for _, viewName := range hub.Views {
+			if viewName == current {
+				return hubIndex
+			}
+		}
+	}
+	return 0
+}
+
+func (m *Model) moveHub(delta int) {
+	next := max(0, min(len(navigationHubs)-1, m.activeHubIndex()+delta))
+	m.openView(navigationHubs[next].Views[0])
+	m.notice = ""
+}
+
+func (m *Model) moveHubView(delta int) {
+	hub := navigationHubs[m.activeHubIndex()]
+	current := views[m.view]
+	position := 0
+	for index, viewName := range hub.Views {
+		if viewName == current {
+			position = index
+			break
+		}
+	}
+	position = (position + delta + len(hub.Views)) % len(hub.Views)
+	m.openView(hub.Views[position])
+	m.notice = ""
+}
+
+func (m *Model) focusCurrentView() {
+	switch views[m.view] {
+	case "Tasks", "My work":
+		m.rowFocus = true
+		m.taskList.SetMineFilter(views[m.view] == "My work", m.state, m.actor)
+	case "Inbox":
+		m.rowFocus = true
+		m.messageList.Refresh(m.state, m.actor)
+	case "Approvals":
+		m.rowFocus = true
+		m.approvalList.Refresh(m.state, m.actor)
+	case "Agents":
+		m.rowFocus = true
+		m.agentList.Refresh(m.state, m.actor)
+	case "Invocations":
+		m.rowFocus = true
+		m.invocationList.Refresh(m.state, m.actor)
+	case "Runtimes":
+		m.rowFocus = true
+		m.runtimeList.Refresh(m.state, m.actor)
+	case "Project settings":
+		m.settingsFocus = true
+	}
 }
 func (m *Model) refresh() {
 	m.state, m.err = m.svc.State()
 	if m.err == nil {
 		m.notice = "State refreshed at " + time.Now().Format("15:04:05")
+		m.refreshLists()
 	}
+}
+
+// refreshSilent re-reads state without disturbing the current notice/error,
+// used by the background file-watch tick so it never stomps a just-shown
+// action result. Read errors are swallowed; the last-known-good state stays
+// displayed until the next successful read.
+func (m *Model) refreshSilent() {
+	st, err := m.svc.State()
+	if err != nil {
+		return
+	}
+	m.state = st
+	m.refreshLists()
+}
+func (m *Model) refreshLists() {
+	m.taskList.Refresh(m.state, m.actor)
+	m.messageList.Refresh(m.state, m.actor)
+	m.approvalList.Refresh(m.state, m.actor)
+	m.agentList.Refresh(m.state, m.actor)
+	m.invocationList.Refresh(m.state, m.actor)
+	m.runtimeList.Refresh(m.state, m.actor)
 }
 func (m *Model) applyPalette() {
 	q := strings.ToLower(strings.TrimSpace(m.query))
-	if q == "new task" || q == "create task" {
-		next, _ := m.openTaskForm()
-		*m = next.(Model)
+	if q == "" {
 		return
+	}
+	for _, command := range []struct {
+		names []string
+		view  string
+		open  func(Model) (tea.Model, tea.Cmd)
+	}{
+		{names: []string{"new task", "create task"}, view: "Tasks", open: func(value Model) (tea.Model, tea.Cmd) { return value.openTaskForm() }},
+		{names: []string{"new agent", "create agent", "register agent"}, view: "Agents", open: func(value Model) (tea.Model, tea.Cmd) {
+			return value.openActionForm(agentRegisterForm, "agent.register", "")
+		}},
+		{names: []string{"new message", "create message"}, view: "Inbox", open: func(value Model) (tea.Model, tea.Cmd) {
+			return value.openActionForm(messagePostForm, "message.post", "")
+		}},
+		{names: []string{"new invocation", "create invocation"}, view: "Invocations", open: func(value Model) (tea.Model, tea.Cmd) {
+			return value.openActionForm(invocationRequestForm, "invocation.request", "")
+		}},
+		{names: []string{"new runtime", "create runtime"}, view: "Runtimes", open: func(value Model) (tea.Model, tea.Cmd) {
+			return value.openActionForm(runtimeRegisterForm, "runtime.register", "")
+		}},
+	} {
+		for _, name := range command.names {
+			if q == name {
+				m.openView(command.view)
+				next, _ := command.open(*m)
+				*m = next.(Model)
+				return
+			}
+		}
 	}
 	for i, v := range views {
 		if strings.Contains(strings.ToLower(v), q) {
@@ -120,26 +324,14 @@ func (m *Model) applyPalette() {
 }
 
 func (m Model) openTaskForm() (tea.Model, tea.Cmd) {
-	labels := []string{"Task ID", "Title", "Branch", "Resources (comma-separated)"}
-	placeholders := []string{"task-001", "Implement API", "feature/api", "src/api,tests/api"}
-	m.inputs = make([]textinput.Model, len(labels))
-	for i := range labels {
-		input := textinput.New()
-		input.Prompt = labels[i] + ": "
-		input.Placeholder = placeholders[i]
-		input.CharLimit = 240
-		m.inputs[i] = input
-	}
-	cmd := m.inputs[0].Focus()
-	m.form, m.formFocus, m.palette, m.query = "create-task", 0, false, ""
-	return m, cmd
+	return m.openActionForm(taskCreateForm, "task.create", "")
 }
 
 func (m Model) updateForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if key, ok := msg.(tea.KeyPressMsg); ok {
 		switch key.String() {
 		case "esc":
-			m.form, m.inputs, m.err = "", nil, nil
+			m.form, m.inputs, m.err, m.formSpec = "", nil, nil, nil
 			return m, nil
 		case "tab", "down":
 			m.inputs[m.formFocus].Blur()
@@ -155,19 +347,43 @@ func (m Model) updateForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.formFocus++
 				return m, m.inputs[m.formFocus].Focus()
 			}
-			id, title := strings.TrimSpace(m.inputs[0].Value()), strings.TrimSpace(m.inputs[1].Value())
-			branch, resources := strings.TrimSpace(m.inputs[2].Value()), splitCSV(m.inputs[3].Value())
-			if id == "" || title == "" || branch == "" || len(resources) == 0 {
-				m.notice = "Complete every required field."
-				return m, nil
+			values := make([]string, len(m.inputs))
+			for i := range m.inputs {
+				values[i] = strings.TrimSpace(m.inputs[i].Value())
 			}
-			_, err := m.svc.Execute(m.actor, "task.create", id, model.TaskCreated{Title: title, Repository: "local", Branch: branch, Resources: resources, Risk: "ROUTINE"})
+			for i, f := range m.formSpec.Fields {
+				if f.Required && values[i] == "" {
+					m.notice = "Complete every required field."
+					return m, nil
+				}
+			}
+			if m.formSpec.Dispatch != nil {
+				return m.formSpec.Dispatch(m, values)
+			}
+			payload, err := m.formSpec.Build(values)
 			if err != nil {
 				m.err = err
 				return m, nil
 			}
-			m.form, m.inputs, m.err = "", nil, nil
-			m.notice = "Created task " + id
+			id := m.formTaskID
+			if m.formSpec.ResolveID != nil {
+				id = m.formSpec.ResolveID(m.formTaskID, values)
+			}
+			typ := m.form
+			if m.formSpec.ConfirmIf != nil {
+				if ok, prompt := m.formSpec.ConfirmIf(payload); ok {
+					m.form, m.inputs, m.formSpec = "", nil, nil
+					m.confirm = &confirmState{prompt: prompt, typ: typ, id: id, payload: payload}
+					return m, nil
+				}
+			}
+			_, err = m.svc.Execute(m.actor, typ, id, payload)
+			if err != nil {
+				m.err = err
+				return m, nil
+			}
+			m.form, m.inputs, m.err, m.formSpec = "", nil, nil, nil
+			m.notice = "Applied " + typ + " to " + id
 			m.refresh()
 			return m, nil
 		}
@@ -195,160 +411,284 @@ func colors(high bool) palette {
 	if high {
 		return palette{lipgloss.Color("#000000"), lipgloss.Color("#111111"), lipgloss.Color("#00FFFF"), lipgloss.Color("#FFFF00"), lipgloss.Color("#FF4444"), lipgloss.Color("#DD88FF"), lipgloss.Color("#BBBBBB"), lipgloss.Color("#FFFFFF")}
 	}
-	return palette{lipgloss.Color("#071019"), lipgloss.Color("#0E1C27"), lipgloss.Color("#39D7E7"), lipgloss.Color("#F0B95B"), lipgloss.Color("#F46A6A"), lipgloss.Color("#B69CFF"), lipgloss.Color("#78909C"), lipgloss.Color("#E8F1F5")}
+	return palette{lipgloss.Color("#071216"), lipgloss.Color("#0D2024"), lipgloss.Color("#56D6C9"), lipgloss.Color("#E8B85C"), lipgloss.Color("#F07167"), lipgloss.Color("#B9A7E8"), lipgloss.Color("#78918F"), lipgloss.Color("#D7E5E3")}
 }
 func (m Model) View() tea.View {
 	p := colors(m.highContrast)
-	sidebarW := 25
-	if m.width < 90 {
-		sidebarW = 20
-	}
-	contentW := m.width - sidebarW - 3
-	if contentW < 40 {
-		contentW = 40
-	}
-	side := m.renderSidebar(p, sidebarW)
-	body := m.renderBody(p, contentW)
+	sidebarW := m.sidebarWidth()
+	contentW := max(30, m.width-sidebarW-3)
+	availH := max(10, m.height)
+	side := m.renderSidebar(p, sidebarW, availH)
+	body := m.renderBody(p, contentW, availH)
 	screen := lipgloss.JoinHorizontal(lipgloss.Top, side, " ", body)
+	screen = lipgloss.NewStyle().MaxWidth(m.width).Render(screen)
 	if m.palette {
 		screen = m.renderPalette(p, screen)
 	}
 	v := tea.NewView(screen)
 	v.AltScreen = true
 	v.MouseMode = tea.MouseModeCellMotion
-	v.WindowTitle = "Agent Comms · Signal room"
+	v.WindowTitle = "Agent Comms · Project Control"
 	return v
 }
-func (m Model) renderSidebar(p palette, w int) string {
-	title := lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("◉ AGENT COMMS")
-	sub := lipgloss.NewStyle().Foreground(p.muted).Render("SIGNAL ROOM")
-	rows := []string{title, sub, ""}
-	for i, name := range views {
+func (m Model) sidebarWidth() int {
+	if m.width < 72 {
+		return 16
+	}
+	return 21
+}
+func (m Model) renderSidebar(p palette, w, h int) string {
+	title := lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("● AGENT COMMS")
+	sub := lipgloss.NewStyle().Foreground(p.muted).Render(truncate(m.projectID, max(8, w-2)))
+	rows := []string{title, sub, "", lipgloss.NewStyle().Foreground(p.muted).Render("OPERATIONS"), ""}
+	activeHub := m.activeHubIndex()
+	for i, hub := range navigationHubs {
 		marker := "  "
 		style := lipgloss.NewStyle().Foreground(p.muted)
-		if i == m.cursor {
-			marker = "› "
+		if i == activeHub {
+			marker = "▌ "
 			style = style.Foreground(p.cyan).Bold(true)
 		}
-		badge := m.badge(name)
-		label := name
-		if lipgloss.Width(label) > w-7 {
-			label = label[:min(len(label), w-8)] + "…"
+		rows = append(rows, style.Render(marker+hub.Name), "")
+		if i == activeHub {
+			rows = append(rows, lipgloss.NewStyle().Foreground(p.text).PaddingLeft(2).
+				Render("└ "+truncate(views[m.view], max(8, w-5))), "")
 		}
-		rows = append(rows, style.Render(fmt.Sprintf("%s%-*s %s", marker, w-7, label, badge)))
 	}
-	rows = append(rows, "", lipgloss.NewStyle().Foreground(p.muted).Render("/ commands   ? help"))
-	return lipgloss.NewStyle().Width(w).Height(max(20, m.height-1)).Padding(1).Background(p.ink).Foreground(p.text).Render(strings.Join(rows, "\n"))
+	rows = append(rows,
+		"",
+		lipgloss.NewStyle().Foreground(p.muted).Render("↑↓ hub  ←→ tab"),
+		lipgloss.NewStyle().Foreground(p.muted).Render("Enter open  Esc back"),
+		lipgloss.NewStyle().Foreground(p.muted).Render("[/] commands"),
+	)
+	return lipgloss.NewStyle().Width(w).Height(h).Padding(1).Background(p.ink).Foreground(p.text).Render(strings.Join(rows, "\n"))
 }
-func (m Model) badge(name string) string {
-	n := 0
-	switch name {
-	case "Tasks":
-		n = len(m.state.Tasks)
-	case "Inbox":
-		for _, x := range m.state.Messages {
-			if x.Status == "OPEN" {
-				n++
-			}
-		}
-	case "Agents":
-		n = len(m.state.Agents)
-	case "Approvals":
-		for _, x := range m.state.Approvals {
-			if x.Status == "PENDING" {
-				n++
-			}
-		}
-	case "Blockers":
-		for _, x := range m.state.Tasks {
-			if x.Status == "BLOCKED" {
-				n++
-			}
-		}
+func (m Model) renderBody(p palette, w, h int) string {
+	title := views[m.view]
+	if title == "Overview" {
+		title = "PROJECT CONTROL"
 	}
-	if n == 0 {
-		return ""
-	}
-	return fmt.Sprintf("%d", n)
-}
-func (m Model) renderBody(p palette, w int) string {
-	header := lipgloss.NewStyle().Foreground(p.text).Bold(true).Render(views[m.view])
-	meta := lipgloss.NewStyle().Foreground(p.muted).Render(fmt.Sprintf("profile %s · %d events · %s", m.actor, m.state.Integrity.EventCount, m.state.Integrity.SyncState))
+	header := lipgloss.NewStyle().Foreground(p.text).Bold(true).Render(title)
+	meta := m.commandRail(p, w)
+	tabs := m.renderHubTabs(p, w)
+	pane := lipgloss.NewStyle().Width(w).Height(h).Padding(1, 2).Background(p.panel).Foreground(p.text)
 	if m.form != "" {
 		content := m.renderForm(p)
-		return lipgloss.NewStyle().Width(w).Height(max(20, m.height-1)).Padding(1, 2).Background(p.panel).Foreground(p.text).Render(header + "\n" + meta + "\n\n" + content)
+		return pane.Render(meta + "\n" + tabs + "\n\n" + header + "\n\n" + content)
 	}
+	if m.confirm != nil {
+		content := m.renderConfirm(p)
+		return pane.Render(meta + "\n" + tabs + "\n\n" + header + "\n\n" + content)
+	}
+	contentW := max(30, w-4)
+	contentH := max(6, h-8)
+	wrap := lipgloss.NewStyle().MaxWidth(contentW)
 	content := ""
+	bodyContent := ""
 	switch views[m.view] {
 	case "Overview":
-		content = m.overview(p)
-	case "My work":
-		content = m.tasks(p, true)
-	case "Tasks":
-		content = m.tasks(p, false)
+		bodyContent = wrap.Render(m.overview(p))
+	case "My work", "Tasks":
+		bodyContent = m.taskList.View(p, m.state, m.actor, contentW, contentH)
 	case "Inbox":
-		content = m.inbox(p)
+		bodyContent = m.messageList.View(p, m.state, m.actor, contentW, contentH)
 	case "Agents":
-		content = m.agents(p)
+		bodyContent = m.agentControlBar(p, contentW) + "\n\n" +
+			m.agentList.View(p, m.state, m.actor, contentW, max(5, contentH-4))
+	case "Invocations":
+		bodyContent = m.invocationControlBar(p, contentW) + "\n\n" +
+			m.invocationList.View(p, m.state, m.actor, contentW, max(5, contentH-4))
+	case "Runtimes":
+		bodyContent = m.runtimeList.View(p, m.state, m.actor, contentW, contentH)
 	case "Approvals":
-		content = m.approvals(p)
+		bodyContent = m.approvalList.View(p, m.state, m.actor, contentW, contentH)
+	case "Documents":
+		bodyContent = wrap.Render(m.documents(p))
 	case "Contracts & decisions":
-		content = m.decisions(p)
+		bodyContent = wrap.Render(m.decisions(p))
+	case "Project settings":
+		bodyContent = m.projectSettings(p, contentW, contentH)
 	case "Blockers":
-		content = m.blockers(p)
-	case "Integrity & sync":
-		content = m.integrity(p)
+		bodyContent = wrap.Render(m.blockers(p))
+	case "Audit & health":
+		bodyContent = wrap.Render(m.integrity(p))
 	case "Activity":
-		content = m.chain(p)
+		bodyContent = wrap.Render(m.chain(p))
 	case "Archive search":
-		content = m.archive(p)
+		bodyContent = wrap.Render(m.archive(p))
 	}
-	status := ""
+	content = bodyContent
 	if m.err != nil {
-		status = lipgloss.NewStyle().Foreground(p.red).Render("Error: " + m.err.Error())
+		content += "\n\n" + lipgloss.NewStyle().Foreground(p.red).MaxWidth(contentW).Render("Error: "+m.err.Error())
 	} else if m.notice != "" {
-		status = lipgloss.NewStyle().Foreground(p.cyan).Render(m.notice)
+		content += "\n\n" + lipgloss.NewStyle().Foreground(p.cyan).MaxWidth(contentW).Render(m.notice)
 	}
-	return lipgloss.NewStyle().Width(w).Height(max(20, m.height-1)).Padding(1, 2).Background(p.panel).Foreground(p.text).Render(header + "\n" + meta + "\n\n" + content + "\n\n" + status)
+	return pane.Render(meta + "\n" + tabs + "\n\n" + header + "\n\n" + content)
+}
+
+func (m Model) commandRail(p palette, width int) string {
+	sequence := max(m.state.Integrity.ServerSequence, m.state.Integrity.CacheSequence)
+	freshness := empty(m.state.Integrity.Connectivity, "LOCAL")
+	hub := navigationHubs[m.activeHubIndex()].Name
+	left := lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("LIVE")
+	detail := fmt.Sprintf("  %s / %s  ·  %s  ·  seq %d", hub, views[m.view], freshness, sequence)
+	authority := strings.ToLower(string(m.state.Agents[m.actor].Role))
+	right := "authority " + empty(authority, "unknown")
+	gap := max(1, width-lipgloss.Width(left+detail)-lipgloss.Width(right)-4)
+	return left + lipgloss.NewStyle().Foreground(p.muted).Render(detail) +
+		strings.Repeat(" ", gap) + lipgloss.NewStyle().Foreground(p.amber).Render(right)
+}
+
+func (m Model) renderHubTabs(p palette, width int) string {
+	hub := navigationHubs[m.activeHubIndex()]
+	current := views[m.view]
+	tabs := make([]string, 0, len(hub.Views))
+	for _, name := range hub.Views {
+		label := name
+		style := lipgloss.NewStyle().Foreground(p.muted).Padding(0, 1)
+		if name == current {
+			style = style.Foreground(p.ink).Background(p.cyan).Bold(true)
+		}
+		tabs = append(tabs, style.Render(label))
+	}
+	return lipgloss.NewStyle().Width(width).BorderBottom(true).BorderStyle(lipgloss.NormalBorder()).
+		BorderForeground(p.muted).Render(strings.Join(tabs, " "))
 }
 func (m Model) renderForm(p palette) string {
-	rows := []string{lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("Create task"), lipgloss.NewStyle().Foreground(p.muted).Render("Declare the branch and protected write resources before work begins."), ""}
-	for i, input := range m.inputs {
-		line := "  " + input.View()
-		if i == m.formFocus {
-			line = lipgloss.NewStyle().Foreground(p.cyan).Render("> ") + input.View()
-		}
-		rows = append(rows, line)
+	title, hint := "Form", ""
+	if m.formSpec != nil {
+		title, hint = m.formSpec.Title, m.formSpec.Hint
 	}
-	rows = append(rows, "", lipgloss.NewStyle().Foreground(p.muted).Render("enter next/save | tab move | esc cancel"))
+	rows := []string{
+		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("EDIT / " + title),
+		lipgloss.NewStyle().Foreground(p.muted).Render(hint),
+		"",
+	}
+	for i, input := range m.inputs {
+		marker := "  "
+		style := lipgloss.NewStyle().Foreground(p.text)
+		if i == m.formFocus {
+			marker = "▌ "
+			style = style.Foreground(p.cyan).Bold(true)
+		}
+		rows = append(rows, style.Render(marker)+input.View(), "")
+	}
+	rows = append(rows,
+		lipgloss.NewStyle().Foreground(p.muted).Render("Tab / Shift+Tab moves between fields"),
+		lipgloss.NewStyle().Foreground(p.amber).Render("Enter continues · final Enter reviews changes · Esc cancels"),
+	)
 	if m.notice != "" {
 		rows = append(rows, lipgloss.NewStyle().Foreground(p.amber).Render(m.notice))
 	}
 	if m.err != nil {
 		rows = append(rows, lipgloss.NewStyle().Foreground(p.red).Render(m.err.Error()))
 	}
-	return lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(p.cyan).Padding(1, 2).Render(strings.Join(rows, "\n"))
-}
-func box(p palette, title, value, detail string) string {
-	return lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(p.muted).Width(21).Padding(0, 1).Render(lipgloss.NewStyle().Foreground(p.muted).Render(title) + "\n" + lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render(value) + "\n" + detail)
+	return lipgloss.NewStyle().BorderLeft(true).BorderStyle(lipgloss.ThickBorder()).
+		BorderForeground(p.cyan).PaddingLeft(2).MaxWidth(max(40, m.width-m.sidebarWidth()-10)).
+		Render(strings.Join(rows, "\n"))
 }
 func (m Model) overview(p palette) string {
-	open, blocked, pending := 0, 0, 0
+	contentWidth := max(28, m.width-m.sidebarWidth()-7)
+	open, running := 0, 0
 	for _, t := range m.state.Tasks {
 		if !t.Archived && t.Status != "COMPLETED" && t.Status != "CANCELLED" {
 			open++
 		}
-		if t.Status == "BLOCKED" {
-			blocked++
+	}
+	for _, invocation := range m.state.Invocations {
+		switch invocation.Status {
+		case "RUNNING", "CLAIMED":
+			running++
 		}
 	}
-	for _, a := range m.state.Approvals {
-		if a.Status == "PENDING" {
-			pending++
-		}
+	status := fmt.Sprintf(
+		"%d agents  ·  %d active tasks  ·  %d active invocations  ·  %d signed events",
+		len(m.state.Agents), open, running, m.state.Integrity.EventCount,
+	)
+	workforceWidth := contentWidth
+	attentionWidth := contentWidth
+	if contentWidth >= 78 {
+		attentionWidth = max(25, contentWidth/3)
+		workforceWidth = contentWidth - attentionWidth - 2
 	}
-	cards := lipgloss.JoinHorizontal(lipgloss.Top, box(p, "ACTIVE WORK", fmt.Sprint(open), "tasks in motion"), " ", box(p, "NEEDS ATTENTION", fmt.Sprint(blocked+pending), "blocks + approvals"), " ", box(p, "INTEGRITY", map[bool]string{true: "VERIFIED", false: "FAILED"}[m.state.Integrity.Verified], fmt.Sprintf("%d signed events", m.state.Integrity.EventCount)))
-	return cards + "\n\n" + lipgloss.NewStyle().Foreground(p.amber).Bold(true).Render("Attention queue") + "\n" + m.attention(p) + "\n\n" + lipgloss.NewStyle().Foreground(p.violet).Bold(true).Render("Event chain") + "\n" + m.chain(p)
+	workforce := m.section(p, "AGENT WORKFORCE", "signal / identity / current obligation", m.workforce(p, workforceWidth-4), workforceWidth)
+	attention := m.section(p, "ATTENTION", "items requiring intervention", m.attention(p), attentionWidth)
+	top := workforce + "\n\n" + attention
+	if contentWidth >= 78 {
+		top = lipgloss.JoinHorizontal(lipgloss.Top, workforce, "  ", attention)
+	}
+	activity := m.section(p, "LIVE ACTIVITY", "append-only project history", m.chain(p), contentWidth)
+	keys := lipgloss.NewStyle().Foreground(p.muted).Render("[g] agents   [i] invocations   [n] create   [r] refresh   [/] commands")
+	return lipgloss.NewStyle().Foreground(p.cyan).Render(status) + "\n\n" + top + "\n\n" + activity + "\n" + keys
+}
+
+func (m Model) section(p palette, title, subtitle, body string, width int) string {
+	heading := lipgloss.NewStyle().Foreground(p.text).Bold(true).Render(title)
+	description := lipgloss.NewStyle().Foreground(p.muted).Render(subtitle)
+	return lipgloss.NewStyle().
+		Width(max(20, width)).
+		Border(lipgloss.NormalBorder()).
+		BorderForeground(p.muted).
+		Padding(0, 1).
+		Render(heading + "\n" + description + "\n\n" + body)
+}
+
+func (m Model) workforce(p palette, width int) string {
+	if len(m.state.Agents) == 0 {
+		return lipgloss.NewStyle().Foreground(p.muted).Render("No agents registered.")
+	}
+	rows := []string{}
+	if width >= 54 {
+		rows = append(rows, lipgloss.NewStyle().Foreground(p.muted).Render(
+			fmt.Sprintf("%-12s %-14s %-10s %s", "SIGNAL", "AGENT", "ROLE", "CURRENT WORK"),
+		))
+	}
+	for _, agentID := range service.SortedKeys(m.state.Agents) {
+		agent := m.state.Agents[agentID]
+		signal := "○ OFFLINE"
+		if agent.PrincipalType == model.PrincipalHuman {
+			signal = "◆ CONTROL"
+		}
+		for _, runtime := range m.state.AgentRuntimes {
+			if runtime.AgentID != agentID {
+				continue
+			}
+			switch {
+			case runtime.Health == "DEGRADED":
+				signal = "▲ DEGRADED"
+			case runtime.Status == "ONLINE":
+				signal = "● ONLINE"
+			case runtime.Status == "DRAINING":
+				signal = "◐ DRAINING"
+			default:
+				signal = "○ " + runtime.Status
+			}
+		}
+		work := "available"
+		for _, invocation := range m.state.Invocations {
+			if invocation.Target == agentID && (invocation.Status == "CLAIMED" || invocation.Status == "RUNNING" || invocation.Status == "WAITING") {
+				work = strings.ToLower(invocation.Status) + " · " + invocation.Instruction
+				break
+			}
+		}
+		if work == "available" {
+			for _, task := range m.state.Tasks {
+				if task.Owner == agentID && !task.Archived && task.Status != "COMPLETED" && task.Status != "CANCELLED" {
+					work = strings.ToLower(task.Status) + " · " + task.Title
+					break
+				}
+			}
+		}
+		if width < 54 {
+			rows = append(rows, fmt.Sprintf("%-12s %s\n             %s", signal, agentID, truncate(work, width-13)))
+			continue
+		}
+		rows = append(rows, fmt.Sprintf(
+			"%-12s %-14s %-10s %s",
+			signal, truncate(agent.DisplayName, 13), strings.ToLower(string(agent.Role)), truncate(work, max(10, width-42)),
+		))
+	}
+	return strings.Join(rows, "\n")
 }
 func (m Model) attention(p palette) string {
 	rows := []string{}
@@ -365,62 +705,37 @@ func (m Model) attention(p palette) string {
 			rows = append(rows, "◆ "+a.ID+"  approval: "+a.Action)
 		}
 	}
+	for _, invocation := range m.state.Invocations {
+		switch invocation.Status {
+		case "WAITING":
+			rows = append(rows, "◫ "+invocation.ID+"  "+invocation.Target+" waits: "+invocation.Reason)
+		case "DEAD_LETTER":
+			rows = append(rows, "✕ "+invocation.ID+"  delivery failed: "+invocation.Reason)
+		case "PENDING":
+			rows = append(rows, "→ "+invocation.ID+"  pending delivery to "+invocation.Target)
+		}
+	}
+	for _, runtime := range m.state.AgentRuntimes {
+		if runtime.Status == "REVOKED" || runtime.Health == "DEGRADED" {
+			rows = append(rows, "● "+runtime.ID+"  "+runtime.Status+" · "+runtime.Health)
+		}
+	}
 	if len(rows) == 0 {
-		return lipgloss.NewStyle().Foreground(p.muted).Render("No urgent coordination items. Open a task or review project activity.")
+		return lipgloss.NewStyle().Foreground(p.cyan).Render("✓ CLEAR") + "\n" +
+			lipgloss.NewStyle().Foreground(p.muted).Render("No intervention needed.")
 	}
 	sort.Strings(rows)
 	return strings.Join(rows, "\n")
 }
-func (m Model) tasks(p palette, mine bool) string {
-	rows := []string{"STATUS       TASK                 OWNER         LEASE      RESOURCES"}
-	for _, id := range service.SortedKeys(m.state.Tasks) {
-		t := m.state.Tasks[id]
-		if t.Archived || (mine && t.Owner != m.actor) {
-			continue
-		}
-		lease := "—"
-		if !t.LeaseUntil.IsZero() {
-			lease = time.Until(t.LeaseUntil).Round(time.Minute).String()
-		}
-		rows = append(rows, fmt.Sprintf("%-12s %-20s %-13s %-10s %s", t.Status, id, t.Owner, lease, strings.Join(t.Resources, ",")))
+
+func (m Model) documents(p palette) string {
+	rows := []string{"STATUS    VERSION  DOCUMENT             AUTHOR        TAGS"}
+	for _, id := range service.SortedKeys(m.state.Documents) {
+		d := m.state.Documents[id]
+		rows = append(rows, fmt.Sprintf("%-9s %-7d %-20s %-13s %s", d.Status, d.Version, id, d.Author, strings.Join(d.Tags, ",")))
 	}
 	if len(rows) == 1 {
-		return "No tasks here. Press / and choose Create task to coordinate the next piece of work."
-	}
-	return strings.Join(rows, "\n")
-}
-func (m Model) inbox(p palette) string {
-	rows := []string{"KIND       FROM          SUBJECT                              STATE"}
-	for _, id := range service.SortedKeys(m.state.Messages) {
-		x := m.state.Messages[id]
-		for _, to := range x.To {
-			if to == m.actor || m.actor == "owner" {
-				rows = append(rows, fmt.Sprintf("%-10s %-13s %-36s %s", x.Kind, x.From, x.Subject, x.Status))
-				break
-			}
-		}
-	}
-	if len(rows) == 1 {
-		return "Inbox is clear. Durable actions, contracts, blockers, and decisions will appear here."
-	}
-	return strings.Join(rows, "\n")
-}
-func (m Model) agents(p palette) string {
-	rows := []string{"STATE       PRINCIPAL        ROLE            TYPE       SCOPES"}
-	for _, id := range service.SortedKeys(m.state.Agents) {
-		a := m.state.Agents[id]
-		rows = append(rows, fmt.Sprintf("%-11s %-16s %-15s %-10s %s", a.Status, id, a.Role, a.PrincipalType, strings.Join(a.Scopes, ",")))
-	}
-	return strings.Join(rows, "\n")
-}
-func (m Model) approvals(p palette) string {
-	rows := []string{}
-	for _, id := range service.SortedKeys(m.state.Approvals) {
-		a := m.state.Approvals[id]
-		rows = append(rows, fmt.Sprintf("◆ %-16s %-9s %-10s %s", id, a.Tier, a.Status, a.Action))
-	}
-	if len(rows) == 0 {
-		return "No approval requests. Elevated actions will wait here for an eligible principal."
+		return "No living documents yet."
 	}
 	return strings.Join(rows, "\n")
 }
@@ -437,7 +752,7 @@ func (m Model) decisions(p palette) string {
 		}
 	}
 	if len(rows) == 0 {
-		return "No contracts or decisions recorded. Use durable records when shared understanding matters."
+		return "No contracts or decisions recorded."
 	}
 	return strings.Join(rows, "\n\n")
 }
@@ -459,19 +774,23 @@ func (m Model) integrity(p palette) string {
 	if !m.state.Integrity.Verified {
 		mark = "✕"
 	}
-	return fmt.Sprintf("%s Chain verified: %t\n  Signed events: %d\n  Head commit: %s\n  Checkpoint: %s\n  Remote: %s\n\nRun `agent-comms verify` before recovery or migration.", mark, m.state.Integrity.Verified, m.state.Integrity.EventCount, m.state.Integrity.Head, m.state.Integrity.SyncState, empty(m.state.Integrity.Remote, "not configured"))
+	return fmt.Sprintf("%s Chain verified: %t\n  Signed events: %d\n  Head: %s\n  Checkpoint: %s\n  Remote: %s\n  Consistency: %s\n  Connectivity: %s\n  Server sequence: %d\n  Cache sequence: %d\n\nRun `agent-comms verify` before recovery or migration.", mark, m.state.Integrity.Verified, m.state.Integrity.EventCount, m.state.Integrity.Head, m.state.Integrity.SyncState, empty(m.state.Integrity.Remote, "not configured"), empty(m.state.Integrity.Consistency, "LEGACY_LOCAL"), empty(m.state.Integrity.Connectivity, "LOCAL"), m.state.Integrity.ServerSequence, m.state.Integrity.CacheSequence)
 }
 func (m Model) chain(p palette) string {
-	ev, e := m.svc.Store.Events()
+	after := max(0, m.state.Integrity.EventCount-7)
+	cursor := ""
+	if after > 0 {
+		cursor = controlplane.EncodeCursor(uint64(after))
+	}
+	page, e := m.svc.History(controlplane.PageRequest{Cursor: cursor, Limit: 7})
 	if e != nil {
 		return e.Error()
 	}
-	start := max(0, len(ev)-7)
 	rows := []string{}
-	for i := start; i < len(ev); i++ {
-		v := ev[i]
+	for i, record := range page.Items {
+		v := record.Event
 		joint := "├─"
-		if i == len(ev)-1 {
+		if i == len(page.Items)-1 {
 			joint = "└─"
 		}
 		rows = append(rows, fmt.Sprintf("%s %04d  %-22s %s · %s", joint, v.Sequence, v.Type, v.Actor, v.EntityID))
@@ -491,8 +810,53 @@ func (m Model) archive(p palette) string {
 	return fmt.Sprintf("%d archived tasks remain in immutable history.\n\nUse `agent-comms search <query>` for full-text event search or `agent-comms export markdown` for a review packet.", n)
 }
 func (m Model) renderPalette(p palette, under string) string {
-	panel := lipgloss.NewStyle().Width(min(62, m.width-8)).Border(lipgloss.DoubleBorder()).BorderForeground(p.cyan).Background(p.ink).Foreground(p.text).Padding(1, 2).Render("COMMAND PALETTE\n\n> " + m.query + "█\n\nType a view name or `new task` · enter run · esc close")
-	return under + "\n" + panel
+	width := min(68, max(36, m.width-8))
+	rows := []string{
+		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("COMMANDS"),
+		lipgloss.NewStyle().Foreground(p.muted).Render("Go to a workspace or start an action."),
+		"",
+		lipgloss.NewStyle().Foreground(p.muted).Render("Command"),
+		lipgloss.NewStyle().Width(width-6).Background(p.panel).Foreground(p.text).
+			Padding(0, 1).Render("> " + m.query + "█"),
+		"",
+	}
+	matches := m.paletteMatches()
+	if len(matches) == 0 {
+		rows = append(rows, lipgloss.NewStyle().Foreground(p.amber).Render("No matching command"))
+	} else {
+		rows = append(rows, lipgloss.NewStyle().Foreground(p.muted).Render("Matches"))
+		for index, match := range matches {
+			marker := "  "
+			style := lipgloss.NewStyle().Foreground(p.text)
+			if index == 0 {
+				marker = "› "
+				style = style.Foreground(p.cyan).Bold(true)
+			}
+			rows = append(rows, style.Render(marker+match))
+		}
+	}
+	rows = append(rows, "", lipgloss.NewStyle().Foreground(p.muted).Render("Type to filter · Enter open · Esc close"))
+	panel := lipgloss.NewStyle().Width(width).Border(lipgloss.NormalBorder()).
+		BorderForeground(p.cyan).Background(p.ink).Foreground(p.text).Padding(1, 2).
+		Render(strings.Join(rows, "\n"))
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, panel,
+		lipgloss.WithWhitespaceStyle(lipgloss.NewStyle().Background(p.ink)))
+}
+
+func (m Model) paletteMatches() []string {
+	query := strings.ToLower(strings.TrimSpace(m.query))
+	commands := []string{"new task", "new agent", "new message", "new invocation", "new runtime"}
+	commands = append(commands, views...)
+	matches := make([]string, 0, 6)
+	for _, command := range commands {
+		if query == "" || strings.Contains(strings.ToLower(command), query) {
+			matches = append(matches, command)
+			if len(matches) == 6 {
+				break
+			}
+		}
+	}
+	return matches
 }
 func empty(v, d string) string {
 	if v == "" {
@@ -500,10 +864,28 @@ func empty(v, d string) string {
 	}
 	return v
 }
+
+func truncate(value string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	runes := []rune(value)
+	if len(runes) <= width {
+		return value
+	}
+	if width == 1 {
+		return "…"
+	}
+	return string(runes[:width-1]) + "…"
+}
 func Run(s *service.Service, actor string, in io.Reader, out io.Writer) error {
 	m, e := New(s, actor)
 	if e != nil {
 		return e
+	}
+	m.EnableFileWatch()
+	if m.watcher != nil {
+		defer m.watcher.Close()
 	}
 	p := tea.NewProgram(m, tea.WithInput(in), tea.WithOutput(out))
 	_, e = p.Run()

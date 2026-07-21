@@ -47,6 +47,9 @@ func (s *Store) VerifyLegacyV1() error {
 		return e
 	}
 	files, _ := filepath.Glob(filepath.Join(s.runtime(), "events", "*.json"))
+	if len(files) == 0 {
+		files, _ = filepath.Glob(filepath.Join(s.runtime(), "legacy", "v1", "events", "*.json"))
+	}
 	sort.Strings(files)
 	prev := ""
 	for i, f := range files {
@@ -73,18 +76,25 @@ func (s *Store) VerifyLegacyV1() error {
 	return nil
 }
 func (s *Store) MigrateV1(owner string) error {
+	return s.migrateV1(owner, false)
+}
+
+func (s *Store) migrateV1(owner string, legacyAdoption bool) error {
 	cfg, e := s.Config()
 	if e != nil {
 		return e
 	}
 	if cfg.SchemaVersion == model.SchemaVersion {
-		return nil
+		return s.resumeV1Migration(owner)
 	}
 	if cfg.SchemaVersion != "1.0.0" {
 		return fmt.Errorf("unsupported source schema %q", cfg.SchemaVersion)
 	}
 	if owner == "" {
 		return errors.New("owner identity mapping is required")
+	}
+	if b, x := os.ReadFile(filepath.Join(s.Root, ".agents")); x == nil && !strings.EqualFold(strings.TrimSpace(string(b)), strings.TrimSpace(string(ManagedBootstrap()))) && !legacyAdoption {
+		return errors.New("legacy .agents requires dedicated `agent-comms migrate adopt`; plain runtime migration refused")
 	}
 	if e = s.VerifyLegacyV1(); e != nil {
 		return e
@@ -135,17 +145,23 @@ func (s *Store) MigrateV1(owner string) error {
 	if e = s.Credentials.Put(cred); e != nil {
 		return e
 	}
-	next := Config{SchemaVersion: model.SchemaVersion, ProjectID: projectID, Owner: owner, DefaultLease: "4h", StaleGrace: "1h", ActiveRetention: "168h", SummaryLimit: 1200, ArtifactLimitBytes: 5 * 1024 * 1024}
+	next := Config{SchemaVersion: model.SchemaVersion, ToolkitVersion: RuntimeVersion, ProjectID: projectID, Owner: owner, DefaultLease: "4h", StaleGrace: "1h", ActiveRetention: "168h", SummaryLimit: 1200, ArtifactLimitBytes: 5 * 1024 * 1024}
 	if e = writeJSON(filepath.Join(s.runtime(), "config.json"), next, 0644); e != nil {
+		return e
+	}
+	if e = os.WriteFile(filepath.Join(s.runtime(), "AGENT_INSTRUCTIONS.md"), AgentInstructions(), 0644); e != nil {
 		return e
 	}
 	journal["status"] = "EVENTS_PENDING"
 	_ = writeJSON(filepath.Join(backup, "journal.json"), journal, 0600)
-	if e = s.git("add", "config.json", "legacy", "migrations"); e != nil {
+	if e = s.git("add", "config.json", "AGENT_INSTRUCTIONS.md", "legacy", "migrations"); e != nil {
 		return e
 	}
 	if e = s.git("commit", "--no-gpg-sign", "-m", "Migrate legacy v1 history"); e != nil {
 		return e
+	}
+	if initFail("after-v1-history-migration") {
+		return errors.New("injected migration failure after legacy history preservation")
 	}
 	release()
 	locked = false
@@ -163,7 +179,109 @@ func (s *Store) MigrateV1(owner string) error {
 	if e = s.git("add", filepath.ToSlash(filepath.Join("migrations", "v1-"+stamp, "journal.json"))); e != nil {
 		return e
 	}
-	return s.git("commit", "--no-gpg-sign", "-m", "Complete v1 migration journal")
+	if e = s.git("commit", "--no-gpg-sign", "-m", "Complete v1 migration journal"); e != nil {
+		return e
+	}
+	return s.ensureBootstrapIfAbsent()
+}
+
+func (s *Store) resumeV1Migration(owner string) error {
+	journalPath, journal, e := s.incompleteV1Journal()
+	if e != nil || journalPath == "" {
+		return e
+	}
+	journalOwner, _ := journal["owner"].(string)
+	if owner == "" {
+		owner = journalOwner
+	}
+	if owner == "" || (journalOwner != "" && owner != journalOwner) {
+		return errors.New("matching owner identity mapping is required to resume migration")
+	}
+	events, e := s.Events()
+	if e != nil {
+		return e
+	}
+	if len(events) == 0 {
+		cfg, x := s.Config()
+		if x != nil {
+			return x
+		}
+		cred, x := identity.ResolveCredential(s.Credentials, cfg.ProjectID, owner)
+		if x != nil {
+			return fmt.Errorf("resume owner credential: %w", x)
+		}
+		if _, x = s.AppendWithCredential(owner, "agent.register", owner, model.AgentRegistered{PublicKey: cred.PublicKey, PrincipalType: model.PrincipalHuman, DisplayName: owner}, cred); x != nil {
+			return x
+		}
+		events, _ = s.Events()
+	}
+	if len(events) == 1 {
+		if _, e = s.Append(owner, "agent.activate", owner, model.AgentActivated{Role: model.RoleOwner, Capabilities: []string{"*"}, Scopes: []string{"*"}}); e != nil {
+			return e
+		}
+	}
+	journal["status"] = "COMPLETE"
+	journal["completed_at"] = s.Now()
+	if e = writeJSON(journalPath, journal, 0600); e != nil {
+		return e
+	}
+	rel, _ := filepath.Rel(s.runtime(), journalPath)
+	if e = s.git("add", filepath.ToSlash(rel)); e != nil {
+		return e
+	}
+	if e = s.git("commit", "--no-gpg-sign", "-m", "Complete resumed v1 migration journal"); e != nil {
+		return e
+	}
+	return s.ensureBootstrapIfAbsent()
+}
+
+func (s *Store) ensureBootstrapIfAbsent() error {
+	path := filepath.Join(s.Root, ".agents")
+	if _, e := os.Lstat(path); e == nil {
+		return nil
+	} else if !os.IsNotExist(e) {
+		return e
+	}
+	tmp := path + ".agent-comms.migrate.tmp"
+	if e := writeFileSync(tmp, ManagedBootstrap(), 0644); e != nil {
+		return e
+	}
+	if e := os.Rename(tmp, path); e != nil {
+		_ = os.Remove(tmp)
+		return e
+	}
+	return nil
+}
+
+func (s *Store) incompleteV1Journal() (string, map[string]any, error) {
+	files, _ := filepath.Glob(filepath.Join(s.runtime(), "migrations", "v1-*", "journal.json"))
+	sort.Sort(sort.Reverse(sort.StringSlice(files)))
+	for _, path := range files {
+		b, e := os.ReadFile(path)
+		if e != nil {
+			return "", nil, e
+		}
+		var j map[string]any
+		if e = json.Unmarshal(b, &j); e != nil {
+			return "", nil, e
+		}
+		if j["status"] != "COMPLETE" {
+			return path, j, nil
+		}
+	}
+	return "", nil, nil
+}
+
+func (s *Store) MigrationIncomplete() (bool, string) {
+	path, journal, e := s.incompleteV1Journal()
+	if e != nil {
+		return true, "INVALID"
+	}
+	if path == "" {
+		return false, ""
+	}
+	status, _ := journal["status"].(string)
+	return true, status
 }
 func writeJSON(path string, v any, mode os.FileMode) error {
 	b, e := json.MarshalIndent(v, "", "  ")
