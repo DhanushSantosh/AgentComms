@@ -38,9 +38,9 @@ func TestRuntimeSessionBindingReflectsCapturedProviderAndID(t *testing.T) {
 
 func TestRuntimeRowsIncludeProviderAndSessionColumns(t *testing.T) {
 	instance := newTestService(t)
-	registerAgent(t, instance, "axiom", model.RoleAgent, "src")
-	if _, err := instance.Execute("axiom", "runtime.register", "axiom-runtime-1",
-		model.RuntimeRegistered{AgentID: "axiom", Connector: "MANUAL", MaxConcurrent: 1}); err != nil {
+	registerAgent(t, instance, "AXIOM", model.RoleAgent, "src")
+	if _, err := instance.Execute("AXIOM", "runtime.register", "axiom-runtime-1",
+		model.RuntimeRegistered{AgentID: "AXIOM", Connector: "MANUAL", MaxConcurrent: 1}); err != nil {
 		t.Fatal(err)
 	}
 	if err := sessionbind.Save(instance.Store.Root, "axiom-runtime-1", "e22cbdad-7233-4d6d-8ecc-0c4bffd8c475", "claude"); err != nil {
