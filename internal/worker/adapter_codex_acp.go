@@ -8,7 +8,6 @@ import (
 
 	"github.com/DhanushSantosh/AgentComms/internal/acpclient"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
-	acpsdk "github.com/coder/acp-go-sdk"
 )
 
 // codexACPAdapter drives Codex over the Agent Client Protocol via
@@ -84,15 +83,5 @@ func (codexACPAdapter) Execute(ctx context.Context, config Config, invocation mo
 	if err != nil {
 		return "", fmt.Errorf("codex-acp: %w", err)
 	}
-	switch stopReason {
-	case acpsdk.StopReasonEndTurn, acpsdk.StopReasonMaxTokens, acpsdk.StopReasonMaxTurnRequests:
-		if session.Truncated() {
-			return "", fmt.Errorf("agent output exceeded %d bytes", maxAgentOutputBytes)
-		}
-		return output, nil
-	case acpsdk.StopReasonRefusal:
-		return "", errors.New("agent refused the invocation")
-	default:
-		return "", fmt.Errorf("agent stopped with reason %q before completing the invocation", stopReason)
-	}
+	return acpResult(output, stopReason, session)
 }

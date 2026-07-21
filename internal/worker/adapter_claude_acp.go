@@ -65,17 +65,7 @@ func (claudeACPAdapter) Execute(ctx context.Context, config Config, invocation m
 	if err != nil {
 		return "", fmt.Errorf("claude-acp: %w", err)
 	}
-	switch stopReason {
-	case acpsdk.StopReasonEndTurn, acpsdk.StopReasonMaxTokens, acpsdk.StopReasonMaxTurnRequests:
-		if session.Truncated() {
-			return "", fmt.Errorf("agent output exceeded %d bytes", maxAgentOutputBytes)
-		}
-		return output, nil
-	case acpsdk.StopReasonRefusal:
-		return "", errors.New("agent refused the invocation")
-	default:
-		return "", fmt.Errorf("agent stopped with reason %q before completing the invocation", stopReason)
-	}
+	return acpResult(output, stopReason, session)
 }
 
 // denyGovernance implements acpclient.GovernanceApprover by denying every
