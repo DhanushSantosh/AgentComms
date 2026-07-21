@@ -94,6 +94,7 @@ var adapters = map[string]Adapter{
 	"codex":        codexAdapter{},
 	"claude-acp":   claudeACPAdapter{},
 	"opencode-acp": openCodeACPAdapter{},
+	"codex-acp":    codexACPAdapter{},
 }
 
 // RequiresExecutable reports whether the named adapter execs a local CLI
