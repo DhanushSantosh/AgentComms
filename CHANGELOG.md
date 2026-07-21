@@ -5,6 +5,22 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Optional `claude-acp`, `opencode-acp`, and `codex-acp` worker adapters that
+  drive Claude, OpenCode, and Codex over the Agent Client Protocol (ACP)
+  instead of a direct CLI exec, selectable via `runtime worker --adapter`. The
+  existing `claude` and `codex` exec adapters are unchanged and remain the
+  default.
+
+### Security
+
+- ACP-based workers resolve tool-call permission requests through a hybrid
+  policy: read, search, reasoning, and mode-switch calls auto-approve; edit and
+  move calls follow the worker's configured permission mode; every other
+  action — delete, execute, fetch, and anything unrecognized — is denied by
+  default rather than silently granted.
+
 ## [0.1.0] - 2026-07-19 — “The Control Room”
 
 ### Added
