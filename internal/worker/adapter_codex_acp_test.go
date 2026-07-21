@@ -32,7 +32,7 @@ func TestCodexACPAdapterRejectsInvalidSandbox(t *testing.T) {
 func TestCodexACPAdapterDoesNotRequireExecutable(t *testing.T) {
 	instance, root := workerService(t)
 	worker, err := New(Config{
-		Service: instance, Actor: "axiom", RuntimeID: "runtime-axiom",
+		Service: instance, Actor: "AXIOM", RuntimeID: "runtime-axiom",
 		Adapter: "codex-acp", WorkDir: root,
 		ListenWait: time.Second, ExecutionTimeout: time.Minute, Once: true,
 	})

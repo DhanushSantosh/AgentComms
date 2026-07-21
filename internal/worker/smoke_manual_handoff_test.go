@@ -32,33 +32,33 @@ func handoffWorkerService(t *testing.T, instruction, expectedResult string) (*se
 	if err := instance.Store.Init("owner"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := instance.Register("axiom", "AXIOM", model.PrincipalAgent); err != nil {
+	if _, err := instance.Register("AXIOM", "AXIOM", model.PrincipalAgent); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := instance.Register("damon", "DAMON", model.PrincipalAgent); err != nil {
+	if _, err := instance.Register("DAMON", "DAMON", model.PrincipalAgent); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := instance.Execute("owner", "agent.activate", "axiom",
+	if _, err := instance.Execute("owner", "agent.activate", "AXIOM",
 		model.AgentActivated{Role: model.RoleAgent, Scopes: []string{"src"}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := instance.Execute("axiom", "runtime.register", "runtime-axiom",
-		model.RuntimeRegistered{AgentID: "axiom", Connector: "MCP", MaxConcurrent: 1}); err != nil {
+	if _, err := instance.Execute("AXIOM", "runtime.register", "runtime-axiom",
+		model.RuntimeRegistered{AgentID: "AXIOM", Connector: "MCP", MaxConcurrent: 1}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := instance.Execute("owner", "agent.activate", "damon",
+	if _, err := instance.Execute("owner", "agent.activate", "DAMON",
 		model.AgentActivated{Role: model.RoleAgent, Scopes: []string{"src"}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := instance.Execute("owner", "invocation.policy.update", "damon",
+	if _, err := instance.Execute("owner", "invocation.policy.update", "DAMON",
 		model.InvocationPolicyUpdated{
-			Mode: "TRUSTED", TrustedActors: []string{"axiom"},
+			Mode: "TRUSTED", TrustedActors: []string{"AXIOM"},
 		}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := instance.Execute("owner", "invocation.request", "inv-worker",
 		model.InvocationRequested{
-			Target: "axiom", Instruction: instruction,
+			Target: "AXIOM", Instruction: instruction,
 			ExpectedResult: expectedResult, Priority: "NORMAL",
 		}); err != nil {
 		t.Fatal(err)
@@ -66,15 +66,12 @@ func handoffWorkerService(t *testing.T, instruction, expectedResult string) (*se
 	return instance, root
 }
 
-const handoffInstruction = `Do not perform any verification yourself and do not run any commands. ` +
-	`Your only task is to delegate verification of this change to the agent ` +
-	`whose exact registered agent ID is the lowercase string "damon" (this is ` +
-	`the literal value the target field must contain — not a display name, ` +
-	`not any other casing). ` +
-	`Follow your operating instructions for creating exactly one follow-up ` +
-	`action, with "target":"damon", instruction "Confirm the implementation ` +
-	`compiles" and expected_result "Acknowledge receipt". Then end your turn ` +
-	`with a short confirmation that you delegated the work.`
+const handoffInstruction = `Please delegate verification of this change to DAMON ` +
+	`rather than checking it yourself. Follow your operating instructions for ` +
+	`creating exactly one follow-up action, targeting DAMON, with instruction ` +
+	`"Confirm the implementation compiles" and expected_result "Acknowledge ` +
+	`receipt". Then end your turn with a short confirmation that you delegated ` +
+	`the work.`
 
 func runHandoffSmoke(t *testing.T, adapter string, timeout time.Duration) {
 	t.Helper()
@@ -83,7 +80,7 @@ func runHandoffSmoke(t *testing.T, adapter string, timeout time.Duration) {
 	}
 	instance, root := handoffWorkerService(t, handoffInstruction, "Delegate to DAMON")
 	worker, err := New(Config{
-		Service: instance, Actor: "axiom", RuntimeID: "runtime-axiom",
+		Service: instance, Actor: "AXIOM", RuntimeID: "runtime-axiom",
 		Adapter: adapter, WorkDir: root,
 		ListenWait: time.Second, ExecutionTimeout: timeout, Once: true,
 	})
@@ -111,12 +108,12 @@ func runHandoffSmoke(t *testing.T, adapter string, timeout time.Duration) {
 		}
 		t.Logf("follow-up invocation %s: target=%s requestedBy=%s instruction=%q status=%s",
 			id, inv.Target, inv.RequestedBy, inv.Instruction, inv.Status)
-		if inv.RequestedBy == "axiom" && inv.Target == "damon" {
+		if inv.RequestedBy == "AXIOM" && inv.Target == "DAMON" {
 			foundHandoff = true
 		}
 	}
 	if !foundHandoff {
-		t.Errorf("no follow-up invocation from axiom to damon was created")
+		t.Errorf("no follow-up invocation from AXIOM to DAMON was created")
 	}
 }
 
@@ -147,7 +144,7 @@ func TestManualSmokeOpenCodeACPExecuteDenied(t *testing.T) {
 		` command, not just reading files.`
 	instance, root := handoffWorkerService(t, instruction, "Report the command's output")
 	worker, err := New(Config{
-		Service: instance, Actor: "axiom", RuntimeID: "runtime-axiom",
+		Service: instance, Actor: "AXIOM", RuntimeID: "runtime-axiom",
 		Adapter: "opencode-acp", WorkDir: root,
 		ListenWait: time.Second, ExecutionTimeout: 90 * time.Second, Once: true,
 	})

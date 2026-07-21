@@ -45,7 +45,7 @@ func TestDenyGovernanceAlwaysDenies(t *testing.T) {
 func TestClaudeACPAdapterDoesNotRequireExecutable(t *testing.T) {
 	instance, root := workerService(t)
 	worker, err := New(Config{
-		Service: instance, Actor: "axiom", RuntimeID: "runtime-axiom",
+		Service: instance, Actor: "AXIOM", RuntimeID: "runtime-axiom",
 		Adapter: "claude-acp", WorkDir: root,
 		ListenWait: time.Second, ExecutionTimeout: time.Minute, Once: true,
 	})
