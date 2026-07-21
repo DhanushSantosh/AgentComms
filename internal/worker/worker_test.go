@@ -187,6 +187,22 @@ func TestClaudeUserPromptOmitsRuntimeFraming(t *testing.T) {
 	}
 }
 
+func TestWorkerRejectsUnknownAdapter(t *testing.T) {
+	instance, root := workerService(t)
+	executable, err := filepath.Abs(os.Args[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = New(Config{
+		Service: instance, Actor: "axiom", RuntimeID: "runtime-axiom",
+		Adapter: "opencode", Executable: executable, WorkDir: root,
+		ListenWait: time.Second, ExecutionTimeout: time.Minute,
+	})
+	if err == nil {
+		t.Fatal("unregistered adapter was accepted")
+	}
+}
+
 func TestWorkerRejectsInvalidSessionID(t *testing.T) {
 	instance, root := workerService(t)
 	executable, err := filepath.Abs(os.Args[0])
