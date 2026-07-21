@@ -95,9 +95,10 @@ type Session struct {
 	conn      *acpsdk.ClientSideConnection
 	sessionID acpsdk.SessionId
 
-	mu        sync.Mutex
-	output    strings.Builder
-	truncated bool
+	mu          sync.Mutex
+	output      strings.Builder
+	truncated   bool
+	deniedKinds []string
 }
 
 var _ acpsdk.Client = (*Session)(nil)
@@ -192,7 +193,7 @@ func (s *Session) SessionID() string { return string(s.sessionID) }
 // previous Prompt call's leftover text — would bleed into this turn's
 // result.
 func (s *Session) Prompt(ctx context.Context, text string) (string, acpsdk.StopReason, error) {
-	s.resetOutput()
+	s.resetTurn()
 	resp, err := s.conn.Prompt(ctx, acpsdk.PromptRequest{
 		SessionId: s.sessionID,
 		Prompt:    []acpsdk.ContentBlock{acpsdk.TextBlock(text)},
@@ -203,11 +204,12 @@ func (s *Session) Prompt(ctx context.Context, text string) (string, acpsdk.StopR
 	return s.result(), resp.StopReason, nil
 }
 
-func (s *Session) resetOutput() {
+func (s *Session) resetTurn() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.output.Reset()
 	s.truncated = false
+	s.deniedKinds = nil
 }
 
 func (s *Session) result() string {
@@ -222,6 +224,32 @@ func (s *Session) Truncated() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.truncated
+}
+
+// Denied reports whether any permission request was refused (mode-gated or
+// governance) during the most recent Prompt call. A denial does not fail
+// Prompt itself — the agent may still produce a useful response after being
+// told no — but combined with empty output it usually means the agent gave
+// up silently rather than explaining it couldn't proceed, which callers
+// should treat as a failure rather than a vacuous success.
+func (s *Session) Denied() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.deniedKinds) > 0
+}
+
+// DeniedKinds returns the ToolKind of every permission request refused
+// during the most recent Prompt call, in the order they were denied.
+func (s *Session) DeniedKinds() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.deniedKinds...)
+}
+
+func (s *Session) recordDenied(kind acpsdk.ToolKind) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.deniedKinds = append(s.deniedKinds, string(kind))
 }
 
 // Cancel sends session/cancel for the in-flight prompt turn.
@@ -282,6 +310,13 @@ func (s *Session) RequestPermission(ctx context.Context, p acpsdk.RequestPermiss
 	approved, err := s.decide(ctx, p)
 	if err != nil {
 		return acpsdk.RequestPermissionResponse{}, err
+	}
+	if !approved {
+		kind := acpsdk.ToolKindOther
+		if p.ToolCall.Kind != nil {
+			kind = *p.ToolCall.Kind
+		}
+		s.recordDenied(kind)
 	}
 	optionID, ok := selectOption(p.Options, approved)
 	if !ok {

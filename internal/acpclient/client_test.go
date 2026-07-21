@@ -244,6 +244,45 @@ func TestSessionRoutesExecutePermissionThroughGovernance(t *testing.T) {
 	if agent.lastOutcome.Selected == nil || agent.lastOutcome.Selected.OptionId != "reject-once" {
 		t.Fatalf("expected governance-denied outcome, got %+v", agent.lastOutcome)
 	}
+	if !session.Denied() {
+		t.Fatal("expected Denied to report true after a governance rejection")
+	}
+	if kinds := session.DeniedKinds(); len(kinds) != 1 || kinds[0] != "execute" {
+		t.Fatalf("expected DeniedKinds to record [\"execute\"], got %v", kinds)
+	}
+}
+
+func TestSessionDeniedResetsBetweenPromptCalls(t *testing.T) {
+	config := baseConfig(t)
+	config.Governance = &fixedApprover{approve: false}
+	kind := acpsdk.ToolKindExecute
+	clientRead, agentWrite := io.Pipe()
+	agentRead, clientWrite := io.Pipe()
+	agent := &fakeAgent{requestKind: &kind}
+	agentConn := acpsdk.NewAgentSideConnection(agent, agentWrite, agentRead)
+	agent.conn = agentConn
+	t.Cleanup(func() { _ = agentWrite.Close(); _ = agentRead.Close() })
+	session := newPipeSession(config, clientWrite, clientRead)
+	t.Cleanup(func() { _ = clientWrite.Close(); _ = clientRead.Close() })
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := session.handshake(ctx, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := session.Prompt(ctx, "hi"); err != nil {
+		t.Fatal(err)
+	}
+	if !session.Denied() {
+		t.Fatal("expected a denial on the first turn")
+	}
+	agent.requestKind = nil
+	if _, _, err := session.Prompt(ctx, "hi again"); err != nil {
+		t.Fatal(err)
+	}
+	if session.Denied() {
+		t.Fatal("expected Denied to reset on a turn with no permission requests")
+	}
 }
 
 func TestSessionModeGatedEditRespectsAllowEditsFalse(t *testing.T) {

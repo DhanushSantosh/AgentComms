@@ -11,7 +11,9 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/DhanushSantosh/AgentComms/internal/acpclient"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
+	acpsdk "github.com/coder/acp-go-sdk"
 )
 
 // Adapter captures everything about a specific AI provider that Worker's
@@ -69,6 +71,35 @@ func runCLIAdapter(ctx context.Context, config Config, adapter cliAdapter, invoc
 		return "", fmt.Errorf("agent output exceeded %d bytes", maxAgentOutputBytes)
 	}
 	return stdout.String(), nil
+}
+
+// acpResult interprets one ACP Prompt call's outcome the same way for every
+// ACP-based adapter (claude-acp, opencode-acp, codex-acp): a refusal or
+// unexpected stop reason is an error, output exceeding the configured byte
+// bound is an error, and — the case a bare stop-reason switch would miss —
+// empty output after a permission request was denied is treated as a
+// failure rather than a vacuous success. Confirmed live: an ACP agent whose
+// shell command gets denied by acpclient's deny-by-default governance can
+// simply produce no final text at all rather than explaining it couldn't
+// proceed; without this check that surfaced as a COMPLETED invocation with
+// a meaningless placeholder result instead of routing to WAITING the way a
+// failed exec-based adapter already does.
+func acpResult(output string, stopReason acpsdk.StopReason, session *acpclient.Session) (string, error) {
+	switch stopReason {
+	case acpsdk.StopReasonEndTurn, acpsdk.StopReasonMaxTokens, acpsdk.StopReasonMaxTurnRequests:
+		if session.Truncated() {
+			return "", fmt.Errorf("agent output exceeded %d bytes", maxAgentOutputBytes)
+		}
+		if strings.TrimSpace(output) == "" && session.Denied() {
+			return "", fmt.Errorf("agent produced no result after a permission request was denied for: %s",
+				strings.Join(session.DeniedKinds(), ", "))
+		}
+		return output, nil
+	case acpsdk.StopReasonRefusal:
+		return "", errors.New("agent refused the invocation")
+	default:
+		return "", fmt.Errorf("agent stopped with reason %q before completing the invocation", stopReason)
+	}
 }
 
 // validateExecutablePath checks that path is an absolute, executable file.
