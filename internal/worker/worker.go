@@ -8,9 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -105,16 +103,6 @@ func validateConfig(config *Config) error {
 		}
 	}
 	config.Adapter = strings.ToLower(strings.TrimSpace(config.Adapter))
-	if !filepath.IsAbs(config.Executable) {
-		return errors.New("worker executable must be an absolute path")
-	}
-	info, err := os.Stat(config.Executable)
-	if err != nil {
-		return fmt.Errorf("inspect worker executable: %w", err)
-	}
-	if info.IsDir() || (runtime.GOOS != "windows" && info.Mode()&0o111 == 0) {
-		return errors.New("worker executable is not executable")
-	}
 	if !filepath.IsAbs(config.WorkDir) {
 		return errors.New("worker working directory must be absolute")
 	}
@@ -377,35 +365,17 @@ func (w *Worker) heartbeatLoop(stop <-chan struct{}, done chan<- struct{}, invoc
 }
 
 func (w *Worker) runAgent(ctx context.Context, invocation model.Invocation) (string, error) {
-	prompt := w.adapter.Prompt(w.config.Actor, invocation)
-	arguments := w.arguments()
-	command := exec.CommandContext(ctx, w.config.Executable, arguments...)
-	command.Dir = w.config.WorkDir
-	command.Env = os.Environ()
-	command.Stdin = strings.NewReader(prompt)
-	stdout := &boundedBuffer{limit: maxAgentOutputBytes}
-	stderr := &boundedBuffer{limit: maxAgentOutputBytes}
-	command.Stdout = stdout
-	command.Stderr = stderr
-	err := command.Run()
-	if ctx.Err() != nil {
-		return "", fmt.Errorf("execution deadline reached: %w", ctx.Err())
-	}
-	if err != nil {
-		detail := strings.TrimSpace(stderr.String())
-		if detail == "" {
-			detail = err.Error()
-		}
-		return "", errors.New(truncateUTF8(detail, maxFailureReasonBytes))
-	}
-	if stdout.truncated {
-		return "", fmt.Errorf("agent output exceeded %d bytes", maxAgentOutputBytes)
-	}
-	return stdout.String(), nil
+	return w.adapter.Execute(ctx, w.config, invocation)
 }
 
+// arguments exposes the CLI argv a cliAdapter would build for the worker's
+// current config. It exists for tests exercising exec-based adapters; a
+// non-cliAdapter (e.g. an ACP-based one) has no argv to expose.
 func (w *Worker) arguments() []string {
-	return w.adapter.Arguments(w.config)
+	if cli, ok := w.adapter.(cliAdapter); ok {
+		return cli.Arguments(w.config)
+	}
+	return nil
 }
 
 func singleLine(value string) string {

@@ -60,6 +60,15 @@ type Config struct {
 	// MaxOutputBytes bounds the accumulated agent-message text collected
 	// across a prompt turn. Zero disables bounding.
 	MaxOutputBytes int
+
+	// SessionMeta, if non-nil, is attached as session/new's _meta field
+	// verbatim. acpclient does not interpret it — it exists so a specific
+	// provider adapter can pass provider-specific extensions (for example,
+	// the Claude ACP adapter's `_meta.systemPrompt` convention) without this
+	// package needing to know about any one provider. Not resent on
+	// session/load: a resumed session already carries whatever meta shaped
+	// its first turn.
+	SessionMeta map[string]any
 }
 
 func (c Config) validate() error {
@@ -158,6 +167,7 @@ func (s *Session) handshake(ctx context.Context, resumeSessionID string) error {
 	resp, err := s.conn.NewSession(ctx, acpsdk.NewSessionRequest{
 		Cwd:        s.config.Cwd,
 		McpServers: []acpsdk.McpServer{},
+		Meta:       s.config.SessionMeta,
 	})
 	if err != nil {
 		return fmt.Errorf("acpclient: new session: %w", err)
@@ -175,7 +185,14 @@ func (s *Session) SessionID() string { return string(s.sessionID) }
 // text streamed during it, along with the stop reason. The accumulated text
 // is returned even when the call itself errors, so callers can inspect
 // partial output the way the exec-based adapters expose partial stdout.
+//
+// The output accumulator is reset before the request is sent: session/load
+// replays prior conversation turns as the same SessionUpdate notifications a
+// live turn uses, and without this reset that replayed history — or a
+// previous Prompt call's leftover text — would bleed into this turn's
+// result.
 func (s *Session) Prompt(ctx context.Context, text string) (string, acpsdk.StopReason, error) {
+	s.resetOutput()
 	resp, err := s.conn.Prompt(ctx, acpsdk.PromptRequest{
 		SessionId: s.sessionID,
 		Prompt:    []acpsdk.ContentBlock{acpsdk.TextBlock(text)},
@@ -184,6 +201,13 @@ func (s *Session) Prompt(ctx context.Context, text string) (string, acpsdk.StopR
 		return s.result(), "", fmt.Errorf("acpclient: prompt: %w", err)
 	}
 	return s.result(), resp.StopReason, nil
+}
+
+func (s *Session) resetOutput() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.output.Reset()
+	s.truncated = false
 }
 
 func (s *Session) result() string {

@@ -1,11 +1,9 @@
 package worker
 
 import (
+	"context"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 
@@ -14,7 +12,14 @@ import (
 
 type claudeAdapter struct{}
 
+func (claudeAdapter) Execute(ctx context.Context, config Config, invocation model.Invocation) (string, error) {
+	return runCLIAdapter(ctx, config, claudeAdapter{}, invocation)
+}
+
 func (claudeAdapter) Validate(config *Config) error {
+	if err := validateExecutablePath(config.Executable, "worker executable"); err != nil {
+		return err
+	}
 	if config.PermissionMode == "" {
 		config.PermissionMode = "acceptEdits"
 	}
@@ -27,15 +32,8 @@ func (claudeAdapter) Validate(config *Config) error {
 		return fmt.Errorf("claude budget must be greater than 0 and at most %.0f USD", float64(maxClaudeBudgetUSD))
 	}
 	if config.AgentCommsPath != "" {
-		if !filepath.IsAbs(config.AgentCommsPath) {
-			return errors.New("allowed Agent Comms executable must use an absolute path")
-		}
-		info, err := os.Stat(config.AgentCommsPath)
-		if err != nil {
-			return fmt.Errorf("inspect allowed Agent Comms executable: %w", err)
-		}
-		if info.IsDir() || (runtime.GOOS != "windows" && info.Mode()&0o111 == 0) {
-			return errors.New("allowed Agent Comms executable is not executable")
+		if err := validateExecutablePath(config.AgentCommsPath, "allowed Agent Comms executable"); err != nil {
+			return err
 		}
 	}
 	return nil

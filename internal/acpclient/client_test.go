@@ -17,6 +17,11 @@ import (
 type fakeAgent struct {
 	conn        *acpsdk.AgentSideConnection
 	requestKind *acpsdk.ToolKind
+	// replayText, if set, is sent as a SessionUpdate during LoadSession —
+	// mirroring the real claude-agent-acp package, which replays prior
+	// conversation turns as SessionUpdate notifications before session/load
+	// returns.
+	replayText string
 
 	loadedSessionID string
 	lastOutcome     acpsdk.RequestPermissionOutcome
@@ -65,8 +70,18 @@ func (a *fakeAgent) SetSessionMode(context.Context, acpsdk.SetSessionModeRequest
 	return acpsdk.SetSessionModeResponse{}, nil
 }
 
-func (a *fakeAgent) LoadSession(_ context.Context, p acpsdk.LoadSessionRequest) (acpsdk.LoadSessionResponse, error) {
+func (a *fakeAgent) LoadSession(ctx context.Context, p acpsdk.LoadSessionRequest) (acpsdk.LoadSessionResponse, error) {
 	a.loadedSessionID = string(p.SessionId)
+	if a.replayText != "" {
+		if err := a.conn.SessionUpdate(ctx, acpsdk.SessionNotification{
+			SessionId: p.SessionId,
+			Update: acpsdk.SessionUpdate{
+				AgentMessageChunk: &acpsdk.SessionUpdateAgentMessageChunk{Content: acpsdk.TextBlock(a.replayText)},
+			},
+		}); err != nil {
+			return acpsdk.LoadSessionResponse{}, err
+		}
+	}
 	return acpsdk.LoadSessionResponse{}, nil
 }
 
@@ -280,6 +295,31 @@ func TestSessionModeGatedEditRespectsAllowEditsTrue(t *testing.T) {
 	}
 	if agent.lastOutcome.Selected == nil || agent.lastOutcome.Selected.OptionId != "allow-once" {
 		t.Fatalf("expected edit permission approved when AllowEdits is true, got %+v", agent.lastOutcome)
+	}
+}
+
+func TestSessionResumePromptExcludesReplayedHistory(t *testing.T) {
+	config := baseConfig(t)
+	clientRead, agentWrite := io.Pipe()
+	agentRead, clientWrite := io.Pipe()
+	agent := &fakeAgent{replayText: "this is replayed history from a prior turn"}
+	agentConn := acpsdk.NewAgentSideConnection(agent, agentWrite, agentRead)
+	agent.conn = agentConn
+	t.Cleanup(func() { _ = agentWrite.Close(); _ = agentRead.Close() })
+	session := newPipeSession(config, clientWrite, clientRead)
+	t.Cleanup(func() { _ = clientWrite.Close(); _ = clientRead.Close() })
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := session.handshake(ctx, "prior-session-1"); err != nil {
+		t.Fatal(err)
+	}
+	text, _, err := session.Prompt(ctx, "hi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text != "Hello, world." {
+		t.Fatalf("expected replayed history excluded from prompt result, got %q", text)
 	}
 }
 
