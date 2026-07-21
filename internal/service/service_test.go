@@ -226,6 +226,44 @@ func TestArtifactExportsAndRecovery(t *testing.T) {
 	}
 }
 
+func TestAgentRenameUpdatesDisplayNameAndPreservesVerification(t *testing.T) {
+	s := setup(t)
+	activate(t, s, "alpha", model.PrincipalAgent)
+	if _, err := s.Execute("owner", "agent.rename", "alpha", model.AgentRenamed{DisplayName: "Alpha"}); err != nil {
+		t.Fatal(err)
+	}
+	state, err := s.State()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Agents["alpha"].DisplayName != "Alpha" {
+		t.Fatalf("display name was not updated: %+v", state.Agents["alpha"])
+	}
+	if err := s.Store.Verify(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAgentRenameRequiresOwnerOrOrchestrator(t *testing.T) {
+	s := setup(t)
+	activate(t, s, "alpha", model.PrincipalAgent)
+	activate(t, s, "beta", model.PrincipalAgent)
+	if _, err := s.Execute("beta", "agent.rename", "alpha", model.AgentRenamed{DisplayName: "Alpha"}); err == nil {
+		t.Fatal("expected a non-privileged actor to be rejected")
+	}
+}
+
+func TestAgentRenameRejectsUnknownAgentAndEmptyName(t *testing.T) {
+	s := setup(t)
+	activate(t, s, "alpha", model.PrincipalAgent)
+	if _, err := s.Execute("owner", "agent.rename", "unknown", model.AgentRenamed{DisplayName: "Ghost"}); err == nil {
+		t.Fatal("expected an error for an unregistered agent")
+	}
+	if _, err := s.Execute("owner", "agent.rename", "alpha", model.AgentRenamed{DisplayName: ""}); err == nil {
+		t.Fatal("expected an error for an empty display name")
+	}
+}
+
 func TestActorKeyRotationPreservesVerification(t *testing.T) {
 	s := setup(t)
 	activate(t, s, "alpha", model.PrincipalAgent)
