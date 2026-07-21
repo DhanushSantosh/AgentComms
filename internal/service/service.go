@@ -316,6 +316,10 @@ func ApplyEvent(s *model.State, e model.Event) error {
 		a.PublicKey = p.PublicKey
 		a.KeyFingerprint = identity.Fingerprint(p.PublicKey)
 		s.Agents[e.EntityID] = a
+	case *model.AgentRenamed:
+		a := s.Agents[e.EntityID]
+		a.DisplayName = p.DisplayName
+		s.Agents[e.EntityID] = a
 	case *model.TaskCreated:
 		s.Tasks[e.EntityID] = model.Task{ID: e.EntityID, Title: p.Title, Summary: p.Summary, Status: "OPEN", Repository: p.Repository, Branch: p.Branch, Worktree: p.Worktree, Resources: p.Resources, ExternalRef: p.ExternalRef, Risk: defaultRisk(p.Risk)}
 	case *model.TaskOffered:
@@ -647,7 +651,7 @@ func active(st model.State, actor string) (model.Agent, error) {
 	return a, nil
 }
 func elevated(typ string) bool {
-	return typ == "approval.approve" || typ == "approval.reject" || typ == "agent.activate" || typ == "agent.suspend" || typ == "agent.rotate-key" || typ == "project.settings.update"
+	return typ == "approval.approve" || typ == "approval.reject" || typ == "agent.activate" || typ == "agent.suspend" || typ == "agent.rotate-key" || typ == "agent.rename" || typ == "project.settings.update"
 }
 func hasApproval(st model.State, action string) bool {
 	for _, a := range st.Approvals {
@@ -815,6 +819,15 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 		if !ok || (activation.Role != model.RoleOwner && activation.Role != model.RoleOrchestrator &&
 			activation.Role != model.RoleAgent && activation.Role != model.RoleObserver) {
 			return nil, errors.New("valid activation role is required")
+		}
+	}
+	if typ == "agent.rename" {
+		if _, ok := st.Agents[id]; !ok {
+			return nil, errors.New("principal not found")
+		}
+		renamed, ok := payload.(model.AgentRenamed)
+		if !ok || strings.TrimSpace(renamed.DisplayName) == "" {
+			return nil, errors.New("display name is required")
 		}
 	}
 	if typ == "project.settings.update" {

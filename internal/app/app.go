@@ -613,6 +613,19 @@ func (c *cli) agentCmd() *cobra.Command {
 		}
 		return c.emit("agent.rotate-key", v)
 	}}
+	var newDisplayName string
+	rename := &cobra.Command{Use: "rename", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		id, _ := cmd.Flags().GetString("id")
+		v, e := c.svc.Execute(c.actor, "agent.rename", id, model.AgentRenamed{DisplayName: newDisplayName})
+		if e != nil {
+			return e
+		}
+		return c.emit("agent.rename", v)
+	}}
+	rename.Flags().String("id", "", "principal ID")
+	_ = rename.MarkFlagRequired("id")
+	rename.Flags().StringVar(&newDisplayName, "display-name", "", "new display name")
+	_ = rename.MarkFlagRequired("display-name")
 	list := &cobra.Command{Use: "list", RunE: func(cmd *cobra.Command, args []string) error {
 		st, e := c.svc.State()
 		if e != nil {
@@ -620,7 +633,7 @@ func (c *cli) agentCmd() *cobra.Command {
 		}
 		return c.emit("agent.list", st.Agents)
 	}}
-	root.AddCommand(reg, act, suspend, rotate, list)
+	root.AddCommand(reg, act, suspend, rotate, rename, list)
 	return root
 }
 func (c *cli) runtimeCmd() *cobra.Command {
