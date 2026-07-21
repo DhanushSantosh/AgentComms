@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -12,7 +13,14 @@ import (
 
 type codexAdapter struct{}
 
+func (codexAdapter) Execute(ctx context.Context, config Config, invocation model.Invocation) (string, error) {
+	return runCLIAdapter(ctx, config, codexAdapter{}, invocation)
+}
+
 func (codexAdapter) Validate(config *Config) error {
+	if err := validateExecutablePath(config.Executable, "worker executable"); err != nil {
+		return err
+	}
 	if config.Sandbox == "" {
 		config.Sandbox = "workspace-write"
 	}
