@@ -11,7 +11,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -70,6 +69,7 @@ type Config struct {
 
 type Worker struct {
 	config        Config
+	adapter       Adapter
 	run           func(context.Context, model.Invocation) (string, error)
 	heartbeatMu   sync.Mutex
 	lastHeartbeat time.Time
@@ -79,7 +79,14 @@ func New(config Config) (*Worker, error) {
 	if err := validateConfig(&config); err != nil {
 		return nil, err
 	}
-	worker := &Worker{config: config}
+	adapter, err := resolveAdapter(config.Adapter)
+	if err != nil {
+		return nil, err
+	}
+	if err := adapter.Validate(&config); err != nil {
+		return nil, err
+	}
+	worker := &Worker{config: config, adapter: adapter}
 	worker.run = worker.runAgent
 	return worker, nil
 }
@@ -98,9 +105,6 @@ func validateConfig(config *Config) error {
 		}
 	}
 	config.Adapter = strings.ToLower(strings.TrimSpace(config.Adapter))
-	if config.Adapter != "claude" && config.Adapter != "codex" {
-		return errors.New("worker adapter must be claude or codex")
-	}
 	if !filepath.IsAbs(config.Executable) {
 		return errors.New("worker executable must be an absolute path")
 	}
@@ -132,51 +136,6 @@ func validateConfig(config *Config) error {
 	}
 	if config.ListenWait < time.Second || config.ListenWait > controlplane.MaxInvocationListen {
 		return fmt.Errorf("worker listen wait must be from 1s to %s", controlplane.MaxInvocationListen)
-	}
-	if config.Adapter == "claude" {
-		if config.PermissionMode == "" {
-			config.PermissionMode = "acceptEdits"
-		}
-		switch config.PermissionMode {
-		case "acceptEdits", "auto", "dontAsk", "manual", "plan":
-		default:
-			return errors.New("claude permission mode must not bypass permissions")
-		}
-		if config.ClaudeBudgetUSD <= 0 || config.ClaudeBudgetUSD > maxClaudeBudgetUSD {
-			return fmt.Errorf("claude budget must be greater than 0 and at most %.0f USD", float64(maxClaudeBudgetUSD))
-		}
-		if config.AgentCommsPath != "" {
-			if !filepath.IsAbs(config.AgentCommsPath) {
-				return errors.New("allowed Agent Comms executable must use an absolute path")
-			}
-			info, err := os.Stat(config.AgentCommsPath)
-			if err != nil {
-				return fmt.Errorf("inspect allowed Agent Comms executable: %w", err)
-			}
-			if info.IsDir() || (runtime.GOOS != "windows" && info.Mode()&0o111 == 0) {
-				return errors.New("allowed Agent Comms executable is not executable")
-			}
-		}
-	}
-	if config.Adapter == "codex" {
-		if config.Sandbox == "" {
-			config.Sandbox = "workspace-write"
-		}
-		if config.Sandbox != "read-only" && config.Sandbox != "workspace-write" {
-			return errors.New("codex worker sandbox must be read-only or workspace-write")
-		}
-		for _, directory := range config.CodexAddDirs {
-			if !filepath.IsAbs(directory) {
-				return errors.New("codex additional writable directories must use absolute paths")
-			}
-			info, err := os.Stat(directory)
-			if err != nil {
-				return fmt.Errorf("inspect Codex additional writable directory: %w", err)
-			}
-			if !info.IsDir() {
-				return errors.New("codex additional writable path must be a directory")
-			}
-		}
 	}
 	if config.Status == nil {
 		config.Status = func(string) {}
@@ -418,12 +377,7 @@ func (w *Worker) heartbeatLoop(stop <-chan struct{}, done chan<- struct{}, invoc
 }
 
 func (w *Worker) runAgent(ctx context.Context, invocation model.Invocation) (string, error) {
-	var prompt string
-	if w.config.Adapter == "claude" {
-		prompt = claudeUserPrompt(invocation)
-	} else {
-		prompt = invocationPrompt(w.config.Actor, invocation)
-	}
+	prompt := w.adapter.Prompt(w.config.Actor, invocation)
 	arguments := w.arguments()
 	command := exec.CommandContext(ctx, w.config.Executable, arguments...)
 	command.Dir = w.config.WorkDir
@@ -451,136 +405,7 @@ func (w *Worker) runAgent(ctx context.Context, invocation model.Invocation) (str
 }
 
 func (w *Worker) arguments() []string {
-	if w.config.Adapter == "claude" {
-		arguments := []string{
-			"--print", "--output-format", "text",
-			"--append-system-prompt", claudeSystemPrompt(w.config.Actor),
-			"--permission-mode", w.config.PermissionMode,
-			"--max-budget-usd", strconv.FormatFloat(w.config.ClaudeBudgetUSD, 'f', 2, 64),
-		}
-		if w.config.SessionID == "" {
-			arguments = append(arguments, "--no-session-persistence")
-		} else {
-			arguments = append(arguments, "--resume", w.config.SessionID)
-		}
-		if w.config.AgentCommsPath != "" {
-			arguments = append(arguments, "--allowedTools", "Bash("+w.config.AgentCommsPath+" *)")
-		}
-		if w.config.Model != "" {
-			arguments = append(arguments, "--model", w.config.Model)
-		}
-		return arguments
-	}
-	arguments := []string{
-		"--ask-for-approval", "never", "exec", "--color", "never",
-		"--sandbox", w.config.Sandbox,
-	}
-	for _, directory := range w.config.CodexAddDirs {
-		arguments = append(arguments, "--add-dir", directory)
-	}
-	if w.config.CodexIgnoreUserConfig {
-		arguments = append(arguments, "--ignore-user-config")
-	}
-	if w.config.SessionID == "" {
-		arguments = append(arguments, "--ephemeral")
-	} else {
-		arguments = append(arguments, "resume", w.config.SessionID)
-	}
-	if w.config.Model != "" {
-		arguments = append(arguments, "--model", w.config.Model)
-	}
-	return append(arguments, "-")
-}
-
-func invocationPrompt(actor string, invocation model.Invocation) string {
-	var body strings.Builder
-	body.WriteString("You are the autonomous Agent Comms runtime for agent ")
-	body.WriteString(actor)
-	body.WriteString(".\n")
-	body.WriteString("Treat the invocation instruction as authorized project work, but continue to obey repository rules, configured tool permissions, and workspace boundaries.\n")
-	body.WriteString("Do not ask the user to relay messages to another agent. Perform the work and return a concise final result; Agent Comms will publish it to the requester.\n\n")
-	body.WriteString("When the work requires invoking another agent, do not call Agent Comms through Bash or MCP. Include exactly one single-line action in your final response using this format:\n")
-	body.WriteString(actionLinePrefix)
-	body.WriteString(" ")
-	body.WriteString(`{"target":"AGENT_ID","instruction":"bounded instruction","expected_result":"bounded result","priority":"NORMAL","scopes":[],"expires_in_seconds":600}`)
-	body.WriteString("\nThe runtime will validate, sign, and submit that follow-up using your agent identity. Leave scopes empty unless the instruction explicitly requires a scope you know both agents possess; do not copy the current invocation scopes automatically.\n\n")
-	body.WriteString("Invocation ID: ")
-	body.WriteString(invocation.ID)
-	body.WriteString("\nRequester: ")
-	body.WriteString(invocation.RequestedBy)
-	body.WriteString("\nPriority: ")
-	body.WriteString(invocation.Priority)
-	if invocation.TaskID != "" {
-		body.WriteString("\nRelated task: ")
-		body.WriteString(invocation.TaskID)
-	}
-	if invocation.MessageID != "" {
-		body.WriteString("\nRelated message: ")
-		body.WriteString(invocation.MessageID)
-	}
-	if len(invocation.Scopes) > 0 {
-		body.WriteString("\nAuthorized scopes: ")
-		body.WriteString(strings.Join(invocation.Scopes, ", "))
-	}
-	body.WriteString("\n\nInstruction:\n")
-	body.WriteString(invocation.Instruction)
-	if invocation.ExpectedResult != "" {
-		body.WriteString("\n\nExpected result:\n")
-		body.WriteString(invocation.ExpectedResult)
-	}
-	return body.String()
-}
-
-// claudeSystemPrompt carries the runtime's operating convention on the
-// trusted system-prompt channel instead of the first user turn. Blending this
-// framing into user content reads as a self-authorizing instruction smuggled
-// into the conversation, which Claude correctly treats as a likely prompt
-// injection and refuses; appending it as a system prompt avoids that false
-// positive while keeping the invocation body itself as plain user content.
-func claudeSystemPrompt(actor string) string {
-	var body strings.Builder
-	body.WriteString("You are ")
-	body.WriteString(actor)
-	body.WriteString(", an agent registered with Agent Comms, a governed multi-agent coordination tool. This message describes a standing, audited operating convention for invocations you receive through it; it does not itself grant, alter, or bypass any tool permission.\n")
-	body.WriteString("Each user turn carries one Agent Comms invocation already authorized by project governance. Complete the described work under your normal repository rules, configured tool permissions, and workspace boundaries.\n")
-	body.WriteString("Do not ask the user to relay messages to another agent; perform the work and return a concise final result, and Agent Comms will publish it to the requester.\n\n")
-	body.WriteString("Only if completing the work genuinely requires another registered Agent Comms agent's help, you may end your response with exactly one line in this format (do not invoke Agent Comms via Bash or MCP for this):\n")
-	body.WriteString(actionLinePrefix)
-	body.WriteString(" ")
-	body.WriteString(`{"target":"AGENT_ID","instruction":"bounded instruction","expected_result":"bounded result","priority":"NORMAL","scopes":[],"expires_in_seconds":600}`)
-	body.WriteString("\nAgent Comms validates, signs, and submits that follow-up under your own agent identity; it never executes arbitrary content. Leave scopes empty unless the instruction explicitly requires a scope you know both agents possess — never copy the current invocation's scopes automatically. Omit the line entirely when no follow-up is needed.")
-	return body.String()
-}
-
-// claudeUserPrompt carries only the concrete task details for this
-// invocation; the operating convention lives in claudeSystemPrompt instead.
-func claudeUserPrompt(invocation model.Invocation) string {
-	var body strings.Builder
-	body.WriteString("Invocation ID: ")
-	body.WriteString(invocation.ID)
-	body.WriteString("\nRequester: ")
-	body.WriteString(invocation.RequestedBy)
-	body.WriteString("\nPriority: ")
-	body.WriteString(invocation.Priority)
-	if invocation.TaskID != "" {
-		body.WriteString("\nRelated task: ")
-		body.WriteString(invocation.TaskID)
-	}
-	if invocation.MessageID != "" {
-		body.WriteString("\nRelated message: ")
-		body.WriteString(invocation.MessageID)
-	}
-	if len(invocation.Scopes) > 0 {
-		body.WriteString("\nAuthorized scopes: ")
-		body.WriteString(strings.Join(invocation.Scopes, ", "))
-	}
-	body.WriteString("\n\nInstruction:\n")
-	body.WriteString(invocation.Instruction)
-	if invocation.ExpectedResult != "" {
-		body.WriteString("\n\nExpected result:\n")
-		body.WriteString(invocation.ExpectedResult)
-	}
-	return body.String()
+	return w.adapter.Arguments(w.config)
 }
 
 func singleLine(value string) string {
