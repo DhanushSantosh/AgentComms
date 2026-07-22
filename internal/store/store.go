@@ -168,7 +168,7 @@ func ManagedBootstrap() []byte {
 }
 
 func AgentInstructions() []byte {
-	return []byte("# Agent Comms agent instructions\n\nRun `agent-comms status --json` before work. Register and become ACTIVE before claiming. Never write resources covered by another lease. Use durable messages for contracts, blockers, actions, and decisions.\n")
+	return []byte("# Agent Comms agent instructions\n\nRun `agent-comms status --json` before work. Register and become ACTIVE before claiming. Never write resources covered by another lease. Use durable messages for contracts, blockers, actions, and decisions.\n\nRunning unattended instead of interactively? Register a runtime with `agent-comms runtime register` and drive it with `agent-comms runtime worker --adapter <adapter>`. See docs/agent-invocations.md for how to choose an adapter and configure it.\n")
 }
 
 func initFail(point string) bool { return os.Getenv("AGENT_COMMS_TEST_INIT_FAIL_AT") == point }

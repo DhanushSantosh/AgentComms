@@ -1888,6 +1888,10 @@ contracts: Use "message post --kind CONTRACT" for binding agreements
 documents: Use "document create" for living reference documents
 decisions: Use "decision create" for design decisions
 sync:      Configure a remote with "sync setup --url <git-url>" for multi-agent coordination
+unattended: Register a runtime with "runtime register" and drive it with
+  "runtime worker --adapter <adapter>" instead of an interactive agent loop.
+  See docs/agent-invocations.md for the full adapter list and how to
+  configure each one.
 `, exe)
 		return c.emit("agent-instructions", map[string]any{"instructions": instructions, "binary": exe})
 	}}
