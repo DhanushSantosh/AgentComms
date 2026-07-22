@@ -78,3 +78,26 @@ func TestDenyGovernanceOpenCodeAlwaysDenies(t *testing.T) {
 		t.Fatal("denyGovernanceOpenCode approved a request")
 	}
 }
+
+func TestOpenCodeLiveSessionRoundTrips(t *testing.T) {
+	root := t.TempDir()
+	if got := loadOpenCodeLiveSessionID(root, "fixer-runtime-1"); got != "" {
+		t.Fatalf("expected no cached session before any save, got %q", got)
+	}
+	if err := saveOpenCodeLiveSessionID(root, "fixer-runtime-1", "ses_abc123"); err != nil {
+		t.Fatal(err)
+	}
+	if got := loadOpenCodeLiveSessionID(root, "fixer-runtime-1"); got != "ses_abc123" {
+		t.Fatalf("expected cached session ses_abc123, got %q", got)
+	}
+}
+
+func TestOpenCodeLiveSessionIsScopedPerRuntime(t *testing.T) {
+	root := t.TempDir()
+	if err := saveOpenCodeLiveSessionID(root, "fixer-runtime-1", "ses_one"); err != nil {
+		t.Fatal(err)
+	}
+	if got := loadOpenCodeLiveSessionID(root, "fixer-runtime-2"); got != "" {
+		t.Fatalf("expected a different runtime ID to have no cached session, got %q", got)
+	}
+}

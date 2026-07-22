@@ -20,6 +20,18 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
   update a registered agent's display name after registration, previously
   settable only once at `agent register` time.
 
+### Fixed
+
+- `claude` worker adapter: a runtime bound with `--session-id` to a
+  conversation that doesn't exist yet no longer fails outright. The worker
+  now creates the conversation at that exact ID on first use and resumes it
+  on every later invocation, instead of requiring the ID to be minted by an
+  out-of-band run first.
+- `opencode-live` worker adapter: invocations no longer start a fresh
+  OpenCode session every time. The worker now persists the session it
+  creates per runtime and reuses it automatically on later invocations,
+  preserving conversational continuity without requiring `--session-id`.
+
 ### Security
 
 - ACP-based workers resolve tool-call permission requests through a hybrid

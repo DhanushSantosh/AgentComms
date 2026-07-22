@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -46,10 +48,19 @@ func (claudeAdapter) Arguments(config Config) []string {
 		"--permission-mode", config.PermissionMode,
 		"--max-budget-usd", strconv.FormatFloat(config.ClaudeBudgetUSD, 'f', 2, 64),
 	}
-	if config.SessionID == "" {
+	switch {
+	case config.SessionID == "":
 		arguments = append(arguments, "--no-session-persistence")
-	} else {
+	case claudeSessionExists(config.WorkDir, config.SessionID):
 		arguments = append(arguments, "--resume", config.SessionID)
+	default:
+		// First invocation a runtime makes with a bound session ID: `--resume`
+		// fails outright on an ID with no conversation behind it yet
+		// ("No conversation found"), confirmed live against the real claude
+		// binary. `--session-id` creates the conversation at that exact ID
+		// instead, so every later invocation's `claudeSessionExists` check
+		// finds it and resumes it normally from then on.
+		arguments = append(arguments, "--session-id", config.SessionID)
 	}
 	if config.AgentCommsPath != "" {
 		arguments = append(arguments, "--allowedTools", "Bash("+config.AgentCommsPath+" *)")
@@ -62,6 +73,27 @@ func (claudeAdapter) Arguments(config Config) []string {
 
 func (claudeAdapter) Prompt(_ string, invocation model.Invocation) string {
 	return claudeUserPrompt(invocation)
+}
+
+// claudeSessionExists reports whether Claude Code already has a stored
+// conversation for sessionID under workDir. Claude Code persists each
+// session at ~/.claude/projects/<cwd, "/" replaced with "-">/<session-id>.jsonl;
+// confirmed by inspecting real session files on disk rather than assuming
+// the layout. Best-effort: any failure to resolve the home directory is
+// treated as "does not exist" rather than an error, since the caller falls
+// back to creating the session in that case.
+func claudeSessionExists(workDir, sessionID string) bool {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return false
+	}
+	abs, err := filepath.Abs(workDir)
+	if err != nil {
+		abs = workDir
+	}
+	slug := strings.ReplaceAll(abs, "/", "-")
+	_, err = os.Stat(filepath.Join(home, ".claude", "projects", slug, sessionID+".jsonl"))
+	return err == nil
 }
 
 // claudeSystemPrompt carries the runtime's operating convention on the

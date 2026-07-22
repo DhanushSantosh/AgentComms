@@ -198,12 +198,35 @@ ACP-based adapter, an empty result following a denied permission request is
 treated as a failure for exactly this reason, not a silent success.
 Use `--once` for one bounded receive attempt in automation or testing.
 
-`--session-id` binds the runtime to one existing provider conversation and
-resumes it for every invocation, preserving conversational continuity. The
-value must be an exact UUID; the worker never guesses the most recent session.
-Run only one worker for a bound session and do not process an interactive turn
-in that conversation at the same time. Without this flag, the worker retains
-isolated one-shot behavior.
+`--session-id` binds the runtime to one provider conversation and resumes it
+for every invocation, preserving conversational continuity. Run only one
+worker for a bound session and do not process an interactive turn in that
+conversation at the same time.
+
+How the ID is established differs by adapter:
+
+- `claude`: pass any UUID you choose. If no conversation exists yet at that ID,
+  the worker creates one there on the first invocation (`--session-id`);
+  every later invocation resumes it (`--resume`) — confirmed live that
+  `--resume` on a not-yet-existing ID fails outright, so the worker checks for
+  the session file under `~/.claude/projects/` before choosing which flag to
+  send.
+- `codex`: the ID must already exist — Codex mints its own thread IDs and has
+  no equivalent of Claude's create-at-a-chosen-ID flag. Run once without
+  `--session-id`, capture the thread ID Codex reports, then set `--session-id`
+  to it for every later invocation of that runtime, the way `damon-runtime-1`
+  is configured in this project.
+- `opencode-live`: `--session-id` is optional. OpenCode also mints its own
+  session IDs, but the worker persists whichever one it creates at
+  `.agent-comms/cache/opencode-live-session-<runtime-id>.json` and reuses it
+  automatically on every later invocation of that runtime — no flag or manual
+  ID capture needed. Pass `--session-id` explicitly only to point the runtime
+  at a specific pre-existing OpenCode session instead of its own cached one.
+
+The ACP-based adapters (`claude-acp`, `opencode-acp`, `codex-acp`) currently
+require the ID to already exist, the same as `codex`. Without `--session-id`
+(or, for `opencode-live`, without a cached one yet), a worker's isolated
+one-shot behavior is unchanged.
 
 `--claude-allow-agent-comms` grants the resumed Claude session unattended Bash
 permission for the currently running `agent-comms` executable only. Enable it
