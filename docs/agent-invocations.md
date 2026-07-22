@@ -168,7 +168,12 @@ invocation. `opencode-live` is the exception: it starts a persistent
 `.agent-comms/cache/opencode-server.json`, and reuses that same instance for
 every later invocation on this runtime — that persistence is what lets a
 browser stay pointed at a stable URL and watch activity happen live, instead
-of only being able to read a result once an invocation completes.
+of only being able to read a result once an invocation completes. This
+persistent server always binds a fixed port (4096), not an OS-assigned one,
+and every invocation also probes that port directly before spawning a new
+instance — even with the cache file missing entirely, a server already
+running there is found and reused rather than orphaned behind a duplicate on
+a different port.
 
 ```sh
 agent-comms --project /srv/project --actor reviewer runtime worker \
