@@ -19,18 +19,18 @@ import (
 // session that a session driven through an isolated `opencode acp`
 // subprocess never appears on a running server's SSE stream, even though
 // it's readable afterward via REST polling — true live broadcast (a
-// user's browser, pointed at the same server, watching OpenCode's own web
-// UI update as the invocation happens) requires driving the session
-// through that same server, not a side-channel subprocess.
+// terminal running `opencode attach`, pointed at the same server, watching
+// the session update as the invocation happens) requires driving the
+// session through that same server, not a side-channel subprocess.
 //
 // Registered as "opencode-live", a third, distinct OpenCode adapter
 // alongside "opencode-acp" — neither replaces the other. Use opencode-acp
 // for ordinary automated invocations; use opencode-live specifically when
-// someone needs to watch this runtime's activity live in OpenCode's own
-// UI. The persistent server this adapter starts survives past any single
-// invocation by design (see opencodeclient.EnsureServer) — that's what
-// keeps the browser URL stable across repeated invocations, the opposite
-// lifecycle from every other adapter in this package.
+// someone needs to watch this runtime's activity live via `opencode
+// attach`. The persistent server this adapter starts survives past any
+// single invocation by design (see opencodeclient.EnsureServer) — that's
+// what keeps the same session attachable across repeated invocations, the
+// opposite lifecycle from every other adapter in this package.
 type openCodeLiveAdapter struct{}
 
 func (openCodeLiveAdapter) Validate(config *Config) error {
@@ -53,7 +53,6 @@ func (openCodeLiveAdapter) Execute(ctx context.Context, config Config, invocatio
 	if err != nil {
 		return "", fmt.Errorf("opencode-live: ensure server: %w", err)
 	}
-	config.Status("watch this runtime's OpenCode activity live at " + baseURL)
 	client := opencodeclient.New(baseURL)
 
 	sessionID := config.SessionID
@@ -81,6 +80,7 @@ func (openCodeLiveAdapter) Execute(ctx context.Context, config Config, invocatio
 			return "", fmt.Errorf("opencode-live: persist session id: %w", err)
 		}
 	}
+	config.Status("watch this runtime's OpenCode activity live in a terminal: " + openCodeAttachCommand(baseURL, config.WorkDir, sessionID))
 
 	watcher := opencodeclient.NewPermissionWatcher(
 		client,
@@ -109,6 +109,18 @@ func (openCodeLiveAdapter) Execute(ctx context.Context, config Config, invocatio
 			strings.Join(watcher.DeniedKinds(), ", "))
 	}
 	return output, nil
+}
+
+// openCodeAttachCommand builds the exact `opencode attach` invocation that
+// lands a terminal directly on this runtime's own session, confirmed live
+// against `opencode attach --help`: --dir and --session are real, documented
+// flags for exactly this. Reporting just the bare server URL isn't enough —
+// confirmed live that opening it without --dir/--session lands on whatever
+// project happened to be "current" on the server (which, for a long-lived
+// server reused across many different working directories, is very often
+// not this runtime's own project), showing an unrelated session instead.
+func openCodeAttachCommand(baseURL, workDir, sessionID string) string {
+	return fmt.Sprintf("opencode attach %s --dir %s --session %s", baseURL, workDir, sessionID)
 }
 
 // openCodeLiveSessionPath returns this runtime's locally-cached OpenCode

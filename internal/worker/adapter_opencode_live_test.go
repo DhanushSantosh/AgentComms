@@ -92,6 +92,17 @@ func TestOpenCodeLiveSessionRoundTrips(t *testing.T) {
 	}
 }
 
+// TestOpenCodeAttachCommandMatchesRealCLIFlags pins the reported command
+// against the exact flags confirmed live via `opencode attach --help`:
+// --dir and --session, not positional arguments or anything invented.
+func TestOpenCodeAttachCommandMatchesRealCLIFlags(t *testing.T) {
+	got := openCodeAttachCommand("http://127.0.0.1:4096", "/home/dhanush/Projects/DeskCrafter", "ses_0762d1d0bffePMbwRdrPFzD2J9")
+	want := "opencode attach http://127.0.0.1:4096 --dir /home/dhanush/Projects/DeskCrafter --session ses_0762d1d0bffePMbwRdrPFzD2J9"
+	if got != want {
+		t.Fatalf("openCodeAttachCommand() = %q, want %q", got, want)
+	}
+}
+
 func TestOpenCodeLiveSessionIsScopedPerRuntime(t *testing.T) {
 	root := t.TempDir()
 	if err := saveOpenCodeLiveSessionID(root, "fixer-runtime-1", "ses_one"); err != nil {

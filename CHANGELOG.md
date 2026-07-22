@@ -13,9 +13,9 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
   existing `claude` and `codex` exec adapters are unchanged and remain the
   default.
 - An `opencode-live` worker adapter that drives OpenCode through a
-  persistent, browser-watchable `opencode serve` instance instead of ACP, for
-  when a runtime's activity needs to be visible live rather than only after
-  completion.
+  persistent `opencode serve` instance instead of ACP, watchable live in a
+  terminal with `opencode attach`, for when a runtime's activity needs to be
+  visible live rather than only after completion.
 - `agent-comms agent rename --id <id> --display-name <name>` to correct or
   update a registered agent's display name after registration, previously
   settable only once at `agent register` time.
@@ -37,8 +37,15 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
   recording it is missing or stale — not only by trusting the cache file.
   A lost or reset cache no longer orphans a still-running server and
   silently spawns a duplicate on a different port, which had been
-  fragmenting invocation traffic away from whatever a browser was already
-  watching.
+  fragmenting invocation traffic away from whatever was already being
+  watched.
+- `opencode-live`'s `Status` output now reports the exact `opencode attach
+  ... --dir ... --session ...` command for this runtime's own session,
+  instead of just the bare server URL. The bare URL alone attaches to
+  whatever session happens to be "current" on the server, which for a
+  long-lived server reused across many runtimes and projects is very often
+  not this runtime's own — confirmed live that this made an unrelated
+  session's history look like the runtime's live activity had gone missing.
 
 ### Security
 

@@ -65,7 +65,7 @@ or changes the behavior of `claude`/`codex`.
 | `claude-acp` | Claude | ACP, via `npx @agentclientprotocol/claude-agent-acp` | Node.js/npm | No (session viewable afterward with [claude-code-viewer](https://github.com/d-kimuson/claude-code-viewer)) | Session-store-compatible with `claude` — the same conversation can be resumed by either adapter |
 | `opencode-acp` | OpenCode | ACP, via `opencode acp` | `opencode` binary | No (session viewable afterward via `opencode` itself, or a third-party viewer) | |
 | `codex-acp` | Codex | ACP, via `npx @agentclientprotocol/codex-acp` | Node.js/npm | No (viewable afterward with [codex-trace](https://github.com/PixelPaw-Labs/codex-trace)) | **Weaker tool-call permission enforcement than the other ACP adapters** — see below |
-| `opencode-live` | OpenCode | persistent `opencode serve` + REST/SSE | `opencode` binary | **Yes** — open the reported URL in a browser while it runs | The server it starts outlives the invocation and is reused by later ones; every other adapter's process ends with the invocation |
+| `opencode-live` | OpenCode | persistent `opencode serve` + REST/SSE | `opencode` binary | **Yes** — run the reported `opencode attach` command in a terminal while it runs | The server it starts outlives the invocation and is reused by later ones; every other adapter's process ends with the invocation |
 
 Pick `claude`/`codex` by default. Reach for an ACP adapter only when you
 specifically need what it adds — e.g. `opencode-live` when someone needs to
@@ -167,7 +167,7 @@ invocation. `opencode-live` is the exception: it starts a persistent
 `opencode serve` instance the first time it's needed, records its address at
 `.agent-comms/cache/opencode-server.json`, and reuses that same instance for
 every later invocation on this runtime — that persistence is what lets a
-browser stay pointed at a stable URL and watch activity happen live, instead
+terminal stay attached to one session and watch activity happen live, instead
 of only being able to read a result once an invocation completes. This
 persistent server always binds a fixed port (4096), not an OS-assigned one,
 and every invocation also probes that port directly before spawning a new
@@ -183,11 +183,18 @@ agent-comms --project /srv/project --actor reviewer runtime worker \
   --execution-timeout 30m
 ```
 
-The worker's `Status` output reports the URL to open, e.g. `watch this
-runtime's OpenCode activity live at http://127.0.0.1:4096`. This was verified
-live: a session titled with the invocation's own instruction shows up in that
-server's own session list and is fully browsable while the invocation runs.
-Use this specifically when a human needs to watch a runtime work, not as the
+The worker's `Status` output reports the exact command to run, e.g. `watch
+this runtime's OpenCode activity live in a terminal: opencode attach
+http://127.0.0.1:4096 --dir /srv/project --session ses_...`. Run that in a
+second terminal while the worker is running. `--dir` and `--session` both
+matter: attaching with only the bare server URL lands on whatever session
+happened to be "current" on the server rather than this runtime's own —
+confirmed live, since a long-lived server ends up handling many unrelated
+sessions across however many projects and runtimes have used it over time.
+This was verified live: a session titled with the invocation's own
+instruction shows up in that server's own session list and is fully
+watchable with `opencode attach` while the invocation runs. Use this
+specifically when a human needs to watch a runtime work, not as the
 default choice for routine automation — `opencode-acp` has no persistent
 process to manage and is the better fit when nobody needs to watch.
 
