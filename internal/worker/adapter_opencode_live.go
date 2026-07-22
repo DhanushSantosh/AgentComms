@@ -2,8 +2,11 @@ package worker
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/DhanushSantosh/AgentComms/internal/model"
@@ -54,16 +57,29 @@ func (openCodeLiveAdapter) Execute(ctx context.Context, config Config, invocatio
 	client := opencodeclient.New(baseURL)
 
 	sessionID := config.SessionID
+	if sessionID == "" {
+		sessionID = loadOpenCodeLiveSessionID(config.WorkDir, config.RuntimeID)
+	}
 	if sessionID != "" {
 		if _, err := client.GetSession(ctx, sessionID); err != nil {
-			return "", fmt.Errorf("opencode-live: resume session %s: %w", sessionID, err)
+			// OpenCode mints its own session IDs; unlike Claude's
+			// --session-id, there is no way to create a session at a
+			// caller-chosen ID. A configured or previously-cached ID that no
+			// longer resolves (server restarted, history pruned) falls back
+			// to creating a fresh one below rather than failing the
+			// invocation outright.
+			sessionID = ""
 		}
-	} else {
+	}
+	if sessionID == "" {
 		session, err := client.CreateSession(ctx, config.WorkDir)
 		if err != nil {
 			return "", fmt.Errorf("opencode-live: create session: %w", err)
 		}
 		sessionID = session.ID
+		if err := saveOpenCodeLiveSessionID(config.WorkDir, config.RuntimeID, sessionID); err != nil {
+			return "", fmt.Errorf("opencode-live: persist session id: %w", err)
+		}
 	}
 
 	watcher := opencodeclient.NewPermissionWatcher(
@@ -93,6 +109,44 @@ func (openCodeLiveAdapter) Execute(ctx context.Context, config Config, invocatio
 			strings.Join(watcher.DeniedKinds(), ", "))
 	}
 	return output, nil
+}
+
+// openCodeLiveSessionPath returns this runtime's locally-cached OpenCode
+// session record, the same non-authoritative local-routing convention
+// opencodeclient.ServerInfoPath uses for the server address itself: never
+// part of the signed project event chain, just what lets a runtime with no
+// explicit --session-id keep resuming its own conversation across
+// invocations instead of starting a fresh one every time.
+func openCodeLiveSessionPath(workDir, runtimeID string) string {
+	return filepath.Join(workDir, ".agent-comms", "cache", "opencode-live-session-"+runtimeID+".json")
+}
+
+func loadOpenCodeLiveSessionID(workDir, runtimeID string) string {
+	raw, err := os.ReadFile(openCodeLiveSessionPath(workDir, runtimeID))
+	if err != nil {
+		return ""
+	}
+	var record struct {
+		SessionID string `json:"session_id"`
+	}
+	if err := json.Unmarshal(raw, &record); err != nil {
+		return ""
+	}
+	return record.SessionID
+}
+
+func saveOpenCodeLiveSessionID(workDir, runtimeID, sessionID string) error {
+	path := openCodeLiveSessionPath(workDir, runtimeID)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	raw, err := json.Marshal(struct {
+		SessionID string `json:"session_id"`
+	}{SessionID: sessionID})
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, raw, 0o600)
 }
 
 // denyGovernanceOpenCode implements opencodeclient.GovernanceApprover by

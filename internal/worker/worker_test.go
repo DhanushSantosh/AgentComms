@@ -105,10 +105,49 @@ func TestWorkerResumesBoundClaudeSession(t *testing.T) {
 	worker := newTestWorker(t, instance, root)
 	worker.config.SessionID = "e22cbdad-7233-4d6d-8ecc-0c4bffd8c475"
 	worker.config.AgentCommsPath = worker.config.Executable
+	writeFakeClaudeSession(t, root, worker.config.SessionID)
 	arguments := worker.arguments()
 	assertArgumentsContain(t, arguments, "--resume", worker.config.SessionID)
 	assertArgumentsContain(t, arguments, "--allowedTools", "Bash("+worker.config.Executable+" *)")
 	assertArgumentsExclude(t, arguments, "--no-session-persistence")
+	assertArgumentsExclude(t, arguments, "--session-id")
+}
+
+// TestWorkerCreatesUnboundClaudeSession covers the first invocation a
+// runtime ever makes with a bound session ID: `--resume` fails outright on
+// an ID with no conversation behind it yet (confirmed live against the real
+// claude binary — "No conversation found"), so the worker must emit
+// `--session-id` instead to create the conversation at that exact ID.
+func TestWorkerCreatesUnboundClaudeSession(t *testing.T) {
+	instance, root := workerService(t)
+	worker := newTestWorker(t, instance, root)
+	worker.config.SessionID = "b3e6e5e0-6b3b-4a6b-9f0b-6b6b6b6b6b6b"
+	t.Setenv("HOME", t.TempDir())
+	arguments := worker.arguments()
+	assertArgumentsContain(t, arguments, "--session-id", worker.config.SessionID)
+	assertArgumentsExclude(t, arguments, "--resume")
+	assertArgumentsExclude(t, arguments, "--no-session-persistence")
+}
+
+// writeFakeClaudeSession creates a placeholder session file at the exact
+// path claudeSessionExists checks, without depending on $HOME by pointing
+// HOME at a throwaway directory for the duration of the test.
+func writeFakeClaudeSession(t *testing.T, workDir, sessionID string) {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	abs, err := filepath.Abs(workDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	slug := strings.ReplaceAll(abs, "/", "-")
+	dir := filepath.Join(home, ".claude", "projects", slug)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, sessionID+".jsonl"), []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestWorkerResumesBoundCodexSession(t *testing.T) {
