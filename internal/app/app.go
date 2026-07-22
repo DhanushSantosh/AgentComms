@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/DhanushSantosh/AgentComms/internal/claudetail"
 	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
 	"github.com/DhanushSantosh/AgentComms/internal/daemon"
 	"github.com/DhanushSantosh/AgentComms/internal/daemonclient"
@@ -157,7 +158,7 @@ func (c *cli) root() *cobra.Command {
 	f.DurationVar(&c.timeout, "timeout", 10*time.Second, "transaction lock timeout")
 	f.BoolVar(&c.noColor, "no-color", false, "disable ANSI color")
 	f.BoolVarP(&c.quiet, "quiet", "q", false, "suppress non-essential output")
-	r.AddCommand(c.versionCmd(), c.initCmd(), c.doctorCmd(), c.verifyCmd(), c.statusCmd(), c.controlCmd(), c.historyCmd(), c.searchCmd(), c.agentCmd(), c.runtimeCmd(), c.invocationCmd(), c.sessionCmd(), c.taskCmd(), c.messageCmd(), c.decisionCmd(), c.approvalCmd(), c.artifactCmd(), c.documentCmd(), c.envCmd(), c.draftCmd(), c.archiveCmd(), c.exportCmd(), c.syncCmd(), c.profileCmd(), c.configCmd(), c.themeCmd(), c.updateCmd(), c.completionCmd(r), c.agentInstructionsCmd(), c.mcpCmd(), c.watchCmd(), c.tuiCmd(), c.migrateCmd(), c.daemonCmd())
+	r.AddCommand(c.versionCmd(), c.initCmd(), c.doctorCmd(), c.verifyCmd(), c.statusCmd(), c.controlCmd(), c.historyCmd(), c.searchCmd(), c.agentCmd(), c.runtimeCmd(), c.invocationCmd(), c.sessionCmd(), c.taskCmd(), c.messageCmd(), c.decisionCmd(), c.approvalCmd(), c.artifactCmd(), c.documentCmd(), c.envCmd(), c.draftCmd(), c.archiveCmd(), c.exportCmd(), c.syncCmd(), c.profileCmd(), c.configCmd(), c.themeCmd(), c.updateCmd(), c.completionCmd(r), c.agentInstructionsCmd(), c.mcpCmd(), c.watchCmd(), c.tuiCmd(), c.migrateCmd(), c.daemonCmd(), c.claudeCmd())
 	return r
 }
 
@@ -1898,6 +1899,38 @@ unattended: Register a runtime with "runtime register" and drive it with
 }
 func (c *cli) mcpCmd() *cobra.Command {
 	return &cobra.Command{Use: "mcp", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error { return mcp.Serve(c.svc, c.actor, os.Stdin, c.out) }}
+}
+func (c *cli) claudeCmd() *cobra.Command {
+	root := &cobra.Command{Use: "claude", Short: "Utilities for locally watching a Claude Code session"}
+	var sessionID, projectDir string
+	var noReplay bool
+	tail := &cobra.Command{Use: "tail", Args: cobra.NoArgs, Short: "Stream a Claude Code session transcript live", RunE: func(cmd *cobra.Command, args []string) error {
+		if strings.TrimSpace(sessionID) == "" {
+			return errors.New("--session is required")
+		}
+		dir := projectDir
+		if dir == "" {
+			dir = c.svc.Store.Root
+		}
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("resolve home directory: %w", err)
+		}
+		path, err := claudetail.SessionPath(filepath.Join(home, ".claude"), dir, sessionID)
+		if err != nil {
+			return err
+		}
+		if _, err := os.Stat(path); err != nil {
+			return fmt.Errorf("no Claude session found at %s: %w", path, err)
+		}
+		return claudetail.Tail(cmd.Context(), path, c.out, !noReplay)
+	}}
+	tail.Flags().StringVar(&sessionID, "session", "", "Claude session ID to watch")
+	_ = tail.MarkFlagRequired("session")
+	tail.Flags().StringVar(&projectDir, "project-dir", "", "Claude Code working directory for this session (defaults to the current AgentComms project root)")
+	tail.Flags().BoolVar(&noReplay, "no-replay", false, "skip replaying existing history, only show new turns")
+	root.AddCommand(tail)
+	return root
 }
 func (c *cli) watchCmd() *cobra.Command {
 	var interval time.Duration
