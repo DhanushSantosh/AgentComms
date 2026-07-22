@@ -121,11 +121,12 @@ func validateExecutablePath(path, label string) error {
 }
 
 var adapters = map[string]Adapter{
-	"claude":       claudeAdapter{},
-	"codex":        codexAdapter{},
-	"claude-acp":   claudeACPAdapter{},
-	"opencode-acp": openCodeACPAdapter{},
-	"codex-acp":    codexACPAdapter{},
+	"claude":        claudeAdapter{},
+	"codex":         codexAdapter{},
+	"claude-acp":    claudeACPAdapter{},
+	"opencode-acp":  openCodeACPAdapter{},
+	"codex-acp":     codexACPAdapter{},
+	"opencode-live": openCodeLiveAdapter{},
 }
 
 // RequiresExecutable reports whether the named adapter execs a local CLI
