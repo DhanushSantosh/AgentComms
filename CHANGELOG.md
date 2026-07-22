@@ -31,6 +31,14 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
   OpenCode session every time. The worker now persists the session it
   creates per runtime and reuses it automatically on later invocations,
   preserving conversational continuity without requiring `--session-id`.
+- `opencode-live`'s persistent `opencode serve` instance now always binds a
+  fixed, well-known port (4096) instead of an OS-assigned one, and is
+  discovered by probing that port directly if the local cache file
+  recording it is missing or stale — not only by trusting the cache file.
+  A lost or reset cache no longer orphans a still-running server and
+  silently spawns a duplicate on a different port, which had been
+  fragmenting invocation traffic away from whatever a browser was already
+  watching.
 
 ### Security
 

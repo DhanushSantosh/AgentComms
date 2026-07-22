@@ -28,22 +28,31 @@ func ServerInfoPath(projectRoot string) string {
 	return filepath.Join(projectRoot, ".agent-comms", "cache", "opencode-server.json")
 }
 
+// defaultServePort is the well-known port spawnServer always binds to.
+// Fixed rather than OS-assigned (as it once was) so a running instance can
+// always be found by address alone, even with no cache file at all — the
+// gap that let an earlier local cache reset (a project-level .agent-comms
+// archive/reset) silently orphan a still-running server on this exact port,
+// forever untracked, while every later EnsureServer call spawned a fresh
+// duplicate on a random port instead of finding it.
+const defaultServePort = "4096"
+
+func defaultServeBaseURL() string { return "http://127.0.0.1:" + defaultServePort }
+
 // EnsureServer returns a running opencode serve instance's base URL for
-// this project, reusing a healthy one recorded at ServerInfoPath or
-// spawning a fresh one if none exists or the recorded one no longer
-// responds. Concurrent-safe in the sense that a stale or missing record
-// always results in exactly one new spawn per call, matching the existing
-// per-project daemon's own auto-spawn convention.
+// this project, reusing a healthy one recorded at ServerInfoPath, or one
+// already listening at the well-known default port if the cache is missing
+// or stale, or spawning a fresh one only if neither responds. Concurrent-safe
+// in the sense that a stale or missing record always results in exactly one
+// new spawn per call, matching the existing per-project daemon's own
+// auto-spawn convention.
 func EnsureServer(ctx context.Context, projectRoot, workDir string) (string, error) {
 	path := ServerInfoPath(projectRoot)
-	if info, err := loadServerInfo(path); err == nil {
-		healthCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
-		client := New(info.BaseURL)
-		healthErr := client.Health(healthCtx)
-		cancel()
-		if healthErr == nil {
-			return info.BaseURL, nil
+	if baseURL, ok := resolveRunningServer(ctx, path, defaultServeBaseURL()); ok {
+		if err := saveServerInfo(path, ServerInfo{BaseURL: baseURL}); err != nil {
+			return "", err
 		}
+		return baseURL, nil
 	}
 	baseURL, err := spawnServer(ctx, workDir)
 	if err != nil {
@@ -53,6 +62,26 @@ func EnsureServer(ctx context.Context, projectRoot, workDir string) (string, err
 		return "", err
 	}
 	return baseURL, nil
+}
+
+// resolveRunningServer looks for an already-running, healthy opencode serve
+// instance without spawning one: first the address recorded at path, then
+// fallbackURL (the well-known default port). Returns ok=false only if
+// neither responds, meaning the caller must spawn a fresh instance.
+func resolveRunningServer(ctx context.Context, path, fallbackURL string) (string, bool) {
+	if info, err := loadServerInfo(path); err == nil && serverHealthy(ctx, info.BaseURL) {
+		return info.BaseURL, true
+	}
+	if fallbackURL != "" && serverHealthy(ctx, fallbackURL) {
+		return fallbackURL, true
+	}
+	return "", false
+}
+
+func serverHealthy(ctx context.Context, baseURL string) bool {
+	healthCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+	return New(baseURL).Health(healthCtx) == nil
 }
 
 func loadServerInfo(path string) (ServerInfo, error) {
@@ -84,14 +113,14 @@ func saveServerInfo(path string, info ServerInfo) error {
 const serverStartupTimeout = 30 * time.Second
 
 // spawnServer starts a new, detached `opencode serve` instance bound to
-// loopback on an OS-assigned port, parses its own log line reporting the
+// loopback on defaultServePort, parses its own log line reporting the
 // address it bound, and returns once that address is confirmed reachable.
 // The process is not tied to the caller's context or lifetime — it must
 // keep running after this call (and the invocation that triggered it)
 // returns, since it's meant to be a stable, repeatedly-reusable, browser-
 // watchable server, not a per-invocation subprocess.
 func spawnServer(ctx context.Context, workDir string) (string, error) {
-	cmd := exec.Command("opencode", "serve", "--hostname", "127.0.0.1", "--port", "0", "--pure")
+	cmd := exec.Command("opencode", "serve", "--hostname", "127.0.0.1", "--port", defaultServePort, "--pure")
 	cmd.Dir = workDir
 	cmd.SysProcAttr = detachedProcAttr()
 	stdout, err := cmd.StdoutPipe()
