@@ -12,6 +12,13 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
   instead of a direct CLI exec, selectable via `runtime worker --adapter`. The
   existing `claude` and `codex` exec adapters are unchanged and remain the
   default.
+- An `opencode-live` worker adapter that drives OpenCode through a
+  persistent, browser-watchable `opencode serve` instance instead of ACP, for
+  when a runtime's activity needs to be visible live rather than only after
+  completion.
+- `agent-comms agent rename --id <id> --display-name <name>` to correct or
+  update a registered agent's display name after registration, previously
+  settable only once at `agent register` time.
 
 ### Security
 
