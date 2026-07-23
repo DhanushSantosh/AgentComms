@@ -2,10 +2,10 @@
 
 ## Status
 
-Proposed — implementation plan for a builder agent; not yet built. This is
-a genuinely different, harder problem than RFC 0008/0009, and this
-document deliberately leaves the central design tension open rather than
-resolving it, because resolving it is the actual implementation work.
+Proposed — implementation plan for a builder agent; not yet built.
+**Decided: Option A** (`Execute` blocks and polls; `Worker.Run` is not
+modified), with a self-written result file as the read-back mechanism.
+Reasoning below, in "The central design tension."
 
 ## Context
 
@@ -81,39 +81,52 @@ an `Execute` that happens to also shell out to `invocation complete` --
 that produces exactly the double-completion race this paragraph exists to
 warn about.
 
-**Recommendation, not a mandate**: start with Option A. It's a smaller,
-fully-contained change (one new adapter, zero changes to
-`internal/worker/worker.go`), and it's testable in isolation the same way
-every other adapter in this codebase is. Only move to Option B if Option
-A's polling proves too slow or too fragile in practice — and if so, that
-decision belongs in a follow-up RFC of its own, not folded silently into
-this one.
+**Decision: Option A, not a starting point to revisit — a deliberate,
+long-run choice.** This project's completion model is deterministic and
+worker-owned everywhere, for every one of the six adapters that exist
+today: `Execute` returns, the worker completes the invocation, and any
+failure becomes an auditable `WAITING` reason through one single,
+well-tested code path. That uniformity is a real asset, not an accident of
+how the code happened to grow. Option B trades it away permanently: it
+requires `Worker.Run` to special-case "this invocation might complete
+itself," it opens a real race (the worker's own timeout firing while the
+agent is mid-way through calling `invocation complete` by hand, or the
+model simply forgetting to), and it hands a governance-relevant state
+transition — whether work counts as done — to a Bash command the model has
+to type correctly under real conditions, which is a strictly less
+controlled mechanism than the worker deciding it in code. It also sets a
+precedent that erodes the very thing that makes this system auditable: if
+one adapter self-completes, "why not all of them" becomes a reasonable
+question with no good answer. None of that is worth trading for a
+plumbing-level simplification. Do not revisit Option B unless Option A is
+first built, measured, and found to have a real, specific problem Option A
+cannot fix — and if that happens, it belongs in a new RFC, not a
+retroactive change to this one.
 
-## Decision (assuming Option A)
+## Decision
 
 ### Reading the answer back
 
 Since injection has no return channel the way an HTTP response or a
 process's stdout does, `Execute` needs another way to know the turn
-finished and what it said. Two sub-options, and this is explicitly left
-for the builder to pick based on what proves reliable, not decided here:
+finished and what it said. **Decided: a self-written result file**, not
+pane-output scraping. Have the injected prompt instruct the agent to write
+its final answer to a bounded local file (e.g.
+`.agent-comms/tmp/injected-result-<invocation-id>.txt`) as its very last
+action, and have `Execute` poll for that file's existence. This is still an
+instruction the model has to follow, but it fails closed the same way
+everything else in this design does: no file within the timeout means
+`Execute` returns an error and the invocation goes to `WAITING`, the same
+as a governed action being denied does elsewhere in this codebase — no
+different in kind from the model failing to answer at all. Pane-output
+scraping was rejected: it's fragile across Claude Code/Codex UI version
+changes and terminal-width-dependent text wrapping, and a UI redesign
+upstream would silently break it with no error at all, which is a worse
+failure mode than "the model didn't write the file this time." A bounded
+write location plus a cleanup step (delete the file once read, and sweep
+any left over past a TTL) closes the one real cost of this approach.
 
-1. **Poll the pane's rendered output** (`tmux capture-pane -p`) for the
-   prompt marker returning to idle (e.g. Claude's own `❯` prompt with no
-   "Thinking…"/working indicator), then parse the visible text since the
-   injected prompt. Fragile across Claude Code/Codex UI changes and across
-   terminal widths (text can wrap), but requires nothing from the agent
-   itself.
-2. **Have the injected prompt instruct the agent to also write its answer
-   to a bounded local file** (e.g. `.agent-comms/tmp/injected-result-
-   <invocation-id>.txt`) as its very last action, and have `Execute` poll
-   for that file's existence rather than parsing rendered terminal output.
-   More robust than option 1, but requires the interactive agent to
-   reliably follow that one extra instruction every time, and requires a
-   real, bounded write location + cleanup story (don't leave these files
-   accumulating forever).
-
-Whichever is chosen, `Execute` must have a real timeout (matching
+`Execute` must have a real timeout (matching
 `ExecutionTimeout`, the same bound every other adapter already respects)
 and must return a clear error — not an empty success — if it can't
 determine the answer within that bound, the same principle
@@ -187,11 +200,11 @@ command — there is no broker to attach to in this design; the terminal
   conflate two different mechanisms (an HTTP broker vs. a pty) inside one
   package, and would force every consumer of `claudeserve`/`codexserve` to
   understand a code path that has nothing to do with HTTP or SSE.
-- **Option B from the start**: rejected as the default for this RFC (not
-  forever) because it requires a `Worker.Run` lifecycle change before a
-  single adapter exists to prove the injection mechanism itself works.
-  Prove Option A works first; consider Option B only if polling turns out
-  to be the actual bottleneck.
+- **Option B (agent self-completes via Bash)**: rejected, and not as a
+  placeholder — it trades away the deterministic, worker-owned completion
+  model every other adapter in this project relies on, for a plumbing-level
+  simplification that isn't worth that cost. See "The central design
+  tension" above for the full reasoning.
 
 ## Testing plan
 
@@ -226,19 +239,18 @@ violating it is silent corruption of a shared terminal, not a clean error.
 
 ## Consequences
 
-If Option A works reliably, this gives Claude and Codex runtimes the one
-thing `claude-live`/`codex-live` structurally cannot: the actual native
+Built as decided (Option A, result-file read-back), this gives Claude and
+Codex runtimes the one thing `claude-live`/`codex-live` structurally cannot: the actual native
 chat UI, live, the same category of experience `opencode attach` already
 provides for OpenCode. It comes with a narrower operating envelope than
 every other adapter in this project — a single shared terminal that
 nothing else may touch while an invocation is running — which is a real,
 ongoing operational cost, not a one-time implementation detail to get past.
 
-Open questions the builder must resolve, not guess past: whether pane-
-output polling or a self-written result file is the more reliable way to
-read the answer back (Section "Reading the answer back"); whether a
+Open question the builder must still resolve, not guess past: whether a
 single-flight mutex is sufficient protection against concurrent access to
 the shared pane in practice, given this project's own workers already run
 as long-lived background processes that a human could plausibly also
 `tmux attach` to and start typing into without realizing an invocation is
-in flight.
+in flight. The read-back mechanism and the Option A/B question are both
+decided above, not open.
