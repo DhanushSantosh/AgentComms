@@ -3,6 +3,8 @@ package app
 import (
 	"bytes"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,6 +14,22 @@ import (
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 	"github.com/DhanushSantosh/AgentComms/internal/service"
 )
+
+func TestClaudeAttachDoesNotRequireInitializedProject(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/runtimes/runtime-one/events" {
+			http.NotFound(response, request)
+			return
+		}
+		response.Header().Set("Content-Type", "text/event-stream")
+		response.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+	var stdout, stderr bytes.Buffer
+	if err := Run([]string{"claude", "attach", "--runtime", "runtime-one", "--server", server.URL}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestVersionEnvelope(t *testing.T) {
 	var out, err bytes.Buffer

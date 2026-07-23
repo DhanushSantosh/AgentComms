@@ -2,7 +2,23 @@
 
 ## Status
 
-Proposed — implementation plan for a builder agent; not yet built.
+Implemented on `dev`. The builder resolved the two open questions as follows:
+
+- The [Claude Code CLI reference](https://docs.anthropic.com/en/docs/claude-code/cli-reference)
+  confirms persistent streaming input, streaming JSON output, replayed user
+  messages, permission modes, and print-mode budget controls. Claude Code
+  `2.1.217` emitted ordinary assistant, tool, user-result, and
+  final result frames for a governed Bash turn in persistent `stream-json`
+  mode; no separate permission-control event was present. The broker therefore
+  honors Claude's configured non-bypass permission mode and treats reported
+  permission denials as invocation failures.
+- `--claude-max-budget-usd` is passed to the persistent print-mode process and
+  documented as a process-lifetime ceiling for `claude-live`, rather than
+  claiming the plain adapter's fresh per-invocation semantics.
+
+Implementation also rejects a runtime ID being re-registered with a different
+process configuration, preventing the machine-wide fixed-port broker from
+silently routing a project to another project's process.
 
 ## Context
 

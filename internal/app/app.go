@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/DhanushSantosh/AgentComms/internal/claudeserve"
 	"github.com/DhanushSantosh/AgentComms/internal/claudetail"
 	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
 	"github.com/DhanushSantosh/AgentComms/internal/daemon"
@@ -92,7 +93,7 @@ func Run(args []string, stdout, stderr io.Writer) error {
 func (c *cli) root() *cobra.Command {
 	r := &cobra.Command{Use: "agent-comms", Short: "Governed coordination for concurrent agents", Version: Version, PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		c.cmd = cmd.CommandPath()
-		if cmd.Name() == "version" || cmd.Name() == "init" || cmd.Name() == "completion" || (cmd.Name() == "update" && cmd.Parent() == cmd.Root()) || cmd.Name() == "agent-instructions" || cmd.CommandPath() == "agent-comms daemon serve" {
+		if cmd.Name() == "version" || cmd.Name() == "init" || cmd.Name() == "completion" || (cmd.Name() == "update" && cmd.Parent() == cmd.Root()) || cmd.Name() == "agent-instructions" || cmd.CommandPath() == "agent-comms daemon serve" || cmd.CommandPath() == "agent-comms claude serve" || cmd.CommandPath() == "agent-comms claude attach" {
 			return nil
 		}
 		root := c.project
@@ -766,7 +767,7 @@ func (c *cli) runtimeCmd() *cobra.Command {
 	}
 	workerCommand.Flags().String("id", "", "registered runtime ID")
 	_ = workerCommand.MarkFlagRequired("id")
-	workerCommand.Flags().StringVar(&workerAdapter, "adapter", "claude", "claude, codex, claude-acp, opencode-acp, codex-acp, or opencode-live")
+	workerCommand.Flags().StringVar(&workerAdapter, "adapter", "claude", "claude, claude-live, codex, claude-acp, opencode-acp, codex-acp, or opencode-live")
 	workerCommand.Flags().StringVar(&workerExecutable, "executable", "", "absolute agent executable path")
 	workerCommand.Flags().StringVar(&workerModel, "model", "", "agent model override")
 	workerCommand.Flags().StringVar(&workerSessionID, "session-id", "", "existing Claude or Codex conversation UUID to resume")
@@ -776,7 +777,7 @@ func (c *cli) runtimeCmd() *cobra.Command {
 	workerCommand.Flags().BoolVar(&codexIgnoreUserConfig, "codex-ignore-user-config", false, "isolate autonomous runs from user MCP and tool configuration")
 	workerCommand.Flags().DurationVar(&executionTimeout, "execution-timeout", 30*time.Minute, "per-invocation execution timeout")
 	workerCommand.Flags().DurationVar(&listenWait, "listen-wait", controlplane.MaxInvocationListen, "bounded invocation listen duration")
-	workerCommand.Flags().Float64Var(&claudeBudget, "claude-max-budget-usd", 1, "maximum Claude spend per invocation")
+	workerCommand.Flags().Float64Var(&claudeBudget, "claude-max-budget-usd", 1, "Claude spend ceiling (per invocation for claude; per process for claude-live)")
 	workerCommand.Flags().BoolVar(&allowAgentComms, "claude-allow-agent-comms", false, "allow only this Agent Comms executable as an unattended Claude Bash command")
 	workerCommand.Flags().BoolVar(&once, "once", false, "process at most one invocation and exit")
 
@@ -1901,7 +1902,7 @@ func (c *cli) mcpCmd() *cobra.Command {
 	return &cobra.Command{Use: "mcp", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error { return mcp.Serve(c.svc, c.actor, os.Stdin, c.out) }}
 }
 func (c *cli) claudeCmd() *cobra.Command {
-	root := &cobra.Command{Use: "claude", Short: "Utilities for locally watching a Claude Code session"}
+	root := &cobra.Command{Use: "claude", Short: "Serve, attach to, or tail Claude Code sessions"}
 	var sessionID, projectDir string
 	var noReplay bool
 	tail := &cobra.Command{Use: "tail", Args: cobra.NoArgs, Short: "Stream a Claude Code session transcript live", RunE: func(cmd *cobra.Command, args []string) error {
@@ -1929,7 +1930,39 @@ func (c *cli) claudeCmd() *cobra.Command {
 	_ = tail.MarkFlagRequired("session")
 	tail.Flags().StringVar(&projectDir, "project-dir", "", "Claude Code working directory for this session (defaults to the current AgentComms project root)")
 	tail.Flags().BoolVar(&noReplay, "no-replay", false, "skip replaying existing history, only show new turns")
-	root.AddCommand(tail)
+
+	var listenAddress string
+	serve := &cobra.Command{Use: "serve", Args: cobra.NoArgs, Short: "Run the local Claude live broker", RunE: func(cmd *cobra.Command, args []string) error {
+		ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+		defer cancel()
+		if !c.quiet {
+			_, _ = fmt.Fprintf(c.err, "Claude live broker listening on http://%s\n", listenAddress)
+		}
+		return claudeserve.Serve(ctx, listenAddress)
+	}}
+	serve.Flags().StringVar(&listenAddress, "listen", claudeserve.DefaultServeAddress, "loopback listen address")
+
+	var runtimeID, serverURL string
+	attach := &cobra.Command{Use: "attach", Args: cobra.NoArgs, Short: "Watch a Claude live runtime's event stream", RunE: func(cmd *cobra.Command, args []string) error {
+		client := claudeserve.New(serverURL)
+		events, err := client.Subscribe(cmd.Context(), runtimeID)
+		if err != nil {
+			return err
+		}
+		for event := range events {
+			if rendered, ok := claudetail.Format(event); ok {
+				if _, err := fmt.Fprint(c.out, rendered); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}}
+	attach.Flags().StringVar(&runtimeID, "runtime", "", "registered Agent Comms runtime ID")
+	_ = attach.MarkFlagRequired("runtime")
+	attach.Flags().StringVar(&serverURL, "server", claudeserve.DefaultServeBaseURL(), "Claude live broker base URL")
+
+	root.AddCommand(tail, serve, attach)
 	return root
 }
 func (c *cli) watchCmd() *cobra.Command {
