@@ -4,11 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 
+	"github.com/DhanushSantosh/AgentComms/internal/claudeserve"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 )
 
@@ -22,6 +21,10 @@ func (claudeAdapter) Validate(config *Config) error {
 	if err := validateExecutablePath(config.Executable, "worker executable"); err != nil {
 		return err
 	}
+	return validateClaudeConfig(config)
+}
+
+func validateClaudeConfig(config *Config) error {
 	if config.PermissionMode == "" {
 		config.PermissionMode = "acceptEdits"
 	}
@@ -51,7 +54,7 @@ func (claudeAdapter) Arguments(config Config) []string {
 	switch {
 	case config.SessionID == "":
 		arguments = append(arguments, "--no-session-persistence")
-	case claudeSessionExists(config.WorkDir, config.SessionID):
+	case claudeserve.SessionExists(config.WorkDir, config.SessionID):
 		arguments = append(arguments, "--resume", config.SessionID)
 	default:
 		// First invocation a runtime makes with a bound session ID: `--resume`
@@ -73,27 +76,6 @@ func (claudeAdapter) Arguments(config Config) []string {
 
 func (claudeAdapter) Prompt(_ string, invocation model.Invocation) string {
 	return claudeUserPrompt(invocation)
-}
-
-// claudeSessionExists reports whether Claude Code already has a stored
-// conversation for sessionID under workDir. Claude Code persists each
-// session at ~/.claude/projects/<cwd, "/" replaced with "-">/<session-id>.jsonl;
-// confirmed by inspecting real session files on disk rather than assuming
-// the layout. Best-effort: any failure to resolve the home directory is
-// treated as "does not exist" rather than an error, since the caller falls
-// back to creating the session in that case.
-func claudeSessionExists(workDir, sessionID string) bool {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return false
-	}
-	abs, err := filepath.Abs(workDir)
-	if err != nil {
-		abs = workDir
-	}
-	slug := strings.ReplaceAll(abs, "/", "-")
-	_, err = os.Stat(filepath.Join(home, ".claude", "projects", slug, sessionID+".jsonl"))
-	return err == nil
 }
 
 // claudeSystemPrompt carries the runtime's operating convention on the

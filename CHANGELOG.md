@@ -7,6 +7,12 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 
 ### Added
 
+- A `claude-live` worker adapter backed by one persistent Claude Code
+  `stream-json` process and a loopback HTTP/SSE broker. `agent-comms claude
+  serve` runs the broker explicitly, while `agent-comms claude attach
+  --runtime <id>` provides a read-only terminal view of live turns. The broker
+  uses fixed port 4097, probes it before spawning, resumes bound sessions after
+  crashes, and rejects conflicting runtime registrations.
 - Optional `claude-acp`, `opencode-acp`, and `codex-acp` worker adapters that
   drive Claude, OpenCode, and Codex over the Agent Client Protocol (ACP)
   instead of a direct CLI exec, selectable via `runtime worker --adapter`. The

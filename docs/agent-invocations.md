@@ -52,29 +52,33 @@ interactive agent to check its inbox.
 
 ### Choosing an adapter
 
-Six adapters are available via `--adapter`. `claude` and `codex` exec a
-provider CLI directly and are the proven default path; the other four speak
-the Agent Client Protocol (ACP) or, for `opencode-live`, OpenCode's own native
-server API, and are opt-in additions layered on top — none of them replaces
+Seven adapters are available via `--adapter`. `claude` and `codex` exec a
+provider CLI directly and are the proven default path; the others speak
+the Agent Client Protocol (ACP) or use a persistent local live broker, and
+are opt-in additions layered on top — none of them replaces
 or changes the behavior of `claude`/`codex`.
 
 | Adapter | Provider | Mechanism | Requires | Live-viewable | Notes |
 | --- | --- | --- | --- | --- | --- |
 | `claude` | Claude | direct CLI exec | `claude` binary | No | Default; proven, use unless you have a specific reason to pick an ACP adapter |
+| `claude-live` | Claude | persistent `stream-json` process + local HTTP/SSE broker | `claude` binary | **Yes** — `agent-comms claude attach` | Requires `--session-id`; the broker and Claude process outlive individual invocations |
 | `codex` | Codex | direct CLI exec | `codex` binary | No | Default; proven |
 | `claude-acp` | Claude | ACP, via `npx @agentclientprotocol/claude-agent-acp` | Node.js/npm | No (session viewable afterward with [claude-code-viewer](https://github.com/d-kimuson/claude-code-viewer)) | Session-store-compatible with `claude` — the same conversation can be resumed by either adapter |
 | `opencode-acp` | OpenCode | ACP, via `opencode acp` | `opencode` binary | No (session viewable afterward via `opencode` itself, or a third-party viewer) | |
 | `codex-acp` | Codex | ACP, via `npx @agentclientprotocol/codex-acp` | Node.js/npm | No (viewable afterward with [codex-trace](https://github.com/PixelPaw-Labs/codex-trace)) | **Weaker tool-call permission enforcement than the other ACP adapters** — see below |
 | `opencode-live` | OpenCode | persistent `opencode serve` + REST/SSE | `opencode` binary | **Yes** — run the reported `opencode attach` command in a terminal while it runs | The server it starts outlives the invocation and is reused by later ones; every other adapter's process ends with the invocation |
 
-Pick `claude`/`codex` by default. Reach for an ACP adapter only when you
-specifically need what it adds — e.g. `opencode-live` when someone needs to
-watch a runtime's activity happen, not just read the completed result.
+Pick `claude`/`codex` by default. Reach for another adapter only when you
+specifically need what it adds — e.g. `claude-live` or `opencode-live` when
+someone needs to watch a runtime's activity happen, not just read the
+completed result.
 
-None of the four ACP-based adapters support `--model` overrides yet (`runtime
-worker` rejects the flag for them at startup) or need `--executable` (they
-locate or spawn their own provider process). `--session-id` resumes an
-existing conversation for all six adapters the same way. `--claude-permission-
+The ACP-based adapters and `opencode-live` do not support `--model` overrides
+yet or need `--executable`; they locate or spawn their own provider process.
+`claude-live` resolves the `claude` executable inside its broker and does
+support the same model override as `claude`. `--session-id` resumes an
+existing conversation across adapters, subject to the provider-specific
+creation rules below. `--claude-permission-
 mode` also gates `opencode-acp` and `opencode-live`'s edit/move-shaped tool
 calls, and `--codex-sandbox` also gates `codex-acp` — the flag names are
 Claude/Codex-specific for historical reasons, but their effect is shared
@@ -160,6 +164,53 @@ agent-comms --project /srv/project --actor reviewer runtime worker \
   --execution-timeout 30m
 ```
 
+### `claude-live`: watching a runtime's Claude activity as it happens
+
+`claude-live` starts one persistent Claude Code process in structured
+`stream-json` mode and drives it through a loopback-only HTTP/SSE broker. The
+process stays alive across invocations, while any number of read-only attach
+clients can watch user, assistant, and tool-call events as they happen. Attach
+clients cannot submit prompts or approve tools; only the governed worker uses
+the broker's prompt endpoint.
+
+```sh
+agent-comms --project /srv/project --actor reviewer runtime worker \
+  --id reviewer-runtime \
+  --adapter claude-live \
+  --session-id 2f38a348-52f0-43cd-a19f-1e0dd06ab451 \
+  --claude-permission-mode acceptEdits \
+  --claude-max-budget-usd 1 \
+  --execution-timeout 30m
+```
+
+The worker reports the exact viewer command:
+
+```sh
+agent-comms claude attach --runtime reviewer-runtime --server http://127.0.0.1:4097
+```
+
+The broker binds fixed port `4097`, records its address at
+`.agent-comms/cache/claude-serve.json`, and probes that port directly when the
+cache is absent or stale before spawning. This prevents a cache reset from
+orphaning a healthy detached broker and fragmenting later traffic onto a
+duplicate. Operators may instead supervise `agent-comms claude serve`; the
+worker starts it automatically when neither the cache nor the fixed port leads
+to a healthy broker.
+
+`--session-id` is required so the broker can create the conversation on first
+start and resume it after a process or broker restart. A runtime is registered
+with one immutable process configuration; attempting to reuse its ID with a
+different project, session, permission mode, or system prompt is rejected as a
+conflict. The broker queues concurrent prompts per runtime and disconnects a
+slow viewer rather than allowing it to block Claude.
+
+Claude Code applies `--claude-max-budget-usd` to the long-lived print-mode
+process. Consequently, for `claude-live` it is a process-lifetime ceiling,
+not the plain `claude` adapter's fresh per-invocation ceiling. A broker or
+process restart begins a new Claude CLI budget window. Permission denials and
+non-success result frames fail the invocation instead of becoming an empty
+successful result.
+
 ### `opencode-live`: watching a runtime's activity as it happens
 
 Every adapter above runs its provider process only for the duration of one
@@ -223,6 +274,9 @@ How the ID is established differs by adapter:
   `--resume` on a not-yet-existing ID fails outright, so the worker checks for
   the session file under `~/.claude/projects/` before choosing which flag to
   send.
+- `claude-live`: also pass a caller-chosen UUID. It uses the same create-first,
+  resume-afterward check as `claude`, but only when its persistent process
+  starts or recovers from a crash rather than once per invocation.
 - `codex`: the ID must already exist — Codex mints its own thread IDs and has
   no equivalent of Claude's create-at-a-chosen-ID flag. Run once without
   `--session-id`, capture the thread ID Codex reports, then set `--session-id`
