@@ -21,6 +21,7 @@ import (
 
 	"github.com/DhanushSantosh/AgentComms/internal/claudeserve"
 	"github.com/DhanushSantosh/AgentComms/internal/claudetail"
+	"github.com/DhanushSantosh/AgentComms/internal/codexserve"
 	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
 	"github.com/DhanushSantosh/AgentComms/internal/daemon"
 	"github.com/DhanushSantosh/AgentComms/internal/daemonclient"
@@ -159,7 +160,7 @@ func (c *cli) root() *cobra.Command {
 	f.DurationVar(&c.timeout, "timeout", 10*time.Second, "transaction lock timeout")
 	f.BoolVar(&c.noColor, "no-color", false, "disable ANSI color")
 	f.BoolVarP(&c.quiet, "quiet", "q", false, "suppress non-essential output")
-	r.AddCommand(c.versionCmd(), c.initCmd(), c.doctorCmd(), c.verifyCmd(), c.statusCmd(), c.controlCmd(), c.historyCmd(), c.searchCmd(), c.agentCmd(), c.runtimeCmd(), c.invocationCmd(), c.sessionCmd(), c.taskCmd(), c.messageCmd(), c.decisionCmd(), c.approvalCmd(), c.artifactCmd(), c.documentCmd(), c.envCmd(), c.draftCmd(), c.archiveCmd(), c.exportCmd(), c.syncCmd(), c.profileCmd(), c.configCmd(), c.themeCmd(), c.updateCmd(), c.completionCmd(r), c.agentInstructionsCmd(), c.mcpCmd(), c.watchCmd(), c.tuiCmd(), c.migrateCmd(), c.daemonCmd(), c.claudeCmd())
+	r.AddCommand(c.versionCmd(), c.initCmd(), c.doctorCmd(), c.verifyCmd(), c.statusCmd(), c.controlCmd(), c.historyCmd(), c.searchCmd(), c.agentCmd(), c.runtimeCmd(), c.invocationCmd(), c.sessionCmd(), c.taskCmd(), c.messageCmd(), c.decisionCmd(), c.approvalCmd(), c.artifactCmd(), c.documentCmd(), c.envCmd(), c.draftCmd(), c.archiveCmd(), c.exportCmd(), c.syncCmd(), c.profileCmd(), c.configCmd(), c.themeCmd(), c.updateCmd(), c.completionCmd(r), c.agentInstructionsCmd(), c.mcpCmd(), c.watchCmd(), c.tuiCmd(), c.migrateCmd(), c.daemonCmd(), c.claudeCmd(), c.codexCmd())
 	return r
 }
 
@@ -767,7 +768,7 @@ func (c *cli) runtimeCmd() *cobra.Command {
 	}
 	workerCommand.Flags().String("id", "", "registered runtime ID")
 	_ = workerCommand.MarkFlagRequired("id")
-	workerCommand.Flags().StringVar(&workerAdapter, "adapter", "claude", "claude, claude-live, codex, claude-acp, opencode-acp, codex-acp, or opencode-live")
+	workerCommand.Flags().StringVar(&workerAdapter, "adapter", "claude", "claude, claude-live, codex, codex-live, claude-acp, opencode-acp, codex-acp, or opencode-live")
 	workerCommand.Flags().StringVar(&workerExecutable, "executable", "", "absolute agent executable path")
 	workerCommand.Flags().StringVar(&workerModel, "model", "", "agent model override")
 	workerCommand.Flags().StringVar(&workerSessionID, "session-id", "", "existing Claude or Codex conversation UUID to resume")
@@ -1963,6 +1964,43 @@ func (c *cli) claudeCmd() *cobra.Command {
 	attach.Flags().StringVar(&serverURL, "server", claudeserve.DefaultServeBaseURL(), "Claude live broker base URL")
 
 	root.AddCommand(tail, serve, attach)
+	return root
+}
+func (c *cli) codexCmd() *cobra.Command {
+	root := &cobra.Command{Use: "codex", Short: "Serve or attach to Codex live sessions"}
+
+	var listenAddress string
+	serve := &cobra.Command{Use: "serve", Args: cobra.NoArgs, Short: "Run the local Codex live broker", RunE: func(cmd *cobra.Command, args []string) error {
+		ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+		defer cancel()
+		if !c.quiet {
+			_, _ = fmt.Fprintf(c.err, "Codex live broker listening on http://%s\n", listenAddress)
+		}
+		return codexserve.Serve(ctx, listenAddress)
+	}}
+	serve.Flags().StringVar(&listenAddress, "listen", codexserve.DefaultServeAddress, "loopback listen address")
+
+	var runtimeID, serverURL string
+	attach := &cobra.Command{Use: "attach", Args: cobra.NoArgs, Short: "Watch a Codex live runtime's event stream", RunE: func(cmd *cobra.Command, args []string) error {
+		client := codexserve.New(serverURL)
+		events, err := client.Subscribe(cmd.Context(), runtimeID)
+		if err != nil {
+			return err
+		}
+		for event := range events {
+			if rendered, ok := codexserve.Format(event); ok {
+				if _, err := fmt.Fprint(c.out, rendered); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}}
+	attach.Flags().StringVar(&runtimeID, "runtime", "", "registered Agent Comms runtime ID")
+	_ = attach.MarkFlagRequired("runtime")
+	attach.Flags().StringVar(&serverURL, "server", codexserve.DefaultServeBaseURL(), "Codex live broker base URL")
+
+	root.AddCommand(serve, attach)
 	return root
 }
 func (c *cli) watchCmd() *cobra.Command {
