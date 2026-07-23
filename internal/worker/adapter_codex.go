@@ -21,6 +21,10 @@ func (codexAdapter) Validate(config *Config) error {
 	if err := validateExecutablePath(config.Executable, "worker executable"); err != nil {
 		return err
 	}
+	return validateCodexConfig(config)
+}
+
+func validateCodexConfig(config *Config) error {
 	if config.Sandbox == "" {
 		config.Sandbox = "workspace-write"
 	}

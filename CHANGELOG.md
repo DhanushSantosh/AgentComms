@@ -13,6 +13,14 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
   --runtime <id>` provides a read-only terminal view of live turns. The broker
   uses fixed port 4097, probes it before spawning, resumes bound sessions after
   crashes, and rejects conflicting runtime registrations.
+- A `codex-live` worker adapter, the same shape as `claude-live` for Codex:
+  one persistent `codex app-server` process driven over JSON-RPC through a
+  loopback HTTP/SSE broker (`agent-comms codex serve`, fixed port 4098,
+  same probe-before-spawn and conflicting-registration protections), with
+  `agent-comms codex attach --runtime <id>` for a read-only live terminal
+  view. Unlike `claude-live`, `--session-id` is optional — Codex mints its
+  own thread IDs, which are cached locally and reused automatically per
+  runtime, the same convention `opencode-live` already uses.
 - Optional `claude-acp`, `opencode-acp`, and `codex-acp` worker adapters that
   drive Claude, OpenCode, and Codex over the Agent Client Protocol (ACP)
   instead of a direct CLI exec, selectable via `runtime worker --adapter`. The
