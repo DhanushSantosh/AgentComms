@@ -140,11 +140,54 @@ func (f *fakeServer) replyFor(requestID string) (string, bool) {
 	return reply, ok
 }
 
+// TestClientSetsDirectoryHeader pins down the bug confirmed live this
+// session: OpenCode's REST API does not route requests by the "directory"
+// field in a request body -- it routes by the x-opencode-directory
+// request header, the same one OpenCode's own web client sends. A client
+// built without this header set correctly can silently create sessions
+// bound to whatever directory the shared server's own internal state last
+// had, which surfaces as an opaque 500 on the very next prompt rather than
+// any error at session-creation time.
+func TestClientSetsDirectoryHeader(t *testing.T) {
+	var gotHeader string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotHeader = r.Header.Get("x-opencode-directory")
+		_ = json.NewEncoder(w).Encode(Session{ID: "ses_test1"})
+	}))
+	defer server.Close()
+
+	client := New(server.URL, "/home/reviewer/Projects/DummyTestProject")
+	if _, err := client.CreateSession(context.Background(), "/home/reviewer/Projects/DummyTestProject"); err != nil {
+		t.Fatal(err)
+	}
+	want := "%2Fhome%2Freviewer%2FProjects%2FDummyTestProject"
+	if gotHeader != want {
+		t.Fatalf("x-opencode-directory header = %q, want %q", gotHeader, want)
+	}
+}
+
+func TestClientOmitsDirectoryHeaderWhenUnset(t *testing.T) {
+	var sawHeader bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sawHeader = r.Header.Get("x-opencode-directory") != ""
+		_ = json.NewEncoder(w).Encode(Session{ID: "ses_test1"})
+	}))
+	defer server.Close()
+
+	client := New(server.URL, "")
+	if _, err := client.CreateSession(context.Background(), "/tmp/project"); err != nil {
+		t.Fatal(err)
+	}
+	if sawHeader {
+		t.Fatal("expected no x-opencode-directory header when the client has no directory")
+	}
+}
+
 func TestCreateAndGetSession(t *testing.T) {
 	fake := newFakeServer()
 	server := httptest.NewServer(fake.handler())
 	defer server.Close()
-	client := New(server.URL)
+	client := New(server.URL, "")
 
 	ctx := context.Background()
 	created, err := client.CreateSession(ctx, "/tmp/project")
@@ -167,7 +210,7 @@ func TestGetSessionMissingReturnsError(t *testing.T) {
 	fake := newFakeServer()
 	server := httptest.NewServer(fake.handler())
 	defer server.Close()
-	client := New(server.URL)
+	client := New(server.URL, "")
 	if _, err := client.GetSession(context.Background(), "ses_missing"); err == nil {
 		t.Fatal("expected an error for a missing session")
 	}
@@ -178,7 +221,7 @@ func TestPromptReturnsConcatenatedText(t *testing.T) {
 	fake.promptText = "hello world"
 	server := httptest.NewServer(fake.handler())
 	defer server.Close()
-	client := New(server.URL)
+	client := New(server.URL, "")
 
 	resp, err := client.Prompt(context.Background(), "ses_test1", PromptRequest{
 		Parts:  []TextPart{NewTextPart("hi")},
@@ -196,12 +239,12 @@ func TestHealthReportsServerReachability(t *testing.T) {
 	fake := newFakeServer()
 	server := httptest.NewServer(fake.handler())
 	defer server.Close()
-	client := New(server.URL)
+	client := New(server.URL, "")
 	if err := client.Health(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 
-	unreachable := New("http://127.0.0.1:1")
+	unreachable := New("http://127.0.0.1:1", "")
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	if err := unreachable.Health(ctx); err == nil {
@@ -213,7 +256,7 @@ func TestListAndReplyPermission(t *testing.T) {
 	fake := newFakeServer()
 	server := httptest.NewServer(fake.handler())
 	defer server.Close()
-	client := New(server.URL)
+	client := New(server.URL, "")
 
 	fake.askPermission("per_1", "ses_test1", "bash")
 	ctx := context.Background()
@@ -266,7 +309,7 @@ func TestPermissionWatcherAutoApprovesReadCategory(t *testing.T) {
 	fake := newFakeServer()
 	server := httptest.NewServer(fake.handler())
 	defer server.Close()
-	client := New(server.URL)
+	client := New(server.URL, "")
 
 	approver := &fixedApprover{approve: false}
 	watcher := NewPermissionWatcher(client, func() bool { return false }, approver)
@@ -298,7 +341,7 @@ func TestPermissionWatcherRoutesBashThroughGovernance(t *testing.T) {
 	fake := newFakeServer()
 	server := httptest.NewServer(fake.handler())
 	defer server.Close()
-	client := New(server.URL)
+	client := New(server.URL, "")
 
 	approver := &fixedApprover{approve: false}
 	watcher := NewPermissionWatcher(client, func() bool { return true }, approver)
@@ -333,7 +376,7 @@ func TestPermissionWatcherModeGatedEditRespectsAllowEdits(t *testing.T) {
 	fake := newFakeServer()
 	server := httptest.NewServer(fake.handler())
 	defer server.Close()
-	client := New(server.URL)
+	client := New(server.URL, "")
 
 	watcher := NewPermissionWatcher(client, func() bool { return true }, &fixedApprover{approve: false})
 
@@ -358,7 +401,7 @@ func TestPermissionWatcherResetTurnClearsDenials(t *testing.T) {
 	fake := newFakeServer()
 	server := httptest.NewServer(fake.handler())
 	defer server.Close()
-	client := New(server.URL)
+	client := New(server.URL, "")
 
 	watcher := NewPermissionWatcher(client, func() bool { return false }, &fixedApprover{approve: false})
 	ctx, cancel := context.WithCancel(context.Background())

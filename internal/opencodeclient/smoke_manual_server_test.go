@@ -26,7 +26,7 @@ func TestManualSmokeEnsureServer(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Logf("first EnsureServer call: %s", first)
-	if err := New(first).Health(ctx); err != nil {
+	if err := New(first, workDir).Health(ctx); err != nil {
 		t.Fatalf("expected the spawned server to be healthy: %v", err)
 	}
 
@@ -39,9 +39,12 @@ func TestManualSmokeEnsureServer(t *testing.T) {
 		t.Fatalf("expected the second call to reuse the same server, got %q vs %q", second, first)
 	}
 
-	session, err := New(first).CreateSession(ctx, workDir)
+	session, err := New(first, workDir).CreateSession(ctx, workDir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Logf("created real session via live server: %s", session.ID)
+	if session.Directory != workDir {
+		t.Fatalf("expected the created session's directory to be %q (via the x-opencode-directory header), got %q", workDir, session.Directory)
+	}
 }

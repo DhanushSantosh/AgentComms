@@ -18,18 +18,30 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 )
 
 // Client is a thin wrapper around one opencode serve instance's REST API.
 type Client struct {
-	baseURL string
-	http    *http.Client
+	baseURL   string
+	directory string
+	http      *http.Client
 }
 
-// New returns a Client for the server at baseURL (e.g. "http://127.0.0.1:4096").
-func New(baseURL string) *Client {
-	return &Client{baseURL: strings.TrimRight(baseURL, "/"), http: &http.Client{}}
+// New returns a Client for the server at baseURL (e.g. "http://127.0.0.1:4096"),
+// scoped to directory. Confirmed live that OpenCode's REST API does not
+// route requests by the "directory" field in a request body (that field is
+// accepted but appears purely informational) — it routes by the
+// `x-opencode-directory` request header instead, the same one OpenCode's
+// own web client sends on every call. A client built without this header
+// set correctly can silently end up creating and prompting sessions bound
+// to whatever directory the shared server last had in that internal state,
+// including a long-deleted one from an unrelated test run, which surfaces
+// as an opaque "Unexpected server error" on the very next prompt rather
+// than any error at session-creation time.
+func New(baseURL, directory string) *Client {
+	return &Client{baseURL: strings.TrimRight(baseURL, "/"), directory: directory, http: &http.Client{}}
 }
 
 // BaseURL returns the server address this client talks to — the same
@@ -133,6 +145,7 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any) err
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
+	c.setDirectoryHeader(req)
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return err
@@ -151,6 +164,16 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any) err
 	return json.Unmarshal(raw, out)
 }
 
+func (c *Client) setDirectoryHeader(req *http.Request) {
+	if c.directory != "" {
+		// PathEscape, not QueryEscape: matches JS's encodeURIComponent
+		// (which OpenCode's own web client uses to build this header)
+		// closer than QueryEscape does -- QueryEscape turns a space into
+		// "+", encodeURIComponent and PathEscape both use %20.
+		req.Header.Set("x-opencode-directory", url.PathEscape(c.directory))
+	}
+}
+
 // Health reports whether the server at baseURL is reachable at all —
 // callers use this to decide whether a persistent server needs spawning.
 func (c *Client) Health(ctx context.Context) error {
@@ -158,6 +181,7 @@ func (c *Client) Health(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	c.setDirectoryHeader(req)
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return err
