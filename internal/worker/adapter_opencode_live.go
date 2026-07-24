@@ -53,7 +53,7 @@ func (openCodeLiveAdapter) Execute(ctx context.Context, config Config, invocatio
 	if err != nil {
 		return "", fmt.Errorf("opencode-live: ensure server: %w", err)
 	}
-	client := opencodeclient.New(baseURL)
+	client := opencodeclient.New(baseURL, config.WorkDir)
 
 	sessionID := config.SessionID
 	if sessionID == "" {

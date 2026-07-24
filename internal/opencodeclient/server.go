@@ -81,7 +81,7 @@ func resolveRunningServer(ctx context.Context, path, fallbackURL string) (string
 func serverHealthy(ctx context.Context, baseURL string) bool {
 	healthCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
-	return New(baseURL).Health(healthCtx) == nil
+	return New(baseURL, "").Health(healthCtx) == nil
 }
 
 func loadServerInfo(path string) (ServerInfo, error) {
@@ -174,7 +174,7 @@ func parseListeningURL(line string) (string, bool) {
 }
 
 func waitUntilHealthy(ctx context.Context, baseURL string) (string, error) {
-	client := New(baseURL)
+	client := New(baseURL, "")
 	deadline := time.Now().Add(serverStartupTimeout)
 	for time.Now().Before(deadline) {
 		healthCtx, cancel := context.WithTimeout(ctx, time.Second)
