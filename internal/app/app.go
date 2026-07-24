@@ -94,7 +94,7 @@ func Run(args []string, stdout, stderr io.Writer) error {
 func (c *cli) root() *cobra.Command {
 	r := &cobra.Command{Use: "agent-comms", Short: "Governed coordination for concurrent agents", Version: Version, PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		c.cmd = cmd.CommandPath()
-		if cmd.Name() == "version" || cmd.Name() == "init" || cmd.Name() == "completion" || (cmd.Name() == "update" && cmd.Parent() == cmd.Root()) || cmd.Name() == "agent-instructions" || cmd.CommandPath() == "agent-comms daemon serve" || cmd.CommandPath() == "agent-comms claude serve" || cmd.CommandPath() == "agent-comms claude attach" {
+		if cmd.Name() == "version" || cmd.Name() == "init" || cmd.Name() == "completion" || (cmd.Name() == "update" && cmd.Parent() == cmd.Root()) || cmd.Name() == "agent-instructions" || cmd.CommandPath() == "agent-comms daemon serve" || cmd.CommandPath() == "agent-comms claude serve" || cmd.CommandPath() == "agent-comms claude attach" || cmd.CommandPath() == "agent-comms codex serve" || cmd.CommandPath() == "agent-comms codex attach" {
 			return nil
 		}
 		root := c.project
