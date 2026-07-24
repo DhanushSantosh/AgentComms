@@ -33,6 +33,30 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 - `agent-comms agent rename --id <id> --display-name <name>` to correct or
   update a registered agent's display name after registration, previously
   settable only once at `agent register` time.
+- Direct delivery into a live, already-open interactive `codex` or `opencode`
+  session (RFC 0010, `codex`/`opencode` only — see that RFC for why `claude`
+  is excluded): `agent-comms runtime interactive-serve --id <runtime> --
+  <command> [args...]` allocates a real pty, execs the given command
+  (`codex`, `opencode`, or any real provider CLI) attached to it, and
+  transparently forwards the wrapper's own stdin/stdout so any terminal
+  emulator — not a specific multiplexer — shows the child's real native UI
+  unmediated. `invocation request --to <runtime>` then injects a bounded
+  "check your pending invocations" notification directly into that pty as
+  real terminal input, with no separate worker, poller, or broker process,
+  and no registration step: a runtime is "live" simply when its
+  deterministic control socket is dialable. New `internal/interactiveserve`
+  package (`github.com/creack/pty`, unix-only — this feature doesn't run on
+  Windows, same as its tmux-based predecessor never did). Delivery checks
+  the target isn't already mid-turn (busy-marker detection over the child's
+  own tee'd output, up to 90s) before sending anything, and waits for the
+  pty to visibly echo sent text before pressing Enter (up to 10s) rather
+  than a blind back-to-back send — both carried over from real,
+  live-reproduced failures found earlier. Hardened for many-to-many use (any
+  registered runtime can already message any other by ID): concurrent
+  deliveries to the same runtime serialize through the one process that owns
+  its pty via a plain in-process mutex — no cross-process lock or shared
+  registry file needed at all, since there's only ever one process per
+  runtime to race against.
 
 ### Fixed
 

@@ -368,6 +368,129 @@ agent identity, submits it, and includes the new invocation ID in the durable
 result. Only one follow-up is accepted per completed turn, preventing
 unbounded fan-out from one model response.
 
+### Direct delivery into a live interactive session
+
+Every adapter above is a headless worker: something has to poll for it to
+receive work at all. A genuinely interactive session — a human's own `codex`
+or `opencode` running in a terminal, or another agent's own interactive
+session — is different: there is no worker polling on its behalf, so
+without something to wake it, a new invocation just sits `PENDING` until a
+human happens to type into that pane.
+
+`internal/interactiveserve` closes that gap for `codex` and `opencode`
+(deliberately not `claude` — an interactive Claude Code session, even given
+durable, pre-configured, in-project authorization, correctly refuses to
+autonomously act on a third-party-attributed instruction delivered this way,
+treating it as indistinguishable from a prompt injection; see RFC 0010's
+"decision" section for the three separate ways this was tested and refused).
+
+AgentComms owns the pty directly rather than relying on an external
+multiplexer — run the real provider CLI wrapped, in place of running it
+bare, in any terminal emulator:
+
+```sh
+agent-comms runtime interactive-serve --id opencode-runner -- opencode
+```
+
+This allocates a real pty, execs `opencode` attached to it, and
+transparently forwards the wrapper's own stdin/stdout so the terminal shows
+`opencode`'s native UI exactly as if it had been run directly — no visible
+wrapper, no multiplexer to install. The `--` before the wrapped command is
+required (not optional): everything after it is passed through untouched as
+the command and its own arguments.
+
+From then on, `agent-comms invocation request --to opencode-runner ...`
+delivers directly: the moment the invocation is durably recorded, the same
+command dials that runtime's control socket and injects a short, bounded
+"check your pending invocations" nudge as real terminal input, and the
+runtime's own real, native UI updates live. There is no separate
+registration step and no registry file — a runtime's control socket path is
+deterministic from (project root, runtime ID), so "is this runtime live" is
+simply "can I dial its socket." The requester's own command does not block
+on it — delivery is attempted once, synchronously, best-effort. No live
+session for the target (the common case; most runtimes are headless
+workers) is silent. A live-but-undeliverable session (stayed busy, echo
+never confirmed) surfaces as a `warnings` entry on the response envelope,
+not a failure — the invocation itself is already durably recorded
+regardless of whether the wake-up nudge lands.
+
+This intentionally does not extend to the instruction content itself: the
+delivered notification only ever says an invocation is pending and how to
+look it up. The target's own interactive session is expected to read the
+instruction back through the normal, auditable
+`invocation list`/`claim`/`start`/`complete` sequence — the same as every
+other adapter — and reply, if it wants to, with its own
+`invocation request`. That keeps terminal injection limited to "wake up and
+look," never a second, unaudited channel for instruction content to reach a
+runtime.
+
+`runtime interactive-session --id <runtime>` reports whether a runtime
+currently has a live session. This mechanism is unix-only —
+`github.com/creack/pty` doesn't support Windows — which is not a regression;
+its tmux-based predecessor never worked on Windows either.
+
+**Two failure modes were confirmed live and are actively guarded against, not
+just documented — carried over from an earlier tmux-based iteration of this
+same mechanism, now implemented against the owned pty instead of shelling
+out:**
+
+1. A second invocation arriving while the target is still busy on its own
+   long tool-calling turn used to land glued onto an earlier, not-yet-
+   submitted delivery with no separator — confirmed live with two
+   agent-to-agent messages that arrived back to back mid-turn. `Deliver`
+   checks readiness first: it waits (up to 90s) for the target to stop
+   showing a busy marker (`esc to interrupt` / `esc again to interrupt`,
+   the status-line hint both codex's and opencode's TUIs show while working
+   and omit once idle, read from an in-process tee of the child's own raw
+   output) before sending anything at all, rather than injecting and
+   hoping. This is a heuristic, not a protocol-level signal — neither
+   provider exposes one.
+2. Firing "send text" and "send Enter" back to back, with no gap, let Enter
+   arrive before the target registered the preceding text as input and
+   silently dropped it — confirmed live against a real codex session, where
+   the message sat typed-but-unsubmitted until something pressed Enter
+   again. `Deliver` waits (up to 10s) for the pty to visibly echo the sent
+   text back before pressing Enter, rather than trusting a fixed sleep to
+   be long enough. Owning the raw byte stream (instead of tmux's
+   already-rendered screen grid) introduced one further, genuinely new risk
+   here: stale, pre-clear content could otherwise sit in the match buffer
+   and produce a false echo/busy match after a real screen repaint — the
+   buffer resets whenever a clear or alternate-screen-buffer escape
+   sequence is observed, specifically to close that gap.
+
+Both checks fail closed — a `warnings` entry on the response envelope, never
+a blind Enter-press into a session whose state is unknown. This mirrors the
+same constraint `--session-id` documentation already states for a human
+sharing a bound session: nothing else should type into a session while a
+delivery to it may be in flight.
+
+### Many-to-many delivery: concurrency and hardening
+
+The mechanism above generalizes past one-to-one delivery for free: any
+runtime with a live session can be addressed by `invocation request --to`
+from any other, so N agents addressing each other is the same primitive as
+two, just used more times. Concurrency here is simpler than the earlier
+tmux-based iteration needed, not just re-implemented: since exactly one
+process now owns each runtime's pty (the `interactive-serve` process
+itself), concurrent senders just make concurrent connections to that one
+process's control socket, and it serializes `deliver` requests with a plain
+in-process `sync.Mutex` — there is no cross-process lock, no shared
+registry file, and no `tmux send-keys` argument-parsing surface to defend
+against at all, since writing straight to a pty file descriptor has no
+argv-parsing layer to exploit. `Deliver` still rejects any message
+containing an embedded newline outright — it sends exactly one line of
+input followed by one Enter, and a smuggled newline could otherwise submit
+early, mid-message.
+
+What remains a genuine, structural limit rather than something more testing
+would find: nothing here can distinguish a human directly using a live
+session's own terminal from the runtime it belongs to being idle — a
+terminal running `interactive-serve` has to be dedicated to that purpose.
+This was hit live in exactly this form under the earlier tmux-based
+iteration (a demo pane doubled as a personal chat session) and there is no
+code fix for it, only the operating discipline `--session-id`'s
+documentation already states.
+
 ## User policy
 
 Owners and orchestrators configure each target agent:

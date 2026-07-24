@@ -2,17 +2,23 @@ package app
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/DhanushSantosh/AgentComms/internal/interactiveserve"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 	"github.com/DhanushSantosh/AgentComms/internal/service"
+	"github.com/creack/pty"
 )
 
 func TestClaudeAttachDoesNotRequireInitializedProject(t *testing.T) {
@@ -252,3 +258,140 @@ func TestInvocationAndRuntimeCLIWorkflow(t *testing.T) {
 		t.Fatalf("control settings omitted invocation limits: %s", out.String())
 	}
 }
+
+// TestInvocationRequestDeliversDirectlyToRegisteredInteractiveSession guards
+// the direct-invocation path decided live this session: requesting an
+// invocation for a runtime with a registered interactive session (see
+// internal/interactiveserve) must wake that session's real terminal as part
+// of the same command, with no separate worker or polling process — the
+// agent-to-agent "invoke directly" behavior the user asked for in place of a
+// watcher script.
+func TestInvocationRequestDeliversDirectlyToLiveInteractiveSession(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("bash not available")
+	}
+	project := t.TempDir()
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
+	var out, stderr bytes.Buffer
+	run := func(args ...string) {
+		t.Helper()
+		out.Reset()
+		stderr.Reset()
+		args = append(args, "--project", project, "--json")
+		if err := Run(args, &out, &stderr); err != nil {
+			t.Fatalf("%v: %v\n%s", args, err, stderr.String())
+		}
+	}
+
+	run("init", "--non-interactive", "--owner", "owner", "--mode", "legacy")
+	run("agent", "register", "--id", "opencode-runner")
+	run("agent", "activate", "--id", "opencode-runner", "--role", "AGENT", "--scope", "src")
+	run("invocation", "policy", "set", "--agent", "opencode-runner", "--mode", "AUTOMATIC")
+
+	// Stand up a live session the same way `runtime interactive-serve`
+	// does, without going through the CLI's Run() — that command calls
+	// os.Exit on completion, which would kill this test process.
+	controlMaster, controlSlave, err := pty.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer controlMaster.Close()
+	defer controlSlave.Close()
+	var stdout bytes.Buffer
+	var stdoutMu sync.Mutex
+	stdinR, stdinW := io.Pipe()
+	t.Cleanup(func() { _ = stdinW.Close() })
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go func() {
+		_, _ = interactiveserve.Serve(ctx, interactiveserve.ServeOptions{
+			ProjectRoot: project, RuntimeID: "opencode-runner",
+			Command:   []string{"bash", "-c", "cat"},
+			ControlFD: int(controlSlave.Fd()), Stdin: stdinR,
+			Stdout: syncWriterFor(&stdoutMu, &stdout),
+		})
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for !interactiveserve.Alive(context.Background(), project, "opencode-runner") {
+		if time.Now().After(deadline) {
+			t.Fatal("expected the live session to become dialable")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	run("invocation", "request", "--id", "inv-direct", "--to", "opencode-runner", "--instruction", "say hi")
+	if bytes.Contains(out.Bytes(), []byte(`"warnings"`)) {
+		t.Fatalf("expected no delivery warnings against a live session: %s", out.String())
+	}
+
+	deadline = time.Now().Add(5 * time.Second)
+	for {
+		stdoutMu.Lock()
+		text := stdout.String()
+		stdoutMu.Unlock()
+		if strings.Contains(text, "inv-direct") && strings.Contains(text, "opencode-runner") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expected the invocation to be delivered directly into the live session, got:\n%s", text)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// syncWriterFor adapts a mutex-guarded bytes.Buffer to io.Writer for a
+// concurrently-written test double.
+func syncWriterFor(mu *sync.Mutex, buf *bytes.Buffer) io.Writer {
+	return &lockedWriter{mu: mu, buf: buf}
+}
+
+type lockedWriter struct {
+	mu  *sync.Mutex
+	buf *bytes.Buffer
+}
+
+func (w *lockedWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.buf.Write(p)
+}
+
+// TestInvocationRequestWithoutRegisteredSessionIsUnaffected guards the
+// common case — a headless worker, not a live interactive session — where
+// direct delivery must stay silent and invocation.request's result shape
+// must stay exactly what it always was.
+func TestInvocationRequestWithoutRegisteredSessionIsUnaffected(t *testing.T) {
+	project := t.TempDir()
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
+	var out, stderr bytes.Buffer
+	run := func(args ...string) {
+		t.Helper()
+		out.Reset()
+		stderr.Reset()
+		args = append(args, "--project", project, "--json")
+		if err := Run(args, &out, &stderr); err != nil {
+			t.Fatalf("%v: %v\n%s", args, err, stderr.String())
+		}
+	}
+	run("init", "--non-interactive", "--owner", "owner", "--mode", "legacy")
+	run("agent", "register", "--id", "builder")
+	run("agent", "activate", "--id", "builder", "--role", "AGENT", "--scope", "src")
+	run("invocation", "policy", "set", "--agent", "builder", "--mode", "AUTOMATIC")
+	run("invocation", "request", "--id", "inv-headless", "--to", "builder", "--instruction", "say hi")
+	if bytes.Contains(out.Bytes(), []byte(`"warnings"`)) {
+		t.Fatalf("expected no warnings when the target has no registered interactive session: %s", out.String())
+	}
+	if !bytes.Contains(out.Bytes(), []byte(`"entity_id":"inv-headless"`)) {
+		t.Fatalf("expected the usual signed event shape: %s", out.String())
+	}
+}
+
+// Note: the old double-binding guard tested here (registering the same
+// tmux pane to two different runtimes) no longer applies — there is no
+// registration step anymore. The equivalent guarantee (a runtime can't be
+// double-served) is now structural: Serve's socket bind refuses outright
+// when another live process already owns a runtime's deterministic socket,
+// covered by TestServeSecondInstanceRefusesWhileFirstIsLive in
+// internal/interactiveserve.
