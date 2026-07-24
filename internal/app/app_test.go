@@ -31,6 +31,29 @@ func TestClaudeAttachDoesNotRequireInitializedProject(t *testing.T) {
 	}
 }
 
+// TestCodexAttachDoesNotRequireInitializedProject guards against exactly
+// the bug found live this session: codex serve/attach were added to
+// PersistentPreRunE's project-init exemption list initially only for
+// claude, so `codex attach` failed with "open project runtime: ... no
+// such file or directory" from any directory that wasn't itself an
+// initialized agent-comms project, even though attach has nothing to do
+// with this project's own store.
+func TestCodexAttachDoesNotRequireInitializedProject(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/runtimes/runtime-one/events" {
+			http.NotFound(response, request)
+			return
+		}
+		response.Header().Set("Content-Type", "text/event-stream")
+		response.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+	var stdout, stderr bytes.Buffer
+	if err := Run([]string{"codex", "attach", "--runtime", "runtime-one", "--server", server.URL}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestVersionEnvelope(t *testing.T) {
 	var out, err bytes.Buffer
 	if e := Run([]string{"version", "--json"}, &out, &err); e != nil {
