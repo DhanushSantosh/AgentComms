@@ -27,6 +27,7 @@ import (
 	"github.com/DhanushSantosh/AgentComms/internal/daemonclient"
 	"github.com/DhanushSantosh/AgentComms/internal/hybridmigration"
 	"github.com/DhanushSantosh/AgentComms/internal/identity"
+	"github.com/DhanushSantosh/AgentComms/internal/interactiveserve"
 	"github.com/DhanushSantosh/AgentComms/internal/mcp"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 	"github.com/DhanushSantosh/AgentComms/internal/personalmigration"
@@ -94,7 +95,7 @@ func Run(args []string, stdout, stderr io.Writer) error {
 func (c *cli) root() *cobra.Command {
 	r := &cobra.Command{Use: "agent-comms", Short: "Governed coordination for concurrent agents", Version: Version, PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		c.cmd = cmd.CommandPath()
-		if cmd.Name() == "version" || cmd.Name() == "init" || cmd.Name() == "completion" || (cmd.Name() == "update" && cmd.Parent() == cmd.Root()) || cmd.Name() == "agent-instructions" || cmd.CommandPath() == "agent-comms daemon serve" || cmd.CommandPath() == "agent-comms claude serve" || cmd.CommandPath() == "agent-comms claude attach" || cmd.CommandPath() == "agent-comms codex serve" || cmd.CommandPath() == "agent-comms codex attach" {
+		if cmd.Name() == "version" || cmd.Name() == "init" || cmd.Name() == "completion" || (cmd.Name() == "update" && cmd.Parent() == cmd.Root()) || cmd.Name() == "agent-instructions" || cmd.CommandPath() == "agent-comms daemon serve" || cmd.CommandPath() == "agent-comms claude serve" || cmd.CommandPath() == "agent-comms claude attach" || cmd.CommandPath() == "agent-comms codex serve" || cmd.CommandPath() == "agent-comms codex attach" || cmd.CommandPath() == "agent-comms runtime interactive-serve" {
 			return nil
 		}
 		root := c.project
@@ -178,9 +179,9 @@ func cutoverCommandAllowed(path string) bool {
 	}
 	return false
 }
-func (c *cli) emit(command string, v any) error {
+func (c *cli) emit(command string, v any, warnings ...string) error {
 	if c.json {
-		return json.NewEncoder(c.out).Encode(Envelope{APIVersion: APIVersion, OK: true, Command: command, Result: v})
+		return json.NewEncoder(c.out).Encode(Envelope{APIVersion: APIVersion, OK: true, Command: command, Result: v, Warnings: warnings})
 	}
 	if c.quiet {
 		return nil
@@ -189,8 +190,38 @@ func (c *cli) emit(command string, v any) error {
 	if e != nil {
 		return e
 	}
-	_, e = fmt.Fprintln(c.out, string(b))
-	return e
+	if _, e = fmt.Fprintln(c.out, string(b)); e != nil {
+		return e
+	}
+	for _, w := range warnings {
+		if _, e = fmt.Fprintln(c.err, "warning:", w); e != nil {
+			return e
+		}
+	}
+	return nil
+}
+
+// notifyInteractiveTarget delivers a best-effort "check your pending
+// invocations" nudge directly into targetRuntimeID's live interactive
+// session, if one is running (see internal/interactiveserve). This is the
+// direct-invocation path decided for this project: creating an invocation
+// for a runtime with a live `runtime interactive-serve` process wakes that
+// process's real terminal immediately, with no separate worker or polling
+// process required. There is no registration step to look up — liveness is
+// simply "can I dial this runtime's deterministic control socket." A
+// runtime with no live session is the common case (most runtimes are
+// headless workers) and is silent, not a warning; a live-but-undeliverable
+// session (target stayed busy, echo never confirmed) surfaces as a warning
+// rather than failing the invocation, since the invocation itself was
+// already durably recorded regardless of whether the wake-up nudge lands.
+func (c *cli) notifyInteractiveTarget(invocationID, targetRuntimeID string) []string {
+	if !interactiveserve.Alive(context.Background(), c.svc.Store.Root, targetRuntimeID) {
+		return nil
+	}
+	if err := interactiveserve.NotifyInvocation(context.Background(), c.svc.Store.Root, targetRuntimeID, invocationID, c.actor); err != nil {
+		return []string{fmt.Sprintf("could not deliver directly into %s's live session: %v", targetRuntimeID, err)}
+	}
+	return nil
 }
 
 // captureRuntimeSession opportunistically binds a freshly registered runtime
@@ -825,7 +856,51 @@ func (c *cli) runtimeCmd() *cobra.Command {
 	sessionShow.Flags().StringVar(&sessionRuntimeID, "id", "", "runtime ID")
 	_ = sessionShow.MarkFlagRequired("id")
 
-	root.AddCommand(register, heartbeat, list, workerCommand, bindSession, sessionShow)
+	var interactiveServeID string
+	interactiveServe := &cobra.Command{
+		Use:   "interactive-serve --id <runtimeID> -- <command> [args...]",
+		Short: "Own a real pty running <command>, dialable by other runtimes for direct invocation delivery",
+		Args:  cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if cmd.Flags().ArgsLenAtDash() == -1 {
+				return errors.New(`interactive-serve requires "--" before the wrapped command, e.g. "agent-comms runtime interactive-serve --id codex-runner -- codex"`)
+			}
+			root := c.project
+			if root == "" {
+				var e error
+				root, e = os.Getwd()
+				if e != nil {
+					return e
+				}
+			}
+			code, err := interactiveserve.Serve(cmd.Context(), interactiveserve.ServeOptions{
+				ProjectRoot: root, RuntimeID: interactiveServeID, Command: args,
+			})
+			if err != nil {
+				return err
+			}
+			os.Exit(code)
+			return nil
+		},
+	}
+	interactiveServe.Flags().StringVar(&interactiveServeID, "id", "", "runtime ID")
+	_ = interactiveServe.MarkFlagRequired("id")
+
+	var interactiveShowID string
+	interactiveShow := &cobra.Command{
+		Use:   "interactive-session",
+		Short: "Show whether a runtime has a live interactive-serve session",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			alive := interactiveserve.Alive(cmd.Context(), c.svc.Store.Root, interactiveShowID)
+			return c.emit("runtime.interactive-session", map[string]any{"runtime_id": interactiveShowID, "alive": alive})
+		},
+	}
+	interactiveShow.Flags().StringVar(&interactiveShowID, "id", "", "runtime ID")
+	_ = interactiveShow.MarkFlagRequired("id")
+
+	root.AddCommand(register, heartbeat, list, workerCommand, bindSession, sessionShow,
+		interactiveServe, interactiveShow)
 	return root
 }
 
@@ -851,7 +926,7 @@ func (c *cli) invocationCmd() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		return c.emit("invocation.request", event)
+		return c.emit("invocation.request", event, c.notifyInteractiveTarget(id, target)...)
 	}}
 	request.Flags().String("id", "", "invocation ID (auto-generated if omitted)")
 	request.Flags().StringVar(&target, "to", "", "target agent")

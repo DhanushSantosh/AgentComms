@@ -2,10 +2,79 @@
 
 ## Status
 
-Proposed — implementation plan for a builder agent; not yet built.
-**Decided: Option A** (`Execute` blocks and polls; `Worker.Run` is not
-modified), with a self-written result file as the read-back mechanism.
-Reasoning below, in "The central design tension."
+**Built, in a narrower form than originally scoped, and only for `codex` and
+`opencode`.** Live-tested this session: `claude` was tried three separate
+ways — a bare third-party-attributed claim, the same claim backed by a real
+verifiable signature in this project's own signed event log, and durable
+pre-session authorization via CLAUDE.md — and Claude correctly refused all
+three, reasoning each time that verified integrity of a claim is not the
+same as the human having authorized autonomous action in this session, and
+that a file or injected message cannot grant itself that authorization. That
+is not a wording gap to keep iterating on; it is Claude's injection defense
+working as intended against exactly the shape of thing this RFC needs to
+deliver. `claude-interactive` is dropped, not deferred.
+
+What shipped, for `codex`/`opencode` only, is simpler than the Option A
+design below: rather than a new adapter type registered in `adapter.go` and
+driven through `Worker.Run`/`Adapter.Execute`, delivery is a direct,
+synchronous side effect of `agent-comms invocation request` itself
+(`internal/interactiveserve`, wired into the `request` command in
+`internal/app/app.go`). This was a deliberate scope choice made live with the
+user in place of building the full worker-driven Option A machinery, once it
+was clear the interesting, previously-unsolved part was "wake a live session
+directly," not "make an adapter fit the claim/start/complete lifecycle" —
+every other adapter already does the latter.
+
+**The delivery mechanism itself went through two iterations, and the first
+was explicitly rejected by the user, not just superseded.** The first
+shipped version used tmux: a runtime registered its live tmux pane
+(`runtime interactive-register --tmux-session <name>`), and delivery shelled
+out to `tmux send-keys`/`tmux capture-pane`. The user rejected this
+outright — *"i dont want that it will force users to install and use only
+tmux - i just want a simple use case where i can open 2 sessions on any
+terminal within a certain project and have them communicate with each
+other"* — and confirmed replacing it entirely rather than keeping it as an
+option alongside something new.
+
+**What replaced it: AgentComms owns the pty directly, instead of relying on
+an external multiplexer to.** `agent-comms runtime interactive-serve --id
+<runtime> -- <command>` allocates a real pty (`github.com/creack/pty`),
+execs `codex`/`opencode` attached to it, and transparently forwards the
+wrapper's own stdin/stdout so *any* terminal emulator — not tmux
+specifically — shows the child's real native UI unmediated. The owning
+process listens on a control socket at a path deterministic in (project
+root, runtime ID); "is a runtime live" is simply "can I dial its socket," so
+there is no separate registration step or registry file at all. This is
+unix-only (creack/pty doesn't support Windows) — not a regression, since
+tmux itself never worked on Windows either.
+
+Every lesson from the tmux iteration carried over, just re-implemented
+against an owned pty instead of shelling out: **readiness/idle detection**
+(`Deliver` waits for a busy-marker heuristic — `esc to interrupt` / `esc
+again to interrupt` — to clear before sending anything, fixing the same
+mid-turn text-gluing failure found live) and **echo verification** (waits
+for the pty to visibly echo sent text before pressing Enter, fixing the
+same silently-dropped-Enter failure found live) both still apply, now
+reading from an in-process tee of the child's raw output instead of `tmux
+capture-pane`. One genuinely new risk came with owning the raw byte stream
+instead of tmux's already-rendered screen grid: stale, pre-clear content
+could sit in a naive tail buffer and produce a false match after a real
+screen repaint — mitigated by resetting the match buffer on a
+clear/alternate-screen-buffer escape sequence. **Concurrency got simpler,
+not just re-implemented**: with one process now owning each runtime's pty,
+concurrent senders just make concurrent socket connections, serialized by a
+plain in-process mutex — no cross-process file lock, no shared bindings-file
+race, and no `tmux send-keys` argument-injection surface to defend against
+at all (writing straight to a pty fd has no argv-parsing layer to exploit).
+See `docs/agent-invocations.md`'s "Direct delivery into a live interactive
+session" and "Many-to-many delivery: concurrency and hardening" sections for
+the full, current writeup, and `internal/interactiveserve/serve.go` for the
+implementation.
+
+The original plan below (Option A, `Execute` blocks and polls, a
+self-written result file as read-back, a genuine `claude-interactive`/
+`codex-interactive` adapter pair) was **not** built as written and is kept
+here as considered-and-superseded context, not a to-do list.
 
 ## Context
 
