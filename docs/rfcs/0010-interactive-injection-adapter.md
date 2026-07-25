@@ -14,6 +14,59 @@ is not a wording gap to keep iterating on; it is Claude's injection defense
 working as intended against exactly the shape of thing this RFC needs to
 deliver. `claude-interactive` is dropped, not deferred.
 
+**Update, re-tested live against the shipped pty-owning `interactive-serve`
+(not the earlier tmux prototype): the refusal above is risk-proportionate
+judgment, not a categorical block.** A genuinely independent `claude` session
+(no `CLAUDE_CODE_CHILD_SESSION` marker — a real top-level session, the same
+as a human would get launching it themselves) was sent a low-stakes,
+unambiguous invocation ("reply with the word PONG") through the exact same
+mechanism `codex`/`opencode` use. It read `AGENT_INSTRUCTIONS.md`, reasoned
+about the request out loud ("this is a legitimate test harness... the
+pending invocation is trivial and non-sensitive"), explicitly declined to
+act on unrelated unverified files sitting in the same directory, and then
+ran the real `claim → start → complete` lifecycle itself and replied
+`PONG`. So Claude *can* be reached as a delivery target and *can* complete
+work this way — the three refusals above stand as accurate for what they
+tested (claims of authorization for autonomous action), not as "Claude will
+never act on anything delivered this way."
+
+A separate, more mundane blocker showed up in the same test: this account's
+default Claude Code permission mode is `manual`, so every CLI call Claude
+made (`status`, `invocation claim`, `start`, `complete`, ...) stopped on a
+`Do you want to proceed?` prompt — five separate approvals, by hand, to get
+through one trivial exchange. In a real unattended deployment this hangs
+forever on the first prompt regardless of what Claude decides about the
+instruction. `runtime interactive-serve --claude-allow-agent-comms` closes
+this specific gap, like `runtime worker`'s existing flag of the same name —
+but the first implementation of it, built by analogy with the worker flag
+and not yet live-tested, turned out to be a no-op: it scoped a single
+`--allowedTools "Bash(<resolved absolute path> *)"` rule, but the
+notification text `NotifyInvocation` delivers (and Claude's own follow-up
+`invocation claim/start/complete` calls) all invoke the bare `agent-comms`
+name via `PATH`, never the resolved path, so the rule silently matched
+nothing and every call still prompted. A live 3-way test with `codex`,
+`opencode`, and `claude` all reachable simultaneously caught this — the fix
+scopes two rules, the resolved absolute path and the bare basename, and the
+same test confirmed the fixed version actually removes the approval prompts
+(one manual approval to reassure Claude the environment was legitimate, then
+`invocation claim/start/complete` ran unattended). It does not and cannot
+change the judgment-based refusal above — that ceiling is real, by design,
+and orthogonal to permission mode.
+
+**3-way delivery, confirmed live:** `codex-runner`, `claude-runner`, and
+`opencode-runner` were run simultaneously (three separate `interactive-serve`
+processes, three different provider CLIs) and each completed a direct
+invocation. To confirm this is genuine N-way delivery and not three
+coincidentally-co-located pairwise tests, `codex-runner` was also given an
+invocation instructing it to issue its own `agent-comms invocation request
+--to opencode-runner` — a real, agent-initiated cross-invocation, not one
+fired externally — and `opencode-runner` received and completed it
+(`requested_by: codex-runner` in the signed event). The concurrency/locking
+design already claimed this generalizes past pairwise "for free"; this is
+the first time it was actually exercised with three distinct, real provider
+processes live at once, closing the "only two providers proven" gap from
+this project's own known-limitations list.
+
 What shipped, for `codex`/`opencode` only, is simpler than the Option A
 design below: rather than a new adapter type registered in `adapter.go` and
 driven through `Worker.Run`/`Adapter.Execute`, delivery is a direct,

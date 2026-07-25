@@ -857,6 +857,7 @@ func (c *cli) runtimeCmd() *cobra.Command {
 	_ = sessionShow.MarkFlagRequired("id")
 
 	var interactiveServeID string
+	var interactiveClaudeAllowAgentComms bool
 	interactiveServe := &cobra.Command{
 		Use:   "interactive-serve --id <runtimeID> -- <command> [args...]",
 		Short: "Own a real pty running <command>, dialable by other runtimes for direct invocation delivery",
@@ -864,6 +865,13 @@ func (c *cli) runtimeCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if cmd.Flags().ArgsLenAtDash() == -1 {
 				return errors.New(`interactive-serve requires "--" before the wrapped command, e.g. "agent-comms runtime interactive-serve --id codex-runner -- codex"`)
+			}
+			if interactiveClaudeAllowAgentComms {
+				var err error
+				args, err = withClaudeAllowAgentComms(args, os.Executable)
+				if err != nil {
+					return err
+				}
 			}
 			root := c.project
 			if root == "" {
@@ -885,6 +893,7 @@ func (c *cli) runtimeCmd() *cobra.Command {
 	}
 	interactiveServe.Flags().StringVar(&interactiveServeID, "id", "", "runtime ID")
 	_ = interactiveServe.MarkFlagRequired("id")
+	interactiveServe.Flags().BoolVar(&interactiveClaudeAllowAgentComms, "claude-allow-agent-comms", false, "wrapped command must be claude; scopes unattended Bash permission to this Agent Comms executable only")
 
 	var interactiveShowID string
 	interactiveShow := &cobra.Command{
@@ -902,6 +911,44 @@ func (c *cli) runtimeCmd() *cobra.Command {
 	root.AddCommand(register, heartbeat, list, workerCommand, bindSession, sessionShow,
 		interactiveServe, interactiveShow)
 	return root
+}
+
+// withClaudeAllowAgentComms validates that args wraps claude (by basename)
+// and, if so, appends --allowedTools rules scoped to agent-comms so a claude
+// runtime under interactive-serve can drive `agent-comms invocation *`
+// unattended without gaining Bash access to anything else.
+//
+// Two rules are appended, not one: the resolved absolute path (the same
+// scoping runtimeCmd's `worker --claude-allow-agent-comms` flag already
+// uses), and the bare basename. Confirmed live this only works with both —
+// the notification `interactiveserve.NotifyInvocation` delivers (and Claude's
+// own follow-up `invocation claim/start/complete` calls) all invoke the bare
+// "agent-comms" name, relying on PATH, never the resolved absolute path, so
+// an absolute-path-only rule silently never matches anything and every call
+// still prompts for approval — this was built once, assumed to work by
+// analogy with the worker-mode flag, and only caught by an actual live
+// 3-way test. The basename rule is what makes approval friction actually go
+// away; the absolute-path rule is kept alongside it as defense in depth for
+// the case where something does invoke the resolved path directly.
+// executablePath is injected (rather than calling os.Executable directly)
+// so tests can exercise this without depending on the actual test binary's
+// path.
+func withClaudeAllowAgentComms(args []string, executablePath func() (string, error)) ([]string, error) {
+	if len(args) == 0 || filepath.Base(args[0]) != "claude" {
+		return nil, errors.New("--claude-allow-agent-comms only applies when the wrapped command is claude")
+	}
+	agentCommsPath, err := executablePath()
+	if err != nil {
+		return nil, fmt.Errorf("locate Agent Comms executable: %w", err)
+	}
+	agentCommsPath, err = filepath.EvalSymlinks(agentCommsPath)
+	if err != nil {
+		return nil, fmt.Errorf("resolve Agent Comms executable: %w", err)
+	}
+	out := append([]string{}, args...)
+	out = append(out, "--allowedTools", "Bash("+agentCommsPath+" *)")
+	out = append(out, "--allowedTools", "Bash("+filepath.Base(agentCommsPath)+" *)")
+	return out, nil
 }
 
 func (c *cli) invocationCmd() *cobra.Command {
@@ -972,6 +1019,25 @@ func (c *cli) invocationCmd() *cobra.Command {
 	}}
 	next.Flags().String("runtime", "", "runtime ID used for capacity filtering")
 
+	redeliver := &cobra.Command{Use: "redeliver", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		id, _ := cmd.Flags().GetString("id")
+		state, err := c.svc.State()
+		if err != nil {
+			return err
+		}
+		invocation, ok := state.Invocations[id]
+		if !ok {
+			return fmt.Errorf("invocation %s not found", id)
+		}
+		if invocation.Status != "PENDING" {
+			return fmt.Errorf("invocation %s is %s, not PENDING", id, invocation.Status)
+		}
+		return c.emit("invocation.redeliver", map[string]any{"id": id, "target": invocation.Target},
+			c.notifyInteractiveTarget(id, invocation.Target)...)
+	}}
+	redeliver.Flags().String("id", "", "invocation ID to re-attempt direct delivery for")
+	_ = redeliver.MarkFlagRequired("id")
+
 	var runtimeID string
 	var listenDuration time.Duration
 	var autoClaim bool
@@ -1039,7 +1105,7 @@ func (c *cli) invocationCmd() *cobra.Command {
 	_ = cancelInvocation.MarkFlagRequired("reason")
 
 	policy := c.invocationPolicyCmd()
-	root.AddCommand(request, list, next, listen, claim, start, waitCommand, resume, complete, reject, expire, cancelInvocation, policy)
+	root.AddCommand(request, list, next, redeliver, listen, claim, start, waitCommand, resume, complete, reject, expire, cancelInvocation, policy)
 	return root
 }
 
@@ -1970,6 +2036,10 @@ unattended: Register a runtime with "runtime register" and drive it with
   "runtime worker --adapter <adapter>" instead of an interactive agent loop.
   See docs/agent-invocations.md for the full adapter list and how to
   configure each one.
+live:      A runtime with a live "runtime interactive-serve --id <id> -- <cmd>"
+  session can be woken directly by "invocation request --to <id>" — no
+  worker needed. See docs/agent-invocations.md's "Direct delivery into a
+  live interactive session" section.
 `, exe)
 		return c.emit("agent-instructions", map[string]any{"instructions": instructions, "binary": exe})
 	}}

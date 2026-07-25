@@ -161,6 +161,56 @@ func TestServeEndToEnd(t *testing.T) {
 	}
 }
 
+// TestServeWritesSessionDedicationBanner guards the one mitigation available
+// for the structural "a session must be dedicated" limitation (nothing can
+// detect a human typing directly into a live session vs. the runtime being
+// idle): Serve must write a visibility banner naming the runtime to its own
+// Stdout before the wrapped child's own output appears, so someone launching
+// interactive-serve directly in a terminal has a chance to notice.
+func TestServeWritesSessionDedicationBanner(t *testing.T) {
+	requireBash(t)
+	_, controlSlave := newControlPty(t)
+
+	dir := t.TempDir()
+	stdinR, stdinW := io.Pipe()
+	stdout := &syncBuffer{}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = Serve(ctx, ServeOptions{
+			ProjectRoot: dir,
+			RuntimeID:   "banner-runtime",
+			Command:     []string{"bash", "-c", "echo ready; cat"},
+			ControlFD:   int(controlSlave.Fd()),
+			Stdin:       stdinR,
+			Stdout:      stdout,
+		})
+	}()
+	t.Cleanup(func() { _ = stdinW.Close() })
+	t.Cleanup(cancel)
+
+	waitForCondition(t, 5*time.Second, func() bool {
+		return strings.Contains(stdout.String(), "ready")
+	})
+
+	text := stdout.String()
+	bannerIdx := strings.Index(text, "banner-runtime")
+	readyIdx := strings.Index(text, "ready")
+	if bannerIdx == -1 {
+		t.Fatalf("expected the banner to name the runtime, got:\n%s", text)
+	}
+	if !strings.Contains(text, "do not use this terminal as a personal session") {
+		t.Fatalf("expected the banner to warn against personal use, got:\n%s", text)
+	}
+	if bannerIdx > readyIdx {
+		t.Fatalf("expected the banner before the child's own output, got:\n%s", text)
+	}
+}
+
 // TestServeSecondInstanceRefusesWhileFirstIsLive proves the duplicate-
 // registration concern from the tmux-backed design is now handled
 // structurally rather than by a separate guard command: a second

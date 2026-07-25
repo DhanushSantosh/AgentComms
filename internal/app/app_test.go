@@ -395,3 +395,196 @@ func TestInvocationRequestWithoutRegisteredSessionIsUnaffected(t *testing.T) {
 // when another live process already owns a runtime's deterministic socket,
 // covered by TestServeSecondInstanceRefusesWhileFirstIsLive in
 // internal/interactiveserve.
+
+func TestInvocationRedeliverRejectsUnknownID(t *testing.T) {
+	project := t.TempDir()
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
+	var out, stderr bytes.Buffer
+	run := func(args ...string) error {
+		out.Reset()
+		stderr.Reset()
+		args = append(args, "--project", project, "--json")
+		return Run(args, &out, &stderr)
+	}
+	if err := run("init", "--non-interactive", "--owner", "owner", "--mode", "legacy"); err != nil {
+		t.Fatalf("init: %v\n%s", err, stderr.String())
+	}
+	if err := run("invocation", "redeliver", "--id", "no-such-invocation"); err == nil {
+		t.Fatal("expected redeliver of an unknown invocation ID to fail")
+	}
+}
+
+func TestInvocationRedeliverRejectsNonPendingInvocation(t *testing.T) {
+	project := t.TempDir()
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
+	var out, stderr bytes.Buffer
+	run := func(args ...string) {
+		t.Helper()
+		out.Reset()
+		stderr.Reset()
+		args = append(args, "--project", project, "--json")
+		if err := Run(args, &out, &stderr); err != nil {
+			t.Fatalf("%v: %v\n%s", args, err, stderr.String())
+		}
+	}
+	run("init", "--non-interactive", "--owner", "owner", "--mode", "legacy")
+	run("agent", "register", "--id", "builder")
+	run("agent", "activate", "--id", "builder", "--role", "AGENT", "--scope", "src")
+	run("runtime", "register", "--actor", "builder", "--id", "runtime-builder",
+		"--agent", "builder", "--connector", "MCP", "--max-concurrent", "1")
+	run("invocation", "policy", "set", "--agent", "builder", "--mode", "AUTOMATIC")
+	run("invocation", "request", "--id", "inv-done", "--to", "builder", "--instruction", "say hi")
+	run("invocation", "claim", "--actor", "builder", "--id", "inv-done", "--runtime", "runtime-builder")
+	run("invocation", "start", "--actor", "builder", "--id", "inv-done", "--summary", "started")
+	run("invocation", "complete", "--actor", "builder", "--id", "inv-done", "--summary", "done")
+
+	out.Reset()
+	stderr.Reset()
+	err := Run([]string{"invocation", "redeliver", "--id", "inv-done", "--project", project, "--json"}, &out, &stderr)
+	if err == nil {
+		t.Fatal("expected redeliver of a COMPLETED invocation to fail")
+	}
+}
+
+// TestInvocationRedeliverReachesSessionMissedByRequest guards the actual
+// point of the redeliver command: a PENDING invocation whose original
+// direct-delivery nudge never landed (no live session existed yet at
+// request time) can be manually re-nudged once a live session comes up,
+// without creating a new invocation or event.
+func TestInvocationRedeliverReachesSessionMissedByRequest(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("bash not available")
+	}
+	project := t.TempDir()
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
+	var out, stderr bytes.Buffer
+	run := func(args ...string) {
+		t.Helper()
+		out.Reset()
+		stderr.Reset()
+		args = append(args, "--project", project, "--json")
+		if err := Run(args, &out, &stderr); err != nil {
+			t.Fatalf("%v: %v\n%s", args, err, stderr.String())
+		}
+	}
+
+	run("init", "--non-interactive", "--owner", "owner", "--mode", "legacy")
+	run("agent", "register", "--id", "opencode-runner")
+	run("agent", "activate", "--id", "opencode-runner", "--role", "AGENT", "--scope", "src")
+	run("invocation", "policy", "set", "--agent", "opencode-runner", "--mode", "AUTOMATIC")
+
+	// No live session exists yet, so this request's own nudge is silently a
+	// no-op — the whole point of the test is to confirm redeliver can still
+	// reach the runtime later.
+	run("invocation", "request", "--id", "inv-missed", "--to", "opencode-runner", "--instruction", "say hi")
+	if bytes.Contains(out.Bytes(), []byte(`"warnings"`)) {
+		t.Fatalf("expected no warnings when no live session exists yet: %s", out.String())
+	}
+
+	controlMaster, controlSlave, err := pty.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer controlMaster.Close()
+	defer controlSlave.Close()
+	var stdout bytes.Buffer
+	var stdoutMu sync.Mutex
+	stdinR, stdinW := io.Pipe()
+	t.Cleanup(func() { _ = stdinW.Close() })
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go func() {
+		_, _ = interactiveserve.Serve(ctx, interactiveserve.ServeOptions{
+			ProjectRoot: project, RuntimeID: "opencode-runner",
+			Command:   []string{"bash", "-c", "cat"},
+			ControlFD: int(controlSlave.Fd()), Stdin: stdinR,
+			Stdout: syncWriterFor(&stdoutMu, &stdout),
+		})
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for !interactiveserve.Alive(context.Background(), project, "opencode-runner") {
+		if time.Now().After(deadline) {
+			t.Fatal("expected the live session to become dialable")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	run("invocation", "redeliver", "--id", "inv-missed")
+	if bytes.Contains(out.Bytes(), []byte(`"warnings"`)) {
+		t.Fatalf("expected no delivery warnings against a now-live session: %s", out.String())
+	}
+
+	deadline = time.Now().Add(5 * time.Second)
+	for {
+		stdoutMu.Lock()
+		text := stdout.String()
+		stdoutMu.Unlock()
+		if strings.Contains(text, "inv-missed") && strings.Contains(text, "opencode-runner") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expected redeliver to reach the now-live session, got:\n%s", text)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+func TestWithClaudeAllowAgentCommsRejectsNonClaudeCommand(t *testing.T) {
+	executablePath := func() (string, error) { return "/usr/bin/agent-comms", nil }
+	if _, err := withClaudeAllowAgentComms([]string{"bash"}, executablePath); err == nil {
+		t.Fatal("expected an error when the wrapped command is not claude")
+	}
+	if _, err := withClaudeAllowAgentComms(nil, executablePath); err == nil {
+		t.Fatal("expected an error for an empty command")
+	}
+}
+
+func TestWithClaudeAllowAgentCommsAppendsScopedAllowedTools(t *testing.T) {
+	dir := t.TempDir()
+	fakeExe := filepath.Join(dir, "agent-comms")
+	if err := os.WriteFile(fakeExe, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	executablePath := func() (string, error) { return fakeExe, nil }
+
+	got, err := withClaudeAllowAgentComms([]string{"claude", "--resume", "abc"}, executablePath)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := []string{"claude", "--resume", "abc",
+		"--allowedTools", "Bash(" + fakeExe + " *)",
+		"--allowedTools", "Bash(agent-comms *)"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got %v, want %v", got, want)
+		}
+	}
+}
+
+// TestInteractiveServeRejectsClaudeAllowAgentCommsForOtherCommands guards the
+// CLI wiring itself (not just the extracted helper): the flag's validation
+// must run and return an error before interactive-serve ever tries to open a
+// pty or call os.Exit, so this is safe to run through Run() directly.
+func TestInteractiveServeRejectsClaudeAllowAgentCommsForOtherCommands(t *testing.T) {
+	project := t.TempDir()
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
+	var out, stderr bytes.Buffer
+	if err := Run([]string{"init", "--non-interactive", "--owner", "owner", "--mode", "legacy",
+		"--project", project, "--json"}, &out, &stderr); err != nil {
+		t.Fatalf("init: %v\n%s", err, stderr.String())
+	}
+	out.Reset()
+	stderr.Reset()
+	err := Run([]string{"runtime", "interactive-serve", "--id", "not-claude", "--claude-allow-agent-comms",
+		"--project", project, "--json", "--", "bash", "-c", "true"}, &out, &stderr)
+	if err == nil {
+		t.Fatal("expected --claude-allow-agent-comms to reject a non-claude wrapped command")
+	}
+}
