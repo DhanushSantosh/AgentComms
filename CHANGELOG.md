@@ -56,7 +56,13 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
   deliveries to the same runtime serialize through the one process that owns
   its pty via a plain in-process mutex — no cross-process lock or shared
   registry file needed at all, since there's only ever one process per
-  runtime to race against.
+  runtime to race against. `agent-comms invocation redeliver --id <id>`
+  manually re-attempts direct delivery for a `PENDING` invocation whose
+  first nudge was missed or failed (there is no automatic retry).
+  `interactive-serve` also prints a one-line banner before handing control
+  to the wrapped command, as a visibility nudge (not a detection mechanism)
+  that the terminal is now serving a runtime. `agent-comms
+  agent-instructions`'s bootstrap text now mentions this mechanism.
 
 ### Fixed
 

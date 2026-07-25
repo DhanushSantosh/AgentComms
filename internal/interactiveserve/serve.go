@@ -99,6 +99,14 @@ func Serve(ctx context.Context, opts ServeOptions) (int, error) {
 	}
 	defer ptmx.Close()
 
+	// Printed before the child's own first paint, so it's visible for a
+	// moment even though a full-screen TUI's alt-screen entry will cover it
+	// shortly after. This is a visibility nudge, not a detection mechanism —
+	// nothing here can tell a human directly using this terminal apart from
+	// the runtime it serves being idle; see docs/agent-invocations.md's
+	// "Many-to-many delivery" section for that structural limit.
+	fmt.Fprintf(opts.Stdout, "\x1b[1;36m[agent-comms] serving runtime %q here — do not use this terminal as a personal session\x1b[0m\r\n", opts.RuntimeID)
+
 	winch := make(chan os.Signal, 1)
 	signal.Notify(winch, syscall.SIGWINCH)
 	defer signal.Stop(winch)

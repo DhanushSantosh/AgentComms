@@ -377,12 +377,18 @@ session — is different: there is no worker polling on its behalf, so
 without something to wake it, a new invocation just sits `PENDING` until a
 human happens to type into that pane.
 
-`internal/interactiveserve` closes that gap for `codex` and `opencode`
-(deliberately not `claude` — an interactive Claude Code session, even given
-durable, pre-configured, in-project authorization, correctly refuses to
-autonomously act on a third-party-attributed instruction delivered this way,
-treating it as indistinguishable from a prompt injection; see RFC 0010's
-"decision" section for the three separate ways this was tested and refused).
+`internal/interactiveserve` closes that gap for `codex`, `opencode`, and
+`claude` alike — any real interactive CLI can be wrapped. `claude` is a
+genuine special case, though, not just another entry in the list: live
+testing found its refusal is risk-proportionate judgment rather than a
+categorical block. A low-stakes, unambiguous nudge gets read, reasoned
+about, and acted on; three separate higher-stakes claims of
+authorization-for-autonomous-action (a bare third-party claim, the same
+claim backed by a real signature, and durable pre-session authorization via
+CLAUDE.md) were all correctly refused as indistinguishable from a prompt
+injection. See RFC 0010's "Status" section for both live tests in full —
+this is not a wording gap to iterate away, it is Claude's injection defense
+working as intended for the cases it refuses.
 
 AgentComms owns the pty directly rather than relying on an external
 multiplexer — run the real provider CLI wrapped, in place of running it
@@ -399,6 +405,34 @@ wrapper, no multiplexer to install. The `--` before the wrapped command is
 required (not optional): everything after it is passed through untouched as
 the command and its own arguments.
 
+Wrapping `claude` this way hits its own permission mode: by default every
+CLI call Claude makes (including `agent-comms invocation claim/start/
+complete`, once it decides to act on a delivered nudge) stops on a "Do you
+want to proceed?" prompt, with nobody there to answer it. `--claude-allow-
+agent-comms` closes that specific gap, the same flag and scoping `runtime
+worker` already uses:
+
+```sh
+agent-comms runtime interactive-serve --id claude-runner --claude-allow-agent-comms -- claude
+```
+
+This only applies when the wrapped command's basename is `claude` (an error
+otherwise) and scopes two `--allowedTools` rules onto it: the resolved
+absolute path to this `agent-comms` executable, and its bare basename.
+Both are needed — confirmed live, not assumed: the notification text
+`interactiveserve.NotifyInvocation` delivers, and Claude's own follow-up
+`invocation claim/start/complete` calls, all invoke the bare `agent-comms`
+name via `PATH`, never the resolved absolute path, so an absolute-path-only
+rule silently matches nothing and every call still prompts. This grants
+unattended permission for `agent-comms` itself, nothing broader, and no
+change to Claude's own judgment about whether a given instruction is worth
+acting on in the first place — a live 3-way test (`codex`, `opencode`, and
+`claude` all reachable simultaneously) confirmed the flag removes the
+approval prompts without loosening that judgment: `claude` still
+independently inspected the project, flagged what looked suspicious, and
+asked for confirmation before proceeding on a low-stakes request; once
+satisfied, it drove `invocation claim/start/complete` unattended.
+
 From then on, `agent-comms invocation request --to opencode-runner ...`
 delivers directly: the moment the invocation is durably recorded, the same
 command dials that runtime's control socket and injects a short, bounded
@@ -412,7 +446,10 @@ session for the target (the common case; most runtimes are headless
 workers) is silent. A live-but-undeliverable session (stayed busy, echo
 never confirmed) surfaces as a `warnings` entry on the response envelope,
 not a failure — the invocation itself is already durably recorded
-regardless of whether the wake-up nudge lands.
+regardless of whether the wake-up nudge lands. If a delivery attempt was
+missed or failed, `agent-comms invocation redeliver --id <invocation-id>`
+re-attempts the same nudge on demand — there is no automatic retry, so a
+stuck `PENDING` invocation depends on something calling this explicitly.
 
 This intentionally does not extend to the instruction content itself: the
 delivered notification only ever says an invocation is pending and how to
@@ -489,7 +526,10 @@ terminal running `interactive-serve` has to be dedicated to that purpose.
 This was hit live in exactly this form under the earlier tmux-based
 iteration (a demo pane doubled as a personal chat session) and there is no
 code fix for it, only the operating discipline `--session-id`'s
-documentation already states.
+documentation already states. `interactive-serve` prints a one-line banner
+before handing control to the wrapped command as a visibility nudge — it
+reduces, but cannot eliminate, the chance of forgetting a terminal is
+dedicated this way; it is not a detection mechanism.
 
 ## User policy
 
