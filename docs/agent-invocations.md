@@ -52,11 +52,13 @@ interactive agent to check its inbox.
 
 ### Choosing an adapter
 
-Eight adapters are available via `--adapter`. `claude` and `codex` exec a
-provider CLI directly and are the proven default path; the others speak
-the Agent Client Protocol (ACP) or use a persistent local live broker, and
-are opt-in additions layered on top — none of them replaces
-or changes the behavior of `claude`/`codex`.
+Nine adapters are available via `--adapter`. `claude`, `codex`, and
+`opencode` exec a provider CLI directly and are the proven default path for
+each provider; the others speak the Agent Client Protocol (ACP) or use a
+persistent local live broker, and are opt-in additions layered on top —
+none of them replaces or changes the behavior of the three exec adapters.
+`opencode` is the newest of the three: `opencode-acp` existed first, this
+just fills the same gap `claude`/`codex` already had filled from day one.
 
 | Adapter | Provider | Mechanism | Requires | Live-viewable | Notes |
 | --- | --- | --- | --- | --- | --- |
@@ -64,15 +66,29 @@ or changes the behavior of `claude`/`codex`.
 | `claude-live` | Claude | persistent `stream-json` process + local HTTP/SSE broker | `claude` binary | **Yes** — `agent-comms claude attach` | Requires `--session-id`; the broker and Claude process outlive individual invocations |
 | `codex` | Codex | direct CLI exec | `codex` binary | No | Default; proven |
 | `codex-live` | Codex | persistent `app-server` (JSON-RPC) process + local HTTP/SSE broker | `codex` binary | **Yes** — `agent-comms codex attach` | `--session-id` optional; Codex mints its own thread ID, which is cached and reused automatically |
+| `opencode` | OpenCode | direct CLI exec (`opencode run --format json`) | `opencode` binary | No | Default; supports `--model`, unlike `opencode-acp`/`opencode-live`. Governance for `acceptEdits` is a static per-process `OPENCODE_PERMISSION` choice rather than a live approve/deny callback — functionally equivalent (edits allowed, everything else denied) but with no per-request nuance |
 | `claude-acp` | Claude | ACP, via `npx @agentclientprotocol/claude-agent-acp` | Node.js/npm | No (session viewable afterward with [claude-code-viewer](https://github.com/d-kimuson/claude-code-viewer)) | Session-store-compatible with `claude` — the same conversation can be resumed by either adapter |
 | `opencode-acp` | OpenCode | ACP, via `opencode acp` | `opencode` binary | No (session viewable afterward via `opencode` itself, or a third-party viewer) | |
 | `codex-acp` | Codex | ACP, via `npx @agentclientprotocol/codex-acp` | Node.js/npm | No (viewable afterward with [codex-trace](https://github.com/PixelPaw-Labs/codex-trace)) | **Weaker tool-call permission enforcement than the other ACP adapters** — see below |
 | `opencode-live` | OpenCode | persistent `opencode serve` + REST/SSE | `opencode` binary | **Yes** — run the reported `opencode attach` command in a terminal while it runs | The server it starts outlives the invocation and is reused by later ones; every other adapter's process ends with the invocation |
 
-Pick `claude`/`codex` by default. Reach for another adapter only when you
-specifically need what it adds — e.g. `claude-live`, `codex-live`, or
-`opencode-live` when someone needs to watch a runtime's activity happen,
+Pick `claude`/`codex`/`opencode` by default. Reach for another adapter only
+when you specifically need what it adds — e.g. `claude-live`, `codex-live`,
+or `opencode-live` when someone needs to watch a runtime's activity happen,
 not just read the completed result.
+
+OpenCode mints its own, non-UUID session IDs (`ses_...`), the same as
+`opencode-acp`/`opencode-live` — `worker.Config`'s `--session-id` flag
+requires a well-formed UUID regardless of adapter, so it can never actually
+carry a real OpenCode session ID through. `opencode`'s real session
+continuity comes from a local cache
+(`.agent-comms/cache/opencode-session-<runtime-id>.json`, distinct from
+`opencode-live`'s own cache file) that `Execute` reads and writes directly,
+the same non-authoritative local-routing convention `opencode-live` already
+uses. A cached or passed-through session ID that OpenCode no longer
+recognizes fails with a plain `Error: Session not found` line rather than
+hanging; `opencode` retries once with no session at all rather than failing
+the invocation outright.
 
 The ACP-based adapters and the three `-live` adapters do not support
 `--model` overrides yet (`claude-live` is the exception — it resolves the
@@ -111,6 +127,19 @@ agent-comms --project /srv/project --actor reviewer runtime worker \
   --codex-sandbox workspace-write \
   --codex-add-dir /home/reviewer/.config/agent-comms \
   --codex-ignore-user-config \
+  --execution-timeout 30m
+```
+
+Run an OpenCode worker (no `--session-id` — OpenCode's own session
+continuity comes from its local cache, not this flag):
+
+```sh
+agent-comms --project /srv/project --actor reviewer runtime worker \
+  --id reviewer-runtime \
+  --adapter opencode \
+  --executable /usr/local/bin/opencode \
+  --model opencode/big-model \
+  --claude-permission-mode acceptEdits \
   --execution-timeout 30m
 ```
 

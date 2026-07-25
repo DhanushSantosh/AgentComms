@@ -123,6 +123,7 @@ func validateExecutablePath(path, label string) error {
 var adapters = map[string]Adapter{
 	"claude":        claudeAdapter{},
 	"codex":         codexAdapter{},
+	"opencode":      openCodeAdapter{},
 	"claude-acp":    claudeACPAdapter{},
 	"opencode-acp":  openCodeACPAdapter{},
 	"codex-acp":     codexACPAdapter{},

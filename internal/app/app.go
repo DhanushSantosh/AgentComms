@@ -799,7 +799,7 @@ func (c *cli) runtimeCmd() *cobra.Command {
 	}
 	workerCommand.Flags().String("id", "", "registered runtime ID")
 	_ = workerCommand.MarkFlagRequired("id")
-	workerCommand.Flags().StringVar(&workerAdapter, "adapter", "claude", "claude, claude-live, codex, codex-live, claude-acp, opencode-acp, codex-acp, or opencode-live")
+	workerCommand.Flags().StringVar(&workerAdapter, "adapter", "claude", "claude, codex, opencode, claude-live, codex-live, opencode-live, claude-acp, opencode-acp, or codex-acp")
 	workerCommand.Flags().StringVar(&workerExecutable, "executable", "", "absolute agent executable path")
 	workerCommand.Flags().StringVar(&workerModel, "model", "", "agent model override")
 	workerCommand.Flags().StringVar(&workerSessionID, "session-id", "", "existing Claude or Codex conversation UUID to resume")

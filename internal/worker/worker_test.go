@@ -174,6 +174,68 @@ func TestWorkerResumesBoundCodexSession(t *testing.T) {
 	assertArgumentsExclude(t, arguments, "--ephemeral")
 }
 
+func TestWorkerOpenCodeArgumentsIncludeSessionAndModel(t *testing.T) {
+	instance, root := workerService(t)
+	executable, err := filepath.Abs(os.Args[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	// worker's Config.SessionID always passes through validateConfig's
+	// UUID gate regardless of adapter, even though OpenCode itself mints
+	// non-UUID "ses_..." session IDs — real session continuity for this
+	// adapter goes through the local cache instead (see
+	// adapter_opencode_test.go), which never touches this field, so a
+	// syntactically valid UUID is enough to exercise argument-building.
+	worker, err := New(Config{
+		Service: instance, Actor: "AXIOM", RuntimeID: "runtime-axiom",
+		SessionID: "e22cbdad-7233-4d6d-8ecc-0c4bffd8c475",
+		Adapter:   "opencode", Executable: executable, WorkDir: root,
+		Model: "opencode/big-model", ListenWait: time.Second,
+		ExecutionTimeout: time.Minute, Once: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	arguments := worker.arguments()
+	assertArgumentsContain(t, arguments, "run", "--format", "json", "--pure")
+	assertArgumentsContain(t, arguments, "--session", worker.config.SessionID)
+	assertArgumentsContain(t, arguments, "--model", worker.config.Model)
+}
+
+func TestWorkerOpenCodeOmitsSessionWhenUnset(t *testing.T) {
+	instance, root := workerService(t)
+	executable, err := filepath.Abs(os.Args[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	worker, err := New(Config{
+		Service: instance, Actor: "AXIOM", RuntimeID: "runtime-axiom",
+		Adapter: "opencode", Executable: executable, WorkDir: root,
+		ListenWait: time.Second, ExecutionTimeout: time.Minute, Once: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertArgumentsExclude(t, worker.arguments(), "--session")
+}
+
+func TestWorkerRejectsUnsafeOpenCodeConfiguration(t *testing.T) {
+	instance, root := workerService(t)
+	executable, err := filepath.Abs(os.Args[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = New(Config{
+		Service: instance, Actor: "AXIOM", RuntimeID: "runtime-axiom",
+		Adapter: "opencode", Executable: executable, WorkDir: root,
+		PermissionMode: "bypassPermissions",
+		ListenWait:     time.Second, ExecutionTimeout: time.Minute,
+	})
+	if err == nil {
+		t.Fatal("unsafe opencode permission bypass was accepted")
+	}
+}
+
 func TestWorkerClaudeCarriesRuntimeFramingOnSystemPrompt(t *testing.T) {
 	instance, root := workerService(t)
 	worker := newTestWorker(t, instance, root)
@@ -234,7 +296,7 @@ func TestWorkerRejectsUnknownAdapter(t *testing.T) {
 	}
 	_, err = New(Config{
 		Service: instance, Actor: "AXIOM", RuntimeID: "runtime-axiom",
-		Adapter: "opencode", Executable: executable, WorkDir: root,
+		Adapter: "not-a-real-adapter", Executable: executable, WorkDir: root,
 		ListenWait: time.Second, ExecutionTimeout: time.Minute,
 	})
 	if err == nil {

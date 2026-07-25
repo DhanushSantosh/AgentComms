@@ -7,6 +7,19 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 
 ### Added
 
+- A plain `opencode` worker adapter (direct CLI exec via `opencode run
+  --format json`), closing a gap versus `claude`/`codex`, which have had a
+  plain exec adapter as their default since day one — OpenCode previously
+  only had `opencode-acp` and `opencode-live`. Confirmed live: the prompt is
+  fed on stdin exactly like `claude`/`codex`; `--format json` gives a clean
+  newline-delimited event stream to extract the final answer from;
+  `OPENCODE_PERMISSION` set per-process (rather than through a live
+  approve/deny callback, which this exec path has no channel for) reproduces
+  the same `acceptEdits` contract (edits allowed, bash/web/task denied) the
+  other two OpenCode adapters already enforce; a stale/invalid `--session`
+  fails with a plain `Error: Session not found` line and is retried once
+  with no session rather than failing the invocation outright. Unlike
+  `opencode-acp`/`opencode-live`, this adapter supports `--model`.
 - A `claude-live` worker adapter backed by one persistent Claude Code
   `stream-json` process and a loopback HTTP/SSE broker. `agent-comms claude
   serve` runs the broker explicitly, while `agent-comms claude attach

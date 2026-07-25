@@ -32,9 +32,10 @@ const openCodeACPPermissionEnv = `OPENCODE_PERMISSION={"edit":"ask","bash":"ask"
 // OpenCode loads every globally-configured plugin before the ACP handshake
 // completes; session/load correctly resumes a prior session's context.
 //
-// Registered as "opencode-acp", not "opencode" — there is no exec-based
-// OpenCode adapter to collide with, but the name stays consistent with
-// "claude-acp" for a provider that's ACP-only from day one.
+// Registered as "opencode-acp", distinct from the plain exec-based
+// "opencode" adapter (adapter_opencode.go) — the name stays consistent with
+// "claude-acp" alongside a provider that now has both, the same as
+// claude/codex already do.
 type openCodeACPAdapter struct{}
 
 func (openCodeACPAdapter) Validate(config *Config) error {
