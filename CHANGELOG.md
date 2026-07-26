@@ -123,6 +123,12 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 
 ### Fixed
 
+- The MCP `initialize` response now reports the same release-injected
+  version as `agent-comms version` instead of a stale independent
+  `0.2.0-preview.2` literal.
+- MCP setup documentation now uses per-project, per-host identity resolution
+  for Claude, Codex, and OpenCode instead of recommending one fixed global
+  `--actor`; RFC 0009 now records the shipped `codex-live` implementation.
 - `agent-comms mcp`: every tool with zero required arguments (`status`,
   `history`, `invocation_next`, `verify`) marshaled `"required":null` in its
   JSON Schema instead of `"required":[]` — Go's zero value for a variadic

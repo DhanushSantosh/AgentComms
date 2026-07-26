@@ -13,6 +13,8 @@ import (
 	"github.com/DhanushSantosh/AgentComms/internal/service"
 )
 
+const testServerVersion = "test-version"
+
 // TestToolSchemasNeverEmitNullRequired guards a real, live-discovered bug:
 // a tool with zero required arguments (status, history, invocation_next,
 // verify) used to marshal "required":null (Go's zero value for a variadic
@@ -50,8 +52,11 @@ func TestInitializeAndToolCatalog(t *testing.T) {
 	}
 	input := "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\"}\n{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}\n"
 	var out bytes.Buffer
-	if e := Serve(s, "owner", strings.NewReader(input), &out); e != nil {
+	if e := Serve(s, "owner", testServerVersion, strings.NewReader(input), &out); e != nil {
 		t.Fatal(e)
+	}
+	if !strings.Contains(out.String(), `"version":"`+testServerVersion+`"`) {
+		t.Fatalf("initialize did not report the supplied binary version: %s", out.String())
 	}
 	for _, want := range []string{
 		"agent-comms", "task_create", "message_post", "invocation_request",
@@ -96,7 +101,7 @@ func TestInvocationToolsReturnAndClaimWork(t *testing.T) {
 		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"invocation_listen","arguments":{"runtime_id":"runtime-builder","wait_seconds":1}}}`,
 	}, "\n") + "\n"
 	var output bytes.Buffer
-	if err := Serve(instance, "builder", strings.NewReader(input), &output); err != nil {
+	if err := Serve(instance, "builder", testServerVersion, strings.NewReader(input), &output); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(output.String(), `"found":true`) ||
@@ -127,7 +132,7 @@ func TestNotificationsReceiveNoResponse(t *testing.T) {
 	input := `{"jsonrpc":"2.0","id":1,"method":"initialize"}` + "\n" +
 		`{"jsonrpc":"2.0","method":"notifications/initialized"}` + "\n"
 	var out bytes.Buffer
-	if e := Serve(s, "owner", strings.NewReader(input), &out); e != nil {
+	if e := Serve(s, "owner", testServerVersion, strings.NewReader(input), &out); e != nil {
 		t.Fatal(e)
 	}
 	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
@@ -160,7 +165,7 @@ func TestAgentRegisterToolCreatesCredential(t *testing.T) {
 
 	registerInput := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"agent_register","arguments":{"id":"fresh-agent"}}}` + "\n"
 	var registerOut bytes.Buffer
-	if e := Serve(instance, "fresh-agent", strings.NewReader(registerInput), &registerOut); e != nil {
+	if e := Serve(instance, "fresh-agent", testServerVersion, strings.NewReader(registerInput), &registerOut); e != nil {
 		t.Fatal(e)
 	}
 	if strings.Contains(registerOut.String(), `"error"`) {
@@ -176,7 +181,7 @@ func TestAgentRegisterToolCreatesCredential(t *testing.T) {
 
 	activateInput := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"agent_activate","arguments":{"id":"fresh-agent","role":"AGENT","scopes":["src"]}}}` + "\n"
 	var activateOut bytes.Buffer
-	if e := Serve(instance, "owner", strings.NewReader(activateInput), &activateOut); e != nil {
+	if e := Serve(instance, "owner", testServerVersion, strings.NewReader(activateInput), &activateOut); e != nil {
 		t.Fatal(e)
 	}
 	if strings.Contains(activateOut.String(), `"error"`) {
@@ -185,7 +190,7 @@ func TestAgentRegisterToolCreatesCredential(t *testing.T) {
 
 	runtimeInput := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"runtime_register","arguments":{"id":"fresh-runtime","connector":"MCP","max_concurrent":1}}}` + "\n"
 	var runtimeOut bytes.Buffer
-	if e := Serve(instance, "fresh-agent", strings.NewReader(runtimeInput), &runtimeOut); e != nil {
+	if e := Serve(instance, "fresh-agent", testServerVersion, strings.NewReader(runtimeInput), &runtimeOut); e != nil {
 		t.Fatal(e)
 	}
 	if strings.Contains(runtimeOut.String(), `"error"`) {
@@ -216,7 +221,7 @@ func TestAgentRegisterToolRejectsSpoofedID(t *testing.T) {
 
 	spoofInput := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"agent_register","arguments":{"id":"someone-else"}}}` + "\n"
 	var spoofOut bytes.Buffer
-	if e := Serve(instance, "codex-runner", strings.NewReader(spoofInput), &spoofOut); e != nil {
+	if e := Serve(instance, "codex-runner", testServerVersion, strings.NewReader(spoofInput), &spoofOut); e != nil {
 		t.Fatal(e)
 	}
 	if !strings.Contains(spoofOut.String(), `"error"`) {
@@ -255,7 +260,7 @@ func TestAgentRegisterToolPermitsOwnerFallbackBootstrap(t *testing.T) {
 
 	input := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"agent_register","arguments":{"id":"AXIOM"}}}` + "\n"
 	var out bytes.Buffer
-	if e := Serve(instance, "owner", strings.NewReader(input), &out); e != nil {
+	if e := Serve(instance, "owner", testServerVersion, strings.NewReader(input), &out); e != nil {
 		t.Fatal(e)
 	}
 	if strings.Contains(out.String(), `"error"`) {
@@ -292,7 +297,7 @@ func TestAgentRegisterToolRejectsInvalidPrincipalType(t *testing.T) {
 
 	input := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"agent_register","arguments":{"id":"fresh-agent","principal_type":"OWNER"}}}` + "\n"
 	var out bytes.Buffer
-	if e := Serve(instance, "fresh-agent", strings.NewReader(input), &out); e != nil {
+	if e := Serve(instance, "fresh-agent", testServerVersion, strings.NewReader(input), &out); e != nil {
 		t.Fatal(e)
 	}
 	if !strings.Contains(out.String(), `"error"`) {
@@ -329,7 +334,7 @@ func TestAgentActivateToolRequiresElevation(t *testing.T) {
 
 	activateInput := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"agent_activate","arguments":{"id":"fresh-agent","role":"AGENT"}}}` + "\n"
 	var unauthorizedOut bytes.Buffer
-	if e := Serve(instance, "bystander", strings.NewReader(activateInput), &unauthorizedOut); e != nil {
+	if e := Serve(instance, "bystander", testServerVersion, strings.NewReader(activateInput), &unauthorizedOut); e != nil {
 		t.Fatal(e)
 	}
 	if !strings.Contains(unauthorizedOut.String(), `"error"`) {
@@ -337,7 +342,7 @@ func TestAgentActivateToolRequiresElevation(t *testing.T) {
 	}
 
 	var ownerOut bytes.Buffer
-	if e := Serve(instance, "owner", strings.NewReader(activateInput), &ownerOut); e != nil {
+	if e := Serve(instance, "owner", testServerVersion, strings.NewReader(activateInput), &ownerOut); e != nil {
 		t.Fatal(e)
 	}
 	if strings.Contains(ownerOut.String(), `"error"`) {

@@ -118,7 +118,7 @@ func tools() []map[string]any {
 		tool("verify", "Verify signatures and hash-chain integrity", map[string]any{}),
 	}
 }
-func Serve(s *service.Service, actor string, in io.Reader, out io.Writer) error {
+func Serve(s *service.Service, actor, serverVersion string, in io.Reader, out io.Writer) error {
 	scan := bufio.NewScanner(in)
 	scan.Buffer(make([]byte, 64*1024), controlplane.MaxCommandBytes)
 	enc := json.NewEncoder(out)
@@ -128,7 +128,7 @@ func Serve(s *service.Service, actor string, in io.Reader, out io.Writer) error 
 			_ = enc.Encode(response{JSONRPC: "2.0", ID: nil, Error: &rpcError{Code: -32700, Message: "parse error"}})
 			continue
 		}
-		r, ok := handle(s, actor, q)
+		r, ok := handle(s, actor, serverVersion, q)
 		if !ok {
 			continue
 		}
@@ -144,14 +144,14 @@ func Serve(s *service.Service, actor string, in io.Reader, out io.Writer) error 
 // method under "notifications/") never receives a response — sending one
 // anyway is spec non-compliance that could confuse a strict client's
 // response correlation, even though lenient clients tolerate it.
-func handle(s *service.Service, actor string, q request) (response, bool) {
+func handle(s *service.Service, actor, serverVersion string, q request) (response, bool) {
 	if strings.HasPrefix(q.Method, "notifications/") {
 		return response{}, false
 	}
 	r := response{JSONRPC: "2.0", ID: q.ID}
 	switch q.Method {
 	case "initialize":
-		r.Result = map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{"tools": map[string]any{}}, "serverInfo": map[string]any{"name": "agent-comms", "version": "0.2.0-preview.2"}}
+		r.Result = map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{"tools": map[string]any{}}, "serverInfo": map[string]any{"name": "agent-comms", "version": serverVersion}}
 	case "tools/list":
 		r.Result = map[string]any{"tools": tools()}
 	case "tools/call":

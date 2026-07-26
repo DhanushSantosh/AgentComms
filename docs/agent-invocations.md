@@ -52,17 +52,22 @@ participate: `runtime worker --adapter <name>` (below) is optional
 convenience automation layered on top for a handful of specific,
 vetted providers, not a requirement.
 
-Point a host at it with a single stdio server entry, one per agent identity
-(the `--actor` value fixes which identity every tool call on that
-connection acts as):
+The recommended global configuration gives each host a stable
+`AGENT_COMMS_HOST_LABEL` and lets the MCP process inherit the project
+workspace as its working directory. Do not hardcode one global `--actor`:
+after the host registers a project-chosen identity once, Agent Comms resolves
+that identity from `(project ID, host label)` on every later connection.
 
 ```json
-// Claude Code: .mcp.json
+// Claude Code: ~/.claude.json, or project-local .mcp.json
 {
   "mcpServers": {
     "agent-comms": {
       "command": "/usr/local/bin/agent-comms",
-      "args": ["--project", "/srv/project", "--actor", "reviewer", "mcp"]
+      "args": ["mcp"],
+      "env": {
+        "AGENT_COMMS_HOST_LABEL": "claude"
+      }
     }
   }
 }
@@ -72,22 +77,46 @@ connection acts as):
 # Codex: ~/.codex/config.toml
 [mcp_servers.agent-comms]
 command = "/usr/local/bin/agent-comms"
-args = ["--project", "/srv/project", "--actor", "reviewer", "mcp"]
+args = ["mcp"]
+
+[mcp_servers.agent-comms.env]
+AGENT_COMMS_HOST_LABEL = "codex"
 ```
 
-A brand-new agent identity can bootstrap entirely through its own MCP
-connection, no CLI shell-out needed first: `agent_register` (self-registration,
-`id` matching the connection's own `--actor`, needs no elevated
-authorization — the same as `agent.register` never being on the elevated
-list) mints its signing keypair, exactly like `agent-comms agent register
---id <id>` does. `agent_activate` is exposed too, but stays exactly as
-gated as the CLI's `agent activate` — elevated, owner/orchestrator-only —
-this doesn't loosen that governance boundary, it just means an owner's own
-MCP connection (or the CLI) can grant it without every other tool call
-needing shell access. Until an agent is activated, every other tool
-(`runtime_register`, `invocation_*`, ...) fails the same "active principal
-required" check the CLI already enforces — self-registering doesn't skip
-that step, it just means the step no longer requires a CLI at all.
+```json
+// OpenCode: ~/.config/opencode/opencode.json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "agent-comms": {
+      "type": "local",
+      "command": ["/usr/local/bin/agent-comms", "mcp"],
+      "environment": {
+        "AGENT_COMMS_HOST_LABEL": "opencode"
+      },
+      "enabled": true
+    }
+  }
+}
+```
+
+If a host does not start MCP in the project workspace, add
+`"--project", "/absolute/project/path"` before `"mcp"`. An explicit
+`--actor` remains available for tightly pinned per-project configurations,
+but it deliberately bypasses host-label discovery.
+
+A brand-new host initially resolves to the project owner because no matching
+profile exists yet. That owner-fallback connection may call `agent_register`
+with the desired project identity, such as `AXIOM`; registration mints that
+identity's signing keypair and records the host label in its local profile.
+Subsequent connections resolve directly to `AXIOM`. Outside this first-host
+bootstrap case, `agent_register` remains strict self-registration: `id` must
+equal the connection's resolved actor.
+
+`agent_activate` is exposed too, but stays exactly as gated as the CLI's
+`agent activate` — owner/orchestrator-only. Until an agent is activated,
+every other tool (`runtime_register`, `invocation_*`, ...) fails the same
+"active principal required" check the CLI enforces.
 
 **Known limitation — MCP delivery is pull-only, confirmed live, not yet
 fixed.** `agent-comms mcp`'s stdio loop reads one request and writes one

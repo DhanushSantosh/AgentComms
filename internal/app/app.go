@@ -2052,7 +2052,9 @@ live:      A runtime with a live "runtime interactive-serve --id <id> -- <cmd>"
 	}}
 }
 func (c *cli) mcpCmd() *cobra.Command {
-	return &cobra.Command{Use: "mcp", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error { return mcp.Serve(c.svc, c.actor, os.Stdin, c.out) }}
+	return &cobra.Command{Use: "mcp", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		return mcp.Serve(c.svc, c.actor, Version, os.Stdin, c.out)
+	}}
 }
 func (c *cli) claudeCmd() *cobra.Command {
 	root := &cobra.Command{Use: "claude", Short: "Serve, attach to, or tail Claude Code sessions"}

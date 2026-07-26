@@ -2,15 +2,24 @@
 
 ## Status
 
-Proposed — implementation plan for a builder agent; not yet built.
+Implemented on `dev` in commit `5c3ded6`.
+
+The implementation added `internal/codexserve`, `agent-comms codex
+serve`, `agent-comms codex attach`, and the `codex-live` worker adapter.
+It owns one persistent `codex app-server` process, rebroadcasts its
+JSON-RPC activity through a loopback HTTP/SSE broker on port 4098, caches
+provider-minted thread IDs per runtime, and treats a completed
+`agentMessage` or `final_answer` item as the authoritative turn result.
+The proposal below is retained as the design and verification record.
 
 ## Context
 
-`claude-live` (RFC 0008) gave Claude the same live-broadcast shape
+At proposal time, `claude-live` (RFC 0008) gave Claude the same
+live-broadcast shape
 `opencode-live` already had: one persistent process per runtime, a broker
 of our own in front of it, and a real attach command any number of
-terminals can watch. Codex has neither `opencode-live`'s native server nor
-`claude-live`'s equivalent yet — only `codex` (spawns fresh per invocation,
+terminals can watch. Codex then had neither `opencode-live`'s native server
+nor `claude-live`'s equivalent — only `codex` (spawns fresh per invocation,
 no live view) and `codex-acp` (ACP-based, also spawns per invocation, no
 live view, and already documented as having weaker permission enforcement
 than the other ACP adapters).
