@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
@@ -34,7 +35,18 @@ type callParams struct {
 	Arguments map[string]any `json:"arguments"`
 }
 
+// tool builds one MCP tool descriptor. required defaults to a nil slice
+// (Go's zero value for a variadic called with no arguments), which
+// json.Marshal renders as "required":null — invalid per JSON Schema, which
+// requires "required" to be an array when present. Confirmed live: Claude
+// Code's MCP client fetches tools/list successfully but silently rejects
+// the whole response ("tools fetch failed" with no further detail) when
+// any tool schema has "required":null, since every no-required-args tool
+// (status, history, invocation_next, verify) produced exactly that.
 func tool(name, description string, properties map[string]any, required ...string) map[string]any {
+	if required == nil {
+		required = []string{}
+	}
 	return map[string]any{"name": name, "description": description, "inputSchema": map[string]any{"type": "object", "properties": properties, "required": required, "additionalProperties": false}}
 }
 func tools() []map[string]any {
@@ -82,6 +94,17 @@ func tools() []map[string]any {
 		tool("invocation_reject", "Reject an open invocation with a reason", map[string]any{
 			"id": map[string]any{"type": "string"}, "reason": map[string]any{"type": "string"},
 		}, "id", "reason"),
+		tool("agent_register", "Self-register this connection's own actor as a new agent principal, generating its own signing keypair. id must equal this connection's own actor — registering a different id is rejected; only self-registration is permitted over MCP.", map[string]any{
+			"id":             map[string]any{"type": "string"},
+			"display_name":   map[string]any{"type": "string"},
+			"principal_type": map[string]any{"type": "string", "enum": []string{"HUMAN", "AGENT"}},
+		}, "id"),
+		tool("agent_activate", "Activate a registered agent with a role and scopes. Requires elevated (owner or approved) authorization, exactly like `agent-comms agent activate` — this does not loosen that rule, only exposes it over MCP.", map[string]any{
+			"id":           map[string]any{"type": "string"},
+			"role":         map[string]any{"type": "string"},
+			"capabilities": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+			"scopes":       map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+		}, "id", "role"),
 		tool("runtime_register", "Register an agent runtime without embedding connector secrets", map[string]any{
 			"id": map[string]any{"type": "string"}, "connector": map[string]any{"type": "string"},
 			"config_reference": map[string]any{"type": "string"}, "max_concurrent": map[string]any{"type": "integer", "minimum": 1, "maximum": controlplane.MaxRuntimeConcurrency},
@@ -105,37 +128,47 @@ func Serve(s *service.Service, actor string, in io.Reader, out io.Writer) error 
 			_ = enc.Encode(response{JSONRPC: "2.0", ID: nil, Error: &rpcError{Code: -32700, Message: "parse error"}})
 			continue
 		}
-		r := handle(s, actor, q)
+		r, ok := handle(s, actor, q)
+		if !ok {
+			continue
+		}
 		if e := enc.Encode(r); e != nil {
 			return e
 		}
 	}
 	return scan.Err()
 }
-func handle(s *service.Service, actor string, q request) response {
+
+// handle dispatches one request and reports whether a response should be
+// sent at all. Per JSON-RPC 2.0, a notification (by MCP convention, any
+// method under "notifications/") never receives a response — sending one
+// anyway is spec non-compliance that could confuse a strict client's
+// response correlation, even though lenient clients tolerate it.
+func handle(s *service.Service, actor string, q request) (response, bool) {
+	if strings.HasPrefix(q.Method, "notifications/") {
+		return response{}, false
+	}
 	r := response{JSONRPC: "2.0", ID: q.ID}
 	switch q.Method {
 	case "initialize":
 		r.Result = map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{"tools": map[string]any{}}, "serverInfo": map[string]any{"name": "agent-comms", "version": "0.2.0-preview.2"}}
-	case "notifications/initialized":
-		r.Result = map[string]any{}
 	case "tools/list":
 		r.Result = map[string]any{"tools": tools()}
 	case "tools/call":
 		var p callParams
 		if e := json.Unmarshal(q.Params, &p); e != nil {
-			return rpcFail(r, -32602, e)
+			return rpcFail(r, -32602, e), true
 		}
 		v, e := call(s, actor, p)
 		if e != nil {
-			return rpcFail(r, -32000, e)
+			return rpcFail(r, -32000, e), true
 		}
 		b, _ := json.Marshal(v)
 		r.Result = map[string]any{"content": []map[string]any{{"type": "text", "text": string(b)}}, "structuredContent": v}
 	default:
-		return rpcFail(r, -32601, fmt.Errorf("method %s not found", q.Method))
+		return rpcFail(r, -32601, fmt.Errorf("method %s not found", q.Method)), true
 	}
-	return r
+	return r, true
 }
 func rpcFail(r response, code int, e error) response {
 	r.Error = &rpcError{Code: code, Message: e.Error()}
@@ -160,6 +193,24 @@ func call(s *service.Service, actor string, p callParams) (any, error) {
 			return nil, e
 		}
 		return map[string]any{"verified": true, "head": state.Integrity.Head, "consistency": state.Integrity.Consistency}, nil
+	case "agent_register":
+		id := stringArg(p.Arguments, "id")
+		if id != actor {
+			return nil, fmt.Errorf("agent_register: only self-registration is permitted over MCP; id must equal this connection's own actor (%s)", actor)
+		}
+		principalType := stringArg(p.Arguments, "principal_type")
+		if principalType == "" {
+			principalType = "AGENT"
+		}
+		if principalType != string(model.PrincipalHuman) && principalType != string(model.PrincipalAgent) {
+			return nil, fmt.Errorf("agent_register: principal_type must be HUMAN or AGENT")
+		}
+		return s.Register(id, stringArg(p.Arguments, "display_name"), model.PrincipalType(principalType))
+	case "agent_activate":
+		return s.Execute(actor, "agent.activate", stringArg(p.Arguments, "id"), model.AgentActivated{
+			Role: model.Role(stringArg(p.Arguments, "role")), Capabilities: stringsArg(p.Arguments["capabilities"]),
+			Scopes: stringsArg(p.Arguments["scopes"]),
+		})
 	case "task_create":
 		id, _ := p.Arguments["id"].(string)
 		res := stringsArg(p.Arguments["resources"])

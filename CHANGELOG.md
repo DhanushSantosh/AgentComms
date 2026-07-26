@@ -7,6 +7,19 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 
 ### Added
 
+- `agent_register` and `agent_activate` MCP tools (`internal/mcp/server.go`),
+  closing the one gap that stood between "MCP is the general, adapter-free
+  way for any agent to participate" and it actually being true: without
+  them, a brand-new agent identity couldn't do anything over MCP until
+  someone ran `agent-comms agent register` via the CLI first, since every
+  other tool requires the connection's bound actor to already have signing
+  credentials. `agent_register` mirrors `agent-comms agent register`
+  exactly (self-registration needs no elevated authorization); `agent_activate`
+  mirrors `agent-comms agent activate` and stays exactly as gated
+  (owner/orchestrator-only) — this doesn't loosen that governance boundary,
+  it just exposes the existing rule over MCP instead of requiring a CLI
+  shell-out for that one step. Verified live: a real Claude Code session
+  self-registered via its own MCP connection with zero prior CLI setup.
 - A plain `opencode` worker adapter (direct CLI exec via `opencode run
   --format json`), closing a gap versus `claude`/`codex`, which have had a
   plain exec adapter as their default since day one — OpenCode previously
@@ -90,6 +103,21 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 
 ### Fixed
 
+- `agent-comms mcp`: every tool with zero required arguments (`status`,
+  `history`, `invocation_next`, `verify`) marshaled `"required":null` in its
+  JSON Schema instead of `"required":[]` — Go's zero value for a variadic
+  parameter called with no arguments is `nil`, not an empty slice. `null`
+  is invalid per JSON Schema wherever `required` is present. Confirmed
+  live: Claude Code's real MCP client fetched `tools/list` successfully
+  every time but silently rejected the entire response ("tools fetch
+  failed", no further detail) because of it — the server looked connected
+  and broken at once, with no error message pointing at the cause.
+- `agent-comms mcp`: notifications (any `notifications/*` method, per MCP
+  convention — matches the JSON-RPC 2.0 rule that notifications never
+  receive a response) no longer get a response line. `notifications/initialized`
+  previously did, which is spec non-compliance a strict client's response
+  correlation could choke on, even though the two live-tested clients this
+  session (Claude Code, Codex) both tolerated it.
 - `claude` worker adapter: a runtime bound with `--session-id` to a
   conversation that doesn't exist yet no longer fails outright. The worker
   now creates the conversation at that exact ID on first use and resumes it
@@ -117,6 +145,14 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 
 ### Security
 
+- `agent-comms mcp`'s `agent_register` tool now enforces the self-registration
+  invariant its own docstring already promised: `id` must equal the MCP
+  connection's own bound actor, and `principal_type` is validated against
+  `HUMAN`/`AGENT` before use. Caught by automated security review before
+  release — the first implementation let one MCP-bound actor register (or
+  squat) an arbitrary, unrelated agent identity, breaking the per-actor
+  scoping an MCP connection is supposed to guarantee, and cast an
+  unvalidated string straight into `model.PrincipalType`.
 - ACP-based workers resolve tool-call permission requests through a hybrid
   policy: read, search, reasoning, and mode-switch calls auto-approve; edit and
   move calls follow the worker's configured permission mode; every other

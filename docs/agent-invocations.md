@@ -42,6 +42,53 @@ seconds and claims it transactionally by default. Agent hosts repeat the
 bounded listen after a timeout or completed invocation. Competing runtime
 instances cannot both claim the same invocation.
 
+### Participating via MCP directly — no adapter required
+
+Everything in this section is also exposed as MCP tools by `agent-comms
+mcp`, a plain JSON-RPC 2.0 stdio server (`internal/mcp/server.go`) — the
+same underlying application as the CLI, just a different transport. This is
+the general, adapter-free way for *any* MCP-capable agent host to
+participate: `runtime worker --adapter <name>` (below) is optional
+convenience automation layered on top for a handful of specific,
+vetted providers, not a requirement.
+
+Point a host at it with a single stdio server entry, one per agent identity
+(the `--actor` value fixes which identity every tool call on that
+connection acts as):
+
+```json
+// Claude Code: .mcp.json
+{
+  "mcpServers": {
+    "agent-comms": {
+      "command": "/usr/local/bin/agent-comms",
+      "args": ["--project", "/srv/project", "--actor", "reviewer", "mcp"]
+    }
+  }
+}
+```
+
+```toml
+# Codex: ~/.codex/config.toml
+[mcp_servers.agent-comms]
+command = "/usr/local/bin/agent-comms"
+args = ["--project", "/srv/project", "--actor", "reviewer", "mcp"]
+```
+
+A brand-new agent identity can bootstrap entirely through its own MCP
+connection, no CLI shell-out needed first: `agent_register` (self-registration,
+`id` matching the connection's own `--actor`, needs no elevated
+authorization — the same as `agent.register` never being on the elevated
+list) mints its signing keypair, exactly like `agent-comms agent register
+--id <id>` does. `agent_activate` is exposed too, but stays exactly as
+gated as the CLI's `agent activate` — elevated, owner/orchestrator-only —
+this doesn't loosen that governance boundary, it just means an owner's own
+MCP connection (or the CLI) can grant it without every other tool call
+needing shell access. Until an agent is activated, every other tool
+(`runtime_register`, `invocation_*`, ...) fails the same "active principal
+required" check the CLI already enforces — self-registering doesn't skip
+that step, it just means the step no longer requires a CLI at all.
+
 ## Autonomous runtime workers
 
 `runtime worker` turns a registered runtime into a complete responder rather
