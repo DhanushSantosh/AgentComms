@@ -67,8 +67,29 @@ the first time it was actually exercised with three distinct, real provider
 processes live at once, closing the "only two providers proven" gap from
 this project's own known-limitations list.
 
-What shipped, for `codex`/`opencode` only, is simpler than the Option A
-design below: rather than a new adapter type registered in `adapter.go` and
+**Full 3-agent collaborative build, confirmed live, in three real Alacritty
+windows (not a headless test harness):** `opencode-runner`, `claude-runner`,
+and `codex-runner` were each run under `interactive-serve` in their own
+visible terminal, then given a single kickoff invocation describing a
+three-step build with explicit handoff instructions for each hop.
+`opencode-runner` built a small stats CLI and committed it, then — on its
+own initiative, not externally triggered — issued the invocation handing
+step 2 to `claude-runner`. `claude-runner` wrote and ran a pytest suite
+against it (with real conditional logic to send a fix-request back to
+`opencode-runner` and retry if any test failed, though in this run every
+test passed on the first try, so that branch never had to fire), then
+itself handed step 3 to `codex-runner`. `codex-runner` wrote documentation,
+independently re-ran the tool to verify the reported output, committed, and
+reported the whole build complete. Verified externally afterward: real git
+history with one commit per agent, and the full pytest suite passing when
+re-run independently. The user then ran their own separate live regression
+pass across all three runtimes directly in the terminals and confirmed the
+mechanism as solid.
+
+What shipped — originally scoped to `codex`/`opencode` only, before the
+"Update" sections above extended endorsed support to `claude` as well — is
+simpler than the Option A design below: rather than a new adapter type
+registered in `adapter.go` and
 driven through `Worker.Run`/`Adapter.Execute`, delivery is a direct,
 synchronous side effect of `agent-comms invocation request` itself
 (`internal/interactiveserve`, wired into the `request` command in
