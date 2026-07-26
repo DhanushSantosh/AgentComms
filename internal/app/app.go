@@ -25,12 +25,11 @@ import (
 	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
 	"github.com/DhanushSantosh/AgentComms/internal/daemon"
 	"github.com/DhanushSantosh/AgentComms/internal/daemonclient"
-	"github.com/DhanushSantosh/AgentComms/internal/hybridmigration"
 	"github.com/DhanushSantosh/AgentComms/internal/identity"
 	"github.com/DhanushSantosh/AgentComms/internal/interactiveserve"
 	"github.com/DhanushSantosh/AgentComms/internal/mcp"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
-	"github.com/DhanushSantosh/AgentComms/internal/personalmigration"
+	"github.com/DhanushSantosh/AgentComms/internal/runtimeinit"
 	"github.com/DhanushSantosh/AgentComms/internal/service"
 	"github.com/DhanushSantosh/AgentComms/internal/sessionbind"
 	"github.com/DhanushSantosh/AgentComms/internal/store"
@@ -73,6 +72,16 @@ type cli struct {
 	cmd                                  string
 }
 
+var launchDaemonProcess = func(executable, projectRoot string, output io.Writer) error {
+	process := exec.Command(executable, "daemon", "serve", "--project", projectRoot)
+	process.Stdout = output
+	process.Stderr = output
+	if err := process.Start(); err != nil {
+		return err
+	}
+	return process.Process.Release()
+}
+
 func Run(args []string, stdout, stderr io.Writer) error {
 	store.RuntimeVersion = Version
 	c := &cli{out: stdout, err: stderr, timeout: 10 * time.Second}
@@ -107,10 +116,6 @@ func (c *cli) root() *cobra.Command {
 			}
 		}
 		c.svc = service.New(root)
-		if cmd.CommandPath() == "agent-comms migrate adopt" {
-			c.svc.Store.LockTimeout = c.timeout
-			return nil
-		}
 		cfg, e := c.svc.Store.Config()
 		if e != nil {
 			return fmt.Errorf("open project runtime: %w", e)
@@ -120,9 +125,7 @@ func (c *cli) root() *cobra.Command {
 		}
 		c.svc.Store.LockTimeout = c.timeout
 		c.svc.SetRemoteRecovery(func() error { return ensureDaemon(root, cfg) })
-		needsDaemon := cmd.CommandPath() != "agent-comms migrate service" &&
-			cmd.CommandPath() != "agent-comms migrate personal"
-		if needsDaemon && (cfg.RuntimeMode == "service" || cfg.RuntimeMode == "personal") {
+		if cfg.RuntimeMode == "service" || cfg.RuntimeMode == "personal" {
 			if e = ensureDaemon(root, cfg); e != nil {
 				return e
 			}
@@ -149,14 +152,6 @@ func (c *cli) root() *cobra.Command {
 				}
 			}
 		}
-		if incomplete, state := c.svc.Store.CutoverIncomplete(); incomplete && !cutoverCommandAllowed(cmd.CommandPath()) {
-			return fmt.Errorf("migration cutover is incomplete (%s); normal work is blocked until explicit activation", state)
-		} else if !incomplete && state == store.CutoverActivated && !c.svc.Store.ManagedBootstrapValid() && !cutoverCommandAllowed(cmd.CommandPath()) {
-			return errors.New("split-brain cutover detected: ACTIVATED runtime does not match root .agents; normal work is blocked")
-		}
-		if incomplete, status := c.svc.Store.MigrationIncomplete(); incomplete && !cutoverCommandAllowed(cmd.CommandPath()) {
-			return fmt.Errorf("runtime migration is incomplete (%s); normal work is blocked", status)
-		}
 		return nil
 	}}
 	f := r.PersistentFlags()
@@ -168,23 +163,8 @@ func (c *cli) root() *cobra.Command {
 	f.DurationVar(&c.timeout, "timeout", 10*time.Second, "transaction lock timeout")
 	f.BoolVar(&c.noColor, "no-color", false, "disable ANSI color")
 	f.BoolVarP(&c.quiet, "quiet", "q", false, "suppress non-essential output")
-	r.AddCommand(c.versionCmd(), c.initCmd(), c.doctorCmd(), c.verifyCmd(), c.statusCmd(), c.controlCmd(), c.historyCmd(), c.searchCmd(), c.agentCmd(), c.runtimeCmd(), c.invocationCmd(), c.sessionCmd(), c.taskCmd(), c.messageCmd(), c.decisionCmd(), c.approvalCmd(), c.artifactCmd(), c.documentCmd(), c.envCmd(), c.draftCmd(), c.archiveCmd(), c.exportCmd(), c.syncCmd(), c.profileCmd(), c.configCmd(), c.themeCmd(), c.updateCmd(), c.completionCmd(r), c.agentInstructionsCmd(), c.mcpCmd(), c.watchCmd(), c.tuiCmd(), c.migrateCmd(), c.daemonCmd(), c.claudeCmd(), c.codexCmd())
+	r.AddCommand(c.versionCmd(), c.initCmd(), c.doctorCmd(), c.verifyCmd(), c.statusCmd(), c.controlCmd(), c.historyCmd(), c.searchCmd(), c.agentCmd(), c.runtimeCmd(), c.invocationCmd(), c.sessionCmd(), c.taskCmd(), c.messageCmd(), c.decisionCmd(), c.approvalCmd(), c.artifactCmd(), c.documentCmd(), c.envCmd(), c.draftCmd(), c.archiveCmd(), c.exportCmd(), c.profileCmd(), c.configCmd(), c.themeCmd(), c.updateCmd(), c.completionCmd(r), c.agentInstructionsCmd(), c.mcpCmd(), c.watchCmd(), c.tuiCmd(), c.daemonCmd(), c.claudeCmd(), c.codexCmd())
 	return r
-}
-
-func cutoverCommandAllowed(path string) bool {
-	for _, prefix := range []string{
-		"agent-comms migrate", "agent-comms doctor", "agent-comms verify", "agent-comms status", "agent-comms history", "agent-comms search",
-		"agent-comms agent register", "agent-comms agent activate", "agent-comms agent list",
-		"agent-comms task create", "agent-comms task claim", "agent-comms task start", "agent-comms task block",
-		"agent-comms decision create", "agent-comms message post",
-		"agent-comms document create", "agent-comms document update", "agent-comms document list", "agent-comms document show",
-	} {
-		if strings.HasPrefix(path, prefix) {
-			return true
-		}
-	}
-	return false
 }
 func (c *cli) emit(command string, v any, warnings ...string) error {
 	if c.json {
@@ -252,10 +232,6 @@ func errorCode(e error) string {
 	if errors.As(e, &controlErr) {
 		return string(controlErr.Code)
 	}
-	var b *store.BusyError
-	if errors.As(e, &b) {
-		return "BUSY"
-	}
 	s := strings.ToLower(e.Error())
 	switch {
 	case strings.Contains(s, "credential") || strings.Contains(s, "active principal") || strings.Contains(s, "role required") || strings.Contains(s, "human principal"):
@@ -264,8 +240,6 @@ func errorCode(e error) string {
 		return "INTEGRITY"
 	case strings.Contains(s, "remote") || strings.Contains(s, "git "):
 		return "EXTERNAL"
-	case strings.Contains(s, "schema") || strings.Contains(s, "migration"):
-		return "MIGRATION"
 	default:
 		return "VALIDATION"
 	}
@@ -280,8 +254,6 @@ func exitCode(e error) int {
 		return 4
 	case "INTEGRITY":
 		return 5
-	case "MIGRATION":
-		return 6
 	case "EXTERNAL":
 		return 7
 	case "OFFLINE", "UNAVAILABLE":
@@ -302,7 +274,8 @@ func (c *cli) initCmd() *cobra.Command {
 	var owner string
 	var mode string
 	var yes bool
-	cmd := &cobra.Command{Use: "init", Short: "Initialize Agent Comms in a Git project", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+	var authorityURL, servicePublicKey, daemonEndpoint string
+	cmd := &cobra.Command{Use: "init", Short: "Initialize an Agent Comms project", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		root := c.project
 		if root == "" {
 			root, _ = os.Getwd()
@@ -320,8 +293,8 @@ func (c *cli) initCmd() *cobra.Command {
 		if owner == "" {
 			return errors.New("--owner is required in non-interactive mode")
 		}
-		if mode != "personal" && mode != "legacy" {
-			return errors.New("--mode must be personal or legacy")
+		if mode != "personal" && mode != "service" {
+			return errors.New("--mode must be personal or service")
 		}
 		if !yes && !c.nonInteractive {
 			fmt.Fprintf(c.out, "\nCreate .agents and isolated .agent-comms runtime in %s? [y/N] ", root)
@@ -330,31 +303,31 @@ func (c *cli) initCmd() *cobra.Command {
 				return errors.New("initialization cancelled")
 			}
 		}
-		s := service.New(root)
-		if e := s.Store.Init(owner); e != nil {
+		initialized, e := runtimeinit.Initialize(cmd.Context(), runtimeinit.Config{
+			ProjectRoot: root, Owner: owner, Mode: mode, AuthorityURL: authorityURL,
+			ServicePublicKey: servicePublicKey, DaemonEndpoint: daemonEndpoint,
+		})
+		if e != nil {
 			return e
 		}
 		result := map[string]any{
 			"project": root, "runtime": filepath.Join(root, store.Runtime), "owner": owner,
-			"next": []string{"agent-comms tui", "agent-comms agent register --id builder --principal-type AGENT"},
+			"next":         []string{"agent-comms tui", "agent-comms agent register --id builder --principal-type AGENT"},
+			"runtime_mode": initialized.RuntimeMode, "daemon_endpoint": initialized.DaemonEndpoint,
 		}
-		switch mode {
-		case "personal":
-			migrationResult, e := personalmigration.Migrate(cmd.Context(), s.Store)
-			if e != nil {
-				return fmt.Errorf("initialize personal authority: %w", e)
-			}
-			result["runtime_mode"] = "personal"
-			result["database"] = personalmigration.DatabasePath(root)
-			result["imported_events"] = migrationResult.ImportedEvents
-		case "legacy":
-			result["runtime_mode"] = "legacy"
-			result["remote"] = "local-only"
+		if initialized.Database != "" {
+			result["database"] = initialized.Database
+		}
+		if initialized.AuthorityURL != "" {
+			result["authority_url"] = initialized.AuthorityURL
 		}
 		return c.emit("init", result)
 	}}
 	cmd.Flags().StringVar(&owner, "owner", "", "owner principal ID")
-	cmd.Flags().StringVar(&mode, "mode", "personal", "runtime mode: personal or legacy")
+	cmd.Flags().StringVar(&mode, "mode", "personal", "runtime mode: personal or service")
+	cmd.Flags().StringVar(&authorityURL, "authority-url", "", "service authority URL")
+	cmd.Flags().StringVar(&servicePublicKey, "service-public-key", "", "base64 Ed25519 service public key")
+	cmd.Flags().StringVar(&daemonEndpoint, "daemon-endpoint", "", "local daemon socket or named pipe")
 	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "confirm initialization")
 	return cmd
 }
@@ -377,29 +350,18 @@ func (c *cli) doctorCmd() *cobra.Command {
 			findings = append(findings, finding{severity, code, message, guidance})
 		}
 		if cfg.SchemaVersion != model.SchemaVersion {
-			add("ERROR", "RUNTIME_SCHEMA_MISMATCH", fmt.Sprintf("binary expects schema %s but runtime is %s", model.SchemaVersion, cfg.SchemaVersion), "Run `agent-comms migrate status`; use the dedicated adoption flow when legacy .agents exists.")
-		}
-		if incompleteMigration, status := c.svc.Store.MigrationIncomplete(); incompleteMigration {
-			add("ERROR", "RUNTIME_MIGRATION_INCOMPLETE", "runtime migration journal is "+status, "Resume `agent-comms migrate apply --owner <verified-owner>` before normal work.")
+			add("ERROR", "RUNTIME_SCHEMA_MISMATCH", fmt.Sprintf("binary expects schema %s but runtime is %s", model.SchemaVersion, cfg.SchemaVersion), "Use the Agent Comms version that created this project or initialize a new project.")
 		}
 		if cfg.ToolkitVersion == "" {
-			add("WARNING", "RUNTIME_VERSION_UNKNOWN", "runtime does not record the toolkit version that created it", "Run doctor with the intended binary and migrate safely before normal work.")
+			add("WARNING", "RUNTIME_VERSION_UNKNOWN", "runtime does not record the toolkit version that created it", "Use the Agent Comms version that initialized this project.")
 		} else if cfg.ToolkitVersion != Version {
-			add("WARNING", "BINARY_RUNTIME_VERSION_MISMATCH", fmt.Sprintf("installed binary is %s but runtime was prepared by %s", Version, cfg.ToolkitVersion), "Install the intended release, then run doctor and migration status; project data is never upgraded automatically.")
-		}
-		incomplete, cutoverState := c.svc.Store.CutoverIncomplete()
-		if incomplete {
-			add("ERROR", "CUTOVER_INCOMPLETE", "legacy cutover state is "+cutoverState, "Complete explicit seeding and acknowledgements, preview activation, then run `migrate activate --yes`.")
+			add("WARNING", "BINARY_RUNTIME_VERSION_MISMATCH", fmt.Sprintf("installed binary is %s but runtime was prepared by %s", Version, cfg.ToolkitVersion), "Install the intended release before normal work.")
 		}
 		if !c.svc.Store.ManagedBootstrapValid() {
-			code := "MANAGED_BOOTSTRAP_MISSING"
-			if cutoverState == store.CutoverActivated {
-				code = "SPLIT_BRAIN_BOOTSTRAP"
-			}
-			add("ERROR", code, "project root .agents does not match the managed bootstrap", "Do not work in this project; inspect `migrate status` and use recovery or governed activation.")
+			add("ERROR", "MANAGED_BOOTSTRAP_MISSING", "project root .agents does not match the configured authority mode", "Restore the bootstrap for this project before normal work.")
 		}
 		if !c.svc.Store.InstructionsPresent() {
-			add("ERROR", "AGENT_INSTRUCTIONS_MISSING", ".agent-comms/AGENT_INSTRUCTIONS.md is missing or empty", "Repair through migration/adoption; do not invent instructions manually during cutover.")
+			add("ERROR", "AGENT_INSTRUCTIONS_MISSING", ".agent-comms/AGENT_INSTRUCTIONS.md is missing or empty", "Restore the generated instructions with the matching Agent Comms release.")
 		}
 		if cfg.SchemaVersion == model.SchemaVersion {
 			if st, x := c.svc.State(); x == nil {
@@ -411,27 +373,26 @@ func (c *cli) doctorCmd() *cobra.Command {
 				}
 				for id := range st.Agents {
 					if strings.EqualFold(id, "builder") || strings.Contains(strings.ToLower(id), "test") || strings.Contains(strings.ToLower(id), "smoke") {
-						add("WARNING", "TEST_LIKE_RUNTIME", "runtime contains test-like agent identity "+id, "Verify every identity explicitly before activation; legacy prose is never authoritative.")
+						add("WARNING", "TEST_LIKE_RUNTIME", "runtime contains test-like agent identity "+id, "Verify every identity explicitly before activation.")
 						break
 					}
 				}
 				for id := range st.Tasks {
 					if strings.EqualFold(id, "task-001") || strings.Contains(strings.ToLower(id), "test") || strings.Contains(strings.ToLower(id), "smoke") {
-						add("WARNING", "TEST_LIKE_RUNTIME", "runtime contains test-like task "+id, "Verify or remove synthetic state through governed migration before activation.")
+						add("WARNING", "TEST_LIKE_RUNTIME", "runtime contains test-like task "+id, "Verify or remove synthetic state through governed commands.")
 						break
 					}
 				}
 			}
 		}
-		r := map[string]any{"integrity": verify == nil, "schema_version": cfg.SchemaVersion, "binary_version": Version, "runtime_toolkit_version": cfg.ToolkitVersion, "runtime": filepath.Join(c.svc.Store.Root, store.Runtime), "git_head": c.svc.Store.Head(), "remote": c.svc.Store.Remote(), "telemetry": false, "healthy": len(findings) == 0, "findings": findings}
+		r := map[string]any{"integrity": verify == nil, "schema_version": cfg.SchemaVersion, "binary_version": Version, "runtime_toolkit_version": cfg.ToolkitVersion, "runtime": filepath.Join(c.svc.Store.Root, store.Runtime), "telemetry": false, "healthy": len(findings) == 0, "findings": findings}
 		if cfg.RuntimeMode == "service" || cfg.RuntimeMode == "personal" {
 			r["runtime_mode"] = cfg.RuntimeMode
 			if cfg.RuntimeMode == "service" {
 				r["authority_url"] = cfg.AuthorityURL
 			} else {
-				r["database"] = personalmigration.DatabasePath(c.svc.Store.Root)
+				r["database"] = runtimeinit.DatabasePath(c.svc.Store.Root)
 			}
-			r["legacy_read_only"] = cfg.LegacyReadOnly
 		}
 		if verify != nil {
 			r["integrity_error"] = verify.Error()
@@ -603,13 +564,9 @@ func (c *cli) searchCmd() *cobra.Command {
 				out = append(out, v)
 			}
 		}
-		legacy, e := c.svc.Store.SearchLegacy(q)
-		if e != nil {
-			return e
-		}
 		return c.emit("search", map[string]any{
-			"current_events": out, "legacy_evidence": legacy,
-			"next_cursor": page.NextCursor, "metadata": page.Metadata,
+			"current_events": out,
+			"next_cursor":    page.NextCursor, "metadata": page.Metadata,
 		})
 	}}
 	cmd.Flags().StringVar(&cursor, "cursor", "", "opaque pagination cursor")
@@ -1703,77 +1660,6 @@ func (c *cli) exportCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&out, "output", "o", "", "output file")
 	return cmd
 }
-func (c *cli) syncCmd() *cobra.Command {
-	root := &cobra.Command{Use: "sync"}
-	var url string
-	setup := &cobra.Command{Use: "setup", RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, e := c.svc.Store.Config()
-		if e != nil {
-			return e
-		}
-		if cfg.RuntimeMode == "service" || cfg.RuntimeMode == "personal" {
-			return errors.New("authoritative modes do not use Git checkpoints")
-		}
-		if e := c.svc.Store.SetupRemote(url); e != nil {
-			return e
-		}
-		return c.emit("sync.setup", map[string]string{"remote": url})
-	}}
-	setup.Flags().StringVar(&url, "url", "", "checkpoint Git URL")
-	status := &cobra.Command{Use: "status", RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, e := c.svc.Store.Config()
-		if e != nil {
-			return e
-		}
-		if cfg.RuntimeMode == "service" || cfg.RuntimeMode == "personal" {
-			state, stateErr := c.svc.State()
-			if stateErr != nil {
-				return stateErr
-			}
-			return c.emit("sync.status", map[string]any{
-				"state": state.Integrity.Connectivity, "authority": cfg.AuthorityURL,
-				"server_sequence": state.Integrity.ServerSequence, "cache_sequence": state.Integrity.CacheSequence,
-			})
-		}
-		return c.emit("sync.status", map[string]string{"remote": c.svc.Store.Remote(), "state": map[bool]string{true: "configured", false: "local-only"}[c.svc.Store.Remote() != ""]})
-	}}
-	push := &cobra.Command{Use: "push", RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, e := c.svc.Store.Config()
-		if e != nil {
-			return e
-		}
-		if cfg.RuntimeMode == "service" || cfg.RuntimeMode == "personal" {
-			metadata, syncErr := c.svc.Sync()
-			if syncErr != nil {
-				return syncErr
-			}
-			return c.emit("sync.push", map[string]any{"synced": true, "metadata": metadata})
-		}
-		if e := c.svc.Store.Checkpoint(); e != nil {
-			return e
-		}
-		return c.emit("sync.push", map[string]bool{"pushed": true})
-	}}
-	pull := &cobra.Command{Use: "pull", RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, e := c.svc.Store.Config()
-		if e != nil {
-			return e
-		}
-		if cfg.RuntimeMode == "service" || cfg.RuntimeMode == "personal" {
-			metadata, syncErr := c.svc.Sync()
-			if syncErr != nil {
-				return syncErr
-			}
-			return c.emit("sync.pull", map[string]any{"synced": true, "metadata": metadata})
-		}
-		if e := c.svc.Store.SyncPull(); e != nil {
-			return e
-		}
-		return c.emit("sync.pull", map[string]bool{"fast_forwarded": true})
-	}}
-	root.AddCommand(setup, status, push, pull)
-	return root
-}
 func (c *cli) profileCmd() *cobra.Command {
 	root := &cobra.Command{Use: "profile"}
 	list := &cobra.Command{Use: "list", RunE: func(cmd *cobra.Command, args []string) error {
@@ -2038,7 +1924,8 @@ commands:
 contracts: Use "message post --kind CONTRACT" for binding agreements
 documents: Use "document create" for living reference documents
 decisions: Use "decision create" for design decisions
-sync:      Configure a remote with "sync setup --url <git-url>" for multi-agent coordination
+authority: Personal mode coordinates one machine through SQLite. Use service
+  mode with PostgreSQL for multi-host coordination; Git is not an authority.
 unattended: Register a runtime with "runtime register" and drive it with
   "runtime worker --adapter <adapter>" instead of an interactive agent loop.
   See docs/agent-invocations.md for the full adapter list and how to
@@ -2221,7 +2108,7 @@ func (c *cli) daemonCmd() *cobra.Command {
 		if cfg.RuntimeMode != "service" && cfg.RuntimeMode != "personal" {
 			return errors.New("daemon requires an activated personal- or service-mode project")
 		}
-		cachePath := personalmigration.ProjectionPath(projectRoot)
+		cachePath := runtimeinit.ProjectionPath(projectRoot)
 		if cfg.RuntimeMode == "service" {
 			configDir, configErr := identity.ConfigDir()
 			if configErr != nil {
@@ -2234,7 +2121,7 @@ func (c *cli) daemonCmd() *cobra.Command {
 		}
 		servicePrivateKey := ""
 		if cfg.RuntimeMode == "personal" {
-			credential, credentialErr := identity.ResolveCredential(projectStore.Credentials, cfg.ProjectID, personalmigration.AuthorityActor)
+			credential, credentialErr := identity.ResolveCredential(projectStore.Credentials, cfg.ProjectID, "__personal_authority__")
 			if credentialErr != nil {
 				return fmt.Errorf("resolve personal authority signing key: %w", credentialErr)
 			}
@@ -2246,7 +2133,7 @@ func (c *cli) daemonCmd() *cobra.Command {
 			AuthorityURL: cfg.AuthorityURL, ServicePublicKey: cfg.ServicePublicKey,
 			CachePath: cachePath, Endpoint: cfg.DaemonEndpoint,
 			ConnectorConfigPath: strings.TrimSpace(os.Getenv("AGENT_COMMS_CONNECTOR_CONFIG")),
-			RuntimeMode:         cfg.RuntimeMode, PersonalDatabase: personalmigration.DatabasePath(projectRoot),
+			RuntimeMode:         cfg.RuntimeMode, PersonalDatabase: runtimeinit.DatabasePath(projectRoot),
 			ServicePrivateKey: servicePrivateKey, ProjectID: cfg.ProjectID,
 		})
 	}}
@@ -2299,14 +2186,10 @@ func ensureDaemon(projectRoot string, cfg store.Config) error {
 	if logErr != nil {
 		return logErr
 	}
-	process := exec.Command(executable, "daemon", "serve", "--project", projectRoot)
-	process.Stdout = logFile
-	process.Stderr = logFile
-	if startErr := process.Start(); startErr != nil {
+	if startErr := launchDaemonProcess(executable, projectRoot, logFile); startErr != nil {
 		_ = logFile.Close()
 		return fmt.Errorf("start local daemon: %w", startErr)
 	}
-	_ = process.Process.Release()
 	_ = logFile.Close()
 	for attempt := 0; attempt < 30; attempt++ {
 		time.Sleep(100 * time.Millisecond)
@@ -2321,180 +2204,4 @@ func ensureDaemon(projectRoot string, cfg store.Config) error {
 		Code:    controlplane.CodeUnavailable,
 		Message: "local daemon did not become ready; inspect " + filepath.Join(configDir, "daemon.log"),
 	}
-}
-
-func (c *cli) migrateCmd() *cobra.Command {
-	root := &cobra.Command{Use: "migrate"}
-	status := &cobra.Command{Use: "status", RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, e := c.svc.Store.Config()
-		if e != nil {
-			return e
-		}
-		r := map[string]any{"current": cfg.SchemaVersion, "target": model.SchemaVersion, "required": cfg.SchemaVersion != model.SchemaVersion, "runtime_mode": cfg.RuntimeMode, "legacy_read_only": cfg.LegacyReadOnly}
-		if cutover, x := c.svc.Store.Cutover(); x == nil {
-			r["cutover"] = cutover
-			if manifest, mx := c.svc.Store.LegacyManifest(); mx == nil {
-				r["legacy_manifest"] = manifest
-			}
-		}
-		return c.emit("migrate.status", r)
-	}}
-	var owner string
-	apply := &cobra.Command{Use: "apply", RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, e := c.svc.Store.Config()
-		if e != nil {
-			return e
-		}
-		if cfg.SchemaVersion == model.SchemaVersion {
-			return c.emit("migrate.apply", map[string]bool{"changed": false})
-		}
-		if owner == "" {
-			return errors.New("--owner is required; automatic identity invention is refused")
-		}
-		if e = c.svc.Store.MigrateV1(owner); e != nil {
-			return e
-		}
-		return c.emit("migrate.apply", map[string]any{"changed": true, "source": cfg.SchemaVersion, "target": model.SchemaVersion, "owner": owner})
-	}}
-	apply.Flags().StringVar(&owner, "owner", "", "v1 owner identity mapping")
-	var adoptOwner string
-	adopt := &cobra.Command{Use: "adopt", Short: "Preserve a legacy .agents and prepare governed cutover", RunE: func(cmd *cobra.Command, args []string) error {
-		if adoptOwner == "" {
-			return errors.New("--owner is required; identities are never inferred from legacy prose")
-		}
-		preview, e := c.svc.Store.PrepareLegacyAdoption(adoptOwner)
-		if e != nil {
-			return e
-		}
-		return c.emit("migrate.adopt", preview)
-	}}
-	adopt.Flags().StringVar(&adoptOwner, "owner", "", "explicit owner identity")
-	var confirmSeed bool
-	seed := &cobra.Command{Use: "seed-complete", Short: "Confirm explicit seeding of legacy current state", RunE: func(cmd *cobra.Command, args []string) error {
-		if !confirmSeed {
-			return errors.New("--confirm is required after explicitly reviewing owner, orchestrators, agents, tasks, decisions, blockers, and contracts")
-		}
-		v, e := c.svc.Store.ConfirmLegacySeeding(c.actor)
-		if e != nil {
-			return e
-		}
-		return c.emit("migrate.seed-complete", v)
-	}}
-	seed.Flags().BoolVar(&confirmSeed, "confirm", false, "confirm all legacy current-state categories were explicitly reviewed and seeded")
-	var required []string
-	requireAcks := &cobra.Command{Use: "require-acks", RunE: func(cmd *cobra.Command, args []string) error {
-		st, e := c.svc.State()
-		if e != nil {
-			return e
-		}
-		for _, id := range required {
-			a, ok := st.Agents[id]
-			if !ok || a.Status != "ACTIVE" {
-				return fmt.Errorf("required acknowledging agent %s must be explicitly registered and ACTIVE", id)
-			}
-		}
-		v, e := c.svc.Store.SetCutoverAcknowledgements(required)
-		if e != nil {
-			return e
-		}
-		return c.emit("migrate.require-acks", v)
-	}}
-	requireAcks.Flags().StringSliceVar(&required, "agent", nil, "required active agent acknowledgement")
-	ack := &cobra.Command{Use: "ack", RunE: func(cmd *cobra.Command, args []string) error {
-		st, e := c.svc.State()
-		if e != nil {
-			return e
-		}
-		if a, ok := st.Agents[c.actor]; !ok || a.Status != "ACTIVE" {
-			return errors.New("only an explicitly activated agent may acknowledge cutover")
-		}
-		v, e := c.svc.Store.AcknowledgeCutover(c.actor)
-		if e != nil {
-			return e
-		}
-		return c.emit("migrate.ack", v)
-	}}
-	var activateYes bool
-	activate := &cobra.Command{Use: "activate", RunE: func(cmd *cobra.Command, args []string) error {
-		cutover, e := c.svc.Store.Cutover()
-		if e != nil {
-			return e
-		}
-		manifest, e := c.svc.Store.LegacyManifest()
-		if e != nil {
-			return e
-		}
-		preview := map[string]any{"state": cutover.State, "bootstrap": cutover.Bootstrap, "manifest": manifest, "will_replace": filepath.Join(c.svc.Store.Root, ".agents"), "recovery_command": "agent-comms migrate recover"}
-		if !activateYes {
-			return c.emit("migrate.activate.preview", preview)
-		}
-		v, e := c.svc.Store.ActivateCutover()
-		if e != nil {
-			return e
-		}
-		return c.emit("migrate.activate", map[string]any{"cutover": v, "recovery_command": "agent-comms migrate recover"})
-	}}
-	activate.Flags().BoolVarP(&activateYes, "yes", "y", false, "explicitly activate the previewed cutover")
-	rollback := &cobra.Command{Use: "rollback", RunE: func(cmd *cobra.Command, args []string) error {
-		if e := c.svc.Store.RollbackCutover(); e != nil {
-			return e
-		}
-		return c.emit("migrate.rollback", map[string]bool{"rolled_back": true})
-	}}
-	recoverCmd := &cobra.Command{Use: "recover", RunE: func(cmd *cobra.Command, args []string) error {
-		if e := c.svc.Store.RecoverLegacy(); e != nil {
-			return e
-		}
-		return c.emit("migrate.recover", map[string]any{"recovered": true, "path": filepath.Join(c.svc.Store.Root, ".agents")})
-	}}
-	extractCmd := &cobra.Command{Use: "extract-context", Short: "Preview unverified legacy context candidates", RunE: func(cmd *cobra.Command, args []string) error {
-		out, e := c.svc.Store.ExtractLegacyContext()
-		if e != nil {
-			return e
-		}
-		return c.emit("migrate.extract-context", out)
-	}}
-	var personalYes bool
-	personalCmd := &cobra.Command{Use: "personal", Short: "Migrate verified legacy history to the local SQLite authority", RunE: func(cmd *cobra.Command, args []string) error {
-		if !personalYes {
-			return errors.New("--yes is required to make the verified legacy runtime read-only after import")
-		}
-		result, e := personalmigration.Migrate(cmd.Context(), c.svc.Store)
-		if e != nil {
-			return e
-		}
-		return c.emit("migrate.personal", result)
-	}}
-	personalCmd.Flags().BoolVarP(&personalYes, "yes", "y", false, "activate personal mode after verified import")
-	var authorityURL, servicePublicKey, daemonEndpoint, migrationToken string
-	var serviceYes bool
-	var batchSize int
-	serviceCmd := &cobra.Command{Use: "service", Short: "Migrate verified v2 history to the authoritative service", RunE: func(cmd *cobra.Command, args []string) error {
-		if !serviceYes {
-			return errors.New("--yes is required to make the verified legacy runtime read-only after import")
-		}
-		if migrationToken == "" {
-			migrationToken = os.Getenv("AGENT_COMMS_MIGRATION_TOKEN")
-		}
-		result, e := hybridmigration.Migrate(cmd.Context(), hybridmigration.Config{
-			ProjectRoot: c.svc.Store.Root, AuthorityURL: authorityURL,
-			ServicePublicKey: servicePublicKey, DaemonEndpoint: daemonEndpoint,
-			MigrationToken: migrationToken, BatchSize: batchSize,
-		})
-		if e != nil {
-			return e
-		}
-		return c.emit("migrate.service", result)
-	}}
-	serviceCmd.Flags().StringVar(&authorityURL, "authority-url", "", "authoritative service URL")
-	serviceCmd.Flags().StringVar(&servicePublicKey, "service-public-key", "", "base64 Ed25519 service public key")
-	serviceCmd.Flags().StringVar(&daemonEndpoint, "daemon-endpoint", "", "local daemon socket or named pipe")
-	serviceCmd.Flags().StringVar(&migrationToken, "migration-token", "", "migration bearer token (or AGENT_COMMS_MIGRATION_TOKEN)")
-	serviceCmd.Flags().IntVar(&batchSize, "batch-size", 100, "idempotent import batch size")
-	serviceCmd.Flags().BoolVarP(&serviceYes, "yes", "y", false, "activate service mode after verified import")
-	_ = serviceCmd.MarkFlagRequired("authority-url")
-	_ = serviceCmd.MarkFlagRequired("service-public-key")
-	_ = serviceCmd.MarkFlagRequired("daemon-endpoint")
-	root.AddCommand(status, apply, adopt, seed, requireAcks, ack, activate, rollback, recoverCmd, extractCmd, personalCmd, serviceCmd)
-	return root
 }

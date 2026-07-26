@@ -3,15 +3,13 @@ package worker
 import (
 	"context"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/DhanushSantosh/AgentComms/internal/identity"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 	"github.com/DhanushSantosh/AgentComms/internal/service"
+	"github.com/DhanushSantosh/AgentComms/internal/testsupport"
 )
 
 // handoffWorkerService mirrors workerService but lets the caller control the
@@ -20,18 +18,7 @@ import (
 // the generic "Review the implementation" workerService always uses.
 func handoffWorkerService(t *testing.T, instruction, expectedResult string) (*service.Service, string) {
 	t.Helper()
-	root := t.TempDir()
-	command := exec.Command("git", "init")
-	command.Dir = root
-	if output, err := command.CombinedOutput(); err != nil {
-		t.Fatal(string(output))
-	}
-	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(root, "user"))
-	instance := service.New(root)
-	instance.Store.SetCredentialStore(identity.NewMemoryStore())
-	if err := instance.Store.Init("owner"); err != nil {
-		t.Fatal(err)
-	}
+	instance, root := testsupport.StartPersonalProject(t)
 	if _, err := instance.Register("AXIOM", "AXIOM", model.PrincipalAgent); err != nil {
 		t.Fatal(err)
 	}

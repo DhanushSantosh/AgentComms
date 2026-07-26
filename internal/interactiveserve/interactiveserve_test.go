@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -110,7 +111,15 @@ func TestProtocolRoundTripSurfacesError(t *testing.T) {
 // --- stale-socket detection ----------------------------------------------
 
 func TestListenLocalRefusesWhenAlreadyLive(t *testing.T) {
-	dir := t.TempDir()
+	dir, err := os.MkdirTemp("/tmp", "agent-comms-interactive-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.RemoveAll(dir); err != nil {
+			t.Errorf("remove temporary socket directory: %v", err)
+		}
+	})
 	sockPath := filepath.Join(dir, "runtime.sock")
 	first, err := listenLocal(sockPath)
 	if err != nil {

@@ -37,8 +37,7 @@ CREATE TABLE IF NOT EXISTS events (
     actor_intent_hash TEXT NOT NULL,
     actor_signature TEXT NOT NULL,
     idempotency_key TEXT NOT NULL,
-    receipt JSONB NOT NULL,
-    legacy_bytes BYTEA,
+	    receipt JSONB NOT NULL,
     PRIMARY KEY (project_id, sequence),
     UNIQUE (project_id, event_id),
     UNIQUE (project_id, idempotency_key)
@@ -251,19 +250,3 @@ CREATE TABLE IF NOT EXISTS outbox (
 
 CREATE INDEX IF NOT EXISTS outbox_pending_idx ON outbox (next_attempt_at)
     WHERE published_at IS NULL;
-
-CREATE TABLE IF NOT EXISTS legacy_imports (
-    project_id TEXT PRIMARY KEY REFERENCES projects(project_id) ON DELETE CASCADE,
-    legacy_head_hash TEXT NOT NULL,
-    legacy_git_commit TEXT NOT NULL,
-    imported_sequence BIGINT NOT NULL DEFAULT 0,
-    expected_events BIGINT NOT NULL,
-    projection_hash TEXT NOT NULL DEFAULT '',
-    state TEXT NOT NULL,
-    receipt JSONB,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-ALTER TABLE legacy_imports ADD COLUMN IF NOT EXISTS source_kind TEXT NOT NULL DEFAULT 'legacy';
-ALTER TABLE legacy_imports ADD COLUMN IF NOT EXISTS source_public_key TEXT NOT NULL DEFAULT '';
-ALTER TABLE legacy_imports ADD COLUMN IF NOT EXISTS source_head_hash TEXT NOT NULL DEFAULT '';

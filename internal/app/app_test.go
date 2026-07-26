@@ -15,11 +15,41 @@ import (
 	"testing"
 	"time"
 
+	"github.com/DhanushSantosh/AgentComms/internal/daemon"
+	"github.com/DhanushSantosh/AgentComms/internal/identity"
 	"github.com/DhanushSantosh/AgentComms/internal/interactiveserve"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
+	"github.com/DhanushSantosh/AgentComms/internal/runtimeinit"
 	"github.com/DhanushSantosh/AgentComms/internal/service"
+	"github.com/DhanushSantosh/AgentComms/internal/store"
 	"github.com/creack/pty"
 )
+
+func TestMain(testingMain *testing.M) {
+	launchDaemonProcess = func(_, projectRoot string, _ io.Writer) error {
+		projectStore := store.Open(projectRoot)
+		config, err := projectStore.Config()
+		if err != nil {
+			return err
+		}
+		credential, err := identity.ResolveCredential(
+			projectStore.Credentials, config.ProjectID, "__personal_authority__",
+		)
+		if err != nil {
+			return err
+		}
+		go func() {
+			_ = daemon.Run(context.Background(), daemon.RunConfig{
+				ServicePublicKey: config.ServicePublicKey,
+				CachePath:        runtimeinit.ProjectionPath(projectRoot), Endpoint: config.DaemonEndpoint,
+				RuntimeMode: "personal", PersonalDatabase: runtimeinit.DatabasePath(projectRoot),
+				ServicePrivateKey: credential.PrivateKey, ProjectID: config.ProjectID,
+			})
+		}()
+		return nil
+	}
+	os.Exit(testingMain.Run())
+}
 
 func TestClaudeAttachDoesNotRequireInitializedProject(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
@@ -86,35 +116,8 @@ func TestInitInNonGitDir(t *testing.T) {
 	if configErr != nil {
 		t.Fatal(configErr)
 	}
-	if config.RuntimeMode != "personal" || !config.LegacyReadOnly {
-		t.Fatalf("new project did not default to personal mode: %+v", config)
-	}
-}
-
-func TestMigratePersonalCommandRequiresConfirmationAndActivates(t *testing.T) {
-	project := t.TempDir()
-	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
-	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
-	var out, stderr bytes.Buffer
-	if err := Run([]string{"init", "--project", project, "--non-interactive", "--owner", "owner", "--mode", "legacy", "--json"}, &out, &stderr); err != nil {
-		t.Fatal(err)
-	}
-	out.Reset()
-	stderr.Reset()
-	if err := Run([]string{"migrate", "personal", "--project", project, "--json"}, &out, &stderr); err == nil {
-		t.Fatal("personal cutover did not require explicit confirmation")
-	}
-	out.Reset()
-	stderr.Reset()
-	if err := Run([]string{"migrate", "personal", "--project", project, "--yes", "--json"}, &out, &stderr); err != nil {
-		t.Fatalf("personal cutover failed: %v\n%s", err, stderr.String())
-	}
-	config, err := service.New(project).Store.Config()
-	if err != nil {
-		t.Fatal(err)
-	}
 	if config.RuntimeMode != "personal" {
-		t.Fatalf("runtime mode=%q, want personal", config.RuntimeMode)
+		t.Fatalf("new project did not default to personal mode: %+v", config)
 	}
 }
 
@@ -166,7 +169,7 @@ func TestHostLabelResolvesActorAcrossInvocations(t *testing.T) {
 			t.Fatalf("%v: %v\n%s", args, err, stderr.String())
 		}
 	}
-	run("init", "--non-interactive", "--owner", "owner", "--mode", "legacy")
+	run("init", "--non-interactive", "--owner", "owner", "--mode", "personal")
 	run("agent", "register", "--id", "AXIOM")
 	run("agent", "activate", "--id", "AXIOM", "--actor", "owner", "--role", "AGENT", "--scope", "src")
 	run("message", "post", "--id", "msg1", "--kind", "FYI", "--to", "owner", "--subject", "test", "--body", "hello")
@@ -189,7 +192,7 @@ func TestDoctorReportsRuntimeAndBootstrapProblems(t *testing.T) {
 	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(d, "user"))
 	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(d, "credentials"))
 	var out, err bytes.Buffer
-	if e := Run([]string{"init", "--project", d, "--non-interactive", "--owner", "owner", "--mode", "legacy", "--json"}, &out, &err); e != nil {
+	if e := Run([]string{"init", "--project", d, "--non-interactive", "--owner", "owner", "--mode", "personal", "--json"}, &out, &err); e != nil {
 		t.Fatal(e)
 	}
 	out.Reset()
@@ -198,10 +201,10 @@ func TestDoctorReportsRuntimeAndBootstrapProblems(t *testing.T) {
 		t.Fatal(e)
 	}
 	svc := service.New(d)
-	if _, e := svc.Store.Append("owner", "task.create", "stale-work", model.TaskCreated{Title: "Stale work", Repository: "local", Branch: "main", Resources: []string{"path:src/**"}}); e != nil {
+	if _, e := svc.Execute("owner", "task.create", "stale-work", model.TaskCreated{Title: "Stale work", Repository: "local", Branch: "main", Resources: []string{"path:src/**"}}); e != nil {
 		t.Fatal(e)
 	}
-	if _, e := svc.Store.Append("owner", "task.claim", "stale-work", model.TaskClaimed{LeaseUntil: time.Now().UTC().Add(-time.Hour)}); e != nil {
+	if _, e := svc.Execute("owner", "task.claim", "stale-work", model.TaskClaimed{LeaseUntil: time.Now().UTC().Add(-time.Hour)}); e != nil {
 		t.Fatal(e)
 	}
 	cfgPath := filepath.Join(d, ".agent-comms", "config.json")
@@ -219,36 +222,10 @@ func TestDoctorReportsRuntimeAndBootstrapProblems(t *testing.T) {
 		t.Fatal(e)
 	}
 	text := out.String()
-	for _, code := range []string{"BINARY_RUNTIME_VERSION_MISMATCH", "MANAGED_BOOTSTRAP_MISSING", "AGENT_INSTRUCTIONS_MISSING", "STALE_LEASE", "TEST_LIKE_RUNTIME"} {
+	for _, code := range []string{"BINARY_RUNTIME_VERSION_MISMATCH", "MANAGED_BOOTSTRAP_MISSING", "AGENT_INSTRUCTIONS_MISSING", "TEST_LIKE_RUNTIME"} {
 		if !bytes.Contains(out.Bytes(), []byte(code)) {
 			t.Fatalf("doctor missing %s: %s", code, text)
 		}
-	}
-}
-
-func TestIncompleteAdoptionBlocksNormalCommands(t *testing.T) {
-	d := t.TempDir()
-	cmd := exec.Command("git", "init")
-	cmd.Dir = d
-	if b, e := cmd.CombinedOutput(); e != nil {
-		t.Fatal(string(b))
-	}
-	if e := os.WriteFile(filepath.Join(d, ".agents"), []byte("legacy coordination"), 0600); e != nil {
-		t.Fatal(e)
-	}
-	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(d, "user"))
-	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(d, "credentials"))
-	var out, err bytes.Buffer
-	if e := Run([]string{"migrate", "adopt", "--project", d, "--owner", "owner", "--json"}, &out, &err); e != nil {
-		t.Fatal(e)
-	}
-	out.Reset()
-	err.Reset()
-	if e := Run([]string{"task", "list", "--project", d, "--json"}, &out, &err); e == nil {
-		t.Fatal("normal task command was allowed before activation")
-	}
-	if !bytes.Contains(err.Bytes(), []byte("CUTOVER_INCOMPLETE")) && !bytes.Contains(err.Bytes(), []byte("cutover is incomplete")) {
-		t.Fatalf("unexpected error: %s", err.String())
 	}
 }
 
@@ -266,7 +243,7 @@ func TestInvocationAndRuntimeCLIWorkflow(t *testing.T) {
 			t.Fatalf("%v: %v\n%s", args, err, stderr.String())
 		}
 	}
-	run("init", "--non-interactive", "--owner", "owner", "--mode", "legacy")
+	run("init", "--non-interactive", "--owner", "owner", "--mode", "personal")
 	run("agent", "register", "--id", "builder")
 	run("agent", "activate", "--id", "builder", "--role", "AGENT", "--scope", "src")
 	run("runtime", "register", "--actor", "builder", "--id", "runtime-builder",
@@ -322,7 +299,7 @@ func TestInvocationRequestDeliversDirectlyToLiveInteractiveSession(t *testing.T)
 		}
 	}
 
-	run("init", "--non-interactive", "--owner", "owner", "--mode", "legacy")
+	run("init", "--non-interactive", "--owner", "owner", "--mode", "personal")
 	run("agent", "register", "--id", "opencode-runner")
 	run("agent", "activate", "--id", "opencode-runner", "--role", "AGENT", "--scope", "src")
 	run("invocation", "policy", "set", "--agent", "opencode-runner", "--mode", "AUTOMATIC")
@@ -413,7 +390,7 @@ func TestInvocationRequestWithoutRegisteredSessionIsUnaffected(t *testing.T) {
 			t.Fatalf("%v: %v\n%s", args, err, stderr.String())
 		}
 	}
-	run("init", "--non-interactive", "--owner", "owner", "--mode", "legacy")
+	run("init", "--non-interactive", "--owner", "owner", "--mode", "personal")
 	run("agent", "register", "--id", "builder")
 	run("agent", "activate", "--id", "builder", "--role", "AGENT", "--scope", "src")
 	run("invocation", "policy", "set", "--agent", "builder", "--mode", "AUTOMATIC")
@@ -445,7 +422,7 @@ func TestInvocationRedeliverRejectsUnknownID(t *testing.T) {
 		args = append(args, "--project", project, "--json")
 		return Run(args, &out, &stderr)
 	}
-	if err := run("init", "--non-interactive", "--owner", "owner", "--mode", "legacy"); err != nil {
+	if err := run("init", "--non-interactive", "--owner", "owner", "--mode", "personal"); err != nil {
 		t.Fatalf("init: %v\n%s", err, stderr.String())
 	}
 	if err := run("invocation", "redeliver", "--id", "no-such-invocation"); err == nil {
@@ -467,7 +444,7 @@ func TestInvocationRedeliverRejectsNonPendingInvocation(t *testing.T) {
 			t.Fatalf("%v: %v\n%s", args, err, stderr.String())
 		}
 	}
-	run("init", "--non-interactive", "--owner", "owner", "--mode", "legacy")
+	run("init", "--non-interactive", "--owner", "owner", "--mode", "personal")
 	run("agent", "register", "--id", "builder")
 	run("agent", "activate", "--id", "builder", "--role", "AGENT", "--scope", "src")
 	run("runtime", "register", "--actor", "builder", "--id", "runtime-builder",
@@ -509,7 +486,7 @@ func TestInvocationRedeliverReachesSessionMissedByRequest(t *testing.T) {
 		}
 	}
 
-	run("init", "--non-interactive", "--owner", "owner", "--mode", "legacy")
+	run("init", "--non-interactive", "--owner", "owner", "--mode", "personal")
 	run("agent", "register", "--id", "opencode-runner")
 	run("agent", "activate", "--id", "opencode-runner", "--role", "AGENT", "--scope", "src")
 	run("invocation", "policy", "set", "--agent", "opencode-runner", "--mode", "AUTOMATIC")
@@ -614,7 +591,7 @@ func TestInteractiveServeRejectsClaudeAllowAgentCommsForOtherCommands(t *testing
 	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
 	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
 	var out, stderr bytes.Buffer
-	if err := Run([]string{"init", "--non-interactive", "--owner", "owner", "--mode", "legacy",
+	if err := Run([]string{"init", "--non-interactive", "--owner", "owner", "--mode", "personal",
 		"--project", project, "--json"}, &out, &stderr); err != nil {
 		t.Fatalf("init: %v\n%s", err, stderr.String())
 	}

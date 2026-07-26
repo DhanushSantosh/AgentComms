@@ -66,9 +66,8 @@ func run() error {
 	}
 	server := &http.Server{
 		Addr: address, Handler: authority.NewHTTPServer(engine, authority.HTTPConfig{
-			MaxInFlight:    envInt("AGENT_COMMS_MAX_IN_FLIGHT", 256),
-			MigrationToken: strings.TrimSpace(os.Getenv("AGENT_COMMS_MIGRATION_TOKEN")),
-			Logger:         logger,
+			MaxInFlight: envInt("AGENT_COMMS_MAX_IN_FLIGHT", 256),
+			Logger:      logger,
 		}).Handler(),
 		ReadHeaderTimeout: serverReadTimeout, ReadTimeout: serverReadTimeout,
 		WriteTimeout: serverWriteTimeout, IdleTimeout: serverIdleTimeout,

@@ -95,7 +95,6 @@ type Event struct {
 	Hash            string          `json:"hash"`
 	ActorIntentHash string          `json:"actor_intent_hash"`
 	IdempotencyKey  string          `json:"idempotency_key"`
-	Legacy          bool            `json:"legacy,omitempty"`
 }
 
 type eventCanonical struct {
@@ -110,7 +109,6 @@ type eventCanonical struct {
 	PreviousHash    string `json:"previous_hash,omitempty"`
 	ActorIntentHash string `json:"actor_intent_hash"`
 	IdempotencyKey  string `json:"idempotency_key"`
-	Legacy          bool   `json:"legacy,omitempty"`
 }
 
 type Receipt struct {
@@ -146,18 +144,6 @@ type EventPage struct {
 type EventRecord struct {
 	Event   Event   `json:"event"`
 	Receipt Receipt `json:"receipt"`
-}
-
-type AttestedImportStart struct {
-	ProjectID       string `json:"project_id"`
-	SourcePublicKey string `json:"source_public_key"`
-	SourceHeadHash  string `json:"source_head_hash"`
-	ExpectedEvents  uint64 `json:"expected_events"`
-}
-
-type AttestedImportBatch struct {
-	FromSequence uint64        `json:"from_sequence"`
-	Records      []EventRecord `json:"records"`
 }
 
 type Draft struct {
@@ -338,7 +324,6 @@ func HashEvent(event Event) (string, error) {
 		Type: event.Type, EntityID: event.EntityID,
 		PayloadHash: hex.EncodeToString(payloadHash[:]), PreviousHash: event.PreviousHash,
 		ActorIntentHash: event.ActorIntentHash, IdempotencyKey: event.IdempotencyKey,
-		Legacy: event.Legacy,
 	})
 	if err != nil {
 		return "", err

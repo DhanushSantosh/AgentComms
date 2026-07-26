@@ -1,4 +1,4 @@
-package service
+package service_test
 
 import (
 	"testing"
@@ -6,6 +6,7 @@ import (
 
 	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
+	"github.com/DhanushSantosh/AgentComms/internal/service"
 )
 
 func TestRuntimeRegistrationPresenceAndLifecycle(t *testing.T) {
@@ -204,7 +205,7 @@ func TestRuntimePresenceExpiresWithoutHeartbeat(t *testing.T) {
 			Health: "HEALTHY", LastSeenAt: now.Add(-controlplane.RuntimeOfflineAfter * 2),
 		},
 	}}
-	RefreshRuntimePresence(&state, now)
+	service.RefreshRuntimePresence(&state, now)
 	if state.AgentRuntimes["fresh"].Status != "ONLINE" {
 		t.Fatal("fresh runtime was marked offline")
 	}

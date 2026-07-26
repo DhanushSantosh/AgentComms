@@ -1,10 +1,8 @@
-package service
+package service_test
 
 import (
 	"bytes"
-	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -13,32 +11,22 @@ import (
 
 	"github.com/DhanushSantosh/AgentComms/internal/identity"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
-	"github.com/DhanushSantosh/AgentComms/internal/store"
+	"github.com/DhanushSantosh/AgentComms/internal/service"
+	"github.com/DhanushSantosh/AgentComms/internal/testsupport"
 )
 
-func setup(t *testing.T) *Service {
+func setup(t *testing.T) *service.Service {
 	t.Helper()
-	d := t.TempDir()
-	cmd := exec.Command("git", "init")
-	cmd.Dir = d
-	if b, e := cmd.CombinedOutput(); e != nil {
-		t.Fatalf("git init: %s", b)
-	}
-	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(d, "user"))
-	s := New(d)
-	s.Store.SetCredentialStore(identity.NewMemoryStore())
-	if e := s.Store.Init("owner"); e != nil {
-		t.Fatal(e)
-	}
+	s, _ := testsupport.StartPersonalProject(t)
 	return s
 }
-func must(t *testing.T, s *Service, a, k, id string, p any) {
+func must(t *testing.T, s *service.Service, a, k, id string, p any) {
 	t.Helper()
 	if _, e := s.Execute(a, k, id, p); e != nil {
 		t.Fatalf("%s: %v", k, e)
 	}
 }
-func activate(t *testing.T, s *Service, id string, pt model.PrincipalType) {
+func activate(t *testing.T, s *service.Service, id string, pt model.PrincipalType) {
 	t.Helper()
 	if _, e := s.Register(id, id, pt); e != nil {
 		t.Fatal(e)
@@ -118,7 +106,7 @@ func TestConcurrentWritersAndIntegrity(t *testing.T) {
 			t.Fatal(e)
 		}
 	}
-	if e := s.Store.Verify(); e != nil {
+	if e := s.Verify(0, 0); e != nil {
 		t.Fatal(e)
 	}
 }
@@ -160,7 +148,7 @@ func TestConcurrentClaimsRevalidateInsideTransaction(t *testing.T) {
 	if successes != 1 || failures != 1 {
 		t.Fatalf("concurrent claims: successes=%d failures=%d", successes, failures)
 	}
-	if err := s.Store.Verify(); err != nil {
+	if err := s.Verify(0, 0); err != nil {
 		t.Fatal(err)
 	}
 	state, err := s.State()
@@ -169,30 +157,6 @@ func TestConcurrentClaimsRevalidateInsideTransaction(t *testing.T) {
 	}
 	if state.Tasks["exclusive"].Owner == "" {
 		t.Fatal("successful claim did not establish an owner")
-	}
-}
-func TestBusyError(t *testing.T) {
-	s := setup(t)
-	s.Store.LockTimeout = 50 * time.Millisecond
-	lock := filepath.Join(s.Store.Root, store.Runtime, "tmp", "transaction.lock")
-	if e := os.Mkdir(lock, 0700); e != nil {
-		t.Fatal(e)
-	}
-	_ = os.WriteFile(filepath.Join(lock, "holder.json"), []byte(`{"pid":1,"actor":"other","since":"2099-01-01T00:00:00Z"}`), 0600)
-	_, e := s.Execute("owner", "decision.create", "d", model.DecisionPayload{Title: "x", Statement: "y"})
-	var busy *store.BusyError
-	if !errors.As(e, &busy) {
-		t.Fatalf("expected BUSY, got %v", e)
-	}
-}
-func TestTamperDetection(t *testing.T) {
-	s := setup(t)
-	p := filepath.Join(s.Store.Root, store.Runtime, "events", "evt-00000000000000000002.json")
-	b, _ := os.ReadFile(p)
-	b = []byte(strings.Replace(string(b), "agent.activate", "agent.suspend", 1))
-	_ = os.WriteFile(p, b, 0600)
-	if e := s.Store.Verify(); e == nil {
-		t.Fatal("tamper not detected")
 	}
 }
 func TestArtifactExportsAndRecovery(t *testing.T) {
@@ -216,14 +180,6 @@ func TestArtifactExportsAndRecovery(t *testing.T) {
 	if !strings.Contains(md.String(), "Integrity: **true**") {
 		t.Fatal("report missing integrity")
 	}
-	tmp := filepath.Join(s.Store.Root, store.Runtime, "tmp", "partial.tmp")
-	_ = os.WriteFile(tmp, []byte("partial"), 0600)
-	if e = s.Store.Recover(); e != nil {
-		t.Fatal(e)
-	}
-	if _, e = os.Stat(tmp); !os.IsNotExist(e) {
-		t.Fatal("partial write survived")
-	}
 }
 
 func TestAgentRenameUpdatesDisplayNameAndPreservesVerification(t *testing.T) {
@@ -239,7 +195,7 @@ func TestAgentRenameUpdatesDisplayNameAndPreservesVerification(t *testing.T) {
 	if state.Agents["alpha"].DisplayName != "Alpha" {
 		t.Fatalf("display name was not updated: %+v", state.Agents["alpha"])
 	}
-	if err := s.Store.Verify(); err != nil {
+	if err := s.Verify(0, 0); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -267,7 +223,7 @@ func TestAgentRenameRejectsUnknownAgentAndEmptyName(t *testing.T) {
 // TestRegisterRejectsDuplicateIDWithoutTouchingExistingCredential guards a
 // real, live-discovered vulnerability: Register used to write a freshly
 // generated credential to the store before ever validating whether the
-// actor already existed, and the local/legacy append path skipped
+// actor already existed, and the local filesystem append path skipped
 // ValidateTransition's "principal already exists" check entirely (only the
 // remote/personal/service authority backends enforced it server-side). A
 // second `agent.register` for an already-registered ID didn't fail — it
@@ -331,7 +287,7 @@ func TestActorKeyRotationPreservesVerification(t *testing.T) {
 	if _, err := s.RotateKey("alpha"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Store.Verify(); err != nil {
+	if err := s.Verify(0, 0); err != nil {
 		t.Fatal(err)
 	}
 	after, _ := s.State()

@@ -7,9 +7,8 @@ Accepted
 ## Context
 
 The project settings TUI was a read-only report. Operators could manage agents and
-runtimes only by discovering controls in separate views, while legacy file-backed
-configuration appeared to be policy even when the authoritative service did not
-enforce it.
+runtimes only by discovering controls in separate views, while local
+configuration appeared to be policy even when the authority did not enforce it.
 
 Project-wide settings must remain consistent across personal SQLite and team
 PostgreSQL authority modes. Local interface preferences must not become shared
@@ -35,16 +34,16 @@ shared signed governance from per-user interface preferences and links directly
 to agent and runtime administration.
 
 The `.agent-comms` runtime remains a dot-prefixed, private implementation
-directory for compatibility and migration evidence. Product screens hide its
+directory for local configuration and cache data. Product screens hide its
 physical path by default; diagnostics expose only bounded operational metadata.
 
 ## Consequences
 
 Settings changes are auditable, idempotent through the existing command path, and
 transactional in team mode. A project setting cannot silently diverge between
-clients. Existing event histories remain valid because defaults do not require a
-synthetic migration event.
+clients. Existing event histories remain valid because defaults are applied
+deterministically.
 
 The settings schema is intentionally bounded. New controls require an enforced
-runtime behavior and a compatible projection migration; decorative or
+runtime behavior and a compatible projection update; decorative or
 non-functional toggles are not admitted.

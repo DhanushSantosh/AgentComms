@@ -1,29 +1,14 @@
 package tui
 
 import (
-	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/DhanushSantosh/AgentComms/internal/identity"
-	"github.com/DhanushSantosh/AgentComms/internal/service"
 )
 
 func TestProjectControlResponsiveViews(t *testing.T) {
-	d := t.TempDir()
-	cmd := exec.Command("git", "init")
-	cmd.Dir = d
-	if b, e := cmd.CombinedOutput(); e != nil {
-		t.Fatal(string(b))
-	}
-	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(d, "user"))
-	s := service.New(d)
-	s.Store.SetCredentialStore(identity.NewMemoryStore())
-	if e := s.Store.Init("owner"); e != nil {
-		t.Fatal(e)
-	}
+	s := newTestService(t)
 	for _, size := range [][2]int{{140, 40}, {100, 30}, {80, 24}} {
 		v, e := RenderForTest(s, "owner", size[0], size[1])
 		if e != nil {
@@ -38,18 +23,7 @@ func TestProjectControlResponsiveViews(t *testing.T) {
 }
 
 func TestProjectControlDirectNavigation(t *testing.T) {
-	d := t.TempDir()
-	cmd := exec.Command("git", "init")
-	cmd.Dir = d
-	if output, err := cmd.CombinedOutput(); err != nil {
-		t.Fatal(string(output))
-	}
-	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(d, "user"))
-	instance := service.New(d)
-	instance.Store.SetCredentialStore(identity.NewMemoryStore())
-	if err := instance.Store.Init("owner"); err != nil {
-		t.Fatal(err)
-	}
+	instance := newTestService(t)
 	view, err := New(instance, "owner")
 	if err != nil {
 		t.Fatal(err)
@@ -67,18 +41,7 @@ func TestProjectControlDirectNavigation(t *testing.T) {
 }
 
 func TestGuidedTaskFormUsesGovernedService(t *testing.T) {
-	d := t.TempDir()
-	cmd := exec.Command("git", "init")
-	cmd.Dir = d
-	if b, err := cmd.CombinedOutput(); err != nil {
-		t.Fatal(string(b))
-	}
-	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(d, "user"))
-	s := service.New(d)
-	s.Store.SetCredentialStore(identity.NewMemoryStore())
-	if err := s.Store.Init("owner"); err != nil {
-		t.Fatal(err)
-	}
+	s := newTestService(t)
 	m, err := New(s, "owner")
 	if err != nil {
 		t.Fatal(err)

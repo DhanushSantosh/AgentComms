@@ -182,12 +182,11 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
   anything, with no recovery path, since the destroyed private key was
   never stored anywhere else. Root cause: `ValidateTransition`'s
   "principal already exists" check was already enforced server-side for
-  remote/personal/service-mode registrations, but the local/legacy path
-  appended unconditionally, skipping it entirely, and generated + persisted
-  the fresh credential before any validation ran at all. Both paths now
-  validate duplicate registration before ever generating a credential
-  (local/legacy inside the same per-actor lock `Execute` already uses for
-  every other transition), and the credential/profile are only persisted
+  remote/personal/service-mode registrations, while the retired filesystem
+  engine appended unconditionally, skipping it entirely, and generated +
+  persisted the fresh credential before any validation ran at all. All
+  supported authority paths now validate duplicate registration before ever
+  generating a credential, and the credential/profile are only persisted
   after a confirmed-successful append — never speculatively beforehand.
 - `agent-comms mcp`'s `agent_register` tool now enforces the self-registration
   invariant its own docstring already promised: `id` must equal the MCP
@@ -211,8 +210,8 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
   messages, approvals, artifacts, living documents, deterministic JSON CLI, and
   MCP tools.
 - Zero-setup SQLite personal authority with an on-demand per-project daemon.
-- PostgreSQL team authority, verified migrations, local caching, resumable
-  streams, and server-signed receipts.
+- PostgreSQL team authority, local caching, resumable streams, and
+  server-signed receipts.
 - Operator-console TUI organized around Command, Work, Team, Relay, and Project
   hubs.
 - Visible agent lifecycle controls, runtime management, invocation policies, and
@@ -231,8 +230,8 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 
 ### Security
 
-- Initialization refuses an existing `.agents` and blocks work during incomplete
-  or split-brain cutover states.
+- Initialization refuses an existing `.agents` and publishes a complete runtime
+  atomically.
 - Governed mutations revalidate authorization, leases, scopes, and conflicts
   inside the authoritative transaction.
 

@@ -1,9 +1,8 @@
 # Architecture
 
 CLI, TUI, and stdio MCP are adapters around one transport-neutral application
-service. A project runs in personal mode, authoritative service mode, or the
-read-only legacy compatibility mode; the managed bootstrap records the
-selected runtime.
+service. A project runs in personal mode or authoritative service mode; the
+managed bootstrap records the selected authority.
 
 ## Personal mode
 
@@ -51,28 +50,13 @@ timeouts, and graceful shutdown. Health, readiness, Prometheus metrics,
 structured logs, and audit verification are exposed without placing secrets
 in diagnostics.
 
-## Integrity and migration
+## Integrity
 
-Actor signatures attest intent before sequencing; service signatures attest
-the committed sequence and head. Verification can check actor intent, service
-receipts, ranges, or the full chain. Actor public-key history and rotation
-boundaries remain part of the audit record.
+Actor signatures attest intent before sequencing; authority signatures attest
+the committed sequence and head. Verification can check actor intent,
+authority receipts, ranges, or the full chain. Actor public-key history and
+rotation boundaries remain part of the audit record.
 
-Migration locks and verifies the complete schema-v2 runtime, records its head
-and Git commit, uploads original event bytes in resumable idempotent batches,
-compares deterministic projections, stores a server-signed import receipt,
-and atomically switches the bootstrap. The legacy runtime then becomes
-read-only migration evidence.
-
-## Legacy compatibility mode
-
-Unmigrated projects may retain the schema-v2 filesystem engine during the
-preview compatibility window. Writers hold one
-cross-process runtime lock across validation and publication, fsync a
-temporary event, atomically rename it, and commit the checkpoint to the
-isolated runtime Git repository. This mode is retained for single-host
-compatibility and recovery, not high-contention coordination.
-
-In all modes, private actor keys live in platform keyrings. The target
+In both modes, private actor keys live in platform keyrings. The target
 repository receives a compact `.agents` bootstrap; credentials are never
 stored in project history.

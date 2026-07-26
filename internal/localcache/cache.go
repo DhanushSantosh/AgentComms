@@ -13,7 +13,7 @@ import (
 
 	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
-	"github.com/DhanushSantosh/AgentComms/internal/service"
+	"github.com/DhanushSantosh/AgentComms/internal/projection"
 	_ "modernc.org/sqlite"
 )
 
@@ -136,7 +136,7 @@ func (c *Cache) Apply(ctx context.Context, event controlplane.Event, receipt con
 		Sequence: event.Sequence, Time: event.Time, Actor: event.Actor, Type: event.Type,
 		EntityID: event.EntityID, Data: event.Payload, PreviousHash: event.PreviousHash, Hash: event.Hash,
 	}
-	if err = service.ApplyEvent(&state, modelEvent); err != nil {
+	if err = projection.ApplyEvent(&state, modelEvent); err != nil {
 		return err
 	}
 	eventJSON, _ := json.Marshal(event)

@@ -44,5 +44,5 @@ The TUI navigation model changes, but CLI commands, MCP tools, event semantics,
 and row-level workflows remain compatible. Future daemon protocol changes must
 increment `LocalDaemonProtocolVersion`.
 
-The runtime directory remains accessible for explicit diagnostics and migration,
+The runtime directory remains accessible for explicit diagnostics,
 but it is hidden from default graphical and Git work surfaces.

@@ -1,4 +1,4 @@
-package service
+package service_test
 
 import (
 	"sync"
@@ -51,7 +51,7 @@ func TestInvocationLifecycle(t *testing.T) {
 	if delivery.Status != "NOTIFIED" || delivery.InvocationID != "inv-1" {
 		t.Fatalf("unexpected delivery projection: %+v", delivery)
 	}
-	if err = instance.Store.Verify(); err != nil {
+	if err = instance.Verify(0, 0); err != nil {
 		t.Fatal(err)
 	}
 }

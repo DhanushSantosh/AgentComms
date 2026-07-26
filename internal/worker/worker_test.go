@@ -4,15 +4,14 @@ import (
 	"context"
 	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/DhanushSantosh/AgentComms/internal/identity"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 	"github.com/DhanushSantosh/AgentComms/internal/service"
+	"github.com/DhanushSantosh/AgentComms/internal/testsupport"
 )
 
 func TestWorkerExecutesPublishesAndCompletesInvocation(t *testing.T) {
@@ -367,18 +366,7 @@ func newTestWorker(t *testing.T, instance *service.Service, root string) *Worker
 
 func workerService(t *testing.T) (*service.Service, string) {
 	t.Helper()
-	root := t.TempDir()
-	command := exec.Command("git", "init")
-	command.Dir = root
-	if output, err := command.CombinedOutput(); err != nil {
-		t.Fatal(string(output))
-	}
-	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(root, "user"))
-	instance := service.New(root)
-	instance.Store.SetCredentialStore(identity.NewMemoryStore())
-	if err := instance.Store.Init("owner"); err != nil {
-		t.Fatal(err)
-	}
+	instance, root := testsupport.StartPersonalProject(t)
 	if _, err := instance.Register("AXIOM", "AXIOM", model.PrincipalAgent); err != nil {
 		t.Fatal(err)
 	}

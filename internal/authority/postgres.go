@@ -13,7 +13,8 @@ import (
 	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
 	"github.com/DhanushSantosh/AgentComms/internal/identity"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
-	"github.com/DhanushSantosh/AgentComms/internal/service"
+	"github.com/DhanushSantosh/AgentComms/internal/projection"
+	"github.com/DhanushSantosh/AgentComms/internal/protocol"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
 )
@@ -111,7 +112,7 @@ func (e *Engine) State(ctx context.Context, projectID string) (model.State, cont
 		Verified: true, EventCount: int(sequence), Head: head,
 		SyncState: "authoritative",
 	}
-	service.RefreshRuntimePresence(&state, e.now())
+	protocol.RefreshRuntimePresence(&state, e.now())
 	if err = tx.Commit(); err != nil {
 		return model.State{}, controlplane.ResultMetadata{}, unavailable(err)
 	}
@@ -308,7 +309,7 @@ func (e *Engine) Mutate(ctx context.Context, command controlplane.Command) (cont
 			return controlplane.Event{}, controlplane.Receipt{}, &controlplane.Error{Code: controlplane.CodeAuthorization, Message: "initial owner activation must assign OWNER"}
 		}
 	} else {
-		payload, err = service.ValidateTransition(state, command.Actor, command.Type, command.EntityID, payload, now)
+		payload, err = protocol.ValidateTransition(state, command.Actor, command.Type, command.EntityID, payload, now)
 		if err != nil {
 			return controlplane.Event{}, controlplane.Receipt{}, classify(err)
 		}
@@ -338,7 +339,7 @@ func (e *Engine) Mutate(ctx context.Context, command controlplane.Command) (cont
 	}
 
 	next := cloneState(state)
-	if err = service.ApplyEvent(&next, model.Event{
+	if err = projection.ApplyEvent(&next, model.Event{
 		SchemaVersion: model.SchemaVersion, PayloadVersion: 1, ID: event.ID,
 		Sequence: event.Sequence, Time: event.Time, Actor: event.Actor, Type: event.Type,
 		EntityID: event.EntityID, Data: event.Payload, PreviousHash: event.PreviousHash, Hash: event.Hash,

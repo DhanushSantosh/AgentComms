@@ -14,7 +14,8 @@ import (
 
 	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
-	"github.com/DhanushSantosh/AgentComms/internal/service"
+	"github.com/DhanushSantosh/AgentComms/internal/projection"
+	"github.com/DhanushSantosh/AgentComms/internal/protocol"
 	_ "modernc.org/sqlite"
 )
 
@@ -30,8 +31,7 @@ CREATE TABLE IF NOT EXISTS projects (
     head_sequence INTEGER NOT NULL DEFAULT 0,
     head_hash TEXT NOT NULL DEFAULT '',
     state_json BLOB NOT NULL,
-    frozen INTEGER NOT NULL DEFAULT 0,
-    updated_at TEXT NOT NULL
+	    updated_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS events (
@@ -42,8 +42,7 @@ CREATE TABLE IF NOT EXISTS events (
     intent_hash TEXT NOT NULL,
     event_json BLOB NOT NULL,
     receipt_json BLOB NOT NULL,
-    actor_signature TEXT NOT NULL,
-    legacy_json BLOB,
+	    actor_signature TEXT NOT NULL,
     PRIMARY KEY (project_id, sequence),
     UNIQUE (project_id, event_id),
     UNIQUE (project_id, idempotency_key),
@@ -76,10 +75,6 @@ func Open(path string, signer *controlplane.Signer) (*Engine, error) {
 	if _, err = db.Exec(schema); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("initialize personal authority: %w", err)
-	}
-	if err = ensureColumn(db, "projects", "frozen", "INTEGER NOT NULL DEFAULT 0"); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("migrate personal authority schema: %w", err)
 	}
 	for _, databaseFile := range []string{path, path + "-wal", path + "-shm"} {
 		if chmodErr := os.Chmod(databaseFile, 0o600); chmodErr != nil && !os.IsNotExist(chmodErr) {
@@ -123,20 +118,14 @@ func (e *Engine) Mutate(ctx context.Context, command controlplane.Command) (cont
 
 	var owner, previousHash string
 	var sequence uint64
-	var frozen bool
 	var stateJSON []byte
-	if err = tx.QueryRowContext(ctx, `SELECT owner_id,head_sequence,head_hash,state_json,frozen
-		FROM projects WHERE project_id=?`, command.ProjectID).
-		Scan(&owner, &sequence, &previousHash, &stateJSON, &frozen); err != nil {
+	if err = tx.QueryRowContext(ctx, `SELECT owner_id,head_sequence,head_hash,state_json
+			FROM projects WHERE project_id=?`, command.ProjectID).
+		Scan(&owner, &sequence, &previousHash, &stateJSON); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return controlplane.Event{}, controlplane.Receipt{}, controlError(controlplane.CodeValidation, "project not found")
 		}
 		return controlplane.Event{}, controlplane.Receipt{}, unavailable(err)
-	}
-	if frozen {
-		return controlplane.Event{}, controlplane.Receipt{}, controlError(
-			controlplane.CodeUnavailable, "personal authority is frozen for service migration",
-		)
 	}
 	intentHash, err := command.IntentHash()
 	if err != nil {
@@ -187,7 +176,7 @@ func (e *Engine) Mutate(ctx context.Context, command controlplane.Command) (cont
 			return controlplane.Event{}, controlplane.Receipt{}, controlError(controlplane.CodeAuthorization, "initial owner activation must assign OWNER")
 		}
 	} else {
-		payload, err = service.ValidateTransition(state, command.Actor, command.Type, command.EntityID, payload, now)
+		payload, err = protocol.ValidateTransition(state, command.Actor, command.Type, command.EntityID, payload, now)
 		if err != nil {
 			return controlplane.Event{}, controlplane.Receipt{}, classify(err)
 		}
@@ -213,7 +202,7 @@ func (e *Engine) Mutate(ctx context.Context, command controlplane.Command) (cont
 	if err = e.signer.SignReceipt(&receipt); err != nil {
 		return controlplane.Event{}, controlplane.Receipt{}, err
 	}
-	if err = service.ApplyEvent(&state, model.Event{
+	if err = projection.ApplyEvent(&state, model.Event{
 		SchemaVersion: model.SchemaVersion, PayloadVersion: 1, ID: event.ID,
 		Sequence: event.Sequence, Time: event.Time, Actor: event.Actor, Type: event.Type,
 		EntityID: event.EntityID, Data: event.Payload, PreviousHash: event.PreviousHash, Hash: event.Hash,
@@ -250,108 +239,6 @@ func (e *Engine) Mutate(ctx context.Context, command controlplane.Command) (cont
 	return event, receipt, nil
 }
 
-func (e *Engine) FreezeProject(ctx context.Context, projectID string) error {
-	result, err := e.db.ExecContext(ctx, `UPDATE projects SET frozen=1,updated_at=? WHERE project_id=?`,
-		e.now().Format(time.RFC3339Nano), projectID)
-	if err != nil {
-		return unavailable(err)
-	}
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return unavailable(err)
-	}
-	if affected != 1 {
-		return controlError(controlplane.CodeValidation, "project not found")
-	}
-	return nil
-}
-
-func (e *Engine) ImportLegacy(ctx context.Context, projectID string, events []model.Event) (*controlplane.Receipt, error) {
-	if len(events) == 0 {
-		return nil, controlError(controlplane.CodeValidation, "legacy runtime has no events")
-	}
-	tx, err := e.db.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, unavailable(err)
-	}
-	defer func() { _ = tx.Rollback() }()
-	var sequence uint64
-	var head string
-	var stateJSON []byte
-	if err = tx.QueryRowContext(ctx, `SELECT head_sequence,head_hash,state_json FROM projects WHERE project_id=?`,
-		projectID).Scan(&sequence, &head, &stateJSON); err != nil {
-		return nil, unavailable(err)
-	}
-	if sequence != 0 {
-		return nil, controlError(controlplane.CodeConflict, "personal authority project is not empty")
-	}
-	var state model.State
-	if err = json.Unmarshal(stateJSON, &state); err != nil {
-		return nil, unavailable(err)
-	}
-	var finalReceipt *controlplane.Receipt
-	for index, legacyEvent := range events {
-		expected := uint64(index + 1)
-		if legacyEvent.Sequence != expected {
-			return nil, controlError(controlplane.CodeIntegrity, fmt.Sprintf("legacy sequence gap at %d", expected))
-		}
-		if err = service.ApplyEvent(&state, legacyEvent); err != nil {
-			return nil, controlError(controlplane.CodeIntegrity, fmt.Sprintf("apply legacy event %s: %s", legacyEvent.ID, err))
-		}
-		legacyJSON, marshalErr := json.Marshal(legacyEvent)
-		if marshalErr != nil {
-			return nil, marshalErr
-		}
-		event := controlplane.Event{
-			ProjectID: projectID, Sequence: expected, ID: legacyEvent.ID,
-			Time: legacyEvent.Time, Actor: legacyEvent.Actor, Type: legacyEvent.Type,
-			EntityID: legacyEvent.EntityID, Payload: legacyEvent.Data, PreviousHash: head,
-			ActorIntentHash: legacyEvent.Hash, IdempotencyKey: "legacy:" + legacyEvent.ID, Legacy: true,
-		}
-		event.Hash, err = controlplane.HashEvent(event)
-		if err != nil {
-			return nil, err
-		}
-		receipt := controlplane.Receipt{
-			ProjectID: projectID, Sequence: expected, EventID: event.ID,
-			EventHash: event.Hash, ActorIntentHash: event.ActorIntentHash,
-			CommittedAt: e.now().Truncate(time.Microsecond),
-		}
-		if err = e.signer.SignReceipt(&receipt); err != nil {
-			return nil, err
-		}
-		eventJSON, marshalErr := json.Marshal(event)
-		if marshalErr != nil {
-			return nil, marshalErr
-		}
-		receiptJSON, marshalErr := json.Marshal(receipt)
-		if marshalErr != nil {
-			return nil, marshalErr
-		}
-		if _, err = tx.ExecContext(ctx, `INSERT INTO events
-			(project_id,sequence,event_id,idempotency_key,intent_hash,event_json,receipt_json,actor_signature,legacy_json)
-			VALUES (?,?,?,?,?,?,?,?,?)`,
-			projectID, expected, event.ID, event.IdempotencyKey, event.ActorIntentHash,
-			eventJSON, receiptJSON, legacyEvent.Signature, legacyJSON); err != nil {
-			return nil, unavailable(err)
-		}
-		head = event.Hash
-		finalReceipt = &receipt
-	}
-	stateJSON, err = json.Marshal(state)
-	if err != nil {
-		return nil, err
-	}
-	if _, err = tx.ExecContext(ctx, `UPDATE projects SET head_sequence=?,head_hash=?,state_json=?,updated_at=?
-		WHERE project_id=?`, len(events), head, stateJSON, e.now().Format(time.RFC3339Nano), projectID); err != nil {
-		return nil, unavailable(err)
-	}
-	if err = tx.Commit(); err != nil {
-		return nil, unavailable(err)
-	}
-	return finalReceipt, nil
-}
-
 func (e *Engine) Command(ctx context.Context, command controlplane.Command) (controlplane.Event, controlplane.Receipt, error) {
 	return e.Mutate(ctx, command)
 }
@@ -374,7 +261,7 @@ func (e *Engine) State(ctx context.Context, projectID string) (model.State, cont
 	state.Integrity = model.Integrity{
 		Verified: true, EventCount: int(sequence), Head: head, SyncState: "personal-authoritative",
 	}
-	service.RefreshRuntimePresence(&state, e.now())
+	protocol.RefreshRuntimePresence(&state, e.now())
 	return state, controlplane.ResultMetadata{
 		Consistency: "PERSONAL_AUTHORITATIVE", ServerSequence: sequence,
 		CacheSequence: sequence, Connectivity: "LOCAL",
@@ -524,29 +411,4 @@ func classify(err error) error {
 		return controlError(controlplane.CodeConflict, message)
 	}
 	return controlError(controlplane.CodeValidation, message)
-}
-
-func ensureColumn(db *sql.DB, table, column, definition string) error {
-	rows, err := db.Query(`PRAGMA table_info(` + table + `)`)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var cid int
-		var name, dataType string
-		var notNull, primaryKey int
-		var defaultValue any
-		if err = rows.Scan(&cid, &name, &dataType, &notNull, &defaultValue, &primaryKey); err != nil {
-			return err
-		}
-		if name == column {
-			return nil
-		}
-	}
-	if err = rows.Err(); err != nil {
-		return err
-	}
-	_, err = db.Exec(`ALTER TABLE ` + table + ` ADD COLUMN ` + column + ` ` + definition)
-	return err
 }

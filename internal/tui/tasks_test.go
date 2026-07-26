@@ -1,31 +1,18 @@
 package tui
 
 import (
-	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/DhanushSantosh/AgentComms/internal/identity"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 	"github.com/DhanushSantosh/AgentComms/internal/service"
+	"github.com/DhanushSantosh/AgentComms/internal/testsupport"
 )
 
 func newTestService(t *testing.T) *service.Service {
 	t.Helper()
-	d := t.TempDir()
-	cmd := exec.Command("git", "init")
-	cmd.Dir = d
-	if b, e := cmd.CombinedOutput(); e != nil {
-		t.Fatal(string(b))
-	}
-	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(d, "user"))
-	s := service.New(d)
-	s.Store.SetCredentialStore(identity.NewMemoryStore())
-	if e := s.Store.Init("owner"); e != nil {
-		t.Fatal(e)
-	}
+	s, _ := testsupport.StartPersonalProject(t)
 	return s
 }
 func registerAgent(t *testing.T, s *service.Service, id string, role model.Role, scopes ...string) {

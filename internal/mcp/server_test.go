@@ -3,14 +3,11 @@ package mcp
 import (
 	"bytes"
 	"encoding/json"
-	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/DhanushSantosh/AgentComms/internal/identity"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
-	"github.com/DhanushSantosh/AgentComms/internal/service"
+	"github.com/DhanushSantosh/AgentComms/internal/testsupport"
 )
 
 const testServerVersion = "test-version"
@@ -38,18 +35,7 @@ func TestToolSchemasNeverEmitNullRequired(t *testing.T) {
 }
 
 func TestInitializeAndToolCatalog(t *testing.T) {
-	d := t.TempDir()
-	cmd := exec.Command("git", "init")
-	cmd.Dir = d
-	if out, e := cmd.CombinedOutput(); e != nil {
-		t.Fatal(string(out))
-	}
-	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(d, "user"))
-	s := service.New(d)
-	s.Store.SetCredentialStore(identity.NewMemoryStore())
-	if e := s.Store.Init("owner"); e != nil {
-		t.Fatal(e)
-	}
+	s, _ := testsupport.StartPersonalProject(t)
 	input := "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\"}\n{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}\n"
 	var out bytes.Buffer
 	if e := Serve(s, "owner", testServerVersion, strings.NewReader(input), &out); e != nil {
@@ -70,18 +56,7 @@ func TestInitializeAndToolCatalog(t *testing.T) {
 }
 
 func TestInvocationToolsReturnAndClaimWork(t *testing.T) {
-	d := t.TempDir()
-	command := exec.Command("git", "init")
-	command.Dir = d
-	if output, err := command.CombinedOutput(); err != nil {
-		t.Fatal(string(output))
-	}
-	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(d, "user"))
-	instance := service.New(d)
-	instance.Store.SetCredentialStore(identity.NewMemoryStore())
-	if err := instance.Store.Init("owner"); err != nil {
-		t.Fatal(err)
-	}
+	instance, _ := testsupport.StartPersonalProject(t)
 	if _, err := instance.Register("builder", "Builder", model.PrincipalAgent); err != nil {
 		t.Fatal(err)
 	}
@@ -117,18 +92,7 @@ func TestInvocationToolsReturnAndClaimWork(t *testing.T) {
 // notifications/initialized. A strict client's response correlation could
 // break if a reply arrives for a message it never expects one for.
 func TestNotificationsReceiveNoResponse(t *testing.T) {
-	d := t.TempDir()
-	cmd := exec.Command("git", "init")
-	cmd.Dir = d
-	if out, e := cmd.CombinedOutput(); e != nil {
-		t.Fatal(string(out))
-	}
-	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(d, "user"))
-	s := service.New(d)
-	s.Store.SetCredentialStore(identity.NewMemoryStore())
-	if e := s.Store.Init("owner"); e != nil {
-		t.Fatal(e)
-	}
+	s, _ := testsupport.StartPersonalProject(t)
 	input := `{"jsonrpc":"2.0","id":1,"method":"initialize"}` + "\n" +
 		`{"jsonrpc":"2.0","method":"notifications/initialized"}` + "\n"
 	var out bytes.Buffer
@@ -150,18 +114,7 @@ func TestNotificationsReceiveNoResponse(t *testing.T) {
 // connection bound as the owner, since agent.activate is elevated), and
 // then its own follow-up call requiring a real signature succeeds.
 func TestAgentRegisterToolCreatesCredential(t *testing.T) {
-	d := t.TempDir()
-	cmd := exec.Command("git", "init")
-	cmd.Dir = d
-	if out, e := cmd.CombinedOutput(); e != nil {
-		t.Fatal(string(out))
-	}
-	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(d, "user"))
-	instance := service.New(d)
-	instance.Store.SetCredentialStore(identity.NewMemoryStore())
-	if e := instance.Store.Init("owner"); e != nil {
-		t.Fatal(e)
-	}
+	instance, _ := testsupport.StartPersonalProject(t)
 
 	registerInput := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"agent_register","arguments":{"id":"fresh-agent"}}}` + "\n"
 	var registerOut bytes.Buffer
@@ -206,18 +159,7 @@ func TestAgentRegisterToolCreatesCredential(t *testing.T) {
 // unrelated identity entirely, breaking the per-actor scoping MCP
 // connections are supposed to guarantee.
 func TestAgentRegisterToolRejectsSpoofedID(t *testing.T) {
-	d := t.TempDir()
-	cmd := exec.Command("git", "init")
-	cmd.Dir = d
-	if out, e := cmd.CombinedOutput(); e != nil {
-		t.Fatal(string(out))
-	}
-	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(d, "user"))
-	instance := service.New(d)
-	instance.Store.SetCredentialStore(identity.NewMemoryStore())
-	if e := instance.Store.Init("owner"); e != nil {
-		t.Fatal(e)
-	}
+	instance, _ := testsupport.StartPersonalProject(t)
 
 	spoofInput := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"agent_register","arguments":{"id":"someone-else"}}}` + "\n"
 	var spoofOut bytes.Buffer
@@ -245,18 +187,7 @@ func TestAgentRegisterToolRejectsSpoofedID(t *testing.T) {
 // to create new principals, so this is bootstrapping a new identity, not
 // impersonating an existing one.
 func TestAgentRegisterToolPermitsOwnerFallbackBootstrap(t *testing.T) {
-	d := t.TempDir()
-	cmd := exec.Command("git", "init")
-	cmd.Dir = d
-	if out, e := cmd.CombinedOutput(); e != nil {
-		t.Fatal(string(out))
-	}
-	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(d, "user"))
-	instance := service.New(d)
-	instance.Store.SetCredentialStore(identity.NewMemoryStore())
-	if e := instance.Store.Init("owner"); e != nil {
-		t.Fatal(e)
-	}
+	instance, _ := testsupport.StartPersonalProject(t)
 
 	input := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"agent_register","arguments":{"id":"AXIOM"}}}` + "\n"
 	var out bytes.Buffer
@@ -282,18 +213,7 @@ func TestAgentRegisterToolPermitsOwnerFallbackBootstrap(t *testing.T) {
 // that ignores its own schema could otherwise smuggle an arbitrary value
 // through.
 func TestAgentRegisterToolRejectsInvalidPrincipalType(t *testing.T) {
-	d := t.TempDir()
-	cmd := exec.Command("git", "init")
-	cmd.Dir = d
-	if out, e := cmd.CombinedOutput(); e != nil {
-		t.Fatal(string(out))
-	}
-	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(d, "user"))
-	instance := service.New(d)
-	instance.Store.SetCredentialStore(identity.NewMemoryStore())
-	if e := instance.Store.Init("owner"); e != nil {
-		t.Fatal(e)
-	}
+	instance, _ := testsupport.StartPersonalProject(t)
 
 	input := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"agent_register","arguments":{"id":"fresh-agent","principal_type":"OWNER"}}}` + "\n"
 	var out bytes.Buffer
@@ -309,18 +229,7 @@ func TestAgentRegisterToolRejectsInvalidPrincipalType(t *testing.T) {
 // as gated over MCP as agent.activate already is everywhere else — this
 // tool must not loosen that rule.
 func TestAgentActivateToolRequiresElevation(t *testing.T) {
-	d := t.TempDir()
-	cmd := exec.Command("git", "init")
-	cmd.Dir = d
-	if out, e := cmd.CombinedOutput(); e != nil {
-		t.Fatal(string(out))
-	}
-	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(d, "user"))
-	instance := service.New(d)
-	instance.Store.SetCredentialStore(identity.NewMemoryStore())
-	if e := instance.Store.Init("owner"); e != nil {
-		t.Fatal(e)
-	}
+	instance, _ := testsupport.StartPersonalProject(t)
 	if _, e := instance.Register("bystander", "Bystander", model.PrincipalAgent); e != nil {
 		t.Fatal(e)
 	}

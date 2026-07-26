@@ -774,7 +774,7 @@ func (m Model) integrity(p palette) string {
 	if !m.state.Integrity.Verified {
 		mark = "✕"
 	}
-	return fmt.Sprintf("%s Chain verified: %t\n  Signed events: %d\n  Head: %s\n  Checkpoint: %s\n  Remote: %s\n  Consistency: %s\n  Connectivity: %s\n  Server sequence: %d\n  Cache sequence: %d\n\nRun `agent-comms verify` before recovery or migration.", mark, m.state.Integrity.Verified, m.state.Integrity.EventCount, m.state.Integrity.Head, m.state.Integrity.SyncState, empty(m.state.Integrity.Remote, "not configured"), empty(m.state.Integrity.Consistency, "LEGACY_LOCAL"), empty(m.state.Integrity.Connectivity, "LOCAL"), m.state.Integrity.ServerSequence, m.state.Integrity.CacheSequence)
+	return fmt.Sprintf("%s Chain verified: %t\n  Signed events: %d\n  Head: %s\n  Consistency: %s\n  Connectivity: %s\n  Server sequence: %d\n  Cache sequence: %d\n\nRun `agent-comms verify` before incident recovery.", mark, m.state.Integrity.Verified, m.state.Integrity.EventCount, m.state.Integrity.Head, empty(m.state.Integrity.Consistency, "UNKNOWN"), empty(m.state.Integrity.Connectivity, "UNKNOWN"), m.state.Integrity.ServerSequence, m.state.Integrity.CacheSequence)
 }
 func (m Model) chain(p palette) string {
 	after := max(0, m.state.Integrity.EventCount-7)

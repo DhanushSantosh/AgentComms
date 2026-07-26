@@ -2,7 +2,8 @@
 
 Agent Comms is a terminal-native coordination system for humans and automated agents working in one shared repository. It provides protected work leases, typed durable messages, governed approvals, actor-bound signatures, an immutable audit trail, a deterministic JSON CLI, and a rich terminal control room.
 
-> v0.1 is a preview. Runtime migrations may be required before v1.
+> v0.1 is a preview. Projects use the current personal or service authority
+> directly; obsolete filesystem runtimes are not supported.
 
 ## Install
 
@@ -39,18 +40,9 @@ agent-comms init
 agent-comms tui
 ```
 
-During the preview, the former filesystem engine can still be selected
-explicitly for compatibility:
-
-```sh
-agent-comms init --mode legacy
-agent-comms migrate personal --yes
-```
-
-The migration command verifies and imports the complete signed legacy history
-before making the filesystem runtime read-only.
-
-If the project already contains a `.agents` file, plain initialization refuses to proceed. Use the governed, byte-preserving [legacy adoption workflow](docs/legacy-adoption.md); no confirmation flag can bypass preservation.
+If the project already contains a `.agents` file, initialization refuses to
+overwrite it. Remove or rename that file only after verifying it is not an
+active Agent Comms bootstrap.
 
 Interactive setup previews the `.agents` bootstrap and isolated `.agent-comms` runtime before writing them. Automation uses explicit, non-interactive flags:
 
@@ -58,7 +50,8 @@ Interactive setup previews the `.agents` bootstrap and isolated `.agent-comms` r
 agent-comms init --owner owner --non-interactive --yes --json
 ```
 
-The runtime is its own Git repository with auto-generated `tmp/` and `cache/` gitignored. A remote is optional checkpoint/recovery transport and is never a distributed lock.
+The hidden runtime contains local configuration, cache data, artifacts, and
+generated agent instructions. PostgreSQL or SQLite—not Git—is authoritative.
 
 ## Daily workflow
 
@@ -100,7 +93,6 @@ Private actor keys are stored in Windows Credential Manager, macOS Keychain, or 
 - `agent-comms completion <shell>` generates PowerShell, Bash, Zsh, or Fish completion.
 - `agent-comms doctor --explain-config` shows resolved configuration and provenance.
 - `agent-comms env set/get/delete/list` manages a typed per-project environment registry.
-- `agent-comms sync setup/status/push/pull` manages fast-forward-only checkpoints.
 - `agent-comms update check --channel stable|preview` performs an explicit, telemetry-free release check.
 
 ## Runtime modes
@@ -116,7 +108,7 @@ rebuildable SQLite WAL cache. Governed mutations fail closed while offline;
 explicit document, message, and artifact-metadata drafts remain local until
 submitted.
 
-See the [service deployment and migration guide](docs/service-deployment.md).
+See the [team service deployment guide](docs/service-deployment.md).
 See the [agent invocation protocol](docs/agent-invocations.md) for runtime
 registration, wakeups, delivery guarantees, and invocation policy.
 
@@ -128,7 +120,7 @@ registration, wakeups, delivery guarantees, and invocation policy.
 - Shared writes, takeovers, contracts, and scope changes require orchestrator governance.
 - Destructive, irreversible, external, production-data, credential, and force-push actions require a HUMAN approver.
 - Completed work remains active for seven days and then archives without deleting history.
-- Evidence is SHA-256 addressed. Files above 5 MiB require configured Git LFS.
+- Evidence is SHA-256 addressed and constrained by the configured artifact limit.
 - No telemetry is collected. Update checks are explicit unless the user opts in.
 
 ## Development

@@ -225,7 +225,7 @@ func (m Model) settingsControl(p palette, width int) string {
 		)
 	case 3:
 		rows = append(rows,
-			settingLine("Consistency", empty(m.state.Integrity.Consistency, "LEGACY_LOCAL")),
+			settingLine("Consistency", empty(m.state.Integrity.Consistency, "UNKNOWN")),
 			settingLine("Connectivity", empty(m.state.Integrity.Connectivity, "LOCAL")),
 			settingLine("Server sequence", strconv.FormatUint(m.state.Integrity.ServerSequence, 10)),
 			settingLine("Cache sequence", strconv.FormatUint(m.state.Integrity.CacheSequence, 10)),

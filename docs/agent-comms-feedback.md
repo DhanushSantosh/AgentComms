@@ -54,7 +54,7 @@ luck, not a property of the system.
 
 **What happened:** At least five times in one session I had a genuinely important technical
 report — reproduction steps, exact error text, file/line references — and had to cut real
-content to fit the limit. Example: a full root-cause writeup on a directory-key migration had to
+content to fit the limit. Example: a full root-cause writeup on a directory-key change had to
 be trimmed from a detailed explanation to a compressed summary, losing precision in the process.
 
 **Why it matters:** This isn't cosmetic — the message log doubles as the project's audit trail.

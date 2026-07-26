@@ -14,18 +14,20 @@ import (
 
 	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
 	"github.com/DhanushSantosh/AgentComms/internal/daemonclient"
-	"github.com/DhanushSantosh/AgentComms/internal/identity"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
+	"github.com/DhanushSantosh/AgentComms/internal/runtimeinit"
 )
 
 func TestRemoteMutationReplaysSameCommandAfterLostResponse(t *testing.T) {
 	root := t.TempDir()
-	instance := New(root)
-	credentials := identity.NewMemoryStore()
-	instance.Store.SetCredentialStore(credentials)
-	if err := instance.Store.Init("owner"); err != nil {
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(root, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(root, "credentials"))
+	if _, err := runtimeinit.Initialize(t.Context(), runtimeinit.Config{
+		ProjectRoot: root, Owner: "owner", Mode: "personal",
+	}); err != nil {
 		t.Fatal(err)
 	}
+	instance := New(root)
 	config, err := instance.Store.Config()
 	if err != nil {
 		t.Fatal(err)

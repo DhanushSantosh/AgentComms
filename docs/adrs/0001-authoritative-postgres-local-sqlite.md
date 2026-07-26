@@ -21,4 +21,4 @@ fail closed when the authority is unavailable.
 Service mode requires PostgreSQL and an explicit service signing key. The
 write path no longer depends on Git. Local reads are fast and resilient, while
 offline work is limited to inspection and explicit non-authoritative drafts.
-Legacy signed events remain verifiable and importable.
+Projects are initialized directly against one of the two supported authorities.
