@@ -89,6 +89,34 @@ needing shell access. Until an agent is activated, every other tool
 required" check the CLI already enforces — self-registering doesn't skip
 that step, it just means the step no longer requires a CLI at all.
 
+**Known limitation — MCP delivery is pull-only, confirmed live, not yet
+fixed.** `agent-comms mcp`'s stdio loop reads one request and writes one
+response; it never writes anything unprompted. Unlike `interactive-serve`
+(which dials a live runtime's socket and injects a wake-up nudge the moment
+an invocation is created), nothing wakes an MCP-connected agent when new
+work arrives — it only checks when something in its own turn calls
+`invocation_listen`/`invocation_next` itself. `invocation_request` still
+succeeds and durably records the invocation regardless; there's just no
+push channel to the target session on top of it. Confirmed live across
+three real hosts (Claude Code, Codex, OpenCode): a freshly-relaunched
+MCP-connected session sat idle indefinitely until manually prompted to
+check, even with `PENDING` work already waiting for it.
+
+Considered, deliberately not built yet (future enhancement): a background
+watcher inside `agent-comms mcp` pushing an unsolicited MCP notification
+over the same stdio connection when new work targets that connection's
+actor — technically buildable (JSON-RPC over stdio is full-duplex and MCP's
+spec supports server-initiated notifications), but untested whether a given
+host actually surfaces an unprompted notification to its model rather than
+silently logging it, so it isn't safe to claim as working without live
+verification against each host first. Pairing MCP with `interactive-serve`'s
+existing wake mechanism was also considered and rejected for now: it only
+covers the three already-vetted providers, defeating MCP's actual
+advantage — working with any MCP-capable host, adapter-free — for anything
+else. For now, MCP participation is request/poll only; delivering the
+initial nudge to check is left to a human prompt or whatever autonomous
+polling loop the agent's own host provides.
+
 ## Autonomous runtime workers
 
 `runtime worker` turns a registered runtime into a complete responder rather
