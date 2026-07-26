@@ -12,6 +12,8 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
+	"strings"
 	"sync"
 
 	keyring "github.com/zalando/go-keyring"
@@ -149,22 +151,114 @@ type Profile struct {
 	HostLabel   string `json:"host_label,omitempty"`
 }
 
+const (
+	ActorSourceFlag          = "actor_flag"
+	ActorSourceProfileFlag   = "profile_flag"
+	ActorSourceEnvironment   = "actor_environment"
+	ActorSourceHostBinding   = "host_binding"
+	ActorSourceActiveProfile = "active_profile"
+	ActorSourceProjectOwner  = "project_owner"
+)
+
+type ActorResolutionRequest struct {
+	ProjectID        string
+	ProjectOwner     string
+	ExplicitActor    string
+	ExplicitProfile  string
+	EnvironmentActor string
+	HostLabel        string
+	UserConfig       UserConfig
+}
+
+type ActorResolution struct {
+	Actor     string `json:"actor"`
+	Source    string `json:"source"`
+	Profile   string `json:"profile,omitempty"`
+	HostLabel string `json:"host_label,omitempty"`
+	ProjectID string `json:"project_id"`
+}
+
+func ResolveActor(request ActorResolutionRequest) (ActorResolution, error) {
+	request.ExplicitActor = strings.TrimSpace(request.ExplicitActor)
+	request.ExplicitProfile = strings.TrimSpace(request.ExplicitProfile)
+	request.EnvironmentActor = strings.TrimSpace(request.EnvironmentActor)
+	request.HostLabel = strings.TrimSpace(request.HostLabel)
+	if request.ProjectID == "" || request.ProjectOwner == "" {
+		return ActorResolution{}, errors.New("project ID and owner are required for actor resolution")
+	}
+	result := ActorResolution{ProjectID: request.ProjectID, HostLabel: request.HostLabel}
+	if request.ExplicitActor != "" {
+		result.Actor, result.Source = request.ExplicitActor, ActorSourceFlag
+		return result, nil
+	}
+	if request.ExplicitProfile != "" {
+		profile, found := request.UserConfig.Profiles[request.ExplicitProfile]
+		if !found {
+			return ActorResolution{}, fmt.Errorf("profile %q not found", request.ExplicitProfile)
+		}
+		if profile.ProjectID != request.ProjectID {
+			return ActorResolution{}, fmt.Errorf(
+				"profile %q belongs to project %s, not %s",
+				request.ExplicitProfile, profile.ProjectID, request.ProjectID,
+			)
+		}
+		result.Actor, result.Source, result.Profile = profile.Actor, ActorSourceProfileFlag, request.ExplicitProfile
+		return result, nil
+	}
+	if request.EnvironmentActor != "" {
+		result.Actor, result.Source = request.EnvironmentActor, ActorSourceEnvironment
+		return result, nil
+	}
+	if request.HostLabel != "" {
+		matches := ProfilesByProjectAndHost(request.UserConfig.Profiles, request.ProjectID, request.HostLabel)
+		if len(matches) > 1 {
+			return ActorResolution{}, fmt.Errorf(
+				"host label %q is bound to multiple actors in project %s; use --actor or --profile",
+				request.HostLabel, request.ProjectID,
+			)
+		}
+		if len(matches) == 1 {
+			result.Actor, result.Source, result.Profile = matches[0].Actor, ActorSourceHostBinding, matches[0].Name
+			return result, nil
+		}
+		result.Actor, result.Source = request.ProjectOwner, ActorSourceProjectOwner
+		return result, nil
+	}
+	if request.UserConfig.ActiveProfile != "" {
+		profile, found := request.UserConfig.Profiles[request.UserConfig.ActiveProfile]
+		if found && profile.ProjectID == request.ProjectID {
+			result.Actor, result.Source, result.Profile = profile.Actor, ActorSourceActiveProfile, request.UserConfig.ActiveProfile
+			return result, nil
+		}
+	}
+	result.Actor, result.Source = request.ProjectOwner, ActorSourceProjectOwner
+	return result, nil
+}
+
+func ProfilesByProjectAndHost(profiles map[string]Profile, projectID, hostLabel string) []Profile {
+	matches := make([]Profile, 0)
+	for _, profile := range profiles {
+		if profile.ProjectID == projectID && profile.HostLabel == hostLabel {
+			matches = append(matches, profile)
+		}
+	}
+	sort.Slice(matches, func(left, right int) bool {
+		return matches[left].Name < matches[right].Name
+	})
+	return matches
+}
+
 // FindProfileByProjectAndHost returns the actor from the single profile
 // matching both projectID and hostLabel. If zero or more than one profile
 // matches, it returns ok=false rather than guessing which one to use.
 func FindProfileByProjectAndHost(profiles map[string]Profile, projectID, hostLabel string) (string, bool) {
-	actor, found := "", false
-	for _, p := range profiles {
-		if p.ProjectID != projectID || p.HostLabel != hostLabel {
-			continue
-		}
-		if found {
-			return "", false
-		}
-		actor, found = p.Actor, true
+	matches := ProfilesByProjectAndHost(profiles, projectID, hostLabel)
+	if len(matches) != 1 {
+		return "", false
 	}
-	return actor, found
+	return matches[0].Actor, true
 }
+
 type UserConfig struct {
 	ActiveProfile string             `json:"active_profile,omitempty"`
 	UpdateChannel string             `json:"update_channel"`

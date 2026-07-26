@@ -38,3 +38,94 @@ func TestFindProfileByProjectAndHostAmbiguous(t *testing.T) {
 		t.Fatal("expected ambiguous multi-match to return ok=false")
 	}
 }
+
+func TestResolveActorPrecedenceAndProjectIsolation(t *testing.T) {
+	config := UserConfig{
+		ActiveProfile: "other:WRONG",
+		Profiles: map[string]Profile{
+			"project:AXIOM": {Name: "project:AXIOM", ProjectID: "project", Actor: "AXIOM", HostLabel: "claude"},
+			"other:WRONG":   {Name: "other:WRONG", ProjectID: "other", Actor: "WRONG"},
+		},
+	}
+	tests := []struct {
+		name    string
+		request ActorResolutionRequest
+		actor   string
+		source  string
+	}{
+		{
+			name: "explicit actor overrides every indirect source",
+			request: ActorResolutionRequest{
+				ProjectID: "project", ProjectOwner: "owner", ExplicitActor: "DAMON",
+				ExplicitProfile: "project:AXIOM", EnvironmentActor: "ENV", HostLabel: "claude", UserConfig: config,
+			},
+			actor: "DAMON", source: ActorSourceFlag,
+		},
+		{
+			name: "explicit profile overrides environment",
+			request: ActorResolutionRequest{
+				ProjectID: "project", ProjectOwner: "owner", ExplicitProfile: "project:AXIOM",
+				EnvironmentActor: "ENV", HostLabel: "claude", UserConfig: config,
+			},
+			actor: "AXIOM", source: ActorSourceProfileFlag,
+		},
+		{
+			name: "environment overrides host binding",
+			request: ActorResolutionRequest{
+				ProjectID: "project", ProjectOwner: "owner", EnvironmentActor: "ENV",
+				HostLabel: "claude", UserConfig: config,
+			},
+			actor: "ENV", source: ActorSourceEnvironment,
+		},
+		{
+			name: "host binding resolves within project",
+			request: ActorResolutionRequest{
+				ProjectID: "project", ProjectOwner: "owner", HostLabel: "claude", UserConfig: config,
+			},
+			actor: "AXIOM", source: ActorSourceHostBinding,
+		},
+		{
+			name: "cross-project active profile never leaks",
+			request: ActorResolutionRequest{
+				ProjectID: "project", ProjectOwner: "owner", UserConfig: config,
+			},
+			actor: "owner", source: ActorSourceProjectOwner,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			resolution, err := ResolveActor(test.request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if resolution.Actor != test.actor || resolution.Source != test.source {
+				t.Fatalf("unexpected resolution: %+v", resolution)
+			}
+		})
+	}
+}
+
+func TestResolveActorRejectsAmbiguousHostBinding(t *testing.T) {
+	_, err := ResolveActor(ActorResolutionRequest{
+		ProjectID: "project", ProjectOwner: "owner", HostLabel: "claude",
+		UserConfig: UserConfig{Profiles: map[string]Profile{
+			"project:AXIOM": {Name: "project:AXIOM", ProjectID: "project", Actor: "AXIOM", HostLabel: "claude"},
+			"project:PRISM": {Name: "project:PRISM", ProjectID: "project", Actor: "PRISM", HostLabel: "claude"},
+		}},
+	})
+	if err == nil {
+		t.Fatal("expected ambiguous host binding to fail")
+	}
+}
+
+func TestResolveActorRejectsProfileFromAnotherProject(t *testing.T) {
+	_, err := ResolveActor(ActorResolutionRequest{
+		ProjectID: "project", ProjectOwner: "owner", ExplicitProfile: "other:AXIOM",
+		UserConfig: UserConfig{Profiles: map[string]Profile{
+			"other:AXIOM": {Name: "other:AXIOM", ProjectID: "other", Actor: "AXIOM"},
+		}},
+	})
+	if err == nil {
+		t.Fatal("expected cross-project profile selection to fail")
+	}
+}

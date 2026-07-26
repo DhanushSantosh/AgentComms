@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -130,6 +131,9 @@ func TestInitRejectsInvalidModeBeforeWritingRuntime(t *testing.T) {
 	if err == nil {
 		t.Fatal("invalid mode was accepted")
 	}
+	if !bytes.Contains(stderr.Bytes(), []byte(`"code":"VALIDATION"`)) {
+		t.Fatalf("invalid mode did not use the stable validation code: %s", stderr.String())
+	}
 	if _, statErr := os.Stat(filepath.Join(project, ".agent-comms")); !os.IsNotExist(statErr) {
 		t.Fatalf("invalid mode wrote a runtime: %v", statErr)
 	}
@@ -171,6 +175,11 @@ func TestHostLabelResolvesActorAcrossInvocations(t *testing.T) {
 	}
 	run("init", "--non-interactive", "--owner", "owner", "--mode", "personal")
 	run("agent", "register", "--id", "AXIOM")
+	run("profile", "current")
+	if !bytes.Contains(out.Bytes(), []byte(`"actor":"AXIOM"`)) ||
+		!bytes.Contains(out.Bytes(), []byte(`"source":"host_binding"`)) {
+		t.Fatalf("profile.current did not explain the host-bound actor: %s", out.String())
+	}
 	run("agent", "activate", "--id", "AXIOM", "--actor", "owner", "--role", "AGENT", "--scope", "src")
 	run("message", "post", "--id", "msg1", "--kind", "FYI", "--to", "owner", "--subject", "test", "--body", "hello")
 	if !bytes.Contains(out.Bytes(), []byte(`"actor":"AXIOM"`)) {
@@ -300,9 +309,11 @@ func TestInvocationRequestDeliversDirectlyToLiveInteractiveSession(t *testing.T)
 	}
 
 	run("init", "--non-interactive", "--owner", "owner", "--mode", "personal")
-	run("agent", "register", "--id", "opencode-runner")
-	run("agent", "activate", "--id", "opencode-runner", "--role", "AGENT", "--scope", "src")
-	run("invocation", "policy", "set", "--agent", "opencode-runner", "--mode", "AUTOMATIC")
+	run("agent", "register", "--id", "opencode-agent")
+	run("agent", "activate", "--id", "opencode-agent", "--role", "AGENT", "--scope", "src")
+	run("runtime", "register", "--actor", "opencode-agent", "--id", "opencode-runtime",
+		"--agent", "opencode-agent", "--connector", "MANUAL", "--max-concurrent", "1")
+	run("invocation", "policy", "set", "--agent", "opencode-agent", "--mode", "AUTOMATIC")
 
 	// Stand up a live session the same way `runtime interactive-serve`
 	// does, without going through the CLI's Run() — that command calls
@@ -321,21 +332,21 @@ func TestInvocationRequestDeliversDirectlyToLiveInteractiveSession(t *testing.T)
 	t.Cleanup(cancel)
 	go func() {
 		_, _ = interactiveserve.Serve(ctx, interactiveserve.ServeOptions{
-			ProjectRoot: project, RuntimeID: "opencode-runner",
+			ProjectRoot: project, RuntimeID: "opencode-runtime",
 			Command:   []string{"bash", "-c", "cat"},
 			ControlFD: int(controlSlave.Fd()), Stdin: stdinR,
 			Stdout: syncWriterFor(&stdoutMu, &stdout),
 		})
 	}()
 	deadline := time.Now().Add(5 * time.Second)
-	for !interactiveserve.Alive(context.Background(), project, "opencode-runner") {
+	for !interactiveserve.Alive(context.Background(), project, "opencode-runtime") {
 		if time.Now().After(deadline) {
 			t.Fatal("expected the live session to become dialable")
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
 
-	run("invocation", "request", "--id", "inv-direct", "--to", "opencode-runner", "--instruction", "say hi")
+	run("invocation", "request", "--id", "inv-direct", "--to", "opencode-agent", "--instruction", "say hi")
 	if bytes.Contains(out.Bytes(), []byte(`"warnings"`)) {
 		t.Fatalf("expected no delivery warnings against a live session: %s", out.String())
 	}
@@ -345,7 +356,7 @@ func TestInvocationRequestDeliversDirectlyToLiveInteractiveSession(t *testing.T)
 		stdoutMu.Lock()
 		text := stdout.String()
 		stdoutMu.Unlock()
-		if strings.Contains(text, "inv-direct") && strings.Contains(text, "opencode-runner") {
+		if strings.Contains(text, "inv-direct") && strings.Contains(text, "opencode-agent") {
 			break
 		}
 		if time.Now().After(deadline) {
@@ -364,6 +375,20 @@ func syncWriterFor(mu *sync.Mutex, buf *bytes.Buffer) io.Writer {
 type lockedWriter struct {
 	mu  *sync.Mutex
 	buf *bytes.Buffer
+}
+
+func TestInteractiveRuntimeCandidatesResolveAgentOwnership(t *testing.T) {
+	state := model.State{AgentRuntimes: map[string]model.AgentRuntime{
+		"builder-z":       {ID: "builder-z", AgentID: "builder", Status: "ONLINE"},
+		"builder-a":       {ID: "builder-a", AgentID: "builder", Status: "ONLINE"},
+		"builder-drained": {ID: "builder-drained", AgentID: "builder", Status: "DRAINING"},
+		"other-runtime":   {ID: "other-runtime", AgentID: "other", Status: "ONLINE"},
+	}}
+	got := interactiveRuntimeCandidates(state, "builder")
+	want := []string{"builder", "builder-a", "builder-z"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("unexpected runtime candidates: got %v want %v", got, want)
+	}
 }
 
 func (w *lockedWriter) Write(p []byte) (int, error) {

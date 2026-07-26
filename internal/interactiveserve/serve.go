@@ -33,6 +33,12 @@ const idleTimeout = 90 * time.Second
 // fixed sleep to be long enough for a given provider's input handling.
 const echoTimeout = 10 * time.Second
 
+// directDeliveryIdleTimeout keeps invocation creation responsive. A direct
+// wake is opportunistic: if the target became busy after the caller's probe,
+// it is safer to return a retryable warning than to hold the requester while
+// another agent finishes a potentially long turn.
+const directDeliveryIdleTimeout = 250 * time.Millisecond
+
 // gracePeriod bounds how long Serve waits for the child to exit on its own
 // after being sent a forwarded signal before it is killed outright.
 const gracePeriod = 3 * time.Second
@@ -211,6 +217,18 @@ func handleConn(conn net.Conn, tee *outputTee, ptmx *os.File, mu *sync.Mutex) {
 		err := deliverToPty(ptmx, tee, req.Message, idleTimeout, echoTimeout)
 		mu.Unlock()
 		resp := Response{OK: err == nil}
+		if err != nil {
+			resp.Error = err.Error()
+		}
+		_ = json.NewEncoder(conn).Encode(resp)
+	case "try-deliver":
+		if !mu.TryLock() {
+			_ = json.NewEncoder(conn).Encode(Response{OK: false, Busy: true, Error: "another delivery is already in progress"})
+			return
+		}
+		err := deliverToPty(ptmx, tee, req.Message, directDeliveryIdleTimeout, echoTimeout)
+		mu.Unlock()
+		resp := Response{OK: err == nil, Busy: err != nil && isBusy(tee.snapshot())}
 		if err != nil {
 			resp.Error = err.Error()
 		}

@@ -15,6 +15,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -25,6 +26,7 @@ import (
 	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
 	"github.com/DhanushSantosh/AgentComms/internal/daemon"
 	"github.com/DhanushSantosh/AgentComms/internal/daemonclient"
+	"github.com/DhanushSantosh/AgentComms/internal/failure"
 	"github.com/DhanushSantosh/AgentComms/internal/identity"
 	"github.com/DhanushSantosh/AgentComms/internal/interactiveserve"
 	"github.com/DhanushSantosh/AgentComms/internal/mcp"
@@ -41,6 +43,8 @@ import (
 var Version = "0.1.0"
 
 const APIVersion = "agent-comms/v1"
+
+const directDeliveryTimeout = 15 * time.Second
 
 type Envelope struct {
 	APIVersion string     `json:"api_version"`
@@ -70,6 +74,7 @@ type cli struct {
 	timeout                              time.Duration
 	svc                                  *service.Service
 	cmd                                  string
+	actorResolution                      identity.ActorResolution
 }
 
 var launchDaemonProcess = func(executable, projectRoot string, output io.Writer) error {
@@ -130,28 +135,25 @@ func (c *cli) root() *cobra.Command {
 				return e
 			}
 		}
-		if c.actor == "" {
-			c.actor = os.Getenv("AGENT_COMMS_ACTOR")
-		}
-		if c.actor == "" {
-			uc, _ := identity.LoadUserConfig()
-			if hostLabel := os.Getenv("AGENT_COMMS_HOST_LABEL"); hostLabel != "" {
-				if actor, ok := identity.FindProfileByProjectAndHost(uc.Profiles, cfg.ProjectID, hostLabel); ok {
-					c.actor = actor
-				}
-			}
-			if c.actor == "" {
-				pname := c.profile
-				if pname == "" {
-					pname = uc.ActiveProfile
-				}
-				if p, ok := uc.Profiles[pname]; ok && p.ProjectID == cfg.ProjectID {
-					c.actor = p.Actor
-				} else {
-					c.actor = cfg.Owner
-				}
+		environmentActor := os.Getenv("AGENT_COMMS_ACTOR")
+		userConfig := identity.UserConfig{Profiles: map[string]identity.Profile{}}
+		needsUserConfig := c.actor == "" && (c.profile != "" || environmentActor == "")
+		if needsUserConfig {
+			userConfig, e = identity.LoadUserConfig()
+			if e != nil {
+				return fmt.Errorf("load identity profiles: %w", e)
 			}
 		}
+		c.actorResolution, e = identity.ResolveActor(identity.ActorResolutionRequest{
+			ProjectID: cfg.ProjectID, ProjectOwner: cfg.Owner,
+			ExplicitActor: c.actor, ExplicitProfile: c.profile,
+			EnvironmentActor: environmentActor, HostLabel: os.Getenv("AGENT_COMMS_HOST_LABEL"),
+			UserConfig: userConfig,
+		})
+		if e != nil {
+			return e
+		}
+		c.actor = c.actorResolution.Actor
 		return nil
 	}}
 	f := r.PersistentFlags()
@@ -188,27 +190,85 @@ func (c *cli) emit(command string, v any, warnings ...string) error {
 	return nil
 }
 
-// notifyInteractiveTarget delivers a best-effort "check your pending
-// invocations" nudge directly into targetRuntimeID's live interactive
-// session, if one is running (see internal/interactiveserve). This is the
-// direct-invocation path decided for this project: creating an invocation
-// for a runtime with a live `runtime interactive-serve` process wakes that
-// process's real terminal immediately, with no separate worker or polling
-// process required. There is no registration step to look up — liveness is
-// simply "can I dial this runtime's deterministic control socket." A
-// runtime with no live session is the common case (most runtimes are
-// headless workers) and is silent, not a warning; a live-but-undeliverable
-// session (target stayed busy, echo never confirmed) surfaces as a warning
-// rather than failing the invocation, since the invocation itself was
-// already durably recorded regardless of whether the wake-up nudge lands.
-func (c *cli) notifyInteractiveTarget(invocationID, targetRuntimeID string) []string {
-	if !interactiveserve.Alive(context.Background(), c.svc.Store.Root, targetRuntimeID) {
+// notifyInteractiveTarget resolves an invocation's target agent to its
+// registered runtime before attempting the best-effort terminal nudge. A
+// same-ID fallback preserves the zero-registration interactive workflow.
+// Multiple live sessions are not guessed between: waking an arbitrary
+// runtime could make the wrong session race to claim the invocation.
+func (c *cli) notifyInteractiveTarget(invocationID, targetAgentID, preferredRuntimeID string) []string {
+	state, err := c.svc.State()
+	if err != nil {
+		return []string{fmt.Sprintf("invocation was recorded, but live runtime resolution failed: %v", err)}
+	}
+	candidates := interactiveRuntimeCandidates(state, targetAgentID)
+	if preferredRuntimeID != "" {
+		runtimeState, registered := state.AgentRuntimes[preferredRuntimeID]
+		if preferredRuntimeID != targetAgentID &&
+			(!registered || runtimeState.AgentID != targetAgentID ||
+				runtimeState.Status == "DRAINING" || runtimeState.Status == "REVOKED") {
+			return []string{fmt.Sprintf(
+				"runtime %s is not an eligible runtime for agent %s",
+				preferredRuntimeID, targetAgentID,
+			)}
+		}
+		candidates = []string{preferredRuntimeID}
+	}
+	type liveRuntime struct {
+		id   string
+		busy bool
+	}
+	live := make([]liveRuntime, 0, len(candidates))
+	for _, runtimeID := range candidates {
+		ctx, cancel := context.WithTimeout(context.Background(), directDeliveryTimeout)
+		alive, busy := interactiveserve.Probe(ctx, c.svc.Store.Root, runtimeID)
+		cancel()
+		if alive {
+			live = append(live, liveRuntime{id: runtimeID, busy: busy})
+		}
+	}
+	if len(live) == 0 {
 		return nil
 	}
-	if err := interactiveserve.NotifyInvocation(context.Background(), c.svc.Store.Root, targetRuntimeID, invocationID, c.actor); err != nil {
-		return []string{fmt.Sprintf("could not deliver directly into %s's live session: %v", targetRuntimeID, err)}
+	if len(live) > 1 {
+		ids := make([]string, 0, len(live))
+		for _, runtime := range live {
+			ids = append(ids, runtime.id)
+		}
+		return []string{fmt.Sprintf(
+			"invocation was recorded, but agent %s has multiple live runtimes (%s); use `invocation redeliver --id %s --runtime <runtime-id>`",
+			targetAgentID, strings.Join(ids, ", "), invocationID,
+		)}
+	}
+	target := live[0]
+	if target.busy {
+		return []string{fmt.Sprintf(
+			"invocation was recorded, but runtime %s is busy; retry with `invocation redeliver --id %s` when it is idle",
+			target.id, invocationID,
+		)}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), directDeliveryTimeout)
+	defer cancel()
+	if err = interactiveserve.NotifyInvocation(ctx, c.svc.Store.Root, target.id, targetAgentID, invocationID, c.actor); err != nil {
+		return []string{fmt.Sprintf("could not deliver directly into %s's live session: %v", target.id, err)}
 	}
 	return nil
+}
+
+func interactiveRuntimeCandidates(state model.State, targetAgentID string) []string {
+	candidateSet := map[string]struct{}{targetAgentID: {}}
+	for runtimeID, agentRuntime := range state.AgentRuntimes {
+		if agentRuntime.AgentID != targetAgentID ||
+			agentRuntime.Status == "DRAINING" || agentRuntime.Status == "REVOKED" {
+			continue
+		}
+		candidateSet[runtimeID] = struct{}{}
+	}
+	candidates := make([]string, 0, len(candidateSet))
+	for runtimeID := range candidateSet {
+		candidates = append(candidates, runtimeID)
+	}
+	sort.Strings(candidates)
+	return candidates
 }
 
 // captureRuntimeSession opportunistically binds a freshly registered runtime
@@ -228,42 +288,10 @@ func (c *cli) captureRuntimeSession(runtimeID string) {
 }
 
 func errorCode(e error) string {
-	var controlErr *controlplane.Error
-	if errors.As(e, &controlErr) {
-		return string(controlErr.Code)
-	}
-	s := strings.ToLower(e.Error())
-	switch {
-	case strings.Contains(s, "credential") || strings.Contains(s, "active principal") || strings.Contains(s, "role required") || strings.Contains(s, "human principal"):
-		return "AUTHORIZATION"
-	case strings.Contains(s, "signature") || strings.Contains(s, "hash") || strings.Contains(s, "chain"):
-		return "INTEGRITY"
-	case strings.Contains(s, "remote") || strings.Contains(s, "git "):
-		return "EXTERNAL"
-	default:
-		return "VALIDATION"
-	}
+	return failure.Code(e)
 }
 func exitCode(e error) int {
-	switch errorCode(e) {
-	case "VALIDATION":
-		return 2
-	case "AUTHORIZATION":
-		return 3
-	case "BUSY":
-		return 4
-	case "INTEGRITY":
-		return 5
-	case "EXTERNAL":
-		return 7
-	case "OFFLINE", "UNAVAILABLE":
-		return 8
-	case "CONFLICT", "STALE_PRECONDITION":
-		return 9
-	case "RATE_LIMITED":
-		return 10
-	}
-	return 1
+	return failure.ExitStatus(e)
 }
 func (c *cli) versionCmd() *cobra.Command {
 	return &cobra.Command{Use: "version", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
@@ -937,7 +965,7 @@ func (c *cli) invocationCmd() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		return c.emit("invocation.request", event, c.notifyInteractiveTarget(id, target)...)
+		return c.emit("invocation.request", event, c.notifyInteractiveTarget(id, target, "")...)
 	}}
 	request.Flags().String("id", "", "invocation ID (auto-generated if omitted)")
 	request.Flags().StringVar(&target, "to", "", "target agent")
@@ -983,6 +1011,7 @@ func (c *cli) invocationCmd() *cobra.Command {
 	}}
 	next.Flags().String("runtime", "", "runtime ID used for capacity filtering")
 
+	var redeliveryRuntimeID string
 	redeliver := &cobra.Command{Use: "redeliver", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		id, _ := cmd.Flags().GetString("id")
 		state, err := c.svc.State()
@@ -997,10 +1026,11 @@ func (c *cli) invocationCmd() *cobra.Command {
 			return fmt.Errorf("invocation %s is %s, not PENDING", id, invocation.Status)
 		}
 		return c.emit("invocation.redeliver", map[string]any{"id": id, "target": invocation.Target},
-			c.notifyInteractiveTarget(id, invocation.Target)...)
+			c.notifyInteractiveTarget(id, invocation.Target, redeliveryRuntimeID)...)
 	}}
 	redeliver.Flags().String("id", "", "invocation ID to re-attempt direct delivery for")
 	_ = redeliver.MarkFlagRequired("id")
+	redeliver.Flags().StringVar(&redeliveryRuntimeID, "runtime", "", "specific eligible runtime when the target agent has multiple live runtimes")
 
 	var runtimeID string
 	var listenDuration time.Duration
@@ -1662,6 +1692,9 @@ func (c *cli) exportCmd() *cobra.Command {
 }
 func (c *cli) profileCmd() *cobra.Command {
 	root := &cobra.Command{Use: "profile"}
+	current := &cobra.Command{Use: "current", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		return c.emit("profile.current", c.actorResolution)
+	}}
 	list := &cobra.Command{Use: "list", RunE: func(cmd *cobra.Command, args []string) error {
 		u, e := identity.LoadUserConfig()
 		if e != nil {
@@ -1685,7 +1718,7 @@ func (c *cli) profileCmd() *cobra.Command {
 		return c.emit("profile.use", map[string]string{"active": name})
 	}}
 	use.Flags().StringVar(&name, "name", "", "profile name")
-	root.AddCommand(list, use)
+	root.AddCommand(current, list, use)
 	return root
 }
 func (c *cli) configCmd() *cobra.Command {
@@ -1930,10 +1963,11 @@ unattended: Register a runtime with "runtime register" and drive it with
   "runtime worker --adapter <adapter>" instead of an interactive agent loop.
   See docs/agent-invocations.md for the full adapter list and how to
   configure each one.
-live:      A runtime with a live "runtime interactive-serve --id <id> -- <cmd>"
-  session can be woken directly by "invocation request --to <id>" — no
-  worker needed. See docs/agent-invocations.md's "Direct delivery into a
-  live interactive session" section.
+live:      An agent with a live "runtime interactive-serve --id <runtime> --
+  <cmd>" session can be woken directly by "invocation request --to <agent>".
+  Register the runtime when its ID differs from the agent ID. See
+  docs/agent-invocations.md's "Direct delivery into a live interactive
+  session" section.
 `, exe)
 		return c.emit("agent-instructions", map[string]any{"instructions": instructions, "binary": exe})
 	}}

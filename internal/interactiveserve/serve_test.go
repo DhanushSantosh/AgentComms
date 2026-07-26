@@ -5,7 +5,9 @@ package interactiveserve
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -21,6 +23,36 @@ func requireBash(t *testing.T) {
 	t.Helper()
 	if _, err := exec.LookPath("bash"); err != nil {
 		t.Skip("bash not available")
+	}
+}
+
+func TestTryDeliverRefusesBusyTargetQuickly(t *testing.T) {
+	client, server := net.Pipe()
+	defer client.Close()
+	tee := newOutputTee()
+	if _, err := tee.Write([]byte(busyMarkers[0])); err != nil {
+		t.Fatal(err)
+	}
+	target, err := os.CreateTemp(t.TempDir(), "target")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer target.Close()
+	go handleConn(server, tee, target, &sync.Mutex{})
+
+	started := time.Now()
+	if err = json.NewEncoder(client).Encode(Request{Kind: "try-deliver", Message: "wake"}); err != nil {
+		t.Fatal(err)
+	}
+	var response Response
+	if err = json.NewDecoder(client).Decode(&response); err != nil {
+		t.Fatal(err)
+	}
+	if response.OK || !response.Busy {
+		t.Fatalf("expected a busy refusal, got %+v", response)
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("busy refusal took too long: %s", elapsed)
 	}
 }
 

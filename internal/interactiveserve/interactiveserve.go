@@ -98,11 +98,20 @@ func SocketPath(projectRoot, runtimeID string) string {
 	return filepath.Join(os.TempDir(), "agent-comms-interactive", name)
 }
 
+// Probe reports whether runtimeID currently has a live interactive-serve
+// process and whether that session is busy. Callers can use the busy signal
+// to avoid starting a delivery that would otherwise wait for the target's
+// current turn to finish.
+func Probe(ctx context.Context, projectRoot, runtimeID string) (alive, busy bool) {
+	resp, err := call(ctx, SocketPath(projectRoot, runtimeID), Request{Kind: "ping"})
+	return err == nil && resp.OK, err == nil && resp.OK && resp.Busy
+}
+
 // Alive reports whether runtimeID currently has a live interactive-serve
 // process dialable at its deterministic socket.
 func Alive(ctx context.Context, projectRoot, runtimeID string) bool {
-	resp, err := call(ctx, SocketPath(projectRoot, runtimeID), Request{Kind: "ping"})
-	return err == nil && resp.OK
+	alive, _ := Probe(ctx, projectRoot, runtimeID)
+	return alive
 }
 
 // Deliver asks runtimeID's owning interactive-serve process to inject
@@ -111,10 +120,20 @@ func Alive(ctx context.Context, projectRoot, runtimeID string) bool {
 // be a single line: Serve sends exactly one line of input followed by one
 // Enter keystroke, not a multi-line paste.
 func Deliver(ctx context.Context, projectRoot, runtimeID, message string) error {
+	return deliver(ctx, projectRoot, runtimeID, "deliver", message)
+}
+
+// TryDeliver makes one short delivery attempt and refuses quickly when the
+// target is busy or another delivery is already in progress.
+func TryDeliver(ctx context.Context, projectRoot, runtimeID, message string) error {
+	return deliver(ctx, projectRoot, runtimeID, "try-deliver", message)
+}
+
+func deliver(ctx context.Context, projectRoot, runtimeID, kind, message string) error {
 	if strings.ContainsAny(message, "\n\r") {
 		return errors.New("interactiveserve: message must be a single line; Deliver sends one line of terminal input followed by one Enter, not a multi-line paste")
 	}
-	resp, err := call(ctx, SocketPath(projectRoot, runtimeID), Request{Kind: "deliver", Message: message})
+	resp, err := call(ctx, SocketPath(projectRoot, runtimeID), Request{Kind: kind, Message: message})
 	if err != nil {
 		return fmt.Errorf("interactiveserve: deliver to %q: %w", runtimeID, err)
 	}
@@ -131,10 +150,10 @@ func Deliver(ctx context.Context, projectRoot, runtimeID, message string) error 
 // adapter's invocation handling. This keeps the terminal-injection channel
 // limited to "wake up and look," never a second, unaudited path for
 // instruction content to reach the runtime.
-func NotifyInvocation(ctx context.Context, projectRoot, targetRuntimeID, invocationID, requestedBy string) error {
+func NotifyInvocation(ctx context.Context, projectRoot, targetRuntimeID, targetAgentID, invocationID, requestedBy string) error {
 	message := fmt.Sprintf(
 		"Agent Comms: new invocation %q is pending for you (requested by %s). Run agent-comms invocation list --status PENDING --to %s --json to see it, then handle it per your existing protocol.",
-		invocationID, requestedBy, targetRuntimeID,
+		invocationID, requestedBy, targetAgentID,
 	)
-	return Deliver(ctx, projectRoot, targetRuntimeID, message)
+	return TryDeliver(ctx, projectRoot, targetRuntimeID, message)
 }

@@ -118,7 +118,11 @@ wrapper's own stdin/stdout so *any* terminal emulator — not tmux
 specifically — shows the child's real native UI unmediated. The owning
 process listens on a control socket at a path deterministic in (project
 root, runtime ID); "is a runtime live" is simply "can I dial its socket," so
-there is no separate registration step or registry file at all. This is
+there is no separate local socket registry file. The stabilized invocation
+path treats `--to` as an agent ID and resolves registered runtimes to their
+owning agent; a same-ID runtime remains the zero-registration fallback.
+When multiple eligible runtimes are live, delivery requires an explicit
+`invocation redeliver --runtime` choice instead of guessing. This is
 unix-only (creack/pty doesn't support Windows) — not a regression, since
 tmux itself never worked on Windows either.
 

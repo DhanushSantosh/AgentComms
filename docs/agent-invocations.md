@@ -113,6 +113,12 @@ Subsequent connections resolve directly to `AXIOM`. Outside this first-host
 bootstrap case, `agent_register` remains strict self-registration: `id` must
 equal the connection's resolved actor.
 
+Use the MCP `identity` tool to inspect the actor bound to the current
+connection. From the CLI, `agent-comms profile current --json` reports both
+the actor and why it was selected. Resolution rejects a host label bound to
+multiple actors and never borrows an active profile from another project.
+An explicit `--actor` or `--profile` can resolve an intentional ambiguity.
+
 `agent_activate` is exposed too, but stays exactly as gated as the CLI's
 `agent activate` — owner/orchestrator-only. Until an agent is activated,
 every other tool (`runtime_register`, `invocation_*`, ...) fails the same
@@ -566,23 +572,23 @@ independently inspected the project, flagged what looked suspicious, and
 asked for confirmation before proceeding on a low-stakes request; once
 satisfied, it drove `invocation claim/start/complete` unattended.
 
-From then on, `agent-comms invocation request --to opencode-runner ...`
-delivers directly: the moment the invocation is durably recorded, the same
-command dials that runtime's control socket and injects a short, bounded
-"check your pending invocations" nudge as real terminal input, and the
-runtime's own real, native UI updates live. There is no separate
-registration step and no registry file — a runtime's control socket path is
-deterministic from (project root, runtime ID), so "is this runtime live" is
-simply "can I dial its socket." The requester's own command does not block
-on it — delivery is attempted once, synchronously, best-effort. No live
-session for the target (the common case; most runtimes are headless
-workers) is silent. A live-but-undeliverable session (stayed busy, echo
-never confirmed) surfaces as a `warnings` entry on the response envelope,
-not a failure — the invocation itself is already durably recorded
-regardless of whether the wake-up nudge lands. If a delivery attempt was
-missed or failed, `agent-comms invocation redeliver --id <invocation-id>`
-re-attempts the same nudge on demand — there is no automatic retry, so a
-stuck `PENDING` invocation depends on something calling this explicitly.
+From then on, `agent-comms invocation request --to AXIOM ...` targets the
+agent identity, not a runtime name. Agent Comms resolves AXIOM's eligible
+registered runtimes and, when exactly one has a live interactive session,
+dials that runtime's deterministic control socket and injects a short,
+bounded "check your pending invocations" nudge. For the simplest local
+workflow, a same-ID live runtime remains a fallback even without a runtime
+registration.
+
+Delivery is attempted once, synchronously, and best-effort after the
+invocation is durably recorded. It refuses quickly when the target is busy
+instead of holding the requesting agent through the target's current turn.
+No live session for the target (the common case; most runtimes are headless
+workers) is silent. Busy, ambiguous, or otherwise undeliverable live
+sessions surface as `warnings`, not mutation failures. Use
+`agent-comms invocation redeliver --id <invocation-id>` to retry, or add
+`--runtime <runtime-id>` when an agent intentionally has multiple live
+runtimes.
 
 This intentionally does not extend to the instruction content itself: the
 delivered notification only ever says an invocation is pending and how to

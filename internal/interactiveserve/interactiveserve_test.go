@@ -50,7 +50,7 @@ func TestDeliverRejectsEmbeddedNewlines(t *testing.T) {
 
 func TestNotifyInvocationMentionsIDAndTarget(t *testing.T) {
 	dir := t.TempDir()
-	sockPath := SocketPath(dir, "opencode-runner")
+	sockPath := SocketPath(dir, "opencode-runtime")
 	listener := listenTestSocket(t, sockPath)
 	var gotMessage string
 	go serveOneRequest(t, listener, func(req Request) Response {
@@ -59,11 +59,29 @@ func TestNotifyInvocationMentionsIDAndTarget(t *testing.T) {
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := NotifyInvocation(ctx, dir, "opencode-runner", "inv-42", "codex-runner"); err != nil {
+	if err := NotifyInvocation(ctx, dir, "opencode-runtime", "opencode-agent", "inv-42", "codex-runner"); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(gotMessage, "inv-42") || !strings.Contains(gotMessage, "opencode-runner") || !strings.Contains(gotMessage, "codex-runner") {
+	if !strings.Contains(gotMessage, "inv-42") || !strings.Contains(gotMessage, "opencode-agent") || !strings.Contains(gotMessage, "codex-runner") {
 		t.Fatalf("expected the notification to mention id/target/requester, got: %s", gotMessage)
+	}
+}
+
+func TestProbeReportsBusyLiveRuntime(t *testing.T) {
+	dir := t.TempDir()
+	sockPath := SocketPath(dir, "busy-runtime")
+	listener := listenTestSocket(t, sockPath)
+	go serveOneRequest(t, listener, func(req Request) Response {
+		if req.Kind != "ping" {
+			t.Errorf("expected ping request, got %+v", req)
+		}
+		return Response{OK: true, Busy: true}
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	alive, busy := Probe(ctx, dir, "busy-runtime")
+	if !alive || !busy {
+		t.Fatalf("expected live busy runtime, got alive=%t busy=%t", alive, busy)
 	}
 }
 
@@ -105,6 +123,31 @@ func TestProtocolRoundTripSurfacesError(t *testing.T) {
 	}
 	if resp.OK || resp.Error != "target refused" {
 		t.Fatalf("expected the server's error to round-trip, got %+v", resp)
+	}
+}
+
+func TestCallHonorsContextDeadlineAfterConnecting(t *testing.T) {
+	dir := t.TempDir()
+	sockPath := SocketPath(dir, "deadline")
+	listener := listenTestSocket(t, sockPath)
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		var request Request
+		_ = json.NewDecoder(conn).Decode(&request)
+		<-time.After(time.Second)
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	if _, err := call(ctx, sockPath, Request{Kind: "ping"}); err == nil {
+		t.Fatal("expected the context deadline to interrupt response waiting")
+	}
+	if elapsed := time.Since(started); elapsed > 500*time.Millisecond {
+		t.Fatalf("context deadline was not honored promptly: %s", elapsed)
 	}
 }
 

@@ -45,13 +45,25 @@ func TestInitializeAndToolCatalog(t *testing.T) {
 		t.Fatalf("initialize did not report the supplied binary version: %s", out.String())
 	}
 	for _, want := range []string{
-		"agent-comms", "task_create", "message_post", "invocation_request",
+		"agent-comms", `"identity"`, "task_create", "message_post", "invocation_request",
 		"invocation_next", "invocation_listen", "invocation_claim",
 		"runtime_register", "runtime_heartbeat", "verify",
 	} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("missing %s", want)
 		}
+	}
+}
+
+func TestIdentityToolReportsConnectionActor(t *testing.T) {
+	instance, _ := testsupport.StartPersonalProject(t)
+	input := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"identity","arguments":{}}}` + "\n"
+	var output bytes.Buffer
+	if err := Serve(instance, "AXIOM", testServerVersion, strings.NewReader(input), &output); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), `"actor":"AXIOM"`) {
+		t.Fatalf("identity tool did not report the bound actor: %s", output.String())
 	}
 }
 
@@ -168,6 +180,9 @@ func TestAgentRegisterToolRejectsSpoofedID(t *testing.T) {
 	}
 	if !strings.Contains(spoofOut.String(), `"error"`) {
 		t.Fatalf("expected agent_register to reject id != actor, got: %s", spoofOut.String())
+	}
+	if !strings.Contains(spoofOut.String(), `"data":{"code":"VALIDATION"}`) {
+		t.Fatalf("expected stable MCP error classification, got: %s", spoofOut.String())
 	}
 	state, e := instance.State()
 	if e != nil {

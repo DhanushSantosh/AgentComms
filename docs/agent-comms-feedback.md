@@ -17,7 +17,7 @@ error, or event that surfaced the problem.
 | 1 | No working-directory lease/lock enforcement | **High — data-loss risk** | ✅ Phase 3 — `task claim --worktree` with conflict detection |
 | 2 | 1200-char message body limit too small for engineering reports | High — degrades audit log quality | ✅ Phase 1 — improved error with `--body-file` hint |
 | 3 | No inbox filtering (`--since`/`--unread`) | High — doesn't scale | ✅ Phase 2 — `message inbox --from --unread --limit` |
-| 4 | Manual `--profile`/`--actor` pinning on every call | Medium — known race condition, foot-gun | ✅ Phase 3 — `AGENT_COMMS_ACTOR` env var |
+| 4 | Manual `--profile`/`--actor` pinning on every call | Medium — known race condition, foot-gun | ✅ Stabilized — explicit precedence, project isolation, ambiguity rejection, and observable identity |
 | 5 | `kind` taxonomy undiscoverable, everything is `FYI` | Medium — urgent events get lost in noise | ✅ Phase 1 — `--kind` help lists valid kinds; validation enumerates them |
 | 6 | Messages and tasks loosely coupled | Medium — no structured "done" signal | ✅ Phase 4 — `message resolve` auto-completes linked BLOCKED task |
 | 7 | No structured environment/state registry | Medium — stale prose instead of live state | ✅ Phase 4 — `env set/get/delete/list` with typed persisted events |
@@ -108,6 +108,11 @@ requires perfect manual discipline to avoid, every single call, indefinitely, is
   settable once per agent session, instead of requiring flags on every invocation.
 - Fail loudly (refuse to sign) if the resolved profile is ambiguous, rather than silently using
   whatever's "active" — silent-wrong-signer is strictly worse than a hard error.
+
+**Resolution:** `AGENT_COMMS_ACTOR` is supported, resolution precedence is
+centralized, profiles are isolated by project, ambiguous host bindings fail
+closed, and `profile current` / the MCP `identity` tool expose the effective
+actor.
 
 ---
 

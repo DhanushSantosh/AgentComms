@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
+	"github.com/DhanushSantosh/AgentComms/internal/failure"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 	"github.com/DhanushSantosh/AgentComms/internal/service"
 )
@@ -51,6 +52,7 @@ func tool(name, description string, properties map[string]any, required ...strin
 }
 func tools() []map[string]any {
 	return []map[string]any{
+		tool("identity", "Show the actor identity bound to this MCP connection", map[string]any{}),
 		tool("status", "Read the governed project state", map[string]any{}),
 		tool("history", "Read a bounded page of immutable signed events", map[string]any{
 			"cursor": map[string]any{"type": "string"},
@@ -171,11 +173,16 @@ func handle(s *service.Service, actor, serverVersion string, q request) (respons
 	return r, true
 }
 func rpcFail(r response, code int, e error) response {
-	r.Error = &rpcError{Code: code, Message: e.Error()}
+	r.Error = &rpcError{
+		Code: code, Message: e.Error(),
+		Data: map[string]any{"code": failure.Code(e)},
+	}
 	return r
 }
 func call(s *service.Service, actor string, p callParams) (any, error) {
 	switch p.Name {
+	case "identity":
+		return map[string]any{"actor": actor}, nil
 	case "status":
 		return s.State()
 	case "history":

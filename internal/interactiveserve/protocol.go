@@ -48,9 +48,17 @@ func call(ctx context.Context, socketPath string, req Request) (Response, error)
 		return Response{}, err
 	}
 	defer conn.Close()
-	if err := conn.SetDeadline(time.Now().Add(connDeadline)); err != nil {
+	deadline := time.Now().Add(connDeadline)
+	if contextDeadline, ok := ctx.Deadline(); ok && contextDeadline.Before(deadline) {
+		deadline = contextDeadline
+	}
+	if err := conn.SetDeadline(deadline); err != nil {
 		return Response{}, err
 	}
+	stopCancellation := context.AfterFunc(ctx, func() {
+		_ = conn.SetDeadline(time.Now())
+	})
+	defer stopCancellation()
 	if err := json.NewEncoder(conn).Encode(req); err != nil {
 		return Response{}, fmt.Errorf("interactiveserve: send request: %w", err)
 	}
