@@ -1560,7 +1560,7 @@ func (s *Service) Register(actor, display string, pt model.PrincipalType) (model
 	}
 	user, _ := identity.LoadUserConfig()
 	name := cfg.ProjectID + ":" + actor
-	user.Profiles[name] = identity.Profile{Name: name, ProjectID: cfg.ProjectID, Actor: actor, ProjectRoot: s.Store.Root}
+	user.Profiles[name] = identity.Profile{Name: name, ProjectID: cfg.ProjectID, Actor: actor, ProjectRoot: s.Store.Root, HostLabel: os.Getenv("AGENT_COMMS_HOST_LABEL")}
 	if user.ActiveProfile == "" {
 		user.ActiveProfile = name
 	}

@@ -7,6 +7,26 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 
 ### Added
 
+- Per-project, per-host actor resolution via `AGENT_COMMS_HOST_LABEL`,
+  closing the gap left by global MCP configs that hardcode one fixed
+  `--actor` per host identically across every project: a host now tags its
+  global config once with a stable label (e.g. `claude`, `codex`,
+  `opencode`) instead of a fixed actor, self-registers under a
+  project-chosen ID the first time it connects to a given project (an
+  owner-fallback MCP connection — one with no dedicated identity yet in
+  this project — is now permitted to `agent_register` under any id, not
+  only its own bound actor; `Register()` always mints a fresh, self-signed
+  keypair regardless of caller, so this bootstraps a new identity rather
+  than reopening the impersonation hole the self-registration invariant was
+  added to close), and every later connection from that same host, in that
+  same project, resolves straight to that same actor automatically —
+  `identity.Profile` now records the registering host alongside the actor
+  and project, and actor resolution (`internal/app/app.go`) checks for a
+  matching (project, host) profile before falling through to the existing
+  active-profile/owner fallback. This makes the real, chosen actor ID (not
+  the purely cosmetic, non-unique `display_name`) usable directly as the
+  `target` in `invocation_request` for agent-to-agent addressing, with no
+  translation layer and no per-project config edits.
 - `agent_register` and `agent_activate` MCP tools (`internal/mcp/server.go`),
   closing the one gap that stood between "MCP is the general, adapter-free
   way for any agent to participate" and it actually being true: without

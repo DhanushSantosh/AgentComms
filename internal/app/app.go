@@ -132,14 +132,21 @@ func (c *cli) root() *cobra.Command {
 		}
 		if c.actor == "" {
 			uc, _ := identity.LoadUserConfig()
-			pname := c.profile
-			if pname == "" {
-				pname = uc.ActiveProfile
+			if hostLabel := os.Getenv("AGENT_COMMS_HOST_LABEL"); hostLabel != "" {
+				if actor, ok := identity.FindProfileByProjectAndHost(uc.Profiles, cfg.ProjectID, hostLabel); ok {
+					c.actor = actor
+				}
 			}
-			if p, ok := uc.Profiles[pname]; ok && p.ProjectID == cfg.ProjectID {
-				c.actor = p.Actor
-			} else {
-				c.actor = cfg.Owner
+			if c.actor == "" {
+				pname := c.profile
+				if pname == "" {
+					pname = uc.ActiveProfile
+				}
+				if p, ok := uc.Profiles[pname]; ok && p.ProjectID == cfg.ProjectID {
+					c.actor = p.Actor
+				} else {
+					c.actor = cfg.Owner
+				}
 			}
 		}
 		if incomplete, state := c.svc.Store.CutoverIncomplete(); incomplete && !cutoverCommandAllowed(cmd.CommandPath()) {

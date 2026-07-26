@@ -141,6 +141,44 @@ func TestCompletion(t *testing.T) {
 	}
 }
 
+// TestHostLabelResolvesActorAcrossInvocations proves the per-project,
+// per-host actor resolution round trip: a connection that sets
+// AGENT_COMMS_HOST_LABEL and never passes --actor self-registers once as a
+// project-chosen ID, then automatically resolves to that same actor on a
+// later, independent command with no further prompting.
+func TestHostLabelResolvesActorAcrossInvocations(t *testing.T) {
+	project := t.TempDir()
+	cmd := exec.Command("git", "init")
+	cmd.Dir = project
+	if b, e := cmd.CombinedOutput(); e != nil {
+		t.Fatal(string(b))
+	}
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
+	t.Setenv("AGENT_COMMS_HOST_LABEL", "claude-test")
+	var out, stderr bytes.Buffer
+	run := func(args ...string) {
+		t.Helper()
+		out.Reset()
+		stderr.Reset()
+		args = append(args, "--project", project, "--json")
+		if err := Run(args, &out, &stderr); err != nil {
+			t.Fatalf("%v: %v\n%s", args, err, stderr.String())
+		}
+	}
+	run("init", "--non-interactive", "--owner", "owner", "--mode", "legacy")
+	run("agent", "register", "--id", "AXIOM")
+	run("agent", "activate", "--id", "AXIOM", "--actor", "owner", "--role", "AGENT", "--scope", "src")
+	run("message", "post", "--id", "msg1", "--kind", "FYI", "--to", "owner", "--subject", "test", "--body", "hello")
+	if !bytes.Contains(out.Bytes(), []byte(`"actor":"AXIOM"`)) {
+		t.Fatalf("message.post did not resolve to the host-labeled profile's actor: %s", out.String())
+	}
+	run("history")
+	if !bytes.Contains(out.Bytes(), []byte(`"actor":"AXIOM"`)) || !bytes.Contains(out.Bytes(), []byte(`"type":"message.post"`)) {
+		t.Fatalf("history did not show message.post authored by the resolved actor: %s", out.String())
+	}
+}
+
 func TestDoctorReportsRuntimeAndBootstrapProblems(t *testing.T) {
 	d := t.TempDir()
 	cmd := exec.Command("git", "init")

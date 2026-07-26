@@ -94,7 +94,7 @@ func tools() []map[string]any {
 		tool("invocation_reject", "Reject an open invocation with a reason", map[string]any{
 			"id": map[string]any{"type": "string"}, "reason": map[string]any{"type": "string"},
 		}, "id", "reason"),
-		tool("agent_register", "Self-register this connection's own actor as a new agent principal, generating its own signing keypair. id must equal this connection's own actor — registering a different id is rejected; only self-registration is permitted over MCP.", map[string]any{
+		tool("agent_register", "Self-register this connection's own actor as a new agent principal, generating its own signing keypair. id must equal this connection's own actor — registering a different id is rejected; only self-registration is permitted over MCP. Exception: a connection whose actor has not yet registered a dedicated identity in this project resolves to the project owner, and may register any id to bootstrap its first identity.", map[string]any{
 			"id":             map[string]any{"type": "string"},
 			"display_name":   map[string]any{"type": "string"},
 			"principal_type": map[string]any{"type": "string", "enum": []string{"HUMAN", "AGENT"}},
@@ -196,7 +196,17 @@ func call(s *service.Service, actor string, p callParams) (any, error) {
 	case "agent_register":
 		id := stringArg(p.Arguments, "id")
 		if id != actor {
-			return nil, fmt.Errorf("agent_register: only self-registration is permitted over MCP; id must equal this connection's own actor (%s)", actor)
+			cfg, cfgErr := s.Store.Config()
+			if cfgErr != nil {
+				return nil, cfgErr
+			}
+			if actor != cfg.Owner {
+				return nil, fmt.Errorf("agent_register: only self-registration is permitted over MCP; id must equal this connection's own actor (%s)", actor)
+			}
+			// actor resolved to the project owner -- no dedicated identity has
+			// been established for this connection in this project yet. The
+			// owner already has authority to register new principals; this is
+			// bootstrapping a brand-new identity, not impersonating an existing one.
 		}
 		principalType := stringArg(p.Arguments, "principal_type")
 		if principalType == "" {

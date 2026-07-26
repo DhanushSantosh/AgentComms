@@ -231,6 +231,45 @@ func TestAgentRegisterToolRejectsSpoofedID(t *testing.T) {
 	}
 }
 
+// TestAgentRegisterToolPermitsOwnerFallbackBootstrap covers the new
+// bootstrap case: a brand-new project has no stored profile for any
+// (project, host) pair yet, so a connection resolves to the project owner
+// by fallback. That owner-fallback connection must be able to register a
+// freshly-chosen, meaningful ID (e.g. "AXIOM") rather than being stuck
+// self-registering literally as "owner" — the owner already has authority
+// to create new principals, so this is bootstrapping a new identity, not
+// impersonating an existing one.
+func TestAgentRegisterToolPermitsOwnerFallbackBootstrap(t *testing.T) {
+	d := t.TempDir()
+	cmd := exec.Command("git", "init")
+	cmd.Dir = d
+	if out, e := cmd.CombinedOutput(); e != nil {
+		t.Fatal(string(out))
+	}
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(d, "user"))
+	instance := service.New(d)
+	instance.Store.SetCredentialStore(identity.NewMemoryStore())
+	if e := instance.Store.Init("owner"); e != nil {
+		t.Fatal(e)
+	}
+
+	input := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"agent_register","arguments":{"id":"AXIOM"}}}` + "\n"
+	var out bytes.Buffer
+	if e := Serve(instance, "owner", strings.NewReader(input), &out); e != nil {
+		t.Fatal(e)
+	}
+	if strings.Contains(out.String(), `"error"`) {
+		t.Fatalf("owner-fallback bootstrap registration should have succeeded: %s", out.String())
+	}
+	state, e := instance.State()
+	if e != nil {
+		t.Fatal(e)
+	}
+	if _, ok := state.Agents["AXIOM"]; !ok {
+		t.Fatalf("AXIOM was not registered: %+v", state.Agents)
+	}
+}
+
 // TestAgentRegisterToolRejectsInvalidPrincipalType guards the second half
 // of the same finding: principal_type was cast straight from an
 // unvalidated string to model.PrincipalType, even though the tool's own

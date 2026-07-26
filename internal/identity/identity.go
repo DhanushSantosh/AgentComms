@@ -146,6 +146,24 @@ type Profile struct {
 	ProjectID   string `json:"project_id"`
 	Actor       string `json:"actor"`
 	ProjectRoot string `json:"project_root"`
+	HostLabel   string `json:"host_label,omitempty"`
+}
+
+// FindProfileByProjectAndHost returns the actor from the single profile
+// matching both projectID and hostLabel. If zero or more than one profile
+// matches, it returns ok=false rather than guessing which one to use.
+func FindProfileByProjectAndHost(profiles map[string]Profile, projectID, hostLabel string) (string, bool) {
+	actor, found := "", false
+	for _, p := range profiles {
+		if p.ProjectID != projectID || p.HostLabel != hostLabel {
+			continue
+		}
+		if found {
+			return "", false
+		}
+		actor, found = p.Actor, true
+	}
+	return actor, found
 }
 type UserConfig struct {
 	ActiveProfile string             `json:"active_profile,omitempty"`
