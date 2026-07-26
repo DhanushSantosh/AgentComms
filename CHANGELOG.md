@@ -145,6 +145,24 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 
 ### Security
 
+- `Service.Register` (`agent-comms agent register`, and the `agent_register`
+  MCP tool built on it) no longer lets a second registration for an
+  already-registered agent ID silently destroy that agent's real
+  credential. Confirmed live, not theoretical: a duplicate registration
+  attempt (plausibly an MCP client retrying a call that had already
+  succeeded) generated a brand-new keypair, overwrote the existing valid
+  credential with it, and appended a new ledger event replacing the
+  original public key — permanently bricking that agent's ability to sign
+  anything, with no recovery path, since the destroyed private key was
+  never stored anywhere else. Root cause: `ValidateTransition`'s
+  "principal already exists" check was already enforced server-side for
+  remote/personal/service-mode registrations, but the local/legacy path
+  appended unconditionally, skipping it entirely, and generated + persisted
+  the fresh credential before any validation ran at all. Both paths now
+  validate duplicate registration before ever generating a credential
+  (local/legacy inside the same per-actor lock `Execute` already uses for
+  every other transition), and the credential/profile are only persisted
+  after a confirmed-successful append — never speculatively beforehand.
 - `agent-comms mcp`'s `agent_register` tool now enforces the self-registration
   invariant its own docstring already promised: `id` must equal the MCP
   connection's own bound actor, and `principal_type` is validated against

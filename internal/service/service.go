@@ -1495,6 +1495,25 @@ func migrationSeedEvent(typ string) bool {
 		return false
 	}
 }
+// Register mints a fresh credential and appends an agent.register event for
+// actor. The credential is deliberately generated in memory only and never
+// persisted until the ledger append has actually succeeded — a live bug
+// found this session showed why: the previous version wrote the fresh
+// credential to the store first, then appended. Registering an ID that was
+// already registered didn't fail closed; ValidateTransition's own
+// "principal already exists" check (which the remote/personal/service
+// authority backends already enforce server-side) was never being run at
+// all for the local/legacy path, which appended unconditionally. The net
+// effect: any second `agent.register` for an existing actor silently
+// destroyed that actor's real, working credential and replaced it with a
+// new one the ledger accepted as if it were the original, with no warning
+// and no recovery path — confirmed live, not theoretical, after a duplicate
+// registration attempt bricked an already-active agent's ability to sign
+// anything ever again. Local/legacy now runs the identical
+// ValidateTransition duplicate check remote mode already had, inside the
+// same per-actor lock Execute uses for every other transition, so the
+// check-then-append is atomic; only a confirmed-successful append is
+// followed by persisting the credential and profile.
 func (s *Service) Register(actor, display string, pt model.PrincipalType) (model.Event, error) {
 	cfg, e := s.Store.Config()
 	if e != nil {
@@ -1504,8 +1523,40 @@ func (s *Service) Register(actor, display string, pt model.PrincipalType) (model
 	if e != nil {
 		return model.Event{}, e
 	}
+	payload := model.AgentRegistered{PublicKey: cred.PublicKey, PrincipalType: pt, DisplayName: display}
+
+	var event model.Event
+	if s.remote != nil {
+		st, stateErr := s.State()
+		if stateErr != nil {
+			return model.Event{}, stateErr
+		}
+		if _, exists := st.Agents[actor]; exists {
+			return model.Event{}, errors.New("principal already exists")
+		}
+		event, e = s.executeRemote(actor, "agent.register", actor, payload)
+		if e != nil {
+			return model.Event{}, e
+		}
+	} else {
+		event, e = s.Store.MutateWithCredential(actor, cred, func() (string, string, any, error) {
+			st, stateErr := s.State()
+			if stateErr != nil {
+				return "", "", nil, stateErr
+			}
+			normalized, validateErr := ValidateTransition(st, actor, "agent.register", actor, payload, time.Now().UTC())
+			if validateErr != nil {
+				return "", "", nil, validateErr
+			}
+			return "agent.register", actor, normalized, nil
+		})
+		if e != nil {
+			return model.Event{}, e
+		}
+	}
+
 	if e = s.Store.Credentials.Put(cred); e != nil {
-		return model.Event{}, e
+		return event, fmt.Errorf("registration recorded but credential could not be stored: %w", e)
 	}
 	user, _ := identity.LoadUserConfig()
 	name := cfg.ProjectID + ":" + actor
@@ -1513,21 +1564,8 @@ func (s *Service) Register(actor, display string, pt model.PrincipalType) (model
 	if user.ActiveProfile == "" {
 		user.ActiveProfile = name
 	}
-	if e = identity.SaveUserConfig(user); e != nil {
-		return model.Event{}, e
-	}
-	payload := model.AgentRegistered{PublicKey: cred.PublicKey, PrincipalType: pt, DisplayName: display}
-	if s.remote != nil {
-		event, remoteErr := s.executeRemote(actor, "agent.register", actor, payload)
-		if remoteErr != nil {
-			_ = s.Store.Credentials.Delete(cfg.ProjectID, actor)
-			delete(user.Profiles, name)
-			_ = identity.SaveUserConfig(user)
-			return model.Event{}, remoteErr
-		}
-		return event, nil
-	}
-	return s.Store.Append(actor, "agent.register", actor, payload)
+	_ = identity.SaveUserConfig(user)
+	return event, nil
 }
 func (s *Service) RotateKey(actor string) (model.Event, error) {
 	cfg, e := s.Store.Config()

@@ -264,6 +264,65 @@ func TestAgentRenameRejectsUnknownAgentAndEmptyName(t *testing.T) {
 	}
 }
 
+// TestRegisterRejectsDuplicateIDWithoutTouchingExistingCredential guards a
+// real, live-discovered vulnerability: Register used to write a freshly
+// generated credential to the store before ever validating whether the
+// actor already existed, and the local/legacy append path skipped
+// ValidateTransition's "principal already exists" check entirely (only the
+// remote/personal/service authority backends enforced it server-side). A
+// second `agent.register` for an already-registered ID didn't fail — it
+// silently minted a new keypair, overwrote the existing (valid, working)
+// credential with it, and appended a new ledger event replacing the
+// original public key, with no way to recover the destroyed original
+// credential afterward. This bit a live agent mid-session, permanently
+// bricking its ability to ever sign anything again under that identity.
+func TestRegisterRejectsDuplicateIDWithoutTouchingExistingCredential(t *testing.T) {
+	s := setup(t)
+	if _, err := s.Register("dup-test", "Dup Test", model.PrincipalAgent); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := s.Store.Config()
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := s.State()
+	if err != nil {
+		t.Fatal(err)
+	}
+	originalPublicKey := before.Agents["dup-test"].PublicKey
+	originalCred, err := identity.ResolveCredential(s.Store.Credentials, cfg.ProjectID, "dup-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := s.Register("dup-test", "Dup Test Again", model.PrincipalAgent); err == nil {
+		t.Fatal("expected a second registration of an already-registered ID to fail")
+	}
+
+	after, err := s.State()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Agents["dup-test"].PublicKey != originalPublicKey {
+		t.Fatalf("ledger's registered public key changed after a rejected duplicate registration: was %q, now %q",
+			originalPublicKey, after.Agents["dup-test"].PublicKey)
+	}
+	afterCred, err := identity.ResolveCredential(s.Store.Credentials, cfg.ProjectID, "dup-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if afterCred.PrivateKey != originalCred.PrivateKey || afterCred.PublicKey != originalCred.PublicKey {
+		t.Fatal("the original credential was overwritten despite the duplicate registration being rejected")
+	}
+	// The original credential must still actually work — the real-world
+	// failure mode was that it silently stopped being able to sign anything.
+	must(t, s, "owner", "agent.activate", "dup-test", model.AgentActivated{Role: model.RoleAgent, Scopes: []string{"src"}})
+	if _, err := s.Execute("dup-test", "runtime.register", "dup-test-runtime",
+		model.RuntimeRegistered{AgentID: "dup-test", Connector: "MCP", MaxConcurrent: 1}); err != nil {
+		t.Fatalf("original credential can no longer sign after a rejected duplicate registration: %v", err)
+	}
+}
+
 func TestActorKeyRotationPreservesVerification(t *testing.T) {
 	s := setup(t)
 	activate(t, s, "alpha", model.PrincipalAgent)
