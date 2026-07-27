@@ -48,6 +48,8 @@ CREATE TABLE IF NOT EXISTS events (
     UNIQUE (project_id, idempotency_key),
     FOREIGN KEY (project_id) REFERENCES projects(project_id)
 );
+
+PRAGMA user_version=1;
 `
 
 type Engine struct {

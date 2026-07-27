@@ -2,6 +2,7 @@ package app
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -20,6 +21,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/DhanushSantosh/AgentComms/internal/buildinfo"
 	"github.com/DhanushSantosh/AgentComms/internal/claudeserve"
 	"github.com/DhanushSantosh/AgentComms/internal/claudetail"
 	"github.com/DhanushSantosh/AgentComms/internal/codexserve"
@@ -32,6 +34,7 @@ import (
 	"github.com/DhanushSantosh/AgentComms/internal/mcp"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 	"github.com/DhanushSantosh/AgentComms/internal/onboarding"
+	"github.com/DhanushSantosh/AgentComms/internal/projectlifecycle"
 	"github.com/DhanushSantosh/AgentComms/internal/runtimeinit"
 	"github.com/DhanushSantosh/AgentComms/internal/service"
 	"github.com/DhanushSantosh/AgentComms/internal/sessionbind"
@@ -41,7 +44,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var Version = "0.1.0"
+var Version = buildinfo.Version
 
 const APIVersion = "agent-comms/v1"
 
@@ -89,7 +92,9 @@ var launchDaemonProcess = func(executable, projectRoot string, output io.Writer)
 }
 
 func Run(args []string, stdout, stderr io.Writer) error {
+	buildinfo.Version = Version
 	store.RuntimeVersion = Version
+	store.RuntimeBuildID = buildinfo.ResolvedBuildID()
 	c := &cli{out: stdout, err: stderr, timeout: 10 * time.Second}
 	root := c.root()
 	root.SetArgs(args)
@@ -110,7 +115,15 @@ func Run(args []string, stdout, stderr io.Writer) error {
 func (c *cli) root() *cobra.Command {
 	r := &cobra.Command{Use: "agent-comms", Short: "Governed coordination for concurrent agents", Version: Version, PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		c.cmd = cmd.CommandPath()
-		if cmd.Name() == "version" || cmd.Name() == "init" || cmd.Name() == "completion" || (cmd.Name() == "update" && cmd.Parent() == cmd.Root()) || cmd.CommandPath() == "agent-comms daemon serve" || cmd.CommandPath() == "agent-comms claude serve" || cmd.CommandPath() == "agent-comms claude attach" || cmd.CommandPath() == "agent-comms codex serve" || cmd.CommandPath() == "agent-comms codex attach" || cmd.CommandPath() == "agent-comms runtime interactive-serve" {
+		if cmd.Name() == "version" || cmd.Name() == "init" || cmd.Name() == "completion" ||
+			(cmd.Name() == "update" && cmd.Parent() == cmd.Root()) ||
+			strings.HasPrefix(cmd.CommandPath(), "agent-comms project upgrade") ||
+			cmd.CommandPath() == "agent-comms daemon serve" ||
+			cmd.CommandPath() == "agent-comms claude serve" ||
+			cmd.CommandPath() == "agent-comms claude attach" ||
+			cmd.CommandPath() == "agent-comms codex serve" ||
+			cmd.CommandPath() == "agent-comms codex attach" ||
+			cmd.CommandPath() == "agent-comms runtime interactive-serve" {
 			return nil
 		}
 		root := c.project
@@ -121,7 +134,18 @@ func (c *cli) root() *cobra.Command {
 				return e
 			}
 		}
-		c.svc = service.New(root)
+		applyLifecycle := cmd.Name() != "doctor"
+		if _, e := projectlifecycle.Reconcile(cmd.Context(), projectlifecycle.Options{
+			Root: root, Version: Version, BuildID: buildinfo.ResolvedBuildID(),
+			Apply: applyLifecycle, Timeout: c.timeout, StopDaemon: applyLifecycle,
+		}); e != nil {
+			return e
+		}
+		if cmd.Name() == "doctor" {
+			c.svc = service.NewTolerant(root)
+		} else {
+			c.svc = service.New(root)
+		}
 		cfg, e := c.svc.Store.Config()
 		if e != nil {
 			return fmt.Errorf("open project runtime: %w", e)
@@ -131,7 +155,7 @@ func (c *cli) root() *cobra.Command {
 		}
 		c.svc.Store.LockTimeout = c.timeout
 		c.svc.SetRemoteRecovery(func() error { return ensureDaemon(root, cfg) })
-		if cfg.RuntimeMode == "service" || cfg.RuntimeMode == "personal" {
+		if cmd.Name() != "doctor" && (cfg.RuntimeMode == "service" || cfg.RuntimeMode == "personal") {
 			if e = ensureDaemon(root, cfg); e != nil {
 				return e
 			}
@@ -166,7 +190,7 @@ func (c *cli) root() *cobra.Command {
 	f.DurationVar(&c.timeout, "timeout", 10*time.Second, "transaction lock timeout")
 	f.BoolVar(&c.noColor, "no-color", false, "disable ANSI color")
 	f.BoolVarP(&c.quiet, "quiet", "q", false, "suppress non-essential output")
-	r.AddCommand(c.versionCmd(), c.initCmd(), c.doctorCmd(), c.verifyCmd(), c.statusCmd(), c.controlCmd(), c.historyCmd(), c.searchCmd(), c.agentCmd(), c.runtimeCmd(), c.invocationCmd(), c.sessionCmd(), c.taskCmd(), c.messageCmd(), c.decisionCmd(), c.approvalCmd(), c.artifactCmd(), c.documentCmd(), c.envCmd(), c.draftCmd(), c.archiveCmd(), c.exportCmd(), c.profileCmd(), c.configCmd(), c.themeCmd(), c.updateCmd(), c.completionCmd(r), c.agentInstructionsCmd(), c.mcpCmd(), c.watchCmd(), c.tuiCmd(), c.daemonCmd(), c.claudeCmd(), c.codexCmd())
+	r.AddCommand(c.versionCmd(), c.initCmd(), c.projectCmd(), c.doctorCmd(), c.verifyCmd(), c.statusCmd(), c.controlCmd(), c.historyCmd(), c.searchCmd(), c.agentCmd(), c.runtimeCmd(), c.invocationCmd(), c.sessionCmd(), c.taskCmd(), c.messageCmd(), c.decisionCmd(), c.approvalCmd(), c.artifactCmd(), c.documentCmd(), c.envCmd(), c.draftCmd(), c.archiveCmd(), c.exportCmd(), c.profileCmd(), c.configCmd(), c.themeCmd(), c.updateCmd(), c.completionCmd(r), c.agentInstructionsCmd(), c.mcpCmd(), c.watchCmd(), c.tuiCmd(), c.daemonCmd(), c.claudeCmd(), c.codexCmd())
 	return r
 }
 func (c *cli) emit(command string, v any, warnings ...string) error {
@@ -289,15 +313,169 @@ func (c *cli) captureRuntimeSession(runtimeID string) {
 }
 
 func errorCode(e error) string {
+	var lifecycleError *projectlifecycle.Error
+	if errors.As(e, &lifecycleError) {
+		return string(lifecycleError.Code)
+	}
 	return failure.Code(e)
 }
 func exitCode(e error) int {
+	var lifecycleError *projectlifecycle.Error
+	if errors.As(e, &lifecycleError) {
+		switch lifecycleError.Code {
+		case projectlifecycle.CodeUpgradeRequired, projectlifecycle.CodeProjectTooNew, projectlifecycle.CodeUpgradeUnsupported:
+			return 11
+		case projectlifecycle.CodeUpgradeFailed:
+			return 12
+		case projectlifecycle.CodeConflict:
+			return 9
+		}
+	}
 	return failure.ExitStatus(e)
 }
 func (c *cli) versionCmd() *cobra.Command {
 	return &cobra.Command{Use: "version", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
-		return c.emit("version", map[string]any{"version": Version, "schema_version": model.SchemaVersion, "go": runtime.Version(), "os": runtime.GOOS, "arch": runtime.GOARCH})
+		return c.emit("version", map[string]any{"version": Version, "build_id": buildinfo.ResolvedBuildID(), "schema_version": model.SchemaVersion, "project_format_version": store.ProjectFormatVersion, "go": runtime.Version(), "os": runtime.GOOS, "arch": runtime.GOARCH})
 	}}
+}
+
+func (c *cli) projectCmd() *cobra.Command {
+	root := &cobra.Command{Use: "project", Short: "Inspect and maintain the initialized project"}
+	upgrade := c.projectUpgradeCmd()
+	root.AddCommand(upgrade)
+	return root
+}
+
+func (c *cli) projectUpgradeCmd() *cobra.Command {
+	var yes, allKnown bool
+	upgrade := &cobra.Command{
+		Use:   "upgrade",
+		Short: "Inspect, back up, reconcile, restart, and verify a project",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			roots, err := c.upgradeRoots(allKnown)
+			if err != nil {
+				return err
+			}
+			results := make([]projectlifecycle.Result, 0, len(roots))
+			for _, root := range roots {
+				plan, _, inspectErr := projectlifecycle.Inspect(root, Version, buildinfo.ResolvedBuildID())
+				if inspectErr != nil {
+					return inspectErr
+				}
+				approved := yes
+				if plan.RequiresConfirmation && !approved {
+					if c.nonInteractive {
+						return &projectlifecycle.Error{Code: projectlifecycle.CodeUpgradeRequired, Message: "project upgrade requires --yes in non-interactive mode"}
+					}
+					fmt.Fprintf(c.out, "Upgrade %s with %d action(s)? [y/N] ", root, len(plan.Actions))
+					scanner := bufio.NewScanner(os.Stdin)
+					if !scanner.Scan() || !strings.EqualFold(strings.TrimSpace(scanner.Text()), "y") {
+						return errors.New("project upgrade cancelled")
+					}
+					approved = true
+				}
+				result, reconcileErr := projectlifecycle.Reconcile(cmd.Context(), projectlifecycle.Options{
+					Root: root, Version: Version, BuildID: buildinfo.ResolvedBuildID(),
+					Apply: true, Approved: approved, Timeout: c.timeout, StopDaemon: true,
+				})
+				if reconcileErr != nil {
+					return reconcileErr
+				}
+				projectService := service.New(root)
+				config, configErr := projectService.Store.Config()
+				if configErr != nil {
+					return configErr
+				}
+				if config.RuntimeMode == "personal" || config.RuntimeMode == "service" {
+					if daemonErr := ensureDaemon(root, config); daemonErr != nil {
+						return daemonErr
+					}
+				}
+				if verifyErr := projectService.Verify(0, 0); verifyErr != nil {
+					return &projectlifecycle.Error{Code: projectlifecycle.CodeUpgradeFailed, Message: "post-upgrade audit verification: " + verifyErr.Error()}
+				}
+				result.Verified = true
+				results = append(results, result)
+			}
+			return c.emit("project.upgrade", map[string]any{
+				"projects": results, "upgraded": countChangedProjects(results), "verified": true,
+			})
+		},
+	}
+	upgrade.Flags().BoolVarP(&yes, "yes", "y", false, "approve confirmation-required migrations")
+	upgrade.Flags().BoolVar(&allKnown, "all-known", false, "upgrade distinct projects recorded in identity profiles")
+
+	for _, operation := range []string{"status", "plan"} {
+		operation := operation
+		var operationAllKnown bool
+		command := &cobra.Command{Use: operation, Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+			roots, err := c.upgradeRoots(operationAllKnown)
+			if err != nil {
+				return err
+			}
+			plans := make([]projectlifecycle.Plan, 0, len(roots))
+			for _, root := range roots {
+				plan, _, inspectErr := projectlifecycle.Inspect(root, Version, buildinfo.ResolvedBuildID())
+				if inspectErr != nil {
+					return inspectErr
+				}
+				plans = append(plans, plan)
+			}
+			return c.emit("project.upgrade."+operation, map[string]any{"projects": plans})
+		}}
+		command.Flags().BoolVar(&operationAllKnown, "all-known", false, "inspect distinct projects recorded in identity profiles")
+		upgrade.AddCommand(command)
+	}
+	return upgrade
+}
+
+func (c *cli) upgradeRoots(allKnown bool) ([]string, error) {
+	if !allKnown {
+		root := c.project
+		if root == "" {
+			var err error
+			root, err = os.Getwd()
+			if err != nil {
+				return nil, err
+			}
+		}
+		return []string{root}, nil
+	}
+	config, err := identity.LoadUserConfig()
+	if err != nil {
+		return nil, err
+	}
+	unique := map[string]struct{}{}
+	for _, profile := range config.Profiles {
+		if strings.TrimSpace(profile.ProjectRoot) == "" {
+			continue
+		}
+		absolute, absoluteErr := filepath.Abs(profile.ProjectRoot)
+		if absoluteErr != nil {
+			return nil, absoluteErr
+		}
+		unique[filepath.Clean(absolute)] = struct{}{}
+	}
+	roots := make([]string, 0, len(unique))
+	for root := range unique {
+		roots = append(roots, root)
+	}
+	sort.Strings(roots)
+	if len(roots) == 0 {
+		return nil, errors.New("no initialized projects are recorded in identity profiles")
+	}
+	return roots, nil
+}
+
+func countChangedProjects(results []projectlifecycle.Result) int {
+	count := 0
+	for _, result := range results {
+		if result.Changed {
+			count++
+		}
+	}
+	return count
 }
 func (c *cli) initCmd() *cobra.Command {
 	var owner string
@@ -438,7 +616,15 @@ func (c *cli) doctorCmd() *cobra.Command {
 				}
 			}
 		}
-		r := map[string]any{"integrity": verify == nil, "schema_version": cfg.SchemaVersion, "binary_version": Version, "runtime_toolkit_version": cfg.ToolkitVersion, "runtime": filepath.Join(c.svc.Store.Root, store.Runtime), "telemetry": false, "healthy": len(findings) == 0, "findings": findings}
+		lifecycle, _, lifecycleErr := projectlifecycle.Inspect(c.svc.Store.Root, Version, buildinfo.ResolvedBuildID())
+		if lifecycleErr != nil {
+			add("ERROR", "PROJECT_LIFECYCLE_INVALID", lifecycleErr.Error(), "Run `agent-comms project upgrade status` and repair the reported compatibility problem.")
+		} else if len(lifecycle.Actions) > 0 || lifecycle.Interrupted {
+			add("WARNING", "PROJECT_UPGRADE_AVAILABLE",
+				fmt.Sprintf("project has %d lifecycle action(s); interrupted=%t", len(lifecycle.Actions), lifecycle.Interrupted),
+				"Run `agent-comms project upgrade`; it plans, backs up, resumes, and verifies the project in one operation.")
+		}
+		r := map[string]any{"integrity": verify == nil, "schema_version": cfg.SchemaVersion, "binary_version": Version, "binary_build_id": buildinfo.ResolvedBuildID(), "runtime_toolkit_version": cfg.ToolkitVersion, "runtime_toolkit_build_id": cfg.ToolkitBuildID, "project_format_version": cfg.ProjectFormatVersion, "managed_files_version": cfg.ManagedFilesVersion, "runtime": filepath.Join(c.svc.Store.Root, store.Runtime), "telemetry": false, "healthy": len(findings) == 0, "findings": findings, "project_lifecycle": lifecycle}
 		if cfg.RuntimeMode == "service" || cfg.RuntimeMode == "personal" {
 			r["runtime_mode"] = cfg.RuntimeMode
 			if cfg.RuntimeMode == "service" {
@@ -1807,6 +1993,7 @@ func (c *cli) updateCmd() *cobra.Command {
 	}}
 	check.Flags().StringVar(&channel, "channel", "stable", "stable or preview")
 	var version string
+	var yes, allKnown, skipProjectUpgrade bool
 	apply := &cobra.Command{Use: "apply", RunE: func(cmd *cobra.Command, args []string) error {
 		if _, err := exec.LookPath("cosign"); err != nil {
 			return errors.New("verified self-update requires cosign on PATH; use the signed installer until bundled verification is available")
@@ -1821,12 +2008,91 @@ func (c *cli) updateCmd() *cobra.Command {
 		if err != nil {
 			return err
 		}
+		result["binary_updated"] = true
+		if skipProjectUpgrade {
+			result["project_upgrade"] = map[string]any{"skipped": true, "reason": "requested by --skip-project-upgrade"}
+			return c.emit("update.apply", result)
+		}
+		projectRoot, projectFound := currentInitializedProject(c.project)
+		if allKnown || projectFound {
+			upgradeResult, upgradeErr := c.handoffProjectUpgrade(ctx, result["installed"].(string), projectRoot, yes, allKnown)
+			if upgradeErr != nil {
+				return &projectlifecycle.Error{
+					Code:    projectlifecycle.CodeUpgradeFailed,
+					Message: "binary updated successfully but project reconciliation failed: " + upgradeErr.Error(),
+				}
+			}
+			result["project_upgrade"] = upgradeResult
+		} else {
+			result["project_upgrade"] = map[string]any{"skipped": true, "reason": "current directory is not an initialized project"}
+		}
 		return c.emit("update.apply", result)
 	}}
 	apply.Flags().StringVar(&channel, "channel", "stable", "stable or preview")
 	apply.Flags().StringVar(&version, "version", "", "exact release tag")
+	apply.Flags().BoolVarP(&yes, "yes", "y", false, "approve confirmation-required project migrations")
+	apply.Flags().BoolVar(&allKnown, "all-known", false, "reconcile projects recorded in identity profiles")
+	apply.Flags().BoolVar(&skipProjectUpgrade, "skip-project-upgrade", false, "install the binary without reconciling projects")
 	root.AddCommand(check, apply)
 	return root
+}
+
+func currentInitializedProject(explicit string) (string, bool) {
+	root := explicit
+	if root == "" {
+		root, _ = os.Getwd()
+	}
+	if root == "" {
+		return "", false
+	}
+	absolute, err := filepath.Abs(root)
+	if err != nil {
+		return "", false
+	}
+	info, err := os.Lstat(filepath.Join(absolute, store.Runtime))
+	return absolute, err == nil && info.IsDir() && info.Mode()&os.ModeSymlink == 0
+}
+
+func (c *cli) handoffProjectUpgrade(ctx context.Context, executable, projectRoot string, yes, allKnown bool) (any, error) {
+	arguments := []string{"project", "upgrade"}
+	if projectRoot != "" {
+		arguments = append(arguments, "--project", projectRoot)
+	}
+	if yes {
+		arguments = append(arguments, "--yes")
+	}
+	if allKnown {
+		arguments = append(arguments, "--all-known")
+	}
+	process := exec.CommandContext(ctx, executable, arguments...)
+	process.Stdin = os.Stdin
+	if c.json {
+		arguments = append(arguments, "--json", "--non-interactive")
+		process = exec.CommandContext(ctx, executable, arguments...)
+		var stdout, stderr bytes.Buffer
+		process.Stdout = &stdout
+		process.Stderr = &stderr
+		if err := process.Run(); err != nil {
+			return nil, fmt.Errorf("%w: %s", err, strings.TrimSpace(stderr.String()))
+		}
+		var envelope Envelope
+		if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+			return nil, fmt.Errorf("decode upgraded binary response: %w", err)
+		}
+		if !envelope.OK {
+			return nil, errors.New("upgraded binary did not verify the project")
+		}
+		return envelope.Result, nil
+	}
+	arguments = append(arguments, "--quiet")
+	process = exec.CommandContext(ctx, executable, arguments...)
+	process.Stdin = os.Stdin
+	process.Stdout = c.out
+	process.Stderr = c.err
+	if err := process.Run(); err != nil {
+		return nil, err
+	}
+	return map[string]any{"verified": true, "all_known": allKnown}, nil
 }
 
 type releaseAsset struct {
@@ -1928,12 +2194,38 @@ func installRelease(ctx context.Context, r githubRelease) (map[string]any, error
 	}
 	backup := exe + ".previous"
 	_ = os.Remove(backup)
+	temporary, e := os.CreateTemp(filepath.Dir(exe), "."+filepath.Base(exe)+".update-*")
+	if e != nil {
+		return nil, e
+	}
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+	if e = temporary.Chmod(0o755); e == nil {
+		_, e = temporary.Write(b)
+	}
+	if e == nil {
+		e = temporary.Sync()
+	}
+	closeErr := temporary.Close()
+	if e == nil {
+		e = closeErr
+	}
+	if e != nil {
+		return nil, e
+	}
 	if e = os.Rename(exe, backup); e != nil {
 		return nil, e
 	}
-	if e = os.WriteFile(exe, b, 0755); e != nil {
+	if e = os.Rename(temporaryPath, exe); e != nil {
 		_ = os.Rename(backup, exe)
 		return nil, e
+	}
+	if directory, openErr := os.Open(filepath.Dir(exe)); openErr == nil {
+		e = directory.Sync()
+		_ = directory.Close()
+		if e != nil {
+			return nil, e
+		}
 	}
 	return map[string]any{"version": r.Tag, "installed": exe, "previous": backup, "verified": true}, nil
 }
@@ -2199,6 +2491,11 @@ func (c *cli) daemonCmd() *cobra.Command {
 			ConnectorConfigPath: strings.TrimSpace(os.Getenv("AGENT_COMMS_CONNECTOR_CONFIG")),
 			RuntimeMode:         cfg.RuntimeMode, PersonalDatabase: runtimeinit.DatabasePath(projectRoot),
 			ServicePrivateKey: servicePrivateKey, ProjectID: cfg.ProjectID,
+			ProductVersion: Version, BuildID: buildinfo.ResolvedBuildID(),
+			ProjectFormatVersion: store.ProjectFormatVersion,
+			CacheSchemaVersion:   projectlifecycle.ProjectionCacheSchemaVersion,
+			DraftSchemaVersion:   projectlifecycle.DraftStoreSchemaVersion,
+			DraftPath:            runtimeinit.DraftPath(projectRoot),
 		})
 	}}
 	root.AddCommand(serve)
@@ -2216,7 +2513,11 @@ func ensureDaemon(projectRoot string, cfg store.Config) error {
 	if err == nil {
 		if health.RuntimeMode == cfg.RuntimeMode &&
 			(health.ProjectID == cfg.ProjectID || (cfg.RuntimeMode == "service" && health.ProjectID == "*")) &&
-			health.ProtocolVersion == controlplane.LocalDaemonProtocolVersion {
+			health.ProtocolVersion == controlplane.LocalDaemonProtocolVersion &&
+			health.BuildID == buildinfo.ResolvedBuildID() &&
+			health.ProjectFormatVersion == store.ProjectFormatVersion &&
+			health.CacheSchemaVersion == projectlifecycle.ProjectionCacheSchemaVersion &&
+			health.DraftSchemaVersion == projectlifecycle.DraftStoreSchemaVersion {
 			return nil
 		}
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), time.Second)

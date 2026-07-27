@@ -27,21 +27,32 @@ const (
 )
 
 type Daemon struct {
-	cache       *localcache.Cache
-	remote      authorityClient
-	syncMu      sync.Mutex
-	syncing     map[string]*syncState
-	dispatcher  *Dispatcher
-	personal    bool
-	shutdown    func()
-	runtimeMode string
-	projectID   string
-	listeners   chan struct{}
+	cache                *localcache.Cache
+	remote               authorityClient
+	syncMu               sync.Mutex
+	syncing              map[string]*syncState
+	dispatcher           *Dispatcher
+	personal             bool
+	shutdown             func()
+	runtimeMode          string
+	projectID            string
+	productVersion       string
+	buildID              string
+	projectFormatVersion int
+	cacheSchemaVersion   int
+	draftSchemaVersion   int
+	draftStorage         draftStore
+	listeners            chan struct{}
 }
 
 type authorityClient interface {
 	Command(context.Context, controlplane.Command) (controlplane.Event, controlplane.Receipt, error)
 	Events(context.Context, string, controlplane.PageRequest) (controlplane.EventPage, error)
+}
+
+type draftStore interface {
+	SaveDraft(context.Context, controlplane.Draft) error
+	Drafts(context.Context, string, int) ([]controlplane.Draft, error)
 }
 
 type syncState struct {
@@ -55,7 +66,7 @@ func New(cache *localcache.Cache, client authorityClient) (*Daemon, error) {
 	}
 	return &Daemon{
 		cache: cache, remote: client, syncing: map[string]*syncState{},
-		listeners: make(chan struct{}, maxRuntimeListeners),
+		listeners: make(chan struct{}, maxRuntimeListeners), draftStorage: cache,
 	}, nil
 }
 
@@ -65,6 +76,10 @@ func (d *Daemon) Handler() http.Handler {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"status": "live", "runtime_mode": d.runtimeMode, "project_id": d.projectID,
 			"protocol_version": controlplane.LocalDaemonProtocolVersion,
+			"product_version":  d.productVersion, "build_id": d.buildID,
+			"project_format_version": d.projectFormatVersion,
+			"cache_schema_version":   d.cacheSchemaVersion,
+			"draft_schema_version":   d.draftSchemaVersion,
 		})
 	})
 	mux.HandleFunc("POST /v1/admin/shutdown", d.shutdownDaemon)
@@ -103,6 +118,20 @@ func (d *Daemon) SetShutdown(shutdown func()) {
 func (d *Daemon) SetIdentity(runtimeMode, projectID string) {
 	d.runtimeMode = runtimeMode
 	d.projectID = projectID
+}
+
+func (d *Daemon) SetCompatibility(productVersion, buildID string, projectFormat, cacheSchema, draftSchema int) {
+	d.productVersion = productVersion
+	d.buildID = buildID
+	d.projectFormatVersion = projectFormat
+	d.cacheSchemaVersion = cacheSchema
+	d.draftSchemaVersion = draftSchema
+}
+
+func (d *Daemon) SetDraftStore(store draftStore) {
+	if store != nil {
+		d.draftStorage = store
+	}
 }
 
 func (d *Daemon) metadata(sequence uint64, receipt *controlplane.Receipt) controlplane.ResultMetadata {
@@ -276,7 +305,7 @@ func (d *Daemon) saveDraft(w http.ResponseWriter, r *http.Request) {
 		writeControlError(w, &controlplane.Error{Code: controlplane.CodeValidation, Message: "path and draft project IDs differ"})
 		return
 	}
-	if err := d.cache.SaveDraft(r.Context(), draft); err != nil {
+	if err := d.draftStorage.SaveDraft(r.Context(), draft); err != nil {
 		writeControlError(w, err)
 		return
 	}
@@ -293,7 +322,7 @@ func (d *Daemon) drafts(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	drafts, err := d.cache.Drafts(r.Context(), r.PathValue("project"), limit)
+	drafts, err := d.draftStorage.Drafts(r.Context(), r.PathValue("project"), limit)
 	if err != nil {
 		writeControlError(w, err)
 		return

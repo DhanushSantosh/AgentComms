@@ -2,8 +2,10 @@ package store
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,23 +17,36 @@ import (
 
 const Runtime = ".agent-comms"
 
-var RuntimeVersion = "dev"
+var (
+	RuntimeVersion = "dev"
+	RuntimeBuildID = "dev"
+)
+
+const (
+	ProjectFormatVersion = 1
+	ManagedFilesVersion  = 1
+)
 
 type Config struct {
-	SchemaVersion      string `json:"schema_version"`
-	ToolkitVersion     string `json:"toolkit_version,omitempty"`
-	RuntimeMode        string `json:"runtime_mode"`
-	AuthorityURL       string `json:"authority_url,omitempty"`
-	ServicePublicKey   string `json:"service_public_key"`
-	DaemonEndpoint     string `json:"daemon_endpoint"`
-	ProjectID          string `json:"project_id"`
-	Owner              string `json:"owner"`
-	DefaultLease       string `json:"default_lease"`
-	StaleGrace         string `json:"stale_grace"`
-	ActiveRetention    string `json:"active_retention"`
-	SummaryLimit       int    `json:"summary_limit"`
-	ArtifactLimitBytes int64  `json:"artifact_limit_bytes"`
-	RequireReview      bool   `json:"require_review"`
+	SchemaVersion        string            `json:"schema_version"`
+	ToolkitVersion       string            `json:"toolkit_version,omitempty"`
+	ToolkitBuildID       string            `json:"toolkit_build_id,omitempty"`
+	MinimumToolkit       string            `json:"minimum_toolkit_version,omitempty"`
+	ProjectFormatVersion int               `json:"project_format_version,omitempty"`
+	ManagedFilesVersion  int               `json:"managed_files_version,omitempty"`
+	ManagedFileHashes    map[string]string `json:"managed_file_hashes,omitempty"`
+	RuntimeMode          string            `json:"runtime_mode"`
+	AuthorityURL         string            `json:"authority_url,omitempty"`
+	ServicePublicKey     string            `json:"service_public_key"`
+	DaemonEndpoint       string            `json:"daemon_endpoint"`
+	ProjectID            string            `json:"project_id"`
+	Owner                string            `json:"owner"`
+	DefaultLease         string            `json:"default_lease"`
+	StaleGrace           string            `json:"stale_grace"`
+	ActiveRetention      string            `json:"active_retention"`
+	SummaryLimit         int               `json:"summary_limit"`
+	ArtifactLimitBytes   int64             `json:"artifact_limit_bytes"`
+	RequireReview        bool              `json:"require_review"`
 }
 
 type Store struct {
@@ -61,6 +76,38 @@ func (s *Store) Config() (Config, error) {
 	if err = json.Unmarshal(raw, &config); err != nil {
 		return Config{}, err
 	}
+	return validateConfig(config)
+}
+
+func (s *Store) ConfigStrict() (Config, error) {
+	raw, err := os.ReadFile(filepath.Join(s.Root, Runtime, "config.json"))
+	if err != nil {
+		return Config{}, err
+	}
+	var config Config
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err = decoder.Decode(&config); err != nil {
+		return Config{}, err
+	}
+	if err = ensureJSONEOF(decoder); err != nil {
+		return Config{}, err
+	}
+	return validateConfig(config)
+}
+
+func ensureJSONEOF(decoder *json.Decoder) error {
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return fmt.Errorf("config contains multiple JSON values")
+		}
+		return err
+	}
+	return nil
+}
+
+func validateConfig(config Config) (Config, error) {
 	if config.RuntimeMode != "personal" && config.RuntimeMode != "service" {
 		return Config{}, fmt.Errorf("unsupported runtime mode %q", config.RuntimeMode)
 	}
@@ -112,6 +159,27 @@ func AgentInstructions() []byte {
 		panic(err)
 	}
 	return []byte(rendered)
+}
+
+func ManagedFiles(config Config) map[string][]byte {
+	bootstrap := PersonalBootstrap()
+	if config.RuntimeMode == "service" {
+		bootstrap = ServiceBootstrap()
+	}
+	return map[string][]byte{
+		".agents": bootstrap,
+		filepath.Join(Runtime, "AGENT_INSTRUCTIONS.md"): AgentInstructions(),
+		filepath.Join(Runtime, ".gitignore"):            []byte("cache/\ntmp/\n"),
+	}
+}
+
+func ManagedHashes(config Config) map[string]string {
+	result := make(map[string]string)
+	for path, content := range ManagedFiles(config) {
+		sum := sha256.Sum256(content)
+		result[filepath.ToSlash(path)] = fmt.Sprintf("%x", sum[:])
+	}
+	return result
 }
 
 func (s *Store) ManagedBootstrapValid() bool {

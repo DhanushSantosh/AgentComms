@@ -8,11 +8,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/DhanushSantosh/AgentComms/internal/buildinfo"
 	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
 	"github.com/DhanushSantosh/AgentComms/internal/failure"
 	"github.com/DhanushSantosh/AgentComms/internal/identity"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 	"github.com/DhanushSantosh/AgentComms/internal/onboarding"
+	"github.com/DhanushSantosh/AgentComms/internal/projectlifecycle"
 	"github.com/DhanushSantosh/AgentComms/internal/service"
 )
 
@@ -56,6 +58,7 @@ func tools() []map[string]any {
 	return []map[string]any{
 		tool("identity", "Show the actor identity bound to this MCP connection: actor, how it was resolved, and the project ID", map[string]any{}),
 		tool("get_started", "Learn how to participate in this project right now: your current identity/registration state and the exact next steps", map[string]any{}),
+		tool("project_upgrade_status", "Read project compatibility and pending maintenance; this tool never applies an upgrade", map[string]any{}),
 		tool("status", "Read the governed project state", map[string]any{}),
 		tool("history", "Read a bounded page of immutable signed events", map[string]any{
 			"cursor": map[string]any{"type": "string"},
@@ -127,6 +130,7 @@ func tools() []map[string]any {
 		tool("verify", "Verify signatures and hash-chain integrity", map[string]any{}),
 	}
 }
+
 // Serve runs the stdio MCP loop for one connection, bound to resolution's
 // actor for every tool call. resolution is threaded through (rather than a
 // bare actor string) so the "identity" and "get_started" tools can report
@@ -214,9 +218,17 @@ func call(s *service.Service, resolution identity.ActorResolution, p callParams)
 		if e != nil {
 			return nil, e
 		}
+		compatibility, _, compatibilityErr := projectlifecycle.Inspect(s.Store.Root, buildinfo.Version, buildinfo.ResolvedBuildID())
+		if compatibilityErr != nil {
+			return nil, compatibilityErr
+		}
 		return map[string]any{
 			"identity": resolution, "registered": registered, "active": active, "role": role, "guide": guide,
+			"project_compatibility": compatibility,
 		}, nil
+	case "project_upgrade_status":
+		plan, _, e := projectlifecycle.Inspect(s.Store.Root, buildinfo.Version, buildinfo.ResolvedBuildID())
+		return plan, e
 	case "status":
 		return s.State()
 	case "history":

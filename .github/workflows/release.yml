@@ -33,7 +33,7 @@ jobs:
             GOOS=${target%/*}; GOARCH=${target#*/}; ext=""; [ "$GOOS" = windows ] && ext=.exe
             for command in agent-comms agent-comms-daemon agent-comms-server; do
               name="${command}-${GOOS}-${GOARCH}${ext}"
-              CGO_ENABLED=0 GOOS=$GOOS GOARCH=$GOARCH go build -trimpath -ldflags="-s -w -X github.com/DhanushSantosh/AgentComms/internal/app.Version=${GITHUB_REF_NAME#v}" -o "dist/$name" "./cmd/$command"
+              CGO_ENABLED=0 GOOS=$GOOS GOARCH=$GOARCH go build -trimpath -ldflags="-s -w -X github.com/DhanushSantosh/AgentComms/internal/app.Version=${GITHUB_REF_NAME#v} -X github.com/DhanushSantosh/AgentComms/internal/buildinfo.Version=${GITHUB_REF_NAME#v} -X github.com/DhanushSantosh/AgentComms/internal/buildinfo.BuildID=${GITHUB_SHA}" -o "dist/$name" "./cmd/$command"
             done
           done
           cd dist

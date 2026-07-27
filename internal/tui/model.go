@@ -11,9 +11,11 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/DhanushSantosh/AgentComms/internal/buildinfo"
 	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
 	"github.com/DhanushSantosh/AgentComms/internal/identity"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
+	"github.com/DhanushSantosh/AgentComms/internal/projectlifecycle"
 	"github.com/DhanushSantosh/AgentComms/internal/service"
 	"github.com/fsnotify/fsnotify"
 )
@@ -64,6 +66,7 @@ type Model struct {
 	settingsCursor int
 	confirm        *confirmState
 	watcher        *fsnotify.Watcher
+	lifecycle      projectlifecycle.Plan
 }
 
 func New(s *service.Service, actor string) (Model, error) {
@@ -76,11 +79,13 @@ func New(s *service.Service, actor string) (Model, error) {
 	if uc, err := identity.LoadUserConfig(); err == nil && uc.Theme == "high-contrast" {
 		hc = true
 	}
+	lifecycle, _, _ := projectlifecycle.Inspect(s.Store.Root, buildinfo.Version, buildinfo.ResolvedBuildID())
 	return Model{
 		svc: s, state: st, actor: actor, projectID: projectID, width: 100, height: 30, highContrast: hc,
 		taskList: newRowList(taskRowSource{}), messageList: newRowList(messageRowSource{}),
 		approvalList: newRowList(approvalRowSource{}), agentList: newRowList(agentRowSource{}),
 		invocationList: newRowList(invocationRowSource{}), runtimeList: newRowList(runtimeRowSource{root: s.Store.Root}),
+		lifecycle: lifecycle,
 	}, e
 }
 func (m Model) Init() tea.Cmd {
@@ -774,7 +779,15 @@ func (m Model) integrity(p palette) string {
 	if !m.state.Integrity.Verified {
 		mark = "✕"
 	}
-	return fmt.Sprintf("%s Chain verified: %t\n  Signed events: %d\n  Head: %s\n  Consistency: %s\n  Connectivity: %s\n  Server sequence: %d\n  Cache sequence: %d\n\nRun `agent-comms verify` before incident recovery.", mark, m.state.Integrity.Verified, m.state.Integrity.EventCount, m.state.Integrity.Head, empty(m.state.Integrity.Consistency, "UNKNOWN"), empty(m.state.Integrity.Connectivity, "UNKNOWN"), m.state.Integrity.ServerSequence, m.state.Integrity.CacheSequence)
+	compatibility := "CURRENT"
+	if len(m.lifecycle.Actions) > 0 {
+		compatibility = fmt.Sprintf("%d UPGRADE ACTION(S)", len(m.lifecycle.Actions))
+	}
+	return fmt.Sprintf("%s Chain verified: %t\n  Signed events: %d\n  Head: %s\n  Consistency: %s\n  Connectivity: %s\n  Server sequence: %d\n  Cache sequence: %d\n\nProject lifecycle\n  Compatibility: %s\n  Installed build: %s\n  Project build: %s\n  Interrupted upgrade: %t\n\nRun `agent-comms verify` before incident recovery.",
+		mark, m.state.Integrity.Verified, m.state.Integrity.EventCount, m.state.Integrity.Head,
+		empty(m.state.Integrity.Consistency, "UNKNOWN"), empty(m.state.Integrity.Connectivity, "UNKNOWN"),
+		m.state.Integrity.ServerSequence, m.state.Integrity.CacheSequence, compatibility,
+		buildinfo.ResolvedBuildID(), empty(m.lifecycle.CurrentBuildID, "unrecorded"), m.lifecycle.Interrupted)
 }
 func (m Model) chain(p palette) string {
 	after := max(0, m.state.Integrity.EventCount-7)

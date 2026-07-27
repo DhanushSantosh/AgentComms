@@ -47,6 +47,10 @@ func ProjectionPath(projectRoot string) string {
 	return filepath.Join(projectRoot, store.Runtime, "cache", "personal-projection.db")
 }
 
+func DraftPath(projectRoot string) string {
+	return filepath.Join(projectRoot, store.Runtime, "data", "drafts.db")
+}
+
 func Initialize(ctx context.Context, config Config) (Result, error) {
 	config.ProjectRoot = filepath.Clean(config.ProjectRoot)
 	config.Owner = strings.TrimSpace(config.Owner)
@@ -101,11 +105,15 @@ func Initialize(ctx context.Context, config Config) (Result, error) {
 
 	runtimeConfig := store.Config{
 		SchemaVersion: model.SchemaVersion, ToolkitVersion: store.RuntimeVersion,
+		ToolkitBuildID:       store.RuntimeBuildID,
+		ProjectFormatVersion: store.ProjectFormatVersion, ManagedFilesVersion: store.ManagedFilesVersion,
 		RuntimeMode: config.Mode, AuthorityURL: config.AuthorityURL,
 		ServicePublicKey: config.ServicePublicKey, DaemonEndpoint: config.DaemonEndpoint,
 		ProjectID: projectID, Owner: config.Owner, DefaultLease: "4h", StaleGrace: "1h",
 		ActiveRetention: "168h", SummaryLimit: 1200, ArtifactLimitBytes: 5 * 1024 * 1024,
 	}
+	runtimeConfig.MinimumToolkit = store.RuntimeVersion
+	runtimeConfig.ManagedFileHashes = store.ManagedHashes(runtimeConfig)
 	result := Result{ProjectID: projectID, RuntimeMode: config.Mode, DaemonEndpoint: config.DaemonEndpoint}
 	switch config.Mode {
 	case "personal":
@@ -238,7 +246,7 @@ func initialCommands(projectID, owner string, credential identity.Credential) []
 }
 
 func writeRuntimeFiles(runtimePath string, config store.Config) error {
-	for _, directory := range []string{"artifacts/sha256", "cache", "tmp"} {
+	for _, directory := range []string{"artifacts/sha256", "cache", "data", "tmp"} {
 		if err := os.MkdirAll(filepath.Join(runtimePath, directory), 0o700); err != nil {
 			return err
 		}

@@ -33,7 +33,17 @@ type Service struct {
 
 func New(root string) *Service {
 	instance := &Service{Store: store.Open(root)}
+	cfg, err := instance.Store.ConfigStrict()
+	return configure(instance, cfg, err)
+}
+
+func NewTolerant(root string) *Service {
+	instance := &Service{Store: store.Open(root)}
 	cfg, err := instance.Store.Config()
+	return configure(instance, cfg, err)
+}
+
+func configure(instance *Service, cfg store.Config, err error) *Service {
 	if err != nil {
 		instance.remoteErr = err
 		return instance
@@ -346,6 +356,7 @@ func (s *Service) Register(actor, display string, pt model.PrincipalType) (model
 	_ = identity.SaveUserConfig(user)
 	return event, nil
 }
+
 // CanSponsorRegistration reports whether actor is authorized to register a
 // new agent under a different id on its behalf: an active ORCHESTRATOR-role
 // principal, or any active HUMAN principal (which covers the project owner

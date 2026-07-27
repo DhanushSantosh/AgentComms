@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/DhanushSantosh/AgentComms/internal/buildinfo"
 	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
 )
 
@@ -78,6 +79,7 @@ func (s *HTTPServer) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health/live", s.live)
 	mux.HandleFunc("GET /health/ready", s.ready)
+	mux.HandleFunc("GET /v1/capabilities", s.capabilities)
 	mux.HandleFunc("GET /metrics", s.serveMetrics)
 	mux.HandleFunc("POST /v1/projects", s.createProject)
 	mux.HandleFunc("POST /v1/projects/{project}/commands", s.command)
@@ -121,7 +123,17 @@ func (s *HTTPServer) ready(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, &controlplane.Error{Code: controlplane.CodeUnavailable, Message: "database is unavailable"})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"status": "ready"})
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ready", "schema_version": CurrentSchemaVersion})
+}
+
+func (s *HTTPServer) capabilities(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{
+		"product_version":               buildinfo.Version,
+		"build_id":                      buildinfo.ResolvedBuildID(),
+		"authority_api_version":         1,
+		"minimum_authority_api_version": 1,
+		"schema_version":                CurrentSchemaVersion,
+	})
 }
 
 func (s *HTTPServer) createProject(w http.ResponseWriter, r *http.Request) {
