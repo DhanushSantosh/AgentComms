@@ -126,6 +126,10 @@ func (c *cli) root() *cobra.Command {
 			cmd.CommandPath() == "agent-comms runtime interactive-serve" {
 			return nil
 		}
+		if cmd.CommandPath() == "agent-comms profile list" ||
+			cmd.CommandPath() == "agent-comms profile use" {
+			return c.reconcileUserInstallation(cmd.Context(), "")
+		}
 		root := c.project
 		if root == "" {
 			var e error

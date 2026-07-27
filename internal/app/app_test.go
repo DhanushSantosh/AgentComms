@@ -104,6 +104,32 @@ func TestVersionEnvelope(t *testing.T) {
 		t.Fatalf("bad envelope: %#v", v)
 	}
 }
+
+func TestProfileListDoesNotRequireInitializedProject(t *testing.T) {
+	configDirectory := t.TempDir()
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", configDirectory)
+	profile := identity.Profile{
+		Name:        "project:owner",
+		ProjectID:   "project",
+		Actor:       "owner",
+		ProjectRoot: filepath.Join(t.TempDir(), "missing-project"),
+	}
+	if err := identity.SaveUserConfig(identity.UserConfig{
+		ActiveProfile: profile.Name,
+		Profiles:      map[string]identity.Profile{profile.Name: profile},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if err := Run([]string{"profile", "list", "--json"}, &stdout, &stderr); err != nil {
+		t.Fatalf("profile list should not require an initialized working directory: %v\n%s", err, stderr.String())
+	}
+	if !bytes.Contains(stdout.Bytes(), []byte(`"active":"project:owner"`)) {
+		t.Fatalf("profile list did not return the registry: %s", stdout.String())
+	}
+}
+
 func TestInitInNonGitDir(t *testing.T) {
 	d := t.TempDir()
 	var out, err bytes.Buffer
