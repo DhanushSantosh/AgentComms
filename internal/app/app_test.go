@@ -301,6 +301,63 @@ func TestAgentActivateCLIRequiresHumanToGrantOrchestratorRole(t *testing.T) {
 	must("agent", "activate", "--actor", "owner", "--id", "candidate", "--role", "ORCHESTRATOR", "--scope", "src")
 }
 
+// TestAgentRevokeCLIRejectsAgentOrchestratorRevokingAnotherOrchestrator is
+// the revoke-side sibling of TestAgentActivateCLIRequiresHumanToGrantOrchestratorRole.
+func TestAgentRevokeCLIRejectsAgentOrchestratorRevokingAnotherOrchestrator(t *testing.T) {
+	project := t.TempDir()
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
+	var out, stderr bytes.Buffer
+	run := func(args ...string) error {
+		t.Helper()
+		out.Reset()
+		stderr.Reset()
+		args = append(args, "--project", project, "--json")
+		return Run(args, &out, &stderr)
+	}
+	must := func(args ...string) {
+		t.Helper()
+		if e := run(args...); e != nil {
+			t.Fatalf("%v: %v\n%s", args, e, stderr.String())
+		}
+	}
+	must("init", "--non-interactive", "--owner", "owner", "--mode", "personal")
+	must("agent", "register", "--actor", "agent-lead", "--id", "agent-lead")
+	must("agent", "activate", "--actor", "owner", "--id", "agent-lead", "--role", "ORCHESTRATOR", "--scope", "src")
+	must("agent", "register", "--actor", "other-orchestrator", "--id", "other-orchestrator")
+	must("agent", "activate", "--actor", "owner", "--id", "other-orchestrator", "--role", "ORCHESTRATOR", "--scope", "src")
+
+	if e := run("agent", "revoke", "--actor", "agent-lead", "--id", "other-orchestrator"); e == nil {
+		t.Fatal("expected an agent-principal orchestrator's revoke to be rejected")
+	} else if code := errorCode(e); code != "AUTHORIZATION" {
+		t.Fatalf("expected AUTHORIZATION, got %s: %v", code, e)
+	}
+
+	must("agent", "revoke", "--actor", "owner", "--id", "other-orchestrator", "--reason", "human-approved removal")
+	must("status")
+	var envelope struct {
+		Result struct {
+			Agents map[string]struct {
+				Status string `json:"status"`
+			} `json:"agents"`
+		} `json:"result"`
+	}
+	if e := json.Unmarshal(out.Bytes(), &envelope); e != nil {
+		t.Fatal(e)
+	}
+	if envelope.Result.Agents["other-orchestrator"].Status != "REVOKED" {
+		t.Fatalf("other-orchestrator was not revoked: %+v", envelope.Result.Agents["other-orchestrator"])
+	}
+
+	if e := run("agent", "revoke", "--actor", "owner", "--id", "owner"); e == nil {
+		t.Fatal("expected revoking the owner to be rejected")
+	}
+
+	if e := run("agent", "activate", "--actor", "owner", "--id", "other-orchestrator", "--role", "AGENT", "--scope", "src"); e == nil {
+		t.Fatal("expected reactivating a revoked principal to be rejected")
+	}
+}
+
 func TestDoctorReportsRuntimeAndBootstrapProblems(t *testing.T) {
 	d := t.TempDir()
 	cmd := exec.Command("git", "init")

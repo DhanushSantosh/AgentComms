@@ -240,6 +240,23 @@ func ApplyEvent(s *model.State, e model.Event) error {
 		runtime.Reason = ""
 		s.AgentRuntimes[e.EntityID] = runtime
 	case *model.RuntimeStatusChanged:
+		if e.Type == "agent.revoke" {
+			a := s.Agents[e.EntityID]
+			a.Status = "REVOKED"
+			s.Agents[e.EntityID] = a
+			// Cascade to this agent's own runtimes so the interactive-serve
+			// wake-up path (internal/app/app.go's notifyInteractiveTarget /
+			// interactiveRuntimeCandidates) stops trying to wake them -- that
+			// path checks runtime Status only, never the owning agent's
+			// Status.
+			for rid, rt := range s.AgentRuntimes {
+				if rt.AgentID == e.EntityID && rt.Status != "REVOKED" {
+					rt.Status, rt.Reason, rt.LastChangedBy = "REVOKED", "agent revoked", e.Actor
+					s.AgentRuntimes[rid] = rt
+				}
+			}
+			break
+		}
 		runtime := s.AgentRuntimes[e.EntityID]
 		switch e.Type {
 		case "runtime.drain":

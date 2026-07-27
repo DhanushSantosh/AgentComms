@@ -7,6 +7,19 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 
 ### Added
 
+- `agent revoke` / `agent_revoke` (CLI and MCP) / a `revoke` row action in
+  the TUI: a terminal, irreversible removal option for agent principals,
+  mirroring the existing `runtime.revoke` pattern rather than inventing
+  "delete" as a second word for the same concept — nothing is ever erased
+  from the hash-chained event log, only marked with a permanent status.
+  Once revoked, a principal can never act again, be reactivated, renamed,
+  or suspended. The project Owner can never be revoked, by anyone,
+  including itself. Revoking an Orchestrator-role principal or any HUMAN
+  principal requires the same human-only check that granting the
+  Orchestrator role already requires, unless self-revoking. Revocation
+  cascades to the agent's own runtimes (also marked revoked) but never
+  auto-cancels its invocations or auto-reassigns its tasks — `doctor` now
+  flags any such orphaned work separately.
 - Per-project, per-host actor resolution via `AGENT_COMMS_HOST_LABEL`,
   closing the gap left by global MCP configs that hardcode one fixed
   `--actor` per host identically across every project: a host now tags its

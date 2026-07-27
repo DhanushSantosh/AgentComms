@@ -412,6 +412,30 @@ func (c *cli) doctorCmd() *cobra.Command {
 						break
 					}
 				}
+				invocationTerminal := map[string]bool{"COMPLETED": true, "REJECTED": true, "EXPIRED": true, "DEAD_LETTER": true}
+				taskTerminal := map[string]bool{"COMPLETED": true, "CANCELLED": true}
+				for id, agent := range st.Agents {
+					if agent.Status != "REVOKED" {
+						continue
+					}
+					openInvocations := 0
+					for _, invocation := range st.Invocations {
+						if (invocation.RequestedBy == id || invocation.Target == id) && !invocationTerminal[invocation.Status] {
+							openInvocations++
+						}
+					}
+					openTasks := 0
+					for _, task := range st.Tasks {
+						if task.Owner == id && !taskTerminal[task.Status] {
+							openTasks++
+						}
+					}
+					if openInvocations > 0 || openTasks > 0 {
+						add("WARNING", "REVOKED_AGENT_HAS_OPEN_WORK",
+							fmt.Sprintf("revoked agent %s still has %d open invocation(s) and %d owned task(s)", id, openInvocations, openTasks),
+							"Use `invocation cancel`/`task takeover`/`task handoff` to resolve this separately; revocation does not auto-cancel or auto-reassign work.")
+					}
+				}
 			}
 		}
 		r := map[string]any{"integrity": verify == nil, "schema_version": cfg.SchemaVersion, "binary_version": Version, "runtime_toolkit_version": cfg.ToolkitVersion, "runtime": filepath.Join(c.svc.Store.Root, store.Runtime), "telemetry": false, "healthy": len(findings) == 0, "findings": findings}
@@ -642,6 +666,11 @@ func (c *cli) agentCmd() *cobra.Command {
 	act.Flags().StringSliceVar(&caps, "capability", nil, "capability (repeatable or comma-separated)")
 	act.Flags().StringSliceVar(&scopes, "scope", nil, "scope (repeatable or comma-separated)")
 	suspend := simpleStatus(c, "agent", "suspend")
+	var revokeReason string
+	revoke := payloadStatus(c, "agent", "revoke", func(string) any {
+		return model.RuntimeStatusChanged{Reason: revokeReason}
+	})
+	revoke.Flags().StringVar(&revokeReason, "reason", "", "revocation reason")
 	rotate := &cobra.Command{Use: "rotate-key", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		v, e := c.svc.RotateKey(c.actor)
 		if e != nil {
@@ -669,7 +698,7 @@ func (c *cli) agentCmd() *cobra.Command {
 		}
 		return c.emit("agent.list", st.Agents)
 	}}
-	root.AddCommand(reg, act, suspend, rotate, rename, list)
+	root.AddCommand(reg, act, suspend, rotate, rename, revoke, list)
 	return root
 }
 func (c *cli) runtimeCmd() *cobra.Command {

@@ -28,7 +28,7 @@ func active(st model.State, actor string) (model.Agent, error) {
 	return a, nil
 }
 func elevated(typ string) bool {
-	return typ == "approval.approve" || typ == "approval.reject" || typ == "agent.activate" || typ == "agent.suspend" || typ == "agent.rotate-key" || typ == "agent.rename" || typ == "project.settings.update"
+	return typ == "approval.approve" || typ == "approval.reject" || typ == "agent.activate" || typ == "agent.suspend" || typ == "agent.rotate-key" || typ == "agent.rename" || typ == "agent.revoke" || typ == "project.settings.update"
 }
 func hasApproval(st model.State, action string) bool {
 	for _, a := range st.Approvals {
@@ -76,7 +76,8 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 			return nil, x
 		}
 		selfKeyRotation := typ == "agent.rotate-key" && id == actor
-		if elevated(typ) && !selfKeyRotation && a.Role != model.RoleOwner && a.Role != model.RoleOrchestrator {
+		selfRevoke := typ == "agent.revoke" && id == actor
+		if elevated(typ) && !selfKeyRotation && !selfRevoke && a.Role != model.RoleOwner && a.Role != model.RoleOrchestrator {
 			return nil, errors.New("owner or orchestrator role required")
 		}
 		if typ == "approval.approve" {
@@ -87,8 +88,12 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 		}
 	}
 	if typ == "agent.activate" {
-		if _, ok := st.Agents[id]; !ok {
+		target, ok := st.Agents[id]
+		if !ok {
 			return nil, errors.New("pending principal not found")
+		}
+		if target.Status == "REVOKED" {
+			return nil, errors.New("cannot activate a revoked principal")
 		}
 		activation, ok := payload.(model.AgentActivated)
 		if !ok || (activation.Role != model.RoleOwner && activation.Role != model.RoleOrchestrator &&
@@ -108,12 +113,48 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 		}
 	}
 	if typ == "agent.rename" {
-		if _, ok := st.Agents[id]; !ok {
+		target, ok := st.Agents[id]
+		if !ok {
 			return nil, errors.New("principal not found")
+		}
+		if target.Status == "REVOKED" {
+			return nil, errors.New("cannot rename a revoked principal")
 		}
 		renamed, ok := payload.(model.AgentRenamed)
 		if !ok || strings.TrimSpace(renamed.DisplayName) == "" {
 			return nil, errors.New("display name is required")
+		}
+	}
+	if typ == "agent.suspend" {
+		target, ok := st.Agents[id]
+		if !ok {
+			return nil, errors.New("principal not found")
+		}
+		if target.Status == "REVOKED" {
+			return nil, errors.New("cannot suspend a revoked principal")
+		}
+	}
+	if typ == "agent.revoke" {
+		target, ok := st.Agents[id]
+		if !ok {
+			return nil, errors.New("principal not found")
+		}
+		if target.Status == "REVOKED" {
+			return nil, errors.New("principal is already revoked")
+		}
+		if target.Role == model.RoleOwner {
+			return nil, errors.New("owner principal cannot be revoked")
+		}
+		// Revoking an orchestrator or any human principal is a hard,
+		// human-only check, symmetric to the human-only check on granting
+		// the orchestrator role above: an AGENT-principal orchestrator must
+		// not be able to unilaterally strip another orchestrator or a human
+		// of standing to entrench itself. Self-revocation (a principal
+		// voluntarily removing itself) is not an escalation and always
+		// bypasses this, mirroring the ordinary elevation bypass above.
+		if id != actor && (target.Role == model.RoleOrchestrator || target.PrincipalType == model.PrincipalHuman) &&
+			st.Agents[actor].PrincipalType != model.PrincipalHuman {
+			return nil, errors.New("human principal required to revoke an orchestrator or human principal")
 		}
 	}
 	if typ == "project.settings.update" {

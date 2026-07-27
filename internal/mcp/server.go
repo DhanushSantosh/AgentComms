@@ -110,6 +110,10 @@ func tools() []map[string]any {
 			"capabilities": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 			"scopes":       map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 		}, "id", "role"),
+		tool("agent_revoke", "Permanently revoke an agent principal — terminal, cannot be reversed or reactivated. The owner principal cannot be revoked. Revoking an orchestrator or any human principal requires an active human principal to call this, unless revoking yourself.", map[string]any{
+			"id":     map[string]any{"type": "string"},
+			"reason": map[string]any{"type": "string"},
+		}, "id"),
 		tool("runtime_register", "Register an agent runtime without embedding connector secrets", map[string]any{
 			"id": map[string]any{"type": "string"}, "connector": map[string]any{"type": "string"},
 			"config_reference": map[string]any{"type": "string"}, "max_concurrent": map[string]any{"type": "integer", "minimum": 1, "maximum": controlplane.MaxRuntimeConcurrency},
@@ -261,6 +265,9 @@ func call(s *service.Service, resolution identity.ActorResolution, p callParams)
 			Role: model.Role(stringArg(p.Arguments, "role")), Capabilities: stringsArg(p.Arguments["capabilities"]),
 			Scopes: stringsArg(p.Arguments["scopes"]),
 		})
+	case "agent_revoke":
+		return s.Execute(actor, "agent.revoke", stringArg(p.Arguments, "id"),
+			model.RuntimeStatusChanged{Reason: stringArg(p.Arguments, "reason")})
 	case "task_create":
 		id, _ := p.Arguments["id"].(string)
 		res := stringsArg(p.Arguments["resources"])

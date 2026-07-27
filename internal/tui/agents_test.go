@@ -30,11 +30,12 @@ func TestAgentActionsForStates(t *testing.T) {
 		want  []string
 	}{
 		{"pending non-elevated sees nothing", model.Agent{Status: "PENDING"}, "builder", "watcher", model.RoleAgent, nil},
-		{"pending elevated sees activate", model.Agent{Status: "PENDING"}, "builder", "owner", model.RoleOwner, []string{"activate"}},
-		{"active elevated sees suspend", model.Agent{Status: "ACTIVE"}, "builder", "owner", model.RoleOwner, []string{"suspend"}},
+		{"pending elevated sees activate and revoke", model.Agent{Status: "PENDING"}, "builder", "owner", model.RoleOwner, []string{"activate", "revoke"}},
+		{"active elevated sees suspend and revoke", model.Agent{Status: "ACTIVE"}, "builder", "owner", model.RoleOwner, []string{"suspend", "revoke"}},
 		{"active non-elevated sees nothing", model.Agent{Status: "ACTIVE"}, "builder", "watcher", model.RoleAgent, nil},
-		{"suspended is terminal", model.Agent{Status: "SUSPENDED"}, "builder", "owner", model.RoleOwner, nil},
-		{"own row elevated adds rotate key", model.Agent{Status: "ACTIVE"}, "owner", "owner", model.RoleOwner, []string{"suspend", "rotate key"}},
+		{"suspended elevated sees only revoke", model.Agent{Status: "SUSPENDED"}, "builder", "owner", model.RoleOwner, []string{"revoke"}},
+		{"revoked is terminal, nothing offered", model.Agent{Status: "REVOKED"}, "builder", "owner", model.RoleOwner, nil},
+		{"own row elevated adds rotate key", model.Agent{Status: "ACTIVE"}, "owner", "owner", model.RoleOwner, []string{"suspend", "revoke", "rotate key"}},
 		{"own row non-elevated has no rotate key", model.Agent{Status: "ACTIVE"}, "watcher", "watcher", model.RoleAgent, nil},
 	}
 	for _, c := range cases {
@@ -138,6 +139,36 @@ func TestSuspendRequiresConfirm(t *testing.T) {
 	}
 	if st.Agents["builder"].Status != "SUSPENDED" {
 		t.Fatalf("status = %q, want SUSPENDED", st.Agents["builder"].Status)
+	}
+}
+
+func TestRevokeRequiresConfirm(t *testing.T) {
+	s := newTestService(t)
+	registerAgent(t, s, "builder", model.RoleAgent, "src")
+
+	m, e := New(s, "owner")
+	if e != nil {
+		t.Fatal(e)
+	}
+	m = enterAgentsView(t, m)
+	if id := m.agentList.SelectedID(m.state, m.actor); id != "builder" {
+		t.Fatalf("selected id = %q, want builder", id)
+	}
+	m = pressKey(t, m, keyText("x"))
+	if m.confirm == nil {
+		t.Fatal("revoke should require confirmation")
+	}
+	m = pressKey(t, m, keyText("y"))
+	if m.err != nil {
+		t.Fatalf("revoke failed: %v", m.err)
+	}
+
+	st, e := s.State()
+	if e != nil {
+		t.Fatal(e)
+	}
+	if st.Agents["builder"].Status != "REVOKED" {
+		t.Fatalf("status = %q, want REVOKED", st.Agents["builder"].Status)
 	}
 }
 

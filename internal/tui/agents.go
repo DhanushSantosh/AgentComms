@@ -93,22 +93,34 @@ var (
 	actInvocationPolicy = RowAction{
 		Key: "p", Label: "policy", EventType: "invocation.policy.update", Form: invocationPolicyForm,
 	}
+	actRevoke = RowAction{
+		Key: "x", Label: "revoke", EventType: "agent.revoke", Confirm: true,
+		Payload: func() any { return model.RuntimeStatusChanged{Reason: "revoked from control room"} },
+		Prompt:  func(id string) string { return "Revoke " + id + "? This cannot be reversed." },
+	}
 )
 
 // agentActionsFor mirrors service.go's elevated() gate: activate and suspend
 // both require the viewing actor to hold Owner or Orchestrator role,
 // regardless of whose row is selected. Key rotation is always self-service
 // (Service.RotateKey rotates the calling actor's own credential, never an
-// arbitrary target), so it only appears on the actor's own row.
+// arbitrary target), so it only appears on the actor's own row. Revoke is
+// terminal (the target can never be reactivated, renamed, or suspended
+// again) and offered from every non-terminal status; the owner principal
+// and, unless self-revoking, an orchestrator or human principal cannot be
+// revoked by a non-human actor — internal/protocol/transitions.go enforces
+// this regardless of what the TUI shows or hides.
 func agentActionsFor(a model.Agent, id, actor string, role model.Role) []RowAction {
 	elevated := role == model.RoleOwner || role == model.RoleOrchestrator
 	var acts []RowAction
 	if elevated {
 		switch a.Status {
 		case "PENDING":
-			acts = append(acts, actActivate)
+			acts = append(acts, actActivate, actRevoke)
 		case "ACTIVE":
-			acts = append(acts, actSuspend)
+			acts = append(acts, actSuspend, actRevoke)
+		case "SUSPENDED":
+			acts = append(acts, actRevoke)
 		}
 		if a.PrincipalType == model.PrincipalAgent && a.Status == "ACTIVE" {
 			acts = append(acts, actInvocationPolicy)

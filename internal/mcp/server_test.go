@@ -54,7 +54,7 @@ func TestInitializeAndToolCatalog(t *testing.T) {
 	for _, want := range []string{
 		"agent-comms", `"identity"`, `"get_started"`, "task_create", "message_post", "invocation_request",
 		"invocation_next", "invocation_listen", "invocation_claim",
-		"runtime_register", "runtime_heartbeat", "verify",
+		"runtime_register", "runtime_heartbeat", "verify", `"agent_revoke"`,
 	} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("missing %s", want)
@@ -431,5 +431,65 @@ func TestAgentActivateToolRequiresHumanToGrantOrchestratorRole(t *testing.T) {
 	}
 	if strings.Contains(ownerOut.String(), `"error"`) {
 		t.Fatalf("expected the human owner's orchestrator grant to succeed, got: %s", ownerOut.String())
+	}
+}
+
+// TestAgentRevokeToolRejectsAgentOrchestratorRevokingAnotherOrchestrator is
+// the revoke-side sibling of TestAgentActivateToolRequiresHumanToGrantOrchestratorRole:
+// an AGENT-principal orchestrator must not be able to unilaterally revoke a
+// different orchestrator over MCP either.
+func TestAgentRevokeToolRejectsAgentOrchestratorRevokingAnotherOrchestrator(t *testing.T) {
+	instance, _ := testsupport.StartPersonalProject(t)
+	if _, e := instance.Register("agent-lead", "Agent Lead", model.PrincipalAgent); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := instance.Execute("owner", "agent.activate", "agent-lead",
+		model.AgentActivated{Role: model.RoleOrchestrator, Scopes: []string{"src"}}); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := instance.Register("other-orchestrator", "Other Orchestrator", model.PrincipalAgent); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := instance.Execute("owner", "agent.activate", "other-orchestrator",
+		model.AgentActivated{Role: model.RoleOrchestrator, Scopes: []string{"src"}}); e != nil {
+		t.Fatal(e)
+	}
+
+	input := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"agent_revoke","arguments":{"id":"other-orchestrator"}}}` + "\n"
+	var agentOut bytes.Buffer
+	if e := Serve(instance, asActor("agent-lead"), testServerVersion, strings.NewReader(input), &agentOut); e != nil {
+		t.Fatal(e)
+	}
+	if !strings.Contains(agentOut.String(), `"data":{"code":"AUTHORIZATION"}`) {
+		t.Fatalf("expected an agent-principal orchestrator's revoke to be rejected as AUTHORIZATION, got: %s", agentOut.String())
+	}
+
+	var ownerOut bytes.Buffer
+	if e := Serve(instance, asActor("owner"), testServerVersion, strings.NewReader(input), &ownerOut); e != nil {
+		t.Fatal(e)
+	}
+	if strings.Contains(ownerOut.String(), `"error"`) {
+		t.Fatalf("expected the human owner's revoke to succeed, got: %s", ownerOut.String())
+	}
+	state, e := instance.State()
+	if e != nil {
+		t.Fatal(e)
+	}
+	if state.Agents["other-orchestrator"].Status != "REVOKED" {
+		t.Fatalf("other-orchestrator was not revoked: %+v", state.Agents["other-orchestrator"])
+	}
+}
+
+// TestAgentRevokeToolRejectsOwnerTarget guards against ever bricking a
+// project down to zero owners via the MCP tool.
+func TestAgentRevokeToolRejectsOwnerTarget(t *testing.T) {
+	instance, _ := testsupport.StartPersonalProject(t)
+	input := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"agent_revoke","arguments":{"id":"owner"}}}` + "\n"
+	var out bytes.Buffer
+	if e := Serve(instance, asActor("owner"), testServerVersion, strings.NewReader(input), &out); e != nil {
+		t.Fatal(e)
+	}
+	if !strings.Contains(out.String(), `"error"`) {
+		t.Fatalf("expected revoking the owner to be rejected, got: %s", out.String())
 	}
 }

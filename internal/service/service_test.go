@@ -257,6 +257,138 @@ func TestGrantingOrchestratorRoleRequiresHumanPrincipal(t *testing.T) {
 	must(t, s, "human-lead", "agent.activate", "second-candidate", model.AgentActivated{Role: model.RoleOrchestrator, Scopes: []string{"src"}})
 }
 
+// TestAgentRevokeIsTerminal guards the core contract: revocation is a
+// one-way door. A revoked principal can never act again (the general
+// active-principal gate already blocks every transition), can never be
+// reactivated, renamed, or suspended, and revoking it twice fails.
+func TestAgentRevokeIsTerminal(t *testing.T) {
+	s := setup(t)
+	activate(t, s, "alpha", model.PrincipalAgent)
+	must(t, s, "owner", "agent.revoke", "alpha", model.RuntimeStatusChanged{Reason: "left the project"})
+
+	state, err := s.State()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Agents["alpha"].Status != "REVOKED" {
+		t.Fatalf("agent was not revoked: %+v", state.Agents["alpha"])
+	}
+	if _, err = s.Execute("owner", "agent.revoke", "alpha", model.RuntimeStatusChanged{}); err == nil {
+		t.Fatal("expected revoking an already-revoked principal to fail")
+	}
+	if _, err = s.Execute("alpha", "task.create", "task-1", model.TaskCreated{Title: "x", Repository: "local", Branch: "b", Resources: []string{"src/x"}}); err == nil {
+		t.Fatal("expected a revoked principal's own action to fail via the general active() gate")
+	}
+	if _, err = s.Execute("owner", "agent.activate", "alpha", model.AgentActivated{Role: model.RoleAgent, Scopes: []string{"src"}}); err == nil {
+		t.Fatal("expected reactivating a revoked principal to fail")
+	}
+	if _, err = s.Execute("owner", "agent.rename", "alpha", model.AgentRenamed{DisplayName: "Alpha"}); err == nil {
+		t.Fatal("expected renaming a revoked principal to fail")
+	}
+	if _, err = s.Execute("owner", "agent.suspend", "alpha", model.TaskStatus{}); err == nil {
+		t.Fatal("expected suspending a revoked principal to fail")
+	}
+}
+
+// TestAgentRevokeCascadesToOwnRuntimes proves the projection cascade
+// (internal/projection/apply.go): revoking an agent also revokes its own
+// registered runtimes in the same event, closing the gap where
+// interactive-serve delivery only checks runtime status, never the owning
+// agent's status.
+func TestAgentRevokeCascadesToOwnRuntimes(t *testing.T) {
+	s := setup(t)
+	activate(t, s, "alpha", model.PrincipalAgent)
+	must(t, s, "alpha", "runtime.register", "alpha-runtime", model.RuntimeRegistered{AgentID: "alpha", Connector: "MANUAL", MaxConcurrent: 1})
+	must(t, s, "alpha", "runtime.heartbeat", "alpha-runtime", model.RuntimeHeartbeat{Health: "HEALTHY"})
+
+	must(t, s, "owner", "agent.revoke", "alpha", model.RuntimeStatusChanged{Reason: "cleanup"})
+
+	state, err := s.State()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.AgentRuntimes["alpha-runtime"].Status != "REVOKED" {
+		t.Fatalf("agent's own runtime was not cascaded to REVOKED: %+v", state.AgentRuntimes["alpha-runtime"])
+	}
+}
+
+// TestAgentRevokeRejectsNonElevatedActor mirrors the ordinary
+// owner-or-orchestrator elevation gate already required for agent.suspend
+// and runtime.revoke.
+func TestAgentRevokeRejectsNonElevatedActor(t *testing.T) {
+	s := setup(t)
+	activate(t, s, "alpha", model.PrincipalAgent)
+	activate(t, s, "beta", model.PrincipalAgent)
+	if _, err := s.Execute("beta", "agent.revoke", "alpha", model.RuntimeStatusChanged{}); err == nil {
+		t.Fatal("expected a non-elevated actor to be rejected")
+	}
+}
+
+// TestAgentRevokeSelfBypassesElevation proves a plain, non-elevated agent
+// can voluntarily revoke itself without owner/orchestrator elevation —
+// mirroring agent.rotate-key's existing self-service bypass.
+func TestAgentRevokeSelfBypassesElevation(t *testing.T) {
+	s := setup(t)
+	activate(t, s, "alpha", model.PrincipalAgent)
+	must(t, s, "alpha", "agent.revoke", "alpha", model.RuntimeStatusChanged{Reason: "retiring myself"})
+
+	state, err := s.State()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Agents["alpha"].Status != "REVOKED" {
+		t.Fatalf("self-revocation did not take effect: %+v", state.Agents["alpha"])
+	}
+}
+
+// TestAgentRevokeNeverPermitsOwnerTarget guards against ever bricking a
+// project down to zero owners — no actor, including the owner itself, can
+// revoke a Role == RoleOwner principal.
+func TestAgentRevokeNeverPermitsOwnerTarget(t *testing.T) {
+	s := setup(t)
+	if _, err := s.Execute("owner", "agent.revoke", "owner", model.RuntimeStatusChanged{}); err == nil {
+		t.Fatal("expected revoking the owner to be rejected, even as self-revocation")
+	}
+}
+
+// TestAgentRevokeOfOrchestratorRequiresHumanActor is the revoke-side
+// sibling of TestGrantingOrchestratorRoleRequiresHumanPrincipal: an
+// AGENT-principal orchestrator must not be able to unilaterally revoke a
+// *different* orchestrator or any human principal, only a human actor can.
+func TestAgentRevokeOfOrchestratorRequiresHumanActor(t *testing.T) {
+	s := setup(t)
+	if _, err := s.Register("agent-lead", "Agent Lead", model.PrincipalAgent); err != nil {
+		t.Fatal(err)
+	}
+	must(t, s, "owner", "agent.activate", "agent-lead", model.AgentActivated{Role: model.RoleOrchestrator, Scopes: []string{"src"}})
+	if _, err := s.Register("other-orchestrator", "Other Orchestrator", model.PrincipalAgent); err != nil {
+		t.Fatal(err)
+	}
+	must(t, s, "owner", "agent.activate", "other-orchestrator", model.AgentActivated{Role: model.RoleOrchestrator, Scopes: []string{"src"}})
+
+	if _, err := s.Execute("agent-lead", "agent.revoke", "other-orchestrator", model.RuntimeStatusChanged{}); err == nil {
+		t.Fatal("expected an agent-principal orchestrator to be rejected revoking another orchestrator")
+	}
+	must(t, s, "owner", "agent.revoke", "other-orchestrator", model.RuntimeStatusChanged{Reason: "human-approved removal"})
+
+	activate(t, s, "bystander", model.PrincipalAgent)
+	if _, err := s.Execute("agent-lead", "agent.revoke", "bystander", model.RuntimeStatusChanged{}); err != nil {
+		t.Fatalf("expected an agent-principal orchestrator to revoke a plain agent: %v", err)
+	}
+}
+
+// TestAgentRevokeSelfOrchestratorBypassesHumanGate proves self-revocation
+// bypasses the human-only gate too, not just ordinary elevation — an
+// AGENT-principal orchestrator can voluntarily retire itself.
+func TestAgentRevokeSelfOrchestratorBypassesHumanGate(t *testing.T) {
+	s := setup(t)
+	if _, err := s.Register("agent-lead", "Agent Lead", model.PrincipalAgent); err != nil {
+		t.Fatal(err)
+	}
+	must(t, s, "owner", "agent.activate", "agent-lead", model.AgentActivated{Role: model.RoleOrchestrator, Scopes: []string{"src"}})
+	must(t, s, "agent-lead", "agent.revoke", "agent-lead", model.RuntimeStatusChanged{Reason: "stepping down"})
+}
+
 // TestRegisterRejectsDuplicateIDWithoutTouchingExistingCredential guards a
 // real, live-discovered vulnerability: Register used to write a freshly
 // generated credential to the store before ever validating whether the
