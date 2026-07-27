@@ -17,10 +17,12 @@ Updating through Agent Comms should normally require one command:
 agent-comms update apply
 ```
 
-That command must install the verified binary and hand the current project to
-the newly installed binary for inspection, backup, migration, daemon restart,
-cache synchronization, and verification. A binary installed by another method
-must reconcile compatible projects on their next normal use. Disruptive
+That command must install the verified binary and hand every project recorded
+in the user profile registry to the newly installed binary for inspection,
+backup, migration, daemon restart, cache synchronization, and verification. A
+binary installed by another method must reconcile compatible registered
+projects once on its first normal use. A user-level completion marker keyed by
+build ID and registry hash prevents repeated scans. Disruptive
 changes require one explicit `agent-comms project upgrade` confirmation.
 
 ## Proposed design
@@ -90,9 +92,10 @@ agent-comms project upgrade status [--all-known]
 agent-comms project upgrade plan [--all-known]
 ```
 
-`agent-comms update apply` reconciles the current project by invoking the new
-binary after atomic replacement. `--all-known` uses distinct project roots
-from identity profiles; Agent Comms never scans the filesystem.
+`agent-comms update apply` reconciles all known projects by invoking the new
+binary after atomic replacement. `--current-project-only` is the explicit
+opt-out. Distinct project roots come from identity profiles; Agent Comms never
+scans the filesystem.
 `--skip-project-upgrade` is an explicit escape hatch.
 
 The existing JSON envelope stays `agent-comms/v1`. New stable errors are

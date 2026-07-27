@@ -94,9 +94,11 @@ Private actor keys are stored in Windows Credential Manager, macOS Keychain, or 
 - `agent-comms doctor --explain-config` shows resolved configuration and provenance.
 - `agent-comms env set/get/delete/list` manages a typed per-project environment registry.
 - `agent-comms update check --channel stable|preview` performs an explicit, telemetry-free release check.
-- `agent-comms update apply` atomically installs the verified binary and reconciles the current initialized project through the newly installed build.
+- `agent-comms update apply` atomically installs the verified binary and reconciles every initialized project recorded in the user profile registry through the newly installed build.
 - `agent-comms project upgrade` is the single explicit inspect, backup, migrate, resume, restart, and verify operation; compatible projects reconcile automatically on their next normal command.
 - `agent-comms project upgrade status|plan` are optional read-only diagnostics, and `--all-known` targets distinct project roots recorded in identity profiles without scanning the filesystem.
+
+The user-level reconciliation marker is keyed by binary build and profile-registry hash. An externally installed build therefore upgrades all registered projects once on first use, while ordinary commands avoid repeatedly walking every project. Use `agent-comms update apply --current-project-only` only when deliberately limiting maintenance to the active project.
 
 ## Runtime modes
 

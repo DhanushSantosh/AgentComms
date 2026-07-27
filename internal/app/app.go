@@ -135,6 +135,11 @@ func (c *cli) root() *cobra.Command {
 			}
 		}
 		applyLifecycle := cmd.Name() != "doctor"
+		if applyLifecycle {
+			if e := c.reconcileUserInstallation(cmd.Context(), root); e != nil {
+				return e
+			}
+		}
 		if _, e := projectlifecycle.Reconcile(cmd.Context(), projectlifecycle.Options{
 			Root: root, Version: Version, BuildID: buildinfo.ResolvedBuildID(),
 			Apply: applyLifecycle, Timeout: c.timeout, StopDaemon: applyLifecycle,
@@ -398,6 +403,11 @@ func (c *cli) projectUpgradeCmd() *cobra.Command {
 				result.Verified = true
 				results = append(results, result)
 			}
+			if allKnown {
+				if err = markUserInstallationCurrent(""); err != nil {
+					return err
+				}
+			}
 			return c.emit("project.upgrade", map[string]any{
 				"projects": results, "upgraded": countChangedProjects(results), "verified": true,
 			})
@@ -442,26 +452,17 @@ func (c *cli) upgradeRoots(allKnown bool) ([]string, error) {
 		}
 		return []string{root}, nil
 	}
-	config, err := identity.LoadUserConfig()
+	roots, err := c.knownProjectRoots("")
 	if err != nil {
 		return nil, err
 	}
-	unique := map[string]struct{}{}
-	for _, profile := range config.Profiles {
-		if strings.TrimSpace(profile.ProjectRoot) == "" {
-			continue
+	initialized := roots[:0]
+	for _, root := range roots {
+		if initializedProject(root) {
+			initialized = append(initialized, root)
 		}
-		absolute, absoluteErr := filepath.Abs(profile.ProjectRoot)
-		if absoluteErr != nil {
-			return nil, absoluteErr
-		}
-		unique[filepath.Clean(absolute)] = struct{}{}
 	}
-	roots := make([]string, 0, len(unique))
-	for root := range unique {
-		roots = append(roots, root)
-	}
-	sort.Strings(roots)
+	roots = initialized
 	if len(roots) == 0 {
 		return nil, errors.New("no initialized projects are recorded in identity profiles")
 	}
@@ -1993,7 +1994,8 @@ func (c *cli) updateCmd() *cobra.Command {
 	}}
 	check.Flags().StringVar(&channel, "channel", "stable", "stable or preview")
 	var version string
-	var yes, allKnown, skipProjectUpgrade bool
+	var yes, currentProjectOnly, skipProjectUpgrade bool
+	allKnown := true
 	apply := &cobra.Command{Use: "apply", RunE: func(cmd *cobra.Command, args []string) error {
 		if _, err := exec.LookPath("cosign"); err != nil {
 			return errors.New("verified self-update requires cosign on PATH; use the signed installer until bundled verification is available")
@@ -2014,7 +2016,16 @@ func (c *cli) updateCmd() *cobra.Command {
 			return c.emit("update.apply", result)
 		}
 		projectRoot, projectFound := currentInitializedProject(c.project)
-		if allKnown || projectFound {
+		if currentProjectOnly {
+			allKnown = false
+		}
+		knownRoots, rootsErr := c.knownProjectRoots(projectRoot)
+		if rootsErr != nil {
+			return rootsErr
+		}
+		if allKnown && len(knownRoots) == 0 {
+			result["project_upgrade"] = map[string]any{"skipped": true, "reason": "no initialized projects are registered"}
+		} else if allKnown || projectFound {
 			upgradeResult, upgradeErr := c.handoffProjectUpgrade(ctx, result["installed"].(string), projectRoot, yes, allKnown)
 			if upgradeErr != nil {
 				return &projectlifecycle.Error{
@@ -2031,7 +2042,8 @@ func (c *cli) updateCmd() *cobra.Command {
 	apply.Flags().StringVar(&channel, "channel", "stable", "stable or preview")
 	apply.Flags().StringVar(&version, "version", "", "exact release tag")
 	apply.Flags().BoolVarP(&yes, "yes", "y", false, "approve confirmation-required project migrations")
-	apply.Flags().BoolVar(&allKnown, "all-known", false, "reconcile projects recorded in identity profiles")
+	apply.Flags().BoolVar(&allKnown, "all-known", true, "reconcile projects recorded in identity profiles")
+	apply.Flags().BoolVar(&currentProjectOnly, "current-project-only", false, "reconcile only the current initialized project")
 	apply.Flags().BoolVar(&skipProjectUpgrade, "skip-project-upgrade", false, "install the binary without reconciling projects")
 	root.AddCommand(check, apply)
 	return root
