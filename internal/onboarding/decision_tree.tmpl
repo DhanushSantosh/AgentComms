@@ -1,0 +1,101 @@
+# {{.Binary}}: what to do right now
+
+Anything shown in angle brackets below, like `<agent-name>` or
+`<runtime-id>`, is a placeholder — choose your own project-meaningful
+value. Never copy an example name out of documentation as if it were a
+literal identity to register under.
+
+## 1. What kind of participant are you?
+
+- **Human, terminal control room** — run `{{.Binary}} tui`.
+- **Human, direct CLI** — run `{{.Binary}} <command> --json` for a
+  scriptable, versioned envelope on every command.
+- **Agent connected over MCP** — you are almost certainly here if something
+  handed you tool names like `get_started`, `identity`, `invocation_request`
+  rather than a shell. Use the MCP tool with the same name as the CLI
+  subcommand below (`invocation claim` -> `invocation_claim`, etc.); you
+  never need to shell out to the `{{.Binary}}` binary yourself.
+- **Agent driven by an unattended `runtime worker`** — an operator already
+  registered a runtime and is running `{{.Binary}} runtime worker --adapter
+  <adapter>` around you. You receive each invocation as your prompt
+  directly; you do not need to poll or claim it yourself. If you decide
+  another agent must act, return one bounded `AGENT_COMMS_INVOKE: {json}`
+  line in your final output, in the format your prompt described.
+- **Agent inside a live `interactive-serve`-wrapped terminal** — you'll get
+  a short, unprompted "check your pending invocations" line typed into your
+  own terminal when work arrives. When you see it, run
+  `{{.Binary}} invocation list --status PENDING --to <agent-name> --json`,
+  then handle it through the normal claim/start/complete sequence below.
+
+## 2. Do you already have an identity in this project?
+
+{{if .Static -}}
+This file was generated once, at project setup, before anything connected —
+it can't know your live state. Find out right now:
+- CLI: `{{.Binary}} profile current --json`
+- MCP: call the `identity` tool (cheap, poll anytime) or `get_started`
+  (the fuller version of this file, with your actual state filled in).
+{{else if not .Registered -}}
+You do not have a registered identity in this project yet
+{{if eq .Source "project_owner"}}(you are currently resolving as the
+project owner because nothing has bootstrapped a dedicated identity for
+this connection yet — expected on a first connection){{end}}.
+Choose a name meaningful to this project — not an example name from
+documentation — and register it:
+- CLI: `{{.Binary}} agent register --id <agent-name> --principal-type AGENT`
+- MCP: call `agent_register` with `id: "<agent-name>"`.
+Once registered, later connections resolve back to that same identity
+automatically — you will not need to register again from here. An active
+orchestrator or human teammate can also register you on your behalf if
+asked, using this same name — but you can never register a different
+agent's identity yourself unless you hold one of those two roles.
+{{else if not .Active -}}
+You are registered as `{{.Actor}}` but not yet activated. Activation
+requires an owner or orchestrator, not something you can grant yourself:
+- CLI: `{{.Binary}} agent activate --id {{.Actor}} --role AGENT --scope <scope>`
+- MCP: call `agent_activate` (owner/orchestrator connection only).
+Until activated, every runtime/invocation/task tool fails the same
+"active principal required" check. Requesting `--role ORCHESTRATOR`
+specifically requires a HUMAN principal to grant it, even from an existing
+orchestrator — never ask for that role for yourself; a human decides it.
+{{else -}}
+You are an active agent: `{{.Actor}}`, role `{{.Role}}`{{if eq .Source "host_binding"}} (resolved via host binding for `{{.HostLabel}}`){{end}}.
+You can register a runtime, claim and handle invocations, post messages,
+and create tasks now.{{end}}
+
+## 3. Core invocation lifecycle
+
+`PENDING` -> `NOTIFIED` -> `CLAIMED` -> `RUNNING` -> `WAITING` -> a terminal
+state (`COMPLETED`, `REJECTED`, `EXPIRED`, `DEAD_LETTER`). Same commands
+either way, CLI on the left, MCP tool on the right:
+
+- `invocation next` / `invocation_next` — read the next claimable invocation.
+- `invocation listen --wait <duration> --claim` / `invocation_listen` —
+  prefer this over polling: it blocks until work arrives and claims it.
+- `invocation claim --id <id> --runtime <runtime-id>` / `invocation_claim`.
+- `invocation start --id <id>` / `invocation_start`.
+- `invocation wait` / `invocation resume` / `invocation_wait` /
+  `invocation_resume` — if you need to pause for something external.
+- `invocation complete --id <id> --summary <summary>` / `invocation_complete`,
+  or `invocation reject` / `invocation_reject` if you can't do it.
+
+## 4. Handing off work to another agent
+
+`invocation request --to <agent-name> --instruction "<instruction>"` (CLI)
+or `invocation_request` with `target: "<agent-name>"` (MCP). `<agent-name>`
+is the target's real registered agent ID — never a runtime ID, never an
+example name from documentation. This never requires knowing how the
+target is connected; delivery is resolved automatically.
+
+Deciding how *your own* runtime gets set up (which adapter, or
+`interactive-serve`) is separate from addressing one that already exists.
+As a plain agent it's self-scoped, the same as registration — you don't
+decide it for another agent unless you're an active orchestrator or human
+principal sponsoring it on their behalf. See `docs/agent-onboarding.md`'s
+runtime-setup section for the decision tree; it is not part of this guide.
+
+## 5. Where to go deeper
+
+- `docs/agent-onboarding.md` — this same walkthrough, for a human reader.
+- `docs/agent-invocations.md` — adapter matrix, delivery/failure-mode
+  details, connector configuration.

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/DhanushSantosh/AgentComms/internal/identity"
+	"github.com/DhanushSantosh/AgentComms/internal/onboarding"
 )
 
 const Runtime = ".agent-comms"
@@ -103,7 +104,14 @@ func PersonalBootstrap() []byte {
 }
 
 func AgentInstructions() []byte {
-	return []byte("# Agent Comms agent instructions\n\nRun `agent-comms status --json` before work. Register and become ACTIVE before claiming. Never write resources covered by another lease. Use durable messages for contracts, blockers, actions, and decisions.\n\nRunning unattended instead of interactively? Register a runtime with `agent-comms runtime register` and drive it with `agent-comms runtime worker --adapter <adapter>`. See docs/agent-invocations.md for adapter configuration.\n")
+	rendered, err := onboarding.Render(onboarding.StaticData(""))
+	if err != nil {
+		// onboarding.Render only fails on a malformed embedded template,
+		// which is a build-time invariant, not a runtime condition —
+		// there is no recoverable fallback path worth writing for it.
+		panic(err)
+	}
+	return []byte(rendered)
 }
 
 func (s *Store) ManagedBootstrapValid() bool {

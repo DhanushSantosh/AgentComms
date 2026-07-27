@@ -45,6 +45,22 @@ capabilities are added.
   holding the requester through the target's active turn.
 - Socket request deadlines honor caller cancellation after connecting.
 
+### Registration and role-escalation authorization
+
+- Self-registration (`id` equal to the caller's own resolved actor) is
+  always permitted, over both CLI and MCP.
+- Registering a different `id` requires the caller to be an active
+  orchestrator or human principal (`Service.CanSponsorRegistration`),
+  enforced identically at the CLI's `agent register` and the MCP
+  `agent_register` tool — the CLI previously had no check here at all.
+- Granting the Orchestrator role via `agent activate`/`agent_activate`
+  requires the granting actor to be an active HUMAN principal, on top of
+  the ordinary owner-or-orchestrator elevation already required for any
+  activation. An AGENT-principal orchestrator cannot mint further
+  orchestrators on its own. Enforced once in the shared transition
+  validator (`internal/protocol/transitions.go`), covering CLI, MCP, TUI,
+  and the daemon across both authority backends.
+
 ### Interface error consistency
 
 - CLI and MCP failures use one shared classifier for `VALIDATION`,

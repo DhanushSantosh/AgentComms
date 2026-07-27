@@ -346,6 +346,21 @@ func (s *Service) Register(actor, display string, pt model.PrincipalType) (model
 	_ = identity.SaveUserConfig(user)
 	return event, nil
 }
+// CanSponsorRegistration reports whether actor is authorized to register a
+// new agent under a different id on its behalf: an active ORCHESTRATOR-role
+// principal, or any active HUMAN principal (which covers the project owner
+// by construction — Register at init always creates it as PrincipalHuman).
+// Self-registration (id == actor) never needs this check: every principal,
+// registered or not, may always bootstrap its own identity.
+func (s *Service) CanSponsorRegistration(actor string) (bool, error) {
+	state, err := s.State()
+	if err != nil {
+		return false, err
+	}
+	principal, ok := state.Agents[actor]
+	return ok && principal.Status == "ACTIVE" &&
+		(principal.Role == model.RoleOrchestrator || principal.PrincipalType == model.PrincipalHuman), nil
+}
 func (s *Service) RotateKey(actor string) (model.Event, error) {
 	cfg, e := s.Store.Config()
 	if e != nil {

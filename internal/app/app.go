@@ -31,6 +31,7 @@ import (
 	"github.com/DhanushSantosh/AgentComms/internal/interactiveserve"
 	"github.com/DhanushSantosh/AgentComms/internal/mcp"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
+	"github.com/DhanushSantosh/AgentComms/internal/onboarding"
 	"github.com/DhanushSantosh/AgentComms/internal/runtimeinit"
 	"github.com/DhanushSantosh/AgentComms/internal/service"
 	"github.com/DhanushSantosh/AgentComms/internal/sessionbind"
@@ -109,7 +110,7 @@ func Run(args []string, stdout, stderr io.Writer) error {
 func (c *cli) root() *cobra.Command {
 	r := &cobra.Command{Use: "agent-comms", Short: "Governed coordination for concurrent agents", Version: Version, PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		c.cmd = cmd.CommandPath()
-		if cmd.Name() == "version" || cmd.Name() == "init" || cmd.Name() == "completion" || (cmd.Name() == "update" && cmd.Parent() == cmd.Root()) || cmd.Name() == "agent-instructions" || cmd.CommandPath() == "agent-comms daemon serve" || cmd.CommandPath() == "agent-comms claude serve" || cmd.CommandPath() == "agent-comms claude attach" || cmd.CommandPath() == "agent-comms codex serve" || cmd.CommandPath() == "agent-comms codex attach" || cmd.CommandPath() == "agent-comms runtime interactive-serve" {
+		if cmd.Name() == "version" || cmd.Name() == "init" || cmd.Name() == "completion" || (cmd.Name() == "update" && cmd.Parent() == cmd.Root()) || cmd.CommandPath() == "agent-comms daemon serve" || cmd.CommandPath() == "agent-comms claude serve" || cmd.CommandPath() == "agent-comms claude attach" || cmd.CommandPath() == "agent-comms codex serve" || cmd.CommandPath() == "agent-comms codex attach" || cmd.CommandPath() == "agent-comms runtime interactive-serve" {
 			return nil
 		}
 		root := c.project
@@ -340,7 +341,7 @@ func (c *cli) initCmd() *cobra.Command {
 		}
 		result := map[string]any{
 			"project": root, "runtime": filepath.Join(root, store.Runtime), "owner": owner,
-			"next":         []string{"agent-comms tui", "agent-comms agent register --id builder --principal-type AGENT"},
+			"next":         []string{"agent-comms tui", "agent-comms agent register --id reviewer --principal-type AGENT"},
 			"runtime_mode": initialized.RuntimeMode, "daemon_endpoint": initialized.DaemonEndpoint,
 		}
 		if initialized.Database != "" {
@@ -606,6 +607,15 @@ func (c *cli) agentCmd() *cobra.Command {
 	var display, ptype string
 	reg := &cobra.Command{Use: "register", RunE: func(cmd *cobra.Command, args []string) error {
 		id, _ := cmd.Flags().GetString("id")
+		if id != c.actor {
+			can, e := c.svc.CanSponsorRegistration(c.actor)
+			if e != nil {
+				return e
+			}
+			if !can {
+				return fmt.Errorf("agent register: registering a different id requires an active orchestrator or human principal (actor: %s)", c.actor)
+			}
+		}
 		v, e := c.svc.Register(id, display, model.PrincipalType(strings.ToUpper(ptype)))
 		if e != nil {
 			return e
@@ -1940,41 +1950,32 @@ func (c *cli) completionCmd(root *cobra.Command) *cobra.Command {
 func (c *cli) agentInstructionsCmd() *cobra.Command {
 	return &cobra.Command{Use: "agent-instructions", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		exe, _ := os.Executable()
-		instructions := fmt.Sprintf(`# Agent Comms agent bootstrap
-binary: %s
-commands:
-  status:   %[1]s status --json
-  verify:   %[1]s verify --json
-  register: %[1]s agent register --id <agent-id> --principal-type AGENT
-  activate: %[1]s agent activate --id <agent-id> --role AGENT --scope <scope>
-  task_create:  %[1]s task create --id <id> --title <title> --repository local --branch <branch> --resource <path>
-  task_claim:   %[1]s task claim --id <id>
-  task_start:   %[1]s task start --id <id>
-  task_renew:   %[1]s task renew --id <id> --progress <summary>
-  message_post: %[1]s message post --id <id> --kind ACTION --to <actor> --subject <subject> --body <body>  (or --body-file <path> for multi-line)
+		var registered, active bool
+		var role string
+		if state, e := c.svc.State(); e == nil {
+			registered, active, role = onboarding.LookupAgentState(state, c.actor)
+		}
+		guide, e := onboarding.Render(onboarding.FromActorResolution(c.actorResolution, exe, registered, active, role))
+		if e != nil {
+			return e
+		}
+		instructions := guide + fmt.Sprintf(`
+## Additional commands
+
   document_create: %[1]s document create --id <id> --title <title> --body <body> --tag <tag>
-  decision_create: %[1]s decision create --id <id> --title <title> --statement <statement>
-contracts: Use "message post --kind CONTRACT" for binding agreements
-documents: Use "document create" for living reference documents
-decisions: Use "decision create" for design decisions
-authority: Personal mode coordinates one machine through SQLite. Use service
-  mode with PostgreSQL for multi-host coordination; Git is not an authority.
-unattended: Register a runtime with "runtime register" and drive it with
-  "runtime worker --adapter <adapter>" instead of an interactive agent loop.
-  See docs/agent-invocations.md for the full adapter list and how to
-  configure each one.
-live:      An agent with a live "runtime interactive-serve --id <runtime> --
-  <cmd>" session can be woken directly by "invocation request --to <agent>".
-  Register the runtime when its ID differs from the agent ID. See
-  docs/agent-invocations.md's "Direct delivery into a live interactive
-  session" section.
+  decision_create:  %[1]s decision create --id <id> --title <title> --statement <statement>
+  message_post:     %[1]s message post --id <id> --kind ACTION --to <actor> --subject <subject> --body <body>  (or --body-file <path> for multi-line)
+
+Use "message post --kind CONTRACT" for binding agreements. Personal mode
+coordinates one machine through SQLite; use service mode with PostgreSQL for
+multi-host coordination. Git is not an authority.
 `, exe)
-		return c.emit("agent-instructions", map[string]any{"instructions": instructions, "binary": exe})
+		return c.emit("agent-instructions", map[string]any{"instructions": instructions, "binary": exe, "actor_resolution": c.actorResolution})
 	}}
 }
 func (c *cli) mcpCmd() *cobra.Command {
 	return &cobra.Command{Use: "mcp", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
-		return mcp.Serve(c.svc, c.actor, Version, os.Stdin, c.out)
+		return mcp.Serve(c.svc, c.actorResolution, Version, os.Stdin, c.out)
 	}}
 }
 func (c *cli) claudeCmd() *cobra.Command {

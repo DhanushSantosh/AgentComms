@@ -9,6 +9,12 @@ An invocation progresses through `PENDING`, `NOTIFIED`, `CLAIMED`, `RUNNING`,
 transactions, so competing daemons or runtime instances cannot both deliver
 or claim the same invocation.
 
+**First time here?** See [agent-onboarding.md](agent-onboarding.md) for the
+sequential walkthrough — which interface to use, whether you're already
+registered, and the core command loop. This document is the deep
+reference: the full adapter matrix, live-tested failure modes, and
+connector configuration.
+
 ## Agent workflow
 
 ```sh
@@ -50,7 +56,10 @@ same underlying application as the CLI, just a different transport. This is
 the general, adapter-free way for *any* MCP-capable agent host to
 participate: `runtime worker --adapter <name>` (below) is optional
 convenience automation layered on top for a handful of specific,
-vetted providers, not a requirement.
+vetted providers, not a requirement. Call the `get_started` tool first —
+it renders the same decision tree as
+[agent-onboarding.md](agent-onboarding.md), filled in with your connection's
+actual resolved identity and registration state.
 
 The recommended global configuration gives each host a stable
 `AGENT_COMMS_HOST_LABEL` and lets the MCP process inherit the project
@@ -107,11 +116,20 @@ but it deliberately bypasses host-label discovery.
 
 A brand-new host initially resolves to the project owner because no matching
 profile exists yet. That owner-fallback connection may call `agent_register`
-with the desired project identity, such as `AXIOM`; registration mints that
+with the desired project identity, `<agent-name>` — a name chosen for this
+project, never copied from documentation; registration mints that
 identity's signing keypair and records the host label in its local profile.
-Subsequent connections resolve directly to `AXIOM`. Outside this first-host
-bootstrap case, `agent_register` remains strict self-registration: `id` must
-equal the connection's resolved actor.
+Subsequent connections resolve directly to `<agent-name>`.
+
+Registering an `id` other than the connection's own resolved actor always
+requires that actor to be an active orchestrator or human principal
+(`Service.CanSponsorRegistration`) — the owner-fallback case above is just
+one instance of this: the project owner is always an active human principal
+by construction, so it always qualifies. Any other active orchestrator, or
+any other active human principal, may sponsor a new registration the same
+way, at any time, not only on a project's first connection. A plain
+agent-role, agent-principal connection may only ever self-register
+(`id` equal to its own resolved actor).
 
 Use the MCP `identity` tool to inspect the actor bound to the current
 connection. From the CLI, `agent-comms profile current --json` reports both
@@ -467,9 +485,8 @@ How the ID is established differs by adapter:
   starts or recovers from a crash rather than once per invocation.
 - `codex`: the ID must already exist — Codex mints its own thread IDs and has
   no equivalent of Claude's create-at-a-chosen-ID flag. Run once without
-  `--session-id`, capture the thread ID Codex reports, then set `--session-id`
-  to it for every later invocation of that runtime, the way `damon-runtime-1`
-  is configured in this project.
+  `--session-id`, capture the thread ID Codex reports, then set
+  `--session-id` to it for every later invocation of that runtime.
 - `opencode-live`: `--session-id` is optional. OpenCode also mints its own
   session IDs, but the worker persists whichever one it creates at
   `.agent-comms/cache/opencode-live-session-<runtime-id>.json` and reuses it
@@ -572,9 +589,9 @@ independently inspected the project, flagged what looked suspicious, and
 asked for confirmation before proceeding on a low-stakes request; once
 satisfied, it drove `invocation claim/start/complete` unattended.
 
-From then on, `agent-comms invocation request --to AXIOM ...` targets the
-agent identity, not a runtime name. Agent Comms resolves AXIOM's eligible
-registered runtimes and, when exactly one has a live interactive session,
+From then on, `agent-comms invocation request --to <agent-name> ...` targets
+the agent identity, not a runtime name. Agent Comms resolves that agent's
+eligible registered runtimes and, when exactly one has a live interactive session,
 dials that runtime's deterministic control socket and injects a short,
 bounded "check your pending invocations" nudge. For the simplest local
 workflow, a same-ID live runtime remains a fallback even without a runtime

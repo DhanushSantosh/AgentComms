@@ -56,17 +56,17 @@ generated agent instructions. PostgreSQL or SQLite—not Git—is authoritative.
 ## Daily workflow
 
 ```sh
-agent-comms agent register --id builder --principal-type AGENT
-agent-comms agent activate --id builder --role AGENT --scope src --capability go
+agent-comms agent register --id reviewer --principal-type AGENT
+agent-comms agent activate --id reviewer --role AGENT --scope src --capability go
 
-agent-comms task create --id task-001 --title "Implement API" \
+agent-comms task create --id review-task-1 --title "Implement API" \
   --repository local --branch feature/api --resource src/api
-agent-comms task offer --id task-001 --to builder
-agent-comms task claim --id task-001 --actor builder
-agent-comms task start --id task-001 --actor builder
-agent-comms task renew --id task-001 --actor builder --progress "Handlers complete"
+agent-comms task offer --id review-task-1 --to reviewer
+agent-comms task claim --id review-task-1 --actor reviewer
+agent-comms task start --id review-task-1 --actor reviewer
+agent-comms task renew --id review-task-1 --actor reviewer --progress "Handlers complete"
 
-agent-comms message post --id action-001 --kind ACTION --to builder \
+agent-comms message post --id action-001 --kind ACTION --to reviewer \
   --subject "Run integration tests" --body "Attach the result as evidence."
 
 agent-comms message resolve --id blocker-001  # auto-closes linked BLOCKED task
@@ -109,8 +109,10 @@ explicit document, message, and artifact-metadata drafts remain local until
 submitted.
 
 See the [team service deployment guide](docs/service-deployment.md).
-See the [agent invocation protocol](docs/agent-invocations.md) for runtime
-registration, wakeups, delivery guarantees, and invocation policy.
+See [getting started](docs/agent-onboarding.md) for the sequential
+human/agent walkthrough, and the [agent invocation protocol](docs/agent-invocations.md)
+for the deep reference on runtime registration, wakeups, delivery
+guarantees, and invocation policy.
 
 ## Governance defaults
 

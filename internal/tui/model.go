@@ -162,7 +162,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "r":
 			m.refresh()
 		case "?":
-			m.notice = "↑/↓ navigate · → open · ← back · / commands · a switch actor · r refresh · q quit"
+			m.notice = "↑/↓ navigate · → open · ← back · / commands · a switch actor · r refresh · q quit · agent-comms agent-instructions for the full guide"
 		case "h":
 			m.highContrast = !m.highContrast
 			theme := "auto"

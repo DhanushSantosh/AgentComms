@@ -95,6 +95,17 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 			activation.Role != model.RoleAgent && activation.Role != model.RoleObserver) {
 			return nil, errors.New("valid activation role is required")
 		}
+		// Granting the orchestrator role is a hard, human-only check on top
+		// of the owner-or-orchestrator elevation already required above: an
+		// existing orchestrator that is itself an AGENT principal (not a
+		// human) must not be able to mint further orchestrators on its own.
+		// Every orchestrator promotion requires a human in the loop, no
+		// matter who initiates the call — this is checked here, the one
+		// transition validator shared by every interface (CLI, MCP, TUI,
+		// daemon) and both authority backends, not duplicated per-interface.
+		if activation.Role == model.RoleOrchestrator && st.Agents[actor].PrincipalType != model.PrincipalHuman {
+			return nil, errors.New("human principal required to grant the orchestrator role")
+		}
 	}
 	if typ == "agent.rename" {
 		if _, ok := st.Agents[id]; !ok {

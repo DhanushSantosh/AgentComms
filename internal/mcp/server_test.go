@@ -6,11 +6,18 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/DhanushSantosh/AgentComms/internal/identity"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 	"github.com/DhanushSantosh/AgentComms/internal/testsupport"
 )
 
 const testServerVersion = "test-version"
+
+// asActor builds a bare ActorResolution for tests that only care about the
+// bound actor, not how it was resolved.
+func asActor(actor string) identity.ActorResolution {
+	return identity.ActorResolution{Actor: actor}
+}
 
 // TestToolSchemasNeverEmitNullRequired guards a real, live-discovered bug:
 // a tool with zero required arguments (status, history, invocation_next,
@@ -38,14 +45,14 @@ func TestInitializeAndToolCatalog(t *testing.T) {
 	s, _ := testsupport.StartPersonalProject(t)
 	input := "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\"}\n{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}\n"
 	var out bytes.Buffer
-	if e := Serve(s, "owner", testServerVersion, strings.NewReader(input), &out); e != nil {
+	if e := Serve(s, asActor("owner"), testServerVersion, strings.NewReader(input), &out); e != nil {
 		t.Fatal(e)
 	}
 	if !strings.Contains(out.String(), `"version":"`+testServerVersion+`"`) {
 		t.Fatalf("initialize did not report the supplied binary version: %s", out.String())
 	}
 	for _, want := range []string{
-		"agent-comms", `"identity"`, "task_create", "message_post", "invocation_request",
+		"agent-comms", `"identity"`, `"get_started"`, "task_create", "message_post", "invocation_request",
 		"invocation_next", "invocation_listen", "invocation_claim",
 		"runtime_register", "runtime_heartbeat", "verify",
 	} {
@@ -59,11 +66,55 @@ func TestIdentityToolReportsConnectionActor(t *testing.T) {
 	instance, _ := testsupport.StartPersonalProject(t)
 	input := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"identity","arguments":{}}}` + "\n"
 	var output bytes.Buffer
-	if err := Serve(instance, "AXIOM", testServerVersion, strings.NewReader(input), &output); err != nil {
+	resolution := identity.ActorResolution{Actor: "AXIOM", Source: identity.ActorSourceHostBinding, HostLabel: "claude"}
+	if err := Serve(instance, resolution, testServerVersion, strings.NewReader(input), &output); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(output.String(), `"actor":"AXIOM"`) {
-		t.Fatalf("identity tool did not report the bound actor: %s", output.String())
+	if !strings.Contains(output.String(), `"actor":"AXIOM"`) || !strings.Contains(output.String(), `"source":"host_binding"`) {
+		t.Fatalf("identity tool did not report the bound actor and resolution source: %s", output.String())
+	}
+}
+
+// TestGetStartedToolReportsRegistrationState proves the "get_started" MCP
+// tool — the fix for MCP-connected agents having no path to onboarding
+// content at all — actually reflects live state, not a static blurb: it
+// must flip from unregistered to registered+active as the same actor
+// progresses through register/activate, the same way the CLI's
+// agent-instructions command does.
+func TestGetStartedToolReportsRegistrationState(t *testing.T) {
+	instance, _ := testsupport.StartPersonalProject(t)
+	input := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_started","arguments":{}}}` + "\n"
+	resolution := identity.ActorResolution{Actor: "fresh-agent", Source: identity.ActorSourceProjectOwner}
+
+	var before bytes.Buffer
+	if err := Serve(instance, resolution, testServerVersion, strings.NewReader(input), &before); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(before.String(), `"registered":false`) || !strings.Contains(before.String(), `"active":false`) {
+		t.Fatalf("expected unregistered state before registration: %s", before.String())
+	}
+	if !strings.Contains(before.String(), `agent_register`) {
+		t.Fatalf("expected get_started's guide to mention agent_register: %s", before.String())
+	}
+
+	if _, err := instance.Register("fresh-agent", "Fresh Agent", model.PrincipalAgent); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := instance.Execute("owner", "agent.activate", "fresh-agent",
+		model.AgentActivated{Role: model.RoleAgent, Scopes: []string{"src"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	var after bytes.Buffer
+	registeredResolution := identity.ActorResolution{Actor: "fresh-agent", Source: identity.ActorSourceHostBinding, HostLabel: "claude"}
+	if err := Serve(instance, registeredResolution, testServerVersion, strings.NewReader(input), &after); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(after.String(), `"registered":true`) || !strings.Contains(after.String(), `"active":true`) {
+		t.Fatalf("expected registered+active state after register+activate: %s", after.String())
+	}
+	if !strings.Contains(after.String(), `"role":"AGENT"`) {
+		t.Fatalf("expected role AGENT in get_started response: %s", after.String())
 	}
 }
 
@@ -88,7 +139,7 @@ func TestInvocationToolsReturnAndClaimWork(t *testing.T) {
 		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"invocation_listen","arguments":{"runtime_id":"runtime-builder","wait_seconds":1}}}`,
 	}, "\n") + "\n"
 	var output bytes.Buffer
-	if err := Serve(instance, "builder", testServerVersion, strings.NewReader(input), &output); err != nil {
+	if err := Serve(instance, asActor("builder"), testServerVersion, strings.NewReader(input), &output); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(output.String(), `"found":true`) ||
@@ -108,7 +159,7 @@ func TestNotificationsReceiveNoResponse(t *testing.T) {
 	input := `{"jsonrpc":"2.0","id":1,"method":"initialize"}` + "\n" +
 		`{"jsonrpc":"2.0","method":"notifications/initialized"}` + "\n"
 	var out bytes.Buffer
-	if e := Serve(s, "owner", testServerVersion, strings.NewReader(input), &out); e != nil {
+	if e := Serve(s, asActor("owner"), testServerVersion, strings.NewReader(input), &out); e != nil {
 		t.Fatal(e)
 	}
 	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
@@ -130,7 +181,7 @@ func TestAgentRegisterToolCreatesCredential(t *testing.T) {
 
 	registerInput := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"agent_register","arguments":{"id":"fresh-agent"}}}` + "\n"
 	var registerOut bytes.Buffer
-	if e := Serve(instance, "fresh-agent", testServerVersion, strings.NewReader(registerInput), &registerOut); e != nil {
+	if e := Serve(instance, asActor("fresh-agent"), testServerVersion, strings.NewReader(registerInput), &registerOut); e != nil {
 		t.Fatal(e)
 	}
 	if strings.Contains(registerOut.String(), `"error"`) {
@@ -146,7 +197,7 @@ func TestAgentRegisterToolCreatesCredential(t *testing.T) {
 
 	activateInput := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"agent_activate","arguments":{"id":"fresh-agent","role":"AGENT","scopes":["src"]}}}` + "\n"
 	var activateOut bytes.Buffer
-	if e := Serve(instance, "owner", testServerVersion, strings.NewReader(activateInput), &activateOut); e != nil {
+	if e := Serve(instance, asActor("owner"), testServerVersion, strings.NewReader(activateInput), &activateOut); e != nil {
 		t.Fatal(e)
 	}
 	if strings.Contains(activateOut.String(), `"error"`) {
@@ -155,7 +206,7 @@ func TestAgentRegisterToolCreatesCredential(t *testing.T) {
 
 	runtimeInput := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"runtime_register","arguments":{"id":"fresh-runtime","connector":"MCP","max_concurrent":1}}}` + "\n"
 	var runtimeOut bytes.Buffer
-	if e := Serve(instance, "fresh-agent", testServerVersion, strings.NewReader(runtimeInput), &runtimeOut); e != nil {
+	if e := Serve(instance, asActor("fresh-agent"), testServerVersion, strings.NewReader(runtimeInput), &runtimeOut); e != nil {
 		t.Fatal(e)
 	}
 	if strings.Contains(runtimeOut.String(), `"error"`) {
@@ -164,24 +215,26 @@ func TestAgentRegisterToolCreatesCredential(t *testing.T) {
 }
 
 // TestAgentRegisterToolRejectsSpoofedID guards a real vulnerability caught
-// by security review: agent_register's own docstring promises
-// self-registration only, but the first implementation never actually
-// checked that the requested id matched the connection's bound actor — an
-// MCP connection scoped to one actor could register (or squat) an
-// unrelated identity entirely, breaking the per-actor scoping MCP
-// connections are supposed to guarantee.
+// by security review: the first implementation never checked that the
+// requested id matched the connection's bound actor at all — an MCP
+// connection scoped to one actor could register (or squat) an unrelated
+// identity entirely. Registering on behalf of a different id is now a real,
+// named capability (an active orchestrator or human principal may sponsor
+// a new registration), but an unregistered, unprivileged actor like
+// "codex-runner" here must still be rejected — this must not regress into
+// "any actor can register any id" again.
 func TestAgentRegisterToolRejectsSpoofedID(t *testing.T) {
 	instance, _ := testsupport.StartPersonalProject(t)
 
 	spoofInput := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"agent_register","arguments":{"id":"someone-else"}}}` + "\n"
 	var spoofOut bytes.Buffer
-	if e := Serve(instance, "codex-runner", testServerVersion, strings.NewReader(spoofInput), &spoofOut); e != nil {
+	if e := Serve(instance, asActor("codex-runner"), testServerVersion, strings.NewReader(spoofInput), &spoofOut); e != nil {
 		t.Fatal(e)
 	}
 	if !strings.Contains(spoofOut.String(), `"error"`) {
 		t.Fatalf("expected agent_register to reject id != actor, got: %s", spoofOut.String())
 	}
-	if !strings.Contains(spoofOut.String(), `"data":{"code":"VALIDATION"}`) {
+	if !strings.Contains(spoofOut.String(), `"data":{"code":"AUTHORIZATION"}`) {
 		t.Fatalf("expected stable MCP error classification, got: %s", spoofOut.String())
 	}
 	state, e := instance.State()
@@ -206,7 +259,7 @@ func TestAgentRegisterToolPermitsOwnerFallbackBootstrap(t *testing.T) {
 
 	input := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"agent_register","arguments":{"id":"AXIOM"}}}` + "\n"
 	var out bytes.Buffer
-	if e := Serve(instance, "owner", testServerVersion, strings.NewReader(input), &out); e != nil {
+	if e := Serve(instance, asActor("owner"), testServerVersion, strings.NewReader(input), &out); e != nil {
 		t.Fatal(e)
 	}
 	if strings.Contains(out.String(), `"error"`) {
@@ -221,6 +274,69 @@ func TestAgentRegisterToolPermitsOwnerFallbackBootstrap(t *testing.T) {
 	}
 }
 
+// TestAgentRegisterToolPermitsActiveOrchestratorSponsorship proves
+// CanSponsorRegistration's general rule, not just the owner special case:
+// any active ORCHESTRATOR-role principal (human or agent) may register a
+// new agent on its behalf, exactly like the owner can.
+func TestAgentRegisterToolPermitsActiveOrchestratorSponsorship(t *testing.T) {
+	instance, _ := testsupport.StartPersonalProject(t)
+	if _, e := instance.Register("lead", "Lead", model.PrincipalAgent); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := instance.Execute("owner", "agent.activate", "lead",
+		model.AgentActivated{Role: model.RoleOrchestrator, Scopes: []string{"src"}}); e != nil {
+		t.Fatal(e)
+	}
+
+	input := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"agent_register","arguments":{"id":"sponsored-agent"}}}` + "\n"
+	var out bytes.Buffer
+	if e := Serve(instance, asActor("lead"), testServerVersion, strings.NewReader(input), &out); e != nil {
+		t.Fatal(e)
+	}
+	if strings.Contains(out.String(), `"error"`) {
+		t.Fatalf("active orchestrator sponsorship should have succeeded: %s", out.String())
+	}
+	state, e := instance.State()
+	if e != nil {
+		t.Fatal(e)
+	}
+	if _, ok := state.Agents["sponsored-agent"]; !ok {
+		t.Fatalf("sponsored-agent was not registered: %+v", state.Agents)
+	}
+}
+
+// TestAgentRegisterToolRejectsNonOrchestratorAgentSponsorship guards the
+// other half: an active but plain AGENT-role, AGENT-principal-type actor —
+// neither an orchestrator nor human — must not be able to register on
+// behalf of a different id, even though it's a real, registered, active
+// principal (unlike the spoofing test's unregistered "codex-runner").
+func TestAgentRegisterToolRejectsNonOrchestratorAgentSponsorship(t *testing.T) {
+	instance, _ := testsupport.StartPersonalProject(t)
+	if _, e := instance.Register("reviewer", "Reviewer", model.PrincipalAgent); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := instance.Execute("owner", "agent.activate", "reviewer",
+		model.AgentActivated{Role: model.RoleAgent, Scopes: []string{"src"}}); e != nil {
+		t.Fatal(e)
+	}
+
+	input := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"agent_register","arguments":{"id":"someone-else"}}}` + "\n"
+	var out bytes.Buffer
+	if e := Serve(instance, asActor("reviewer"), testServerVersion, strings.NewReader(input), &out); e != nil {
+		t.Fatal(e)
+	}
+	if !strings.Contains(out.String(), `"data":{"code":"AUTHORIZATION"}`) {
+		t.Fatalf("expected a plain agent's sponsorship attempt to be rejected as AUTHORIZATION, got: %s", out.String())
+	}
+	state, e := instance.State()
+	if e != nil {
+		t.Fatal(e)
+	}
+	if _, ok := state.Agents["someone-else"]; ok {
+		t.Fatal("non-orchestrator sponsorship must not have created the principal")
+	}
+}
+
 // TestAgentRegisterToolRejectsInvalidPrincipalType guards the second half
 // of the same finding: principal_type was cast straight from an
 // unvalidated string to model.PrincipalType, even though the tool's own
@@ -232,7 +348,7 @@ func TestAgentRegisterToolRejectsInvalidPrincipalType(t *testing.T) {
 
 	input := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"agent_register","arguments":{"id":"fresh-agent","principal_type":"OWNER"}}}` + "\n"
 	var out bytes.Buffer
-	if e := Serve(instance, "fresh-agent", testServerVersion, strings.NewReader(input), &out); e != nil {
+	if e := Serve(instance, asActor("fresh-agent"), testServerVersion, strings.NewReader(input), &out); e != nil {
 		t.Fatal(e)
 	}
 	if !strings.Contains(out.String(), `"error"`) {
@@ -258,7 +374,7 @@ func TestAgentActivateToolRequiresElevation(t *testing.T) {
 
 	activateInput := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"agent_activate","arguments":{"id":"fresh-agent","role":"AGENT"}}}` + "\n"
 	var unauthorizedOut bytes.Buffer
-	if e := Serve(instance, "bystander", testServerVersion, strings.NewReader(activateInput), &unauthorizedOut); e != nil {
+	if e := Serve(instance, asActor("bystander"), testServerVersion, strings.NewReader(activateInput), &unauthorizedOut); e != nil {
 		t.Fatal(e)
 	}
 	if !strings.Contains(unauthorizedOut.String(), `"error"`) {
@@ -266,10 +382,54 @@ func TestAgentActivateToolRequiresElevation(t *testing.T) {
 	}
 
 	var ownerOut bytes.Buffer
-	if e := Serve(instance, "owner", testServerVersion, strings.NewReader(activateInput), &ownerOut); e != nil {
+	if e := Serve(instance, asActor("owner"), testServerVersion, strings.NewReader(activateInput), &ownerOut); e != nil {
 		t.Fatal(e)
 	}
 	if strings.Contains(ownerOut.String(), `"error"`) {
 		t.Fatalf("expected the owner's agent_activate to succeed, got: %s", ownerOut.String())
+	}
+}
+
+// TestAgentActivateToolRequiresHumanToGrantOrchestratorRole proves the
+// orchestrator-escalation hard check (internal/protocol/transitions.go) is
+// enforced over MCP, not just at the Service layer: an AGENT-principal
+// orchestrator must not be able to mint a further orchestrator through the
+// agent_activate tool, even though it already passes the ordinary
+// owner-or-orchestrator elevation gate.
+func TestAgentActivateToolRequiresHumanToGrantOrchestratorRole(t *testing.T) {
+	instance, _ := testsupport.StartPersonalProject(t)
+	if _, e := instance.Register("agent-lead", "Agent Lead", model.PrincipalAgent); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := instance.Execute("owner", "agent.activate", "agent-lead",
+		model.AgentActivated{Role: model.RoleOrchestrator, Scopes: []string{"src"}}); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := instance.Register("candidate", "Candidate", model.PrincipalAgent); e != nil {
+		t.Fatal(e)
+	}
+
+	input := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"agent_activate","arguments":{"id":"candidate","role":"ORCHESTRATOR"}}}` + "\n"
+	var agentOut bytes.Buffer
+	if e := Serve(instance, asActor("agent-lead"), testServerVersion, strings.NewReader(input), &agentOut); e != nil {
+		t.Fatal(e)
+	}
+	if !strings.Contains(agentOut.String(), `"data":{"code":"AUTHORIZATION"}`) {
+		t.Fatalf("expected an agent-principal orchestrator's grant to be rejected as AUTHORIZATION, got: %s", agentOut.String())
+	}
+	state, e := instance.State()
+	if e != nil {
+		t.Fatal(e)
+	}
+	if state.Agents["candidate"].Role == model.RoleOrchestrator {
+		t.Fatal("candidate must not have been granted the orchestrator role")
+	}
+
+	var ownerOut bytes.Buffer
+	if e := Serve(instance, asActor("owner"), testServerVersion, strings.NewReader(input), &ownerOut); e != nil {
+		t.Fatal(e)
+	}
+	if strings.Contains(ownerOut.String(), `"error"`) {
+		t.Fatalf("expected the human owner's orchestrator grant to succeed, got: %s", ownerOut.String())
 	}
 }

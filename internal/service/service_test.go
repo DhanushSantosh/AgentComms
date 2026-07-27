@@ -220,6 +220,43 @@ func TestAgentRenameRejectsUnknownAgentAndEmptyName(t *testing.T) {
 	}
 }
 
+// TestGrantingOrchestratorRoleRequiresHumanPrincipal guards a hard,
+// deliberate escalation limit: an existing ORCHESTRATOR that is itself an
+// AGENT principal (not human) must not be able to mint further
+// orchestrators on its own, even though it already passes the ordinary
+// owner-or-orchestrator elevation check every other agent.activate call
+// requires. Every orchestrator promotion needs a human in the loop.
+func TestGrantingOrchestratorRoleRequiresHumanPrincipal(t *testing.T) {
+	s := setup(t)
+	if _, err := s.Register("agent-lead", "Agent Lead", model.PrincipalAgent); err != nil {
+		t.Fatal(err)
+	}
+	must(t, s, "owner", "agent.activate", "agent-lead", model.AgentActivated{Role: model.RoleOrchestrator, Scopes: []string{"src"}})
+
+	if _, err := s.Register("candidate", "Candidate", model.PrincipalAgent); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Execute("agent-lead", "agent.activate", "candidate",
+		model.AgentActivated{Role: model.RoleOrchestrator, Scopes: []string{"src"}}); err == nil {
+		t.Fatal("expected an agent-principal orchestrator to be rejected granting the orchestrator role")
+	}
+
+	// The same agent-lead orchestrator may still grant any non-orchestrator
+	// role — only the orchestrator grant itself is human-gated.
+	must(t, s, "agent-lead", "agent.activate", "candidate", model.AgentActivated{Role: model.RoleAgent, Scopes: []string{"src"}})
+
+	// A human principal who is also already an orchestrator (elevation is
+	// still role-based, same as ever) may grant the orchestrator role.
+	if _, err := s.Register("human-lead", "Human Lead", model.PrincipalHuman); err != nil {
+		t.Fatal(err)
+	}
+	must(t, s, "owner", "agent.activate", "human-lead", model.AgentActivated{Role: model.RoleOrchestrator, Scopes: []string{"src"}})
+	if _, err := s.Register("second-candidate", "Second Candidate", model.PrincipalAgent); err != nil {
+		t.Fatal(err)
+	}
+	must(t, s, "human-lead", "agent.activate", "second-candidate", model.AgentActivated{Role: model.RoleOrchestrator, Scopes: []string{"src"}})
+}
+
 // TestRegisterRejectsDuplicateIDWithoutTouchingExistingCredential guards a
 // real, live-discovered vulnerability: Register used to write a freshly
 // generated credential to the store before ever validating whether the

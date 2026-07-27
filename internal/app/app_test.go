@@ -191,6 +191,116 @@ func TestHostLabelResolvesActorAcrossInvocations(t *testing.T) {
 	}
 }
 
+// TestAgentRegisterCLIEnforcesSponsorshipRule guards a real gap: the CLI's
+// `agent register` previously had zero authorization check at all when
+// registering a different id than the acting actor — anyone with the
+// binary could register (or squat) any unrelated identity. Registering a
+// different id now requires the acting actor to be an active orchestrator
+// or human principal, matching the same rule the MCP agent_register tool
+// enforces (internal/mcp/server.go), via the shared
+// Service.CanSponsorRegistration.
+func TestAgentRegisterCLIEnforcesSponsorshipRule(t *testing.T) {
+	project := t.TempDir()
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
+	var out, stderr bytes.Buffer
+	run := func(args ...string) error {
+		t.Helper()
+		out.Reset()
+		stderr.Reset()
+		args = append(args, "--project", project, "--json")
+		return Run(args, &out, &stderr)
+	}
+	must := func(args ...string) {
+		t.Helper()
+		if e := run(args...); e != nil {
+			t.Fatalf("%v: %v\n%s", args, e, stderr.String())
+		}
+	}
+	must("init", "--non-interactive", "--owner", "owner", "--mode", "personal")
+
+	// The project owner (an active HUMAN principal by construction) may
+	// register on behalf of a different id.
+	must("agent", "register", "--actor", "owner", "--id", "lead")
+	must("agent", "activate", "--actor", "owner", "--id", "lead", "--role", "ORCHESTRATOR", "--scope", "src")
+
+	// An active ORCHESTRATOR-role agent principal may also sponsor a
+	// registration on behalf of a different id.
+	must("agent", "register", "--actor", "lead", "--id", "sponsored-agent")
+
+	must("agent", "register", "--actor", "owner", "--id", "reviewer")
+	must("agent", "activate", "--actor", "owner", "--id", "reviewer", "--role", "AGENT", "--scope", "src")
+
+	// A plain, active AGENT-role principal must be rejected when
+	// registering a different id.
+	if e := run("agent", "register", "--actor", "reviewer", "--id", "someone-else"); e == nil {
+		t.Fatal("expected a plain agent's sponsorship attempt to be rejected")
+	} else if code := errorCode(e); code != "AUTHORIZATION" {
+		t.Fatalf("expected AUTHORIZATION, got %s: %v", code, e)
+	}
+
+	must("status")
+	if bytes.Contains(out.Bytes(), []byte(`"someone-else"`)) {
+		t.Fatal("rejected sponsorship attempt must not have registered the principal")
+	}
+
+	// Self-registration never requires sponsorship, regardless of role.
+	must("agent", "register", "--actor", "fresh-self", "--id", "fresh-self")
+}
+
+// TestAgentActivateCLIRequiresHumanToGrantOrchestratorRole guards the same
+// orchestrator-escalation hard check (internal/protocol/transitions.go) at
+// the CLI entry point: an AGENT-principal orchestrator must not be able to
+// grant the orchestrator role to anyone else, even though it already
+// passes the ordinary owner-or-orchestrator elevation gate that lets it
+// call `agent activate` at all.
+func TestAgentActivateCLIRequiresHumanToGrantOrchestratorRole(t *testing.T) {
+	project := t.TempDir()
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
+	var out, stderr bytes.Buffer
+	run := func(args ...string) error {
+		t.Helper()
+		out.Reset()
+		stderr.Reset()
+		args = append(args, "--project", project, "--json")
+		return Run(args, &out, &stderr)
+	}
+	must := func(args ...string) {
+		t.Helper()
+		if e := run(args...); e != nil {
+			t.Fatalf("%v: %v\n%s", args, e, stderr.String())
+		}
+	}
+	must("init", "--non-interactive", "--owner", "owner", "--mode", "personal")
+	must("agent", "register", "--actor", "agent-lead", "--id", "agent-lead")
+	must("agent", "activate", "--actor", "owner", "--id", "agent-lead", "--role", "ORCHESTRATOR", "--scope", "src")
+	must("agent", "register", "--actor", "candidate", "--id", "candidate")
+
+	if e := run("agent", "activate", "--actor", "agent-lead", "--id", "candidate", "--role", "ORCHESTRATOR", "--scope", "src"); e == nil {
+		t.Fatal("expected an agent-principal orchestrator's grant to be rejected")
+	} else if code := errorCode(e); code != "AUTHORIZATION" {
+		t.Fatalf("expected AUTHORIZATION, got %s: %v", code, e)
+	}
+
+	must("status")
+	var envelope struct {
+		Result struct {
+			Agents map[string]struct {
+				Role string `json:"role"`
+			} `json:"agents"`
+		} `json:"result"`
+	}
+	if e := json.Unmarshal(out.Bytes(), &envelope); e != nil {
+		t.Fatal(e)
+	}
+	if envelope.Result.Agents["candidate"].Role == "ORCHESTRATOR" {
+		t.Fatal("candidate must not have been granted the orchestrator role")
+	}
+
+	must("agent", "activate", "--actor", "owner", "--id", "candidate", "--role", "ORCHESTRATOR", "--scope", "src")
+}
+
 func TestDoctorReportsRuntimeAndBootstrapProblems(t *testing.T) {
 	d := t.TempDir()
 	cmd := exec.Command("git", "init")

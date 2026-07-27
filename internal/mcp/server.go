@@ -10,7 +10,9 @@ import (
 
 	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
 	"github.com/DhanushSantosh/AgentComms/internal/failure"
+	"github.com/DhanushSantosh/AgentComms/internal/identity"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
+	"github.com/DhanushSantosh/AgentComms/internal/onboarding"
 	"github.com/DhanushSantosh/AgentComms/internal/service"
 )
 
@@ -52,7 +54,8 @@ func tool(name, description string, properties map[string]any, required ...strin
 }
 func tools() []map[string]any {
 	return []map[string]any{
-		tool("identity", "Show the actor identity bound to this MCP connection", map[string]any{}),
+		tool("identity", "Show the actor identity bound to this MCP connection: actor, how it was resolved, and the project ID", map[string]any{}),
+		tool("get_started", "Learn how to participate in this project right now: your current identity/registration state and the exact next steps", map[string]any{}),
 		tool("status", "Read the governed project state", map[string]any{}),
 		tool("history", "Read a bounded page of immutable signed events", map[string]any{
 			"cursor": map[string]any{"type": "string"},
@@ -96,7 +99,7 @@ func tools() []map[string]any {
 		tool("invocation_reject", "Reject an open invocation with a reason", map[string]any{
 			"id": map[string]any{"type": "string"}, "reason": map[string]any{"type": "string"},
 		}, "id", "reason"),
-		tool("agent_register", "Self-register this connection's own actor as a new agent principal, generating its own signing keypair. id must equal this connection's own actor — registering a different id is rejected; only self-registration is permitted over MCP. Exception: a connection whose actor has not yet registered a dedicated identity in this project resolves to the project owner, and may register any id to bootstrap its first identity.", map[string]any{
+		tool("agent_register", "Register a new agent principal, generating its own fresh signing keypair. Any connection may always self-register (id equal to this connection's own actor). Registering a different id requires this connection's actor to be an active orchestrator or human principal — otherwise rejected.", map[string]any{
 			"id":             map[string]any{"type": "string"},
 			"display_name":   map[string]any{"type": "string"},
 			"principal_type": map[string]any{"type": "string", "enum": []string{"HUMAN", "AGENT"}},
@@ -120,7 +123,12 @@ func tools() []map[string]any {
 		tool("verify", "Verify signatures and hash-chain integrity", map[string]any{}),
 	}
 }
-func Serve(s *service.Service, actor, serverVersion string, in io.Reader, out io.Writer) error {
+// Serve runs the stdio MCP loop for one connection, bound to resolution's
+// actor for every tool call. resolution is threaded through (rather than a
+// bare actor string) so the "identity" and "get_started" tools can report
+// how the actor was resolved, not just what it is — the same
+// identity.ActorResolution the CLI's `profile current` already exposes.
+func Serve(s *service.Service, resolution identity.ActorResolution, serverVersion string, in io.Reader, out io.Writer) error {
 	scan := bufio.NewScanner(in)
 	scan.Buffer(make([]byte, 64*1024), controlplane.MaxCommandBytes)
 	enc := json.NewEncoder(out)
@@ -130,7 +138,7 @@ func Serve(s *service.Service, actor, serverVersion string, in io.Reader, out io
 			_ = enc.Encode(response{JSONRPC: "2.0", ID: nil, Error: &rpcError{Code: -32700, Message: "parse error"}})
 			continue
 		}
-		r, ok := handle(s, actor, serverVersion, q)
+		r, ok := handle(s, resolution, serverVersion, q)
 		if !ok {
 			continue
 		}
@@ -146,7 +154,7 @@ func Serve(s *service.Service, actor, serverVersion string, in io.Reader, out io
 // method under "notifications/") never receives a response — sending one
 // anyway is spec non-compliance that could confuse a strict client's
 // response correlation, even though lenient clients tolerate it.
-func handle(s *service.Service, actor, serverVersion string, q request) (response, bool) {
+func handle(s *service.Service, resolution identity.ActorResolution, serverVersion string, q request) (response, bool) {
 	if strings.HasPrefix(q.Method, "notifications/") {
 		return response{}, false
 	}
@@ -161,7 +169,7 @@ func handle(s *service.Service, actor, serverVersion string, q request) (respons
 		if e := json.Unmarshal(q.Params, &p); e != nil {
 			return rpcFail(r, -32602, e), true
 		}
-		v, e := call(s, actor, p)
+		v, e := call(s, resolution, p)
 		if e != nil {
 			return rpcFail(r, -32000, e), true
 		}
@@ -179,10 +187,32 @@ func rpcFail(r response, code int, e error) response {
 	}
 	return r
 }
-func call(s *service.Service, actor string, p callParams) (any, error) {
+
+// No MCP resources/* support is implemented. Considered for surfacing the
+// onboarding guide, but rejected: tool-calling is the one capability
+// already confirmed live across every MCP host this project targets,
+// whereas resource support is inconsistent across hosts and is often
+// surfaced to a human picker rather than auto-read by the model — the
+// wrong shape for an agent to self-orient with zero human involvement. The
+// "get_started" tool below is that entry point instead.
+func call(s *service.Service, resolution identity.ActorResolution, p callParams) (any, error) {
+	actor := resolution.Actor
 	switch p.Name {
 	case "identity":
-		return map[string]any{"actor": actor}, nil
+		return resolution, nil
+	case "get_started":
+		state, e := s.State()
+		if e != nil {
+			return nil, e
+		}
+		registered, active, role := onboarding.LookupAgentState(state, actor)
+		guide, e := onboarding.Render(onboarding.FromActorResolution(resolution, "agent-comms", registered, active, role))
+		if e != nil {
+			return nil, e
+		}
+		return map[string]any{
+			"identity": resolution, "registered": registered, "active": active, "role": role, "guide": guide,
+		}, nil
 	case "status":
 		return s.State()
 	case "history":
@@ -203,17 +233,20 @@ func call(s *service.Service, actor string, p callParams) (any, error) {
 	case "agent_register":
 		id := stringArg(p.Arguments, "id")
 		if id != actor {
-			cfg, cfgErr := s.Store.Config()
-			if cfgErr != nil {
-				return nil, cfgErr
+			can, canErr := s.CanSponsorRegistration(actor)
+			if canErr != nil {
+				return nil, canErr
 			}
-			if actor != cfg.Owner {
-				return nil, fmt.Errorf("agent_register: only self-registration is permitted over MCP; id must equal this connection's own actor (%s)", actor)
+			if !can {
+				return nil, fmt.Errorf("agent_register: registering a different id requires an active orchestrator or human principal (actor: %s)", actor)
 			}
-			// actor resolved to the project owner -- no dedicated identity has
-			// been established for this connection in this project yet. The
-			// owner already has authority to register new principals; this is
-			// bootstrapping a brand-new identity, not impersonating an existing one.
+			// actor is an active orchestrator or human principal (which
+			// includes the project owner by construction, covering the
+			// original owner-fallback bootstrap case: a brand-new connection
+			// with no dedicated identity yet resolves to the owner, who
+			// already qualifies here) -- this is sponsoring a brand-new
+			// identity's own self-signed registration, never impersonating
+			// an existing one (Register always mints id's own fresh keypair).
 		}
 		principalType := stringArg(p.Arguments, "principal_type")
 		if principalType == "" {
