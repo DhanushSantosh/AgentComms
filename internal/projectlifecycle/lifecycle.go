@@ -28,7 +28,7 @@ import (
 
 const (
 	PersonalAuthoritySchemaVersion = 1
-	ProjectionCacheSchemaVersion   = 1
+	ProjectionCacheSchemaVersion   = 2
 	DraftStoreSchemaVersion        = 1
 	journalName                    = "upgrade-state.json"
 )
@@ -260,7 +260,7 @@ func Reconcile(ctx context.Context, options Options) (Result, error) {
 		}
 	}
 	if state.Stage == "files_published" {
-		result.CacheInvalidated, err = invalidateCache(plan.ProjectRoot, config)
+		result.CacheInvalidated, err = invalidateCache(plan.ProjectRoot, config, state.Plan)
 		if err != nil {
 			return result, upgradeFailed("invalidate projection cache", err)
 		}
@@ -714,11 +714,27 @@ func writeAtomic(path string, content []byte, mode os.FileMode) error {
 	return directory.Sync()
 }
 
-func invalidateCache(root string, config store.Config) (bool, error) {
-	// Schema version 1 only separates drafts and does not change projections.
-	// A future incompatible cache migration can atomically rename and rebuild
-	// the cache here without touching the durable draft store.
-	return false, nil
+func invalidateCache(root string, config store.Config, plan Plan) (bool, error) {
+	rebuild := false
+	for _, action := range plan.Actions {
+		if action.Component == "projection_cache" {
+			rebuild = true
+			break
+		}
+	}
+	if !rebuild {
+		return false, nil
+	}
+	path, err := projectionPath(root, config)
+	if err != nil {
+		return false, err
+	}
+	for _, suffix := range []string{"", "-wal", "-shm"} {
+		if err = os.Remove(path + suffix); err != nil && !os.IsNotExist(err) {
+			return false, err
+		}
+	}
+	return true, nil
 }
 
 func stopDaemon(ctx context.Context, config store.Config) (bool, error) {

@@ -95,6 +95,9 @@ func TestReconcileUpgradesBaselineWithoutChangingSignedEventsOrDrafts(t *testing
 	if !result.Changed || !result.Verified || result.BackupPath == "" {
 		t.Fatalf("unexpected result: %+v", result)
 	}
+	if !result.CacheInvalidated {
+		t.Fatal("incompatible projection cache was not invalidated")
+	}
 	after := eventBytes(t, authorityPath)
 	if string(before) != string(after) {
 		t.Fatal("signed authority events changed during project reconciliation")

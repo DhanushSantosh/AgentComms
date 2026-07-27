@@ -51,7 +51,7 @@ CREATE TABLE IF NOT EXISTS drafts (
 
 CREATE INDEX IF NOT EXISTS drafts_project_idx ON drafts (project_id, updated_at DESC);
 
-PRAGMA user_version=1;
+PRAGMA user_version=2;
 `
 
 type Cache struct {
