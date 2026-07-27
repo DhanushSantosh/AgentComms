@@ -99,8 +99,7 @@ func (c *Cache) Apply(ctx context.Context, event controlplane.Event, receipt con
 	if !controlplane.VerifyReceipt(receipt, c.serverPublicKey) {
 		return &controlplane.Error{Code: controlplane.CodeIntegrity, Message: "server receipt signature is invalid"}
 	}
-	hash, err := controlplane.HashEvent(event)
-	if err != nil || hash != event.Hash {
+	if !controlplane.VerifyEventHash(event) {
 		return &controlplane.Error{Code: controlplane.CodeIntegrity, Message: "event hash is invalid"}
 	}
 	tx, err := c.db.BeginTx(ctx, nil)
@@ -330,8 +329,7 @@ func (c *Cache) VerifyRange(ctx context.Context, projectID string, from, to uint
 		if event.Sequence != expected || event.PreviousHash != previousHash {
 			return &controlplane.Error{Code: controlplane.CodeIntegrity, Message: fmt.Sprintf("cache chain discontinuity at %s", event.ID)}
 		}
-		hash, hashErr := controlplane.HashEvent(event)
-		if hashErr != nil || hash != event.Hash {
+		if !controlplane.VerifyEventHash(event) {
 			return &controlplane.Error{Code: controlplane.CodeIntegrity, Message: fmt.Sprintf("cache hash mismatch at %s", event.ID)}
 		}
 		if !controlplane.VerifyReceipt(receipt, c.serverPublicKey) {

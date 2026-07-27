@@ -2,6 +2,7 @@ package controlplane
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 )
@@ -41,6 +42,27 @@ func TestCommandAndReceiptSignatures(t *testing.T) {
 	receipt.Sequence = 2
 	if VerifyReceipt(receipt, service.PublicKey()) {
 		t.Fatal("tampered receipt was accepted")
+	}
+}
+
+func TestVerifyEventHashAcceptsOnlyStructurallyValidAttestedImports(t *testing.T) {
+	event := Event{
+		ProjectID: "project", Sequence: 1, ID: "evt-1", Time: time.Now().UTC(),
+		Actor: "owner", Type: "agent.register", Payload: json.RawMessage(`{"display_name":"owner"}`),
+		Hash: strings.Repeat("a", 64), ActorIntentHash: strings.Repeat("b", 64),
+		IdempotencyKey: "legacy:evt-1",
+	}
+	if !VerifyEventHash(event) {
+		t.Fatal("valid attested import was rejected")
+	}
+	event.Payload = json.RawMessage(`{`)
+	if VerifyEventHash(event) {
+		t.Fatal("malformed attested import payload was accepted")
+	}
+	event.Payload = json.RawMessage(`{"display_name":"owner"}`)
+	event.Hash = "short"
+	if VerifyEventHash(event) {
+		t.Fatal("malformed attested import hash was accepted")
 	}
 }
 

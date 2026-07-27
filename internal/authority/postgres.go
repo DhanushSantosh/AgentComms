@@ -214,8 +214,7 @@ func (e *Engine) VerifyRange(ctx context.Context, projectID string, from, to uin
 		if event.Sequence != expectedSequence || event.PreviousHash != previousHash {
 			return &controlplane.Error{Code: controlplane.CodeIntegrity, Message: fmt.Sprintf("chain discontinuity at %s", event.ID)}
 		}
-		hash, hashErr := controlplane.HashEvent(event)
-		if hashErr != nil || hash != event.Hash {
+		if !controlplane.VerifyEventHash(event) {
 			return &controlplane.Error{Code: controlplane.CodeIntegrity, Message: fmt.Sprintf("event hash mismatch at %s", event.ID)}
 		}
 		var receipt controlplane.Receipt

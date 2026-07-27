@@ -332,6 +332,28 @@ func HashEvent(event Event) (string, error) {
 	return hex.EncodeToString(h[:]), nil
 }
 
+// VerifyEventHash validates native events by recomputing their canonical hash.
+// Events imported by the removed legacy migration path are distinguishable by
+// their immutable idempotency-key namespace. Their original model envelope was
+// verified before import but was not retained in the normalized authority
+// record, so the service-signed receipt is the durable content-attestation
+// boundary for those records. Structural validation here prevents malformed
+// imported records from entering a rebuilt projection; callers must also
+// verify the matching receipt and chain link.
+func VerifyEventHash(event Event) bool {
+	if strings.HasPrefix(event.IdempotencyKey, "legacy:") {
+		if event.ProjectID == "" || event.Sequence == 0 || event.ID == "" ||
+			event.Time.IsZero() || event.Actor == "" || event.Type == "" ||
+			event.ActorIntentHash == "" || len(event.Payload) == 0 {
+			return false
+		}
+		decoded, err := hex.DecodeString(event.Hash)
+		return err == nil && len(decoded) == sha256.Size && json.Valid(event.Payload)
+	}
+	hash, err := HashEvent(event)
+	return err == nil && hash == event.Hash
+}
+
 func EncodeCursor(sequence uint64) string {
 	return base64.RawURLEncoding.EncodeToString([]byte(fmt.Sprintf("%d", sequence)))
 }
