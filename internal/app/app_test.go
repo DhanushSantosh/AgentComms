@@ -388,6 +388,64 @@ func TestAgentElevateKeyCLIRefusesWithoutInteractiveTerminal(t *testing.T) {
 	}
 }
 
+func TestInitInteractiveOffersElevatedKeySetupAndDegradesGracefullyWithoutTTY(t *testing.T) {
+	project := t.TempDir()
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
+	var out, stderr bytes.Buffer
+	// Deliberately NOT --non-interactive and NOT --json: init's own
+	// interactive prompts (owner, y/N confirm, elevated-key offer) share the
+	// same writer as --json's output envelope, so a real interactive run
+	// never combines the two. stdin has no TTY attached in a test process --
+	// the exact same "declined or couldn't answer" case the design's doctor
+	// half exists to catch.
+	e := Run([]string{"init", "--project", project, "--owner", "owner", "--mode", "personal", "--yes"}, &out, &stderr)
+	if e != nil {
+		t.Fatalf("init should still succeed even though elevated-key setup can't complete without a TTY: %v\n%s", e, stderr.String())
+	}
+	if !strings.Contains(out.String(), "elevated-key setup failed") || !strings.Contains(out.String(), "interactive terminal") {
+		t.Fatalf("expected a TTY-shaped elevated-key skip message, got: %s", out.String())
+	}
+}
+
+func TestDoctorWarnsWhenOwnerHasNoElevatedKeyAndClearsOnceRegistered(t *testing.T) {
+	project := t.TempDir()
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
+	var out, stderr bytes.Buffer
+	if e := Run([]string{"init", "--project", project, "--non-interactive", "--owner", "owner", "--mode", "personal", "--json"}, &out, &stderr); e != nil {
+		t.Fatalf("init: %v\n%s", e, stderr.String())
+	}
+	out.Reset()
+	stderr.Reset()
+	// doctor deliberately never starts the daemon itself (PersistentPreRunE
+	// skips ensureDaemon for it); a warm-up command that does start it is
+	// needed first, same as TestDoctorReportsRuntimeAndBootstrapProblems.
+	if e := Run([]string{"agent", "register", "--project", project, "--id", "builder", "--json"}, &out, &stderr); e != nil {
+		t.Fatalf("agent register: %v\n%s", e, stderr.String())
+	}
+	out.Reset()
+	stderr.Reset()
+	if e := Run([]string{"doctor", "--project", project, "--json"}, &out, &stderr); e != nil {
+		t.Fatal(e)
+	}
+	if !bytes.Contains(out.Bytes(), []byte("NO_ELEVATED_KEY")) {
+		t.Fatalf("expected doctor to warn NO_ELEVATED_KEY for an owner with no elevated key: %s", out.String())
+	}
+	svc := service.New(project)
+	if _, e := svc.ElevateKey("owner", "correct horse battery staple"); e != nil {
+		t.Fatal(e)
+	}
+	out.Reset()
+	stderr.Reset()
+	if e := Run([]string{"doctor", "--project", project, "--json"}, &out, &stderr); e != nil {
+		t.Fatal(e)
+	}
+	if bytes.Contains(out.Bytes(), []byte("NO_ELEVATED_KEY")) {
+		t.Fatalf("expected doctor NOT to warn once the owner has an elevated key: %s", out.String())
+	}
+}
+
 func TestAgentDeleteCLIRequiresReasonAndAllowsIDReuse(t *testing.T) {
 	project := t.TempDir()
 	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))

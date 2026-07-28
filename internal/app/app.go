@@ -544,6 +544,44 @@ func (c *cli) initCmd() *cobra.Command {
 		if initialized.AuthorityURL != "" {
 			result["authority_url"] = initialized.AuthorityURL
 		}
+		// Offered here, not left for the owner to discover later, so it's
+		// never silently invisible: this project can only be used after
+		// init, so init is the one moment guaranteed to reach every human
+		// owner. Skipped in --non-interactive mode (scripts, CI, tests) --
+		// `doctor`'s NO_ELEVATED_KEY finding (see below) is what resurfaces
+		// this for a project that declined or couldn't answer here.
+		if !c.nonInteractive {
+			fmt.Fprint(c.out, "\nSet up a passphrase-protected elevated key now? It's required to grant ORCHESTRATOR "+
+				"and approve HUMAN-tier approvals -- without it those stay protected only by ordinary credential "+
+				"possession. [Y/n] ")
+			scan := bufio.NewScanner(os.Stdin)
+			answer := ""
+			if scan.Scan() {
+				answer = strings.TrimSpace(scan.Text())
+			}
+			if answer == "" || strings.EqualFold(answer, "y") {
+				svc := service.New(root)
+				svc.PassphrasePrompt = promptPassphrase
+				passphrase, e := promptNewPassphrase(owner)
+				if e == nil {
+					_, e = svc.ElevateKey(owner, passphrase)
+				}
+				if e != nil {
+					// Non-fatal: the project itself is already created and
+					// fully usable, so failing the whole `init` command here
+					// would misrepresent what happened. `doctor`'s
+					// NO_ELEVATED_KEY finding is the real safety net for
+					// this path -- it nags on every future command until
+					// `agent-comms agent elevate-key` is run.
+					fmt.Fprintf(c.out, "elevated-key setup failed (%v); run `agent-comms agent elevate-key` to finish this later\n", e)
+					result["elevated_key"] = "skipped: " + e.Error()
+				} else {
+					result["elevated_key"] = "registered"
+				}
+			} else {
+				result["elevated_key"] = "skipped"
+			}
+		}
 		return c.emit("init", result)
 	}}
 	cmd.Flags().StringVar(&owner, "owner", "", "owner principal ID")
@@ -629,6 +667,20 @@ func (c *cli) doctorCmd() *cobra.Command {
 							fmt.Sprintf("revoked agent %s still has %d open invocation(s) and %d owned task(s)", id, openInvocations, openTasks),
 							"Use `invocation cancel`/`task takeover`/`task handoff` to resolve this separately; revocation does not auto-cancel or auto-reassign work.")
 					}
+				}
+				// Persistent, not one-time: `init` offers to set this up
+				// interactively, but a non-interactive init (scripts, CI,
+				// tests) always skips it, and a human can always decline the
+				// prompt too. Without this check the gap it leaves behind --
+				// ORCHESTRATOR grants, HUMAN-tier approvals, orchestrator/
+				// human revocation, and principal deletion all protected by
+				// nothing more than ordinary credential possession -- has no
+				// way to resurface later. This nags on every command, the
+				// same as PROJECT_UPGRADE_AVAILABLE above, until resolved.
+				if owner, ok := st.Agents[cfg.Owner]; ok && owner.PrincipalType == model.PrincipalHuman && owner.ElevatedPublicKey == "" {
+					add("WARNING", "NO_ELEVATED_KEY",
+						"owner "+cfg.Owner+" has no elevated key registered",
+						"Run `agent-comms agent elevate-key` -- without it, granting ORCHESTRATOR, approving a HUMAN-tier approval, revoking an orchestrator or human principal, and deleting a revoked principal are all protected only by ordinary credential possession, not a passphrase only you can supply.")
 				}
 			}
 		}
