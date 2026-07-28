@@ -57,6 +57,26 @@ func hasHumanApproval(st model.State, action string) bool {
 // ORCHESTRATOR role. Exported so the CLI/MCP/TUI can point a caller at the
 // exact command instead of duplicating the "agent.activate:"+id format.
 func OrchestratorGrantApprovalAction(id string) string { return "agent.activate:" + id }
+
+// RequiresElevatedKey reports whether typ/id/payload is one of the two
+// transitions that must be signed with the actor's passphrase-protected
+// elevated key (internal/identity.ElevatedActor) rather than its everyday
+// key, when one is registered (model.Agent.ElevatedPublicKey != ""). This is
+// the single classification both the client-side signer
+// (internal/service.Service) and every server-side verifier (personal and
+// Postgres authority backends) call, so they can never disagree about which
+// key a given transition needed.
+func RequiresElevatedKey(st model.State, typ, id string, payload any) bool {
+	switch typ {
+	case "agent.activate":
+		activation, ok := payload.(model.AgentActivated)
+		return ok && activation.Role == model.RoleOrchestrator
+	case "approval.approve":
+		return st.Approvals[id].Tier == "HUMAN"
+	default:
+		return false
+	}
+}
 func scopeAllows(scopes, resources []string) bool {
 	for _, resource := range resources {
 		allowed := false
@@ -146,6 +166,28 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 		// escalation unattended.
 		if activation.Role == model.RoleOrchestrator && !hasHumanApproval(st, OrchestratorGrantApprovalAction(id)) {
 			return nil, fmt.Errorf("granting the orchestrator role to %s requires an approved HUMAN-tier approval first: run `approval request --tier HUMAN --action %s`, then have a human approve it separately", id, OrchestratorGrantApprovalAction(id))
+		}
+	}
+	if typ == "agent.elevate-key" {
+		// Self-service only: registering (or rotating, by re-registering) an
+		// elevated key is never done on someone else's behalf, so this is
+		// deliberately absent from elevated() -- no owner/orchestrator gate
+		// applies, only the ordinary active-principal check already run
+		// above. Restricted to HUMAN principals because it's meaningless
+		// for an AGENT one: the transitions that actually consult
+		// ElevatedPublicKey (RequiresElevatedKey) already independently
+		// require the signing actor to be a HUMAN principal regardless of
+		// which key it used, so an AGENT principal's elevated key could
+		// never be reached anyway.
+		if id != actor {
+			return nil, errors.New("an elevated key can only be registered for your own actor")
+		}
+		if st.Agents[actor].PrincipalType != model.PrincipalHuman {
+			return nil, errors.New("only a human principal may register an elevated key")
+		}
+		registered, ok := payload.(model.AgentElevatedKeyRegistered)
+		if !ok || registered.PublicKey == "" {
+			return nil, errors.New("a public key is required to register an elevated key")
 		}
 	}
 	if typ == "agent.rename" {

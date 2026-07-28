@@ -149,7 +149,18 @@ func (e *Engine) Mutate(ctx context.Context, command controlplane.Command) (cont
 	if err = json.Unmarshal(stateJSON, &state); err != nil {
 		return controlplane.Event{}, controlplane.Receipt{}, unavailable(err)
 	}
-	publicKey, err := commandPublicKey(state, command)
+	// Payload is decoded before signature verification (not after, as
+	// originally ordered) because commandPublicKey needs to inspect it:
+	// RequiresElevatedKey classifies agent.activate(ORCHESTRATOR) and
+	// approval.approve(HUMAN tier) as needing the actor's elevated key
+	// instead of its everyday one, and that classification depends on the
+	// decoded payload/target state, not just the command type. decodePayload
+	// is pure (no side effects), so reordering it ahead of Verify is safe.
+	payload, err := decodePayload(command.Type, command.Payload)
+	if err != nil {
+		return controlplane.Event{}, controlplane.Receipt{}, controlError(controlplane.CodeValidation, err.Error())
+	}
+	publicKey, err := commandPublicKey(state, command, payload)
 	if err != nil {
 		return controlplane.Event{}, controlplane.Receipt{}, err
 	}
@@ -161,10 +172,6 @@ func (e *Engine) Mutate(ctx context.Context, command controlplane.Command) (cont
 			controlplane.CodeStalePrecondition,
 			fmt.Sprintf("expected project sequence %d, current sequence is %d", command.ExpectedSequence, sequence),
 		)
-	}
-	payload, err := decodePayload(command.Type, command.Payload)
-	if err != nil {
-		return controlplane.Event{}, controlplane.Receipt{}, controlError(controlplane.CodeValidation, err.Error())
 	}
 	if command.Type == "agent.register" {
 		registration := payload.(model.AgentRegistered)
@@ -348,7 +355,7 @@ func replay(ctx context.Context, tx *sql.Tx, projectID, idempotencyKey, intentHa
 	return event, receipt, true, nil
 }
 
-func commandPublicKey(state model.State, command controlplane.Command) (string, error) {
+func commandPublicKey(state model.State, command controlplane.Command, payload any) (string, error) {
 	if command.Type == "agent.register" {
 		if command.Actor != command.EntityID || command.PublicKey == "" {
 			return "", controlError(controlplane.CodeAuthorization, "registration must be self-signed with a public key")
@@ -358,6 +365,9 @@ func commandPublicKey(state model.State, command controlplane.Command) (string, 
 	agent, found := state.Agents[command.Actor]
 	if !found {
 		return "", controlError(controlplane.CodeAuthorization, "actor is not registered")
+	}
+	if agent.ElevatedPublicKey != "" && protocol.RequiresElevatedKey(state, command.Type, command.EntityID, payload) {
+		return agent.ElevatedPublicKey, nil
 	}
 	return agent.PublicKey, nil
 }

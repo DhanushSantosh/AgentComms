@@ -1,6 +1,90 @@
 package identity
 
-import "testing"
+import (
+	"crypto/ed25519"
+	"encoding/base64"
+	"testing"
+)
+
+func TestGenerateEncryptedRoundTripsWithCorrectPassphrase(t *testing.T) {
+	c, err := GenerateEncrypted("proj", "Dhanush:elevated", "correct horse battery staple")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !c.Encrypted || c.Salt == "" || c.Nonce == "" {
+		t.Fatalf("expected an encrypted credential with salt/nonce set, got %+v", c)
+	}
+	decrypted, err := c.Decrypted("correct horse battery staple")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decrypted.Encrypted {
+		t.Fatal("expected Decrypted to clear the Encrypted flag")
+	}
+	raw, err := base64.StdEncoding.DecodeString(decrypted.PrivateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(raw) != ed25519.PrivateKeySize {
+		t.Fatalf("decrypted private key has wrong length: got %d, want %d", len(raw), ed25519.PrivateKeySize)
+	}
+	// The decrypted key must actually correspond to the credential's public
+	// key -- not just be the right length.
+	pub, err := base64.StdEncoding.DecodeString(c.PublicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sig := ed25519.Sign(ed25519.PrivateKey(raw), []byte("probe"))
+	if !ed25519.Verify(ed25519.PublicKey(pub), []byte("probe"), sig) {
+		t.Fatal("decrypted private key does not match the credential's public key")
+	}
+}
+
+func TestDecryptedRejectsWrongPassphrase(t *testing.T) {
+	c, err := GenerateEncrypted("proj", "Dhanush:elevated", "the real passphrase")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = c.Decrypted("a guess"); err == nil {
+		t.Fatal("expected an incorrect passphrase to be rejected")
+	}
+}
+
+func TestDecryptedDetectsCiphertextTampering(t *testing.T) {
+	c, err := GenerateEncrypted("proj", "Dhanush:elevated", "the real passphrase")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := base64.StdEncoding.DecodeString(c.PrivateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw[0] ^= 0xFF // flip a bit in the ciphertext
+	c.PrivateKey = base64.StdEncoding.EncodeToString(raw)
+	if _, err = c.Decrypted("the real passphrase"); err == nil {
+		t.Fatal("expected AES-GCM authentication to catch tampered ciphertext even with the correct passphrase")
+	}
+}
+
+func TestDecryptedIsNoOpOnUnencryptedCredential(t *testing.T) {
+	c, err := Generate("proj", "Dhanush")
+	if err != nil {
+		t.Fatal(err)
+	}
+	decrypted, err := c.Decrypted("anything, or nothing at all")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decrypted.PrivateKey != c.PrivateKey {
+		t.Fatal("expected an unencrypted credential to pass through Decrypted unchanged")
+	}
+}
+
+func TestElevatedActorIsDistinctFromPrimary(t *testing.T) {
+	if got := ElevatedActor("Dhanush"); got == "Dhanush" || got != "Dhanush:elevated" {
+		t.Fatalf("ElevatedActor(%q) = %q, want a distinct, stable account name", "Dhanush", got)
+	}
+}
 
 func TestFindProfileByProjectAndHost(t *testing.T) {
 	profiles := map[string]Profile{

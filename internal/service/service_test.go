@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -534,4 +535,114 @@ func TestActorKeyRotationPreservesVerification(t *testing.T) {
 	if after.Agents["alpha"].KeyFingerprint == old {
 		t.Fatal("fingerprint did not rotate")
 	}
+}
+
+func TestElevateKeyRegistersElevatedPublicKeyOnState(t *testing.T) {
+	s := setup(t)
+	event, err := s.ElevateKey("owner", "a strong passphrase")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if event.Type != "agent.elevate-key" {
+		t.Fatalf("expected an agent.elevate-key event, got %q", event.Type)
+	}
+	state, err := s.State()
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := state.Agents["owner"]
+	if owner.ElevatedPublicKey == "" || owner.ElevatedKeyFingerprint == "" {
+		t.Fatalf("expected owner's elevated key to be recorded on state: %+v", owner)
+	}
+}
+
+// TestExecuteRequiresPassphrasePromptOnceElevatedKeyIsRegistered is the
+// service-layer end-to-end test for the whole feature: once an actor has an
+// elevated key, both agent.activate(ORCHESTRATOR) and
+// approval.approve(HUMAN tier) must go through Service.PassphrasePrompt to
+// get signed -- a nil prompt fails clearly, a wrong passphrase fails
+// clearly (via identity.Credential.Decrypted's AES-GCM check), and the
+// correct passphrase succeeds end-to-end against the real local daemon.
+func TestExecuteRequiresPassphrasePromptOnceElevatedKeyIsRegistered(t *testing.T) {
+	s := setup(t)
+	activate(t, s, "candidate", model.PrincipalAgent)
+	if _, err := s.ElevateKey("owner", "correct passphrase"); err != nil {
+		t.Fatal(err)
+	}
+
+	approvalID := "candidate-orchestrator-approval"
+	action := protocol.OrchestratorGrantApprovalAction("candidate")
+	// approval.request itself is never classified as needing the elevated
+	// key (only approval.approve is), so this must still succeed signed
+	// with the plain primary key even though owner now has an elevated one.
+	must(t, s, "owner", "approval.request", approvalID, model.ApprovalRequested{Tier: "HUMAN", Action: action, Reason: "test"})
+
+	// No prompt wired up at all: must fail clearly, not hang or silently
+	// fall back to the primary key.
+	if _, err := s.Execute("owner", "approval.approve", approvalID, model.ApprovalResponse{}); err == nil {
+		t.Fatal("expected approval.approve to fail with no PassphrasePrompt configured")
+	} else if !strings.Contains(err.Error(), "passphrase") {
+		t.Fatalf("expected a passphrase-shaped error, got: %v", err)
+	}
+
+	// Prompt wired up but returns the wrong passphrase: must fail via
+	// AES-GCM authentication, not succeed with a garbage key.
+	s.PassphrasePrompt = func(string) (string, error) { return "wrong passphrase", nil }
+	if _, err := s.Execute("owner", "approval.approve", approvalID, model.ApprovalResponse{}); err == nil {
+		t.Fatal("expected approval.approve to fail with an incorrect passphrase")
+	}
+
+	// A prompt that itself errors (e.g. the user cancelling) must propagate
+	// that error rather than proceeding.
+	promptErr := errors.New("user cancelled")
+	s.PassphrasePrompt = func(string) (string, error) { return "", promptErr }
+	if _, err := s.Execute("owner", "approval.approve", approvalID, model.ApprovalResponse{}); !errors.Is(err, promptErr) {
+		t.Fatalf("expected the prompt's own error to propagate, got: %v", err)
+	}
+
+	// Correct passphrase: succeeds end-to-end, and the resulting approval
+	// is genuinely APPROVED (not just "no error").
+	s.PassphrasePrompt = func(string) (string, error) { return "correct passphrase", nil }
+	if _, err := s.Execute("owner", "approval.approve", approvalID, model.ApprovalResponse{}); err != nil {
+		t.Fatalf("expected approval.approve to succeed with the correct passphrase: %v", err)
+	}
+	state, err := s.State()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Approvals[approvalID].Status != "APPROVED" {
+		t.Fatalf("expected the approval to be APPROVED, got %+v", state.Approvals[approvalID])
+	}
+
+	// The second sensitive transition -- the orchestrator grant itself --
+	// goes through the identical PassphrasePrompt path.
+	if _, err := s.Execute("owner", "agent.activate", "candidate", model.AgentActivated{Role: model.RoleOrchestrator, Scopes: []string{"src"}}); err != nil {
+		t.Fatalf("expected the orchestrator grant to succeed with the correct passphrase: %v", err)
+	}
+	state, err = s.State()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Agents["candidate"].Role != model.RoleOrchestrator {
+		t.Fatalf("expected candidate to be granted ORCHESTRATOR, got %+v", state.Agents["candidate"])
+	}
+}
+
+// TestExecuteDoesNotPromptForRoutineActions guards against the passphrase
+// prompt leaking into ordinary, non-sensitive writes once an elevated key
+// exists -- the whole point of scoping this narrowly rather than
+// blanket-protecting every signature.
+func TestExecuteDoesNotPromptForRoutineActions(t *testing.T) {
+	s := setup(t)
+	if _, err := s.ElevateKey("owner", "correct passphrase"); err != nil {
+		t.Fatal(err)
+	}
+	s.PassphrasePrompt = func(string) (string, error) {
+		t.Fatal("PassphrasePrompt must not be called for a routine, non-elevated action")
+		return "", nil
+	}
+	must(t, s, "owner", "task.create", "task-1", model.TaskCreated{
+		Title: "Routine", Repository: "local", Branch: "feature", Resources: []string{"src/x"},
+	})
+	activate(t, s, "bystander", model.PrincipalAgent)
 }

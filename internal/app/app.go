@@ -160,6 +160,7 @@ func (c *cli) root() *cobra.Command {
 		} else {
 			c.svc = service.New(root)
 		}
+		c.svc.PassphrasePrompt = promptPassphrase
 		cfg, e := c.svc.Store.Config()
 		if e != nil {
 			return fmt.Errorf("open project runtime: %w", e)
@@ -872,6 +873,23 @@ func (c *cli) agentCmd() *cobra.Command {
 		}
 		return c.emit("agent.rotate-key", v)
 	}}
+	// elevate-key is deliberately CLI-only: it exists to prove a human typed
+	// a passphrase into a real terminal, which is meaningless to expose over
+	// MCP (an agent connection has no interactive terminal to answer the
+	// prompt with in the first place). See docs/governance.md for what this
+	// closes: a locally-running agent can otherwise sign anything with the
+	// primary key exactly as if it were the human, indistinguishably.
+	elevate := &cobra.Command{Use: "elevate-key", Args: cobra.NoArgs, Short: "Register a passphrase-protected elevated key required for orchestrator grants and HUMAN-tier approvals", RunE: func(cmd *cobra.Command, args []string) error {
+		passphrase, e := promptNewPassphrase(c.actor)
+		if e != nil {
+			return e
+		}
+		v, e := c.svc.ElevateKey(c.actor, passphrase)
+		if e != nil {
+			return e
+		}
+		return c.emit("agent.elevate-key", v)
+	}}
 	var newDisplayName string
 	rename := &cobra.Command{Use: "rename", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		id, _ := cmd.Flags().GetString("id")
@@ -892,7 +910,7 @@ func (c *cli) agentCmd() *cobra.Command {
 		}
 		return c.emit("agent.list", st.Agents)
 	}}
-	root.AddCommand(reg, act, suspend, rotate, rename, revoke, list)
+	root.AddCommand(reg, act, suspend, rotate, elevate, rename, revoke, list)
 	return root
 }
 func (c *cli) runtimeCmd() *cobra.Command {

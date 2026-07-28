@@ -1,6 +1,8 @@
 package identity
 
 import (
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
@@ -17,6 +19,7 @@ import (
 	"sync"
 
 	keyring "github.com/zalando/go-keyring"
+	"golang.org/x/crypto/argon2"
 )
 
 const Service = "agent-comms"
@@ -26,7 +29,107 @@ type Credential struct {
 	Actor      string `json:"actor"`
 	PublicKey  string `json:"public_key"`
 	PrivateKey string `json:"private_key"`
+	// Encrypted, Salt, and Nonce are set only for a passphrase-protected
+	// elevated credential (see GenerateEncrypted/Decrypted). When Encrypted
+	// is true, PrivateKey holds AES-256-GCM ciphertext, not a usable key.
+	Encrypted bool   `json:"encrypted,omitempty"`
+	Salt      string `json:"salt,omitempty"`
+	Nonce     string `json:"nonce,omitempty"`
 }
+
+// ElevatedActor is the credential-store account name for actor's elevated
+// key, distinct from its everyday primary credential (stored under actor
+// itself). Store.Get/Put/Delete take this as the actor parameter directly —
+// no Store interface changes needed.
+func ElevatedActor(actor string) string { return actor + ":elevated" }
+
+const (
+	argon2Time      = 3
+	argon2MemoryKiB = 64 * 1024
+	argon2Threads   = 4
+	argon2KeyLen    = 32
+	saltSize        = 16
+)
+
+func deriveKey(passphrase string, salt []byte) []byte {
+	return argon2.IDKey([]byte(passphrase), salt, argon2Time, argon2MemoryKiB, argon2Threads, argon2KeyLen)
+}
+
+// GenerateEncrypted creates a fresh Ed25519 keypair whose private key is
+// encrypted at rest with passphrase (Argon2id key derivation + AES-256-GCM).
+// Recovering the raw key requires calling Decrypted with the same
+// passphrase; there is no other recovery path — this is the point.
+func GenerateEncrypted(projectID, actor, passphrase string) (Credential, error) {
+	pub, priv, e := ed25519.GenerateKey(rand.Reader)
+	if e != nil {
+		return Credential{}, e
+	}
+	c := Credential{ProjectID: projectID, Actor: actor, PublicKey: base64.StdEncoding.EncodeToString(pub)}
+	return c.encrypt(priv, passphrase)
+}
+
+func (c Credential) encrypt(rawPrivateKey ed25519.PrivateKey, passphrase string) (Credential, error) {
+	salt := make([]byte, saltSize)
+	if _, e := rand.Read(salt); e != nil {
+		return Credential{}, e
+	}
+	gcm, e := newGCM(deriveKey(passphrase, salt))
+	if e != nil {
+		return Credential{}, e
+	}
+	nonce := make([]byte, gcm.NonceSize())
+	if _, e := rand.Read(nonce); e != nil {
+		return Credential{}, e
+	}
+	c.Encrypted = true
+	c.Salt = base64.StdEncoding.EncodeToString(salt)
+	c.Nonce = base64.StdEncoding.EncodeToString(nonce)
+	c.PrivateKey = base64.StdEncoding.EncodeToString(gcm.Seal(nil, nonce, rawPrivateKey, nil))
+	return c, nil
+}
+
+// Decrypted returns a copy of c with PrivateKey replaced by the decrypted
+// raw Ed25519 private key (base64), ready for Sign/command.Sign. A no-op
+// (returns c unchanged) if c isn't Encrypted. A wrong passphrase fails via
+// AES-GCM's built-in authentication check, not a plausible-looking garbage
+// key.
+func (c Credential) Decrypted(passphrase string) (Credential, error) {
+	if !c.Encrypted {
+		return c, nil
+	}
+	salt, e := base64.StdEncoding.DecodeString(c.Salt)
+	if e != nil {
+		return Credential{}, fmt.Errorf("invalid salt: %w", e)
+	}
+	nonce, e := base64.StdEncoding.DecodeString(c.Nonce)
+	if e != nil {
+		return Credential{}, fmt.Errorf("invalid nonce: %w", e)
+	}
+	ciphertext, e := base64.StdEncoding.DecodeString(c.PrivateKey)
+	if e != nil {
+		return Credential{}, fmt.Errorf("invalid ciphertext: %w", e)
+	}
+	gcm, e := newGCM(deriveKey(passphrase, salt))
+	if e != nil {
+		return Credential{}, e
+	}
+	raw, e := gcm.Open(nil, nonce, ciphertext, nil)
+	if e != nil {
+		return Credential{}, errors.New("incorrect passphrase")
+	}
+	c.PrivateKey = base64.StdEncoding.EncodeToString(raw)
+	c.Encrypted, c.Salt, c.Nonce = false, "", ""
+	return c, nil
+}
+
+func newGCM(key []byte) (cipher.AEAD, error) {
+	block, e := aes.NewCipher(key)
+	if e != nil {
+		return nil, e
+	}
+	return cipher.NewGCM(block)
+}
+
 type Store interface {
 	Put(Credential) error
 	Get(projectID, actor string) (Credential, error)

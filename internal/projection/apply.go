@@ -40,6 +40,11 @@ func ApplyEvent(s *model.State, e model.Event) error {
 		a.PublicKey = p.PublicKey
 		a.KeyFingerprint = identity.Fingerprint(p.PublicKey)
 		s.Agents[e.EntityID] = a
+	case *model.AgentElevatedKeyRegistered:
+		a := s.Agents[e.EntityID]
+		a.ElevatedPublicKey = p.PublicKey
+		a.ElevatedKeyFingerprint = identity.Fingerprint(p.PublicKey)
+		s.Agents[e.EntityID] = a
 	case *model.AgentRenamed:
 		a := s.Agents[e.EntityID]
 		a.DisplayName = p.DisplayName

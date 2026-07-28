@@ -272,7 +272,18 @@ func (e *Engine) Mutate(ctx context.Context, command controlplane.Command) (cont
 	if err = command.Validate(now); err != nil {
 		return controlplane.Event{}, controlplane.Receipt{}, err
 	}
-	publicKey, err := commandPublicKey(ctx, tx, command)
+	// Payload is decoded here, ahead of the full loadState below, so
+	// commandPublicKey can classify agent.activate(ORCHESTRATOR) and
+	// approval.approve(HUMAN tier) via protocol.RequiresElevatedKey without
+	// paying loadState's cost on every signature check -- it uses its own
+	// small, targeted queries instead (kept cheap deliberately: signature
+	// verification runs before an attacker's invalid-signature command gets
+	// to touch the full project state).
+	payload, err := decodePayload(command.Type, command.Payload)
+	if err != nil {
+		return controlplane.Event{}, controlplane.Receipt{}, &controlplane.Error{Code: controlplane.CodeValidation, Message: err.Error()}
+	}
+	publicKey, err := commandPublicKey(ctx, tx, command, payload)
 	if err != nil {
 		return controlplane.Event{}, controlplane.Receipt{}, err
 	}
@@ -289,10 +300,6 @@ func (e *Engine) Mutate(ctx context.Context, command controlplane.Command) (cont
 	state, err := loadState(ctx, tx, command.ProjectID)
 	if err != nil {
 		return controlplane.Event{}, controlplane.Receipt{}, err
-	}
-	payload, err := decodePayload(command.Type, command.Payload)
-	if err != nil {
-		return controlplane.Event{}, controlplane.Receipt{}, &controlplane.Error{Code: controlplane.CodeValidation, Message: err.Error()}
 	}
 	if command.Type == "agent.register" {
 		registration := payload.(model.AgentRegistered)
@@ -402,7 +409,7 @@ func replay(ctx context.Context, tx *sql.Tx, projectID, key, intentHash string) 
 	return event, receipt, true, nil
 }
 
-func commandPublicKey(ctx context.Context, tx *sql.Tx, command controlplane.Command) (string, error) {
+func commandPublicKey(ctx context.Context, tx *sql.Tx, command controlplane.Command, payload any) (string, error) {
 	if command.Type == "agent.register" {
 		if command.Actor != command.EntityID || command.PublicKey == "" {
 			return "", &controlplane.Error{Code: controlplane.CodeAuthorization, Message: "registration must be self-signed with a public key"}
@@ -422,7 +429,41 @@ func commandPublicKey(ctx context.Context, tx *sql.Tx, command controlplane.Comm
 	if err = json.Unmarshal(stateJSON, &agent); err != nil {
 		return "", err
 	}
+	if agent.ElevatedPublicKey == "" {
+		return agent.PublicKey, nil
+	}
+	scopedState, err := scopedApprovalState(ctx, tx, command)
+	if err != nil {
+		return "", err
+	}
+	if protocol.RequiresElevatedKey(scopedState, command.Type, command.EntityID, payload) {
+		return agent.ElevatedPublicKey, nil
+	}
 	return agent.PublicKey, nil
+}
+
+// scopedApprovalState builds the minimal model.State protocol.RequiresElevatedKey
+// actually reads (only st.Approvals[id]) via a single targeted row lookup,
+// instead of the full loadState -- so verifying a signature never pays the
+// cost of loading the whole project just to classify which key it needed.
+func scopedApprovalState(ctx context.Context, tx *sql.Tx, command controlplane.Command) (model.State, error) {
+	if command.Type != "approval.approve" {
+		return model.State{}, nil
+	}
+	var stateJSON []byte
+	err := tx.QueryRowContext(ctx, `SELECT state FROM approvals WHERE project_id=$1 AND approval_id=$2`,
+		command.ProjectID, command.EntityID).Scan(&stateJSON)
+	if errors.Is(err, sql.ErrNoRows) {
+		return model.State{}, nil
+	}
+	if err != nil {
+		return model.State{}, unavailable(err)
+	}
+	var approval model.Approval
+	if err = json.Unmarshal(stateJSON, &approval); err != nil {
+		return model.State{}, err
+	}
+	return model.State{Approvals: map[string]model.Approval{command.EntityID: approval}}, nil
 }
 
 func decodePayload(eventType string, raw json.RawMessage) (any, error) {
@@ -436,6 +477,8 @@ func decodePayload(eventType string, raw json.RawMessage) (any, error) {
 	case *model.AgentActivated:
 		return *value, nil
 	case *model.AgentKeyRotated:
+		return *value, nil
+	case *model.AgentElevatedKeyRegistered:
 		return *value, nil
 	case *model.TaskCreated:
 		return *value, nil

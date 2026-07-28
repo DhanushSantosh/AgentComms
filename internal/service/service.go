@@ -29,6 +29,13 @@ type Service struct {
 	remote        *daemonclient.Client
 	remoteErr     error
 	recoverRemote func() error
+	// PassphrasePrompt supplies the passphrase to decrypt an actor's
+	// elevated credential (identity.ElevatedActor) when a transition
+	// requires it (protocol.RequiresElevatedKey) and one is registered. nil
+	// (the default) means no interactive prompt is wired up; those
+	// transitions then fail with a clear error rather than silently
+	// falling back to the actor's unprotected primary key.
+	PassphrasePrompt func(actor string) (string, error)
 }
 
 func New(root string) *Service {
@@ -247,7 +254,57 @@ func (s *Service) executeRemote(actor, typ, id string, payload any) (model.Event
 	if err != nil {
 		return model.Event{}, fmt.Errorf("credential for %s: %w", actor, err)
 	}
+	credential, err = s.elevateCredentialIfNeeded(cfg, actor, typ, id, payload, credential)
+	if err != nil {
+		return model.Event{}, err
+	}
 	return s.executeRemoteWithCredential(cfg, actor, typ, id, payload, credential)
+}
+
+// elevateCredentialIfNeeded swaps in actor's elevated credential when
+// protocol.RequiresElevatedKey classifies typ/id/payload as needing it and
+// one is registered for actor -- the identical classification server-side
+// verification applies (internal/personalauthority, internal/authority), so
+// client and server never disagree about which key a transition needed.
+// Falls back to primary, unchanged, whenever no elevated key is registered:
+// backward compatible with every existing single-key setup. A read failure
+// resolving the elevated credential also falls back to primary rather than
+// hard-failing here -- if the server actually requires the elevated key
+// (agent.ElevatedPublicKey set on the agent record), a primary-signed
+// command still gets rejected there with an integrity error, never silently
+// accepted with weaker protection than the record calls for.
+func (s *Service) elevateCredentialIfNeeded(
+	cfg store.Config, actor, typ, id string, payload any, primary identity.Credential,
+) (identity.Credential, error) {
+	if typ != "agent.activate" && typ != "approval.approve" {
+		return primary, nil
+	}
+	var st model.State
+	if typ == "approval.approve" {
+		fetched, err := s.State()
+		if err != nil {
+			return identity.Credential{}, err
+		}
+		st = fetched
+	}
+	if !protocol.RequiresElevatedKey(st, typ, id, payload) {
+		return primary, nil
+	}
+	elevated, err := s.Store.Credentials.Get(cfg.ProjectID, identity.ElevatedActor(actor))
+	if err != nil {
+		return primary, nil
+	}
+	if !elevated.Encrypted {
+		return elevated, nil
+	}
+	if s.PassphrasePrompt == nil {
+		return identity.Credential{}, fmt.Errorf("%s for %s requires the elevated key, but no passphrase prompt is available in this context", typ, actor)
+	}
+	passphrase, err := s.PassphrasePrompt(actor)
+	if err != nil {
+		return identity.Credential{}, err
+	}
+	return elevated.Decrypted(passphrase)
 }
 
 func (s *Service) executeRemoteWithCredential(
@@ -427,6 +484,39 @@ func (s *Service) RotateKey(actor string) (model.Event, error) {
 		return ev, fmt.Errorf("key rotation recorded but new credential could not be stored: %w", e)
 	}
 	return ev, nil
+}
+
+// ElevateKey registers (or, by calling it again, rotates -- there is no
+// separate recovery path if the passphrase is lost) a fresh,
+// passphrase-encrypted elevated keypair for actor. The agent.elevate-key
+// event is self-signed with actor's ordinary, unprotected primary
+// credential -- proving "the primary key holder authorized this new
+// elevated key" is exactly the intended semantics, not a weakness: the
+// elevated key doesn't exist as a valid signer for anything until this
+// event lands. The elevated credential is then stored locally under
+// identity.ElevatedActor(actor), distinct from the primary one.
+func (s *Service) ElevateKey(actor, passphrase string) (model.Event, error) {
+	cfg, e := s.Store.Config()
+	if e != nil {
+		return model.Event{}, e
+	}
+	primary, e := identity.ResolveCredential(s.Store.Credentials, cfg.ProjectID, actor)
+	if e != nil {
+		return model.Event{}, e
+	}
+	elevated, e := identity.GenerateEncrypted(cfg.ProjectID, identity.ElevatedActor(actor), passphrase)
+	if e != nil {
+		return model.Event{}, e
+	}
+	payload := model.AgentElevatedKeyRegistered{PublicKey: elevated.PublicKey}
+	event, e := s.executeRemoteWithCredential(cfg, actor, "agent.elevate-key", actor, payload, primary)
+	if e != nil {
+		return model.Event{}, e
+	}
+	if e = s.Store.Credentials.Put(elevated); e != nil {
+		return event, fmt.Errorf("elevated key recorded but could not be stored locally: %w", e)
+	}
+	return event, nil
 }
 func (s *Service) AddArtifact(actor, path string) (model.Event, error) {
 	cfg, e := s.Store.Config()

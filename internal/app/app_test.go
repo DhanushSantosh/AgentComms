@@ -350,6 +350,40 @@ func grantOrchestratorCLI(t *testing.T, must func(args ...string), approver, id 
 	must("agent", "activate", "--actor", approver, "--id", id, "--role", "ORCHESTRATOR", "--scope", "src")
 }
 
+// TestAgentElevateKeyCLIRefusesWithoutInteractiveTerminal guards the actual
+// security property the elevated key depends on: promptNewPassphrase
+// (internal/app/passphrase.go) must refuse outright, not hang or silently
+// read whatever bytes happen to be on stdin, when it isn't attached to a
+// real terminal -- exactly what `go test`'s own stdin looks like, and
+// exactly what an automated caller (a script, an MCP-connected agent, or an
+// agent shelling out to this CLI) always looks like.
+func TestAgentElevateKeyCLIRefusesWithoutInteractiveTerminal(t *testing.T) {
+	project := t.TempDir()
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
+	var out, stderr bytes.Buffer
+	run := func(args ...string) error {
+		t.Helper()
+		out.Reset()
+		stderr.Reset()
+		args = append(args, "--project", project, "--json")
+		return Run(args, &out, &stderr)
+	}
+	if e := run("init", "--non-interactive", "--owner", "owner", "--mode", "personal"); e != nil {
+		t.Fatalf("init: %v\n%s", e, stderr.String())
+	}
+	e := run("agent", "elevate-key", "--actor", "owner")
+	if e == nil {
+		t.Fatal("expected agent elevate-key to refuse without an interactive terminal")
+	}
+	if code := errorCode(e); code != "VALIDATION" {
+		t.Fatalf("expected VALIDATION, got %s: %v", code, e)
+	}
+	if !strings.Contains(e.Error(), "interactive terminal") {
+		t.Fatalf("expected an interactive-terminal-shaped error, got: %v", e)
+	}
+}
+
 func TestAgentRegisterCLIEnforcesSponsorshipRule(t *testing.T) {
 	project := t.TempDir()
 	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
