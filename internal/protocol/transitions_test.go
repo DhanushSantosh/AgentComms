@@ -56,6 +56,54 @@ func TestRequiresElevatedKeyClassifiesRevokeOfOrchestratorOrHuman(t *testing.T) 
 	}
 }
 
+func TestRequiresElevatedKeyClassifiesAgentDeletion(t *testing.T) {
+	st := model.State{Agents: map[string]model.Agent{
+		"revoked": {ID: "revoked", Status: "REVOKED", Role: model.RoleAgent, PrincipalType: model.PrincipalAgent},
+		"active":  {ID: "active", Status: "ACTIVE", Role: model.RoleAgent, PrincipalType: model.PrincipalAgent},
+	}}
+	if !RequiresElevatedKey(st, "owner", "agent.delete", "revoked", model.AgentDeleted{Reason: "cleanup"}) {
+		t.Fatal("expected deletion of a revoked principal to require the elevated key")
+	}
+	if RequiresElevatedKey(st, "owner", "agent.delete", "active", model.AgentDeleted{Reason: "cleanup"}) {
+		t.Fatal("expected an invalid active-target deletion not to be classified as an elevated transition")
+	}
+}
+
+func TestAgentDeleteRequiresRevokedTargetAndHumanActor(t *testing.T) {
+	humanOwner := humanAgent("owner")
+	agentLead := agentOrchestrator("agent-lead")
+	activeTarget := model.Agent{ID: "target", Status: "ACTIVE", Role: model.RoleAgent, PrincipalType: model.PrincipalAgent}
+	st := model.State{Agents: map[string]model.Agent{
+		"owner": humanOwner, "agent-lead": agentLead, "target": activeTarget,
+	}}
+	if _, err := ValidateTransition(st, "owner", "agent.delete", "target",
+		model.AgentDeleted{Reason: "cleanup"}, time.Now()); err == nil {
+		t.Fatal("expected deletion of an active principal to be rejected")
+	}
+	pendingTarget := activeTarget
+	pendingTarget.Status = "PENDING"
+	st.Agents["target"] = pendingTarget
+	if _, err := ValidateTransition(st, "owner", "agent.delete", "target",
+		model.AgentDeleted{Reason: "cleanup"}, time.Now()); err == nil {
+		t.Fatal("expected deletion of a pending principal to be rejected")
+	}
+	revokedTarget := activeTarget
+	revokedTarget.Status = "REVOKED"
+	st.Agents["target"] = revokedTarget
+	if _, err := ValidateTransition(st, "agent-lead", "agent.delete", "target",
+		model.AgentDeleted{Reason: "cleanup"}, time.Now()); err == nil {
+		t.Fatal("expected an agent principal to be rejected deleting a principal")
+	}
+	if _, err := ValidateTransition(st, "owner", "agent.delete", "target",
+		model.AgentDeleted{}, time.Now()); err == nil {
+		t.Fatal("expected deletion without an audit reason to be rejected")
+	}
+	if _, err := ValidateTransition(st, "owner", "agent.delete", "target",
+		model.AgentDeleted{Reason: "cleanup"}, time.Now()); err != nil {
+		t.Fatalf("expected a human owner to delete a revoked principal: %v", err)
+	}
+}
+
 func TestRequiresElevatedKeyFalseForUnrelatedTransitions(t *testing.T) {
 	st := model.State{}
 	for _, typ := range []string{"task.create", "message.post", "agent.register", "agent.rotate-key", "agent.elevate-key"} {

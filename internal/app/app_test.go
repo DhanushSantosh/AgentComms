@@ -48,6 +48,10 @@ func TestMain(testingMain *testing.M) {
 				CachePath:        runtimeinit.ProjectionPath(projectRoot), Endpoint: config.DaemonEndpoint,
 				RuntimeMode: "personal", PersonalDatabase: runtimeinit.DatabasePath(projectRoot),
 				ServicePrivateKey: credential.PrivateKey, ProjectID: config.ProjectID,
+				ProductVersion: Version, BuildID: buildinfo.ResolvedBuildID(),
+				ProjectFormatVersion: store.ProjectFormatVersion,
+				CacheSchemaVersion:   projectlifecycle.ProjectionCacheSchemaVersion,
+				DraftSchemaVersion:   projectlifecycle.DraftStoreSchemaVersion,
 			})
 		}()
 		return nil
@@ -381,6 +385,114 @@ func TestAgentElevateKeyCLIRefusesWithoutInteractiveTerminal(t *testing.T) {
 	}
 	if !strings.Contains(e.Error(), "interactive terminal") {
 		t.Fatalf("expected an interactive-terminal-shaped error, got: %v", e)
+	}
+}
+
+func TestAgentDeleteCLIRequiresReasonAndAllowsIDReuse(t *testing.T) {
+	project := t.TempDir()
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
+	var out, stderr bytes.Buffer
+	run := func(args ...string) error {
+		t.Helper()
+		out.Reset()
+		stderr.Reset()
+		args = append(args, "--project", project, "--json")
+		return Run(args, &out, &stderr)
+	}
+	must := func(args ...string) {
+		t.Helper()
+		if err := run(args...); err != nil {
+			t.Fatalf("%v: %v\n%s", args, err, stderr.String())
+		}
+	}
+	must("init", "--non-interactive", "--owner", "owner", "--mode", "personal")
+	must("agent", "register", "--actor", "owner", "--id", "candidate")
+	var originalRegistration struct {
+		Result struct {
+			KeyFingerprint string `json:"key_fingerprint"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &originalRegistration); err != nil {
+		t.Fatal(err)
+	}
+	must("agent", "activate", "--actor", "owner", "--id", "candidate", "--role", "AGENT", "--scope", "src")
+	must("agent", "revoke", "--actor", "owner", "--id", "candidate", "--reason", "retired")
+
+	if err := run("agent", "delete", "--actor", "owner", "--id", "candidate"); err == nil {
+		t.Fatal("expected agent delete without --reason to be rejected")
+	}
+	must("agent", "delete", "--actor", "owner", "--id", "candidate", "--reason", "remove retired identity")
+	if !bytes.Contains(out.Bytes(), []byte(`"type":"agent.delete"`)) ||
+		!bytes.Contains(out.Bytes(), []byte(`"key_fingerprint":"`)) {
+		t.Fatalf("agent.delete output did not include the event and signing-key fingerprint: %s", out.String())
+	}
+	must("agent", "list", "--actor", "owner")
+	if bytes.Contains(out.Bytes(), []byte(`"candidate"`)) {
+		t.Fatalf("deleted candidate remained in agent list: %s", out.String())
+	}
+	must("agent", "register", "--actor", "owner", "--id", "candidate", "--display-name", "Replacement")
+	var replacementRegistration struct {
+		Result struct {
+			KeyFingerprint string `json:"key_fingerprint"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &replacementRegistration); err != nil {
+		t.Fatal(err)
+	}
+	if originalRegistration.Result.KeyFingerprint == replacementRegistration.Result.KeyFingerprint {
+		t.Fatal("re-registered identity reused the original signing key")
+	}
+	must("history", "--actor", "owner")
+	if !bytes.Contains(out.Bytes(), []byte(`"actor_key_fingerprint":"`)) ||
+		!bytes.Contains(out.Bytes(), []byte(`"type":"agent.delete"`)) {
+		t.Fatalf("filtered history did not expose the deletion fingerprint boundary: %s", out.String())
+	}
+	must("history", "--key-fingerprint", replacementRegistration.Result.KeyFingerprint)
+	if bytes.Contains(out.Bytes(), []byte(originalRegistration.Result.KeyFingerprint)) ||
+		!bytes.Contains(out.Bytes(), []byte(replacementRegistration.Result.KeyFingerprint)) {
+		t.Fatalf("history key-fingerprint filter did not isolate the replacement identity: %s", out.String())
+	}
+	must("search", "agent.register", "--key-fingerprint", replacementRegistration.Result.KeyFingerprint)
+	if bytes.Contains(out.Bytes(), []byte(originalRegistration.Result.KeyFingerprint)) ||
+		!bytes.Contains(out.Bytes(), []byte(replacementRegistration.Result.KeyFingerprint)) {
+		t.Fatalf("search key-fingerprint filter did not isolate the replacement identity: %s", out.String())
+	}
+}
+
+func TestAgentDeleteCLIRefusesElevatedSigningWithoutInteractiveTerminal(t *testing.T) {
+	project := t.TempDir()
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
+	var out, stderr bytes.Buffer
+	run := func(args ...string) error {
+		t.Helper()
+		out.Reset()
+		stderr.Reset()
+		args = append(args, "--project", project, "--json")
+		return Run(args, &out, &stderr)
+	}
+	must := func(args ...string) {
+		t.Helper()
+		if err := run(args...); err != nil {
+			t.Fatalf("%v: %v\n%s", args, err, stderr.String())
+		}
+	}
+	must("init", "--non-interactive", "--owner", "owner", "--mode", "personal")
+	must("agent", "register", "--actor", "owner", "--id", "candidate")
+	must("agent", "activate", "--actor", "owner", "--id", "candidate", "--role", "AGENT", "--scope", "src")
+	must("agent", "revoke", "--actor", "owner", "--id", "candidate", "--reason", "retired")
+
+	instance := service.New(project)
+	if _, err := instance.ElevateKey("owner", "correct passphrase"); err != nil {
+		t.Fatalf("register elevated key: %v", err)
+	}
+	err := run("agent", "delete", "--actor", "owner", "--id", "candidate", "--reason", "remove retired identity")
+	if err == nil {
+		t.Fatal("expected elevated deletion to refuse without an interactive terminal")
+	}
+	if !strings.Contains(err.Error(), "interactive terminal") {
+		t.Fatalf("expected an interactive-terminal-shaped error, got: %v", err)
 	}
 }
 

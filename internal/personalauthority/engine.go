@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
+	"github.com/DhanushSantosh/AgentComms/internal/identity"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 	"github.com/DhanushSantosh/AgentComms/internal/projection"
 	"github.com/DhanushSantosh/AgentComms/internal/protocol"
@@ -151,8 +152,8 @@ func (e *Engine) Mutate(ctx context.Context, command controlplane.Command) (cont
 	}
 	// Payload is decoded before signature verification (not after, as
 	// originally ordered) because commandPublicKey needs to inspect it:
-	// RequiresElevatedKey classifies agent.activate(ORCHESTRATOR) and
-	// approval.approve(HUMAN tier) as needing the actor's elevated key
+	// RequiresElevatedKey classifies the most consequential identity and
+	// HUMAN-approval transitions as needing the actor's elevated key
 	// instead of its everyday one, and that classification depends on the
 	// decoded payload/target state, not just the command type. decodePayload
 	// is pure (no side effects), so reordering it ahead of Verify is safe.
@@ -167,6 +168,7 @@ func (e *Engine) Mutate(ctx context.Context, command controlplane.Command) (cont
 	if !command.Verify(publicKey) {
 		return controlplane.Event{}, controlplane.Receipt{}, controlError(controlplane.CodeIntegrity, "actor command signature is invalid")
 	}
+	actorKeyFingerprint := identity.Fingerprint(publicKey)
 	if command.ExpectedSequence != 0 && command.ExpectedSequence != sequence {
 		return controlplane.Event{}, controlplane.Receipt{}, controlError(
 			controlplane.CodeStalePrecondition,
@@ -197,7 +199,8 @@ func (e *Engine) Mutate(ctx context.Context, command controlplane.Command) (cont
 	event := controlplane.Event{
 		ProjectID: command.ProjectID, Sequence: sequence + 1,
 		ID: fmt.Sprintf("evt-%020d", sequence+1), Time: now, Actor: command.Actor,
-		Type: command.Type, EntityID: command.EntityID, Payload: normalizedPayload,
+		ActorKeyFingerprint: actorKeyFingerprint,
+		Type:                command.Type, EntityID: command.EntityID, Payload: normalizedPayload,
 		PreviousHash: previousHash, ActorIntentHash: intentHash, IdempotencyKey: command.IdempotencyKey,
 	}
 	event.Hash, err = controlplane.HashEvent(event)
@@ -409,4 +412,3 @@ func unavailable(err error) error {
 	}
 	return controlError(controlplane.CodeUnavailable, err.Error())
 }
-

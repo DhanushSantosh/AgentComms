@@ -107,32 +107,34 @@ type commandCanonical struct {
 }
 
 type Event struct {
-	ProjectID       string          `json:"project_id"`
-	Sequence        uint64          `json:"sequence"`
-	ID              string          `json:"id"`
-	Time            time.Time       `json:"time"`
-	Actor           string          `json:"actor"`
-	Type            string          `json:"type"`
-	EntityID        string          `json:"entity_id,omitempty"`
-	Payload         json.RawMessage `json:"payload"`
-	PreviousHash    string          `json:"previous_hash,omitempty"`
-	Hash            string          `json:"hash"`
-	ActorIntentHash string          `json:"actor_intent_hash"`
-	IdempotencyKey  string          `json:"idempotency_key"`
+	ProjectID           string          `json:"project_id"`
+	Sequence            uint64          `json:"sequence"`
+	ID                  string          `json:"id"`
+	Time                time.Time       `json:"time"`
+	Actor               string          `json:"actor"`
+	ActorKeyFingerprint string          `json:"actor_key_fingerprint,omitempty"`
+	Type                string          `json:"type"`
+	EntityID            string          `json:"entity_id,omitempty"`
+	Payload             json.RawMessage `json:"payload"`
+	PreviousHash        string          `json:"previous_hash,omitempty"`
+	Hash                string          `json:"hash"`
+	ActorIntentHash     string          `json:"actor_intent_hash"`
+	IdempotencyKey      string          `json:"idempotency_key"`
 }
 
 type eventCanonical struct {
-	ProjectID       string `json:"project_id"`
-	Sequence        uint64 `json:"sequence"`
-	ID              string `json:"id"`
-	Time            string `json:"time"`
-	Actor           string `json:"actor"`
-	Type            string `json:"type"`
-	EntityID        string `json:"entity_id,omitempty"`
-	PayloadHash     string `json:"payload_hash"`
-	PreviousHash    string `json:"previous_hash,omitempty"`
-	ActorIntentHash string `json:"actor_intent_hash"`
-	IdempotencyKey  string `json:"idempotency_key"`
+	ProjectID           string `json:"project_id"`
+	Sequence            uint64 `json:"sequence"`
+	ID                  string `json:"id"`
+	Time                string `json:"time"`
+	Actor               string `json:"actor"`
+	ActorKeyFingerprint string `json:"actor_key_fingerprint,omitempty"`
+	Type                string `json:"type"`
+	EntityID            string `json:"entity_id,omitempty"`
+	PayloadHash         string `json:"payload_hash"`
+	PreviousHash        string `json:"previous_hash,omitempty"`
+	ActorIntentHash     string `json:"actor_intent_hash"`
+	IdempotencyKey      string `json:"idempotency_key"`
 	// Legacy is not stored on Event -- it is derived at hash time from the
 	// idempotency-key namespace ("legacy:" prefix) so HashEvent stays
 	// byte-compatible with what was originally computed for events
@@ -354,7 +356,7 @@ func HashEvent(event Event) (string, error) {
 	b, err := json.Marshal(eventCanonical{
 		ProjectID: event.ProjectID, Sequence: event.Sequence, ID: event.ID,
 		Time: event.Time.UTC().Format(time.RFC3339Nano), Actor: event.Actor,
-		Type: event.Type, EntityID: event.EntityID,
+		ActorKeyFingerprint: event.ActorKeyFingerprint, Type: event.Type, EntityID: event.EntityID,
 		PayloadHash: hex.EncodeToString(payloadHash[:]), PreviousHash: event.PreviousHash,
 		ActorIntentHash: event.ActorIntentHash, IdempotencyKey: event.IdempotencyKey,
 		Legacy: strings.HasPrefix(event.IdempotencyKey, "legacy:"),

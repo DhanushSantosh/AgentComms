@@ -44,7 +44,7 @@ func nonInteractivePassphrasePrompt(context string) func(actor string) (string, 
 	return func(actor string) (string, error) {
 		return "", fmt.Errorf(
 			"signing as %s here requires the elevated-key passphrase, which %s cannot safely prompt for -- "+
-				"run the equivalent command from the CLI directly instead (e.g. `agent-comms approval approve` / `agent-comms agent activate`)",
+				"run the equivalent command from the CLI directly instead (e.g. `agent-comms approval approve`, `agent-comms agent activate`, or `agent-comms agent delete`)",
 			actor, context)
 	}
 }

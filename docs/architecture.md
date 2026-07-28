@@ -66,5 +66,11 @@ A HUMAN principal may additionally hold a second, distinct "elevated" key
 (`internal/identity.ElevatedActor`) and encrypted at rest with a passphrase
 (Argon2id + AES-256-GCM) — unlike the everyday key above, this one isn't
 usable without the passphrase, never written anywhere. It's required, in
-place of the everyday key, only for granting the Orchestrator role and
-approving a HUMAN-tier approval (see docs/governance.md).
+place of the everyday key, for granting the Orchestrator role, approving a
+HUMAN-tier approval, revoking an Orchestrator or HUMAN principal, and
+deleting any revoked principal (see docs/governance.md).
+
+Every newly committed event also records the fingerprint of the exact actor
+key whose signature the authority verified. That fingerprint is part of the
+event hash, so identity reuse and ordinary key rotation remain
+tamper-evidently distinguishable in history.

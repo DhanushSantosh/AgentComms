@@ -14,18 +14,22 @@ import (
 //go:embed schema.sql
 var schema string
 
-const CurrentSchemaVersion = 1
+const CurrentSchemaVersion = 2
+
+const addActorKeyFingerprintMigration = `
+ALTER TABLE events
+ADD COLUMN IF NOT EXISTS actor_key_fingerprint TEXT NOT NULL DEFAULT '';
+`
 
 // schemaMigration is one ordered, checksummed step. Automatic migrations
 // apply at every normal server startup; a migration with Automatic:false
 // only applies via `agent-comms-server migrate apply --yes
 // --allow-disruptive` -- normal startup refuses to start rather than
 // silently run against a schema a pending disruptive migration hasn't
-// been applied to. Today there is exactly one migration, and it is
-// automatic (it only creates tables that don't yet exist); this structure
-// exists so a future genuinely disruptive migration has a real place to
-// be classified, instead of every migration being unconditionally
-// automatic with no mechanism to mark one otherwise.
+// been applied to. The registered migrations are currently automatic and
+// non-disruptive; this structure gives any future disruptive migration a
+// real place to be classified, instead of making every migration
+// unconditionally automatic with no mechanism to mark one otherwise.
 type schemaMigration struct {
 	Version   int
 	Name      string
@@ -35,6 +39,7 @@ type schemaMigration struct {
 
 var schemaMigrations = []schemaMigration{
 	{Version: 1, Name: "initial-hybrid-control-plane", Automatic: true, SQL: schema},
+	{Version: 2, Name: "event-actor-key-fingerprint", Automatic: true, SQL: addActorKeyFingerprintMigration},
 }
 
 type SchemaMigrationStatus struct {

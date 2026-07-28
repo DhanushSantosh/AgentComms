@@ -33,7 +33,7 @@ func elevated(typ string) bool {
 	// otherwise write or delete arbitrary key/value data there. Owner-or-
 	// orchestrator only, matching every other write with log-wide
 	// consequences.
-	return typ == "approval.approve" || typ == "approval.reject" || typ == "agent.activate" || typ == "agent.suspend" || typ == "agent.rotate-key" || typ == "agent.rename" || typ == "agent.revoke" || typ == "project.settings.update" || typ == "env.set" || typ == "env.delete"
+	return typ == "approval.approve" || typ == "approval.reject" || typ == "agent.activate" || typ == "agent.suspend" || typ == "agent.rotate-key" || typ == "agent.rename" || typ == "agent.revoke" || typ == "agent.delete" || typ == "project.settings.update" || typ == "env.set" || typ == "env.delete"
 }
 func hasApproval(st model.State, action string) bool {
 	for _, a := range st.Approvals {
@@ -95,6 +95,9 @@ func RequiresElevatedKey(st model.State, actor, typ, id string, payload any) boo
 		}
 		target := st.Agents[id]
 		return target.Role == model.RoleOrchestrator || target.PrincipalType == model.PrincipalHuman
+	case "agent.delete":
+		target, found := st.Agents[id]
+		return found && target.Status == "REVOKED"
 	default:
 		return false
 	}
@@ -286,6 +289,22 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 			return nil, errors.New("human principal required to revoke an orchestrator or human principal")
 		}
 	}
+	if typ == "agent.delete" {
+		target, ok := st.Agents[id]
+		if !ok {
+			return nil, errors.New("principal not found")
+		}
+		if target.Status != "REVOKED" {
+			return nil, errors.New("principal must be revoked before deletion")
+		}
+		if st.Agents[actor].PrincipalType != model.PrincipalHuman {
+			return nil, errors.New("human principal required to delete a principal")
+		}
+		deleted, ok := payload.(model.AgentDeleted)
+		if !ok || strings.TrimSpace(deleted.Reason) == "" {
+			return nil, errors.New("deletion reason is required")
+		}
+	}
 	if typ == "project.settings.update" {
 		// An AGENT-principal orchestrator could otherwise unilaterally
 		// weaken project-wide safety settings (e.g. disabling RequireReview)
@@ -293,7 +312,8 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 		// that's enough for an orchestrator agent to label its own work
 		// ROUTINE and then turn off the review requirement that would
 		// otherwise have caught it. Not gated behind the elevated key (that
-		// stays reserved for the two most severe transitions), just a
+		// stays reserved for the narrow RequiresElevatedKey
+		// classification), just a
 		// human-principal requirement, matching the bar already set for
 		// revoking/suspending an orchestrator or human principal.
 		if st.Agents[actor].PrincipalType != model.PrincipalHuman {

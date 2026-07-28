@@ -1,6 +1,6 @@
 # RFC 0012: Agent identity deletion and per-event key fingerprinting
 
-- Status: Proposed
+- Status: Implemented
 - Owners: Agent Comms maintainers
 
 ## Problem and desired outcome
@@ -284,17 +284,31 @@ Postgres case is missed -- run it before considering this done.
 
 ## Unresolved questions
 
-- Should there be a mandatory cool-down between revoke and delete (e.g.
-  delete refused until N hours/days after the revoke event), to guard
-  against an impulsive or coerced deletion? Not resolved here -- flag for
-  the implementer/reviewer to decide; nothing in this design precludes
-  adding one later as an additional validation-time check.
-- Should `agent-comms doctor` gain a check for suspicious fingerprint
-  patterns (e.g. a very rapid revoke-delete-reregister cycle on the same
-  ID)? Left as a possible follow-up, not required for v1.
-- Exact wording/shape of the `AgentDeleted` payload beyond `Reason` --
-  e.g. whether to also snapshot the deleted agent's last known
-  `KeyFingerprint`/`Role` into the deletion event itself for convenience,
-  even though that data remains reconstructable from prior events. Leaning
-  yes (cheap, avoids a replay just to answer "who was this"), but not
-  load-bearing for the design and left to implementation judgment.
+The first implementation deliberately has no cool-down. Revoke and delete
+remain separate signed commands, while operators that need a waiting period
+can enforce one procedurally without introducing hidden clock-dependent
+behavior into the base protocol.
+
+`doctor` does not flag rapid revoke-delete-register cycles in this release.
+The history and search commands expose the tamper-evident fingerprint
+boundary directly; a heuristic warning can be added later if operational
+evidence shows it is useful.
+
+`AgentDeleted` contains only the required audit reason. The deleted
+projection is reconstructable from the preceding event history, so copying a
+mutable snapshot into the deletion payload would add a second representation
+without strengthening integrity.
+
+## Implementation notes
+
+- PostgreSQL schema version 2 adds the non-null
+  `actor_key_fingerprint` column with an empty default; migration version 1
+  is unchanged so existing checksum records stay valid.
+- `history` supports `--actor` and `--key-fingerprint`; `search` supports
+  `--key-fingerprint`. Filters apply to the bounded page selected by
+  `--cursor` and `--limit`.
+- `agent delete` requires an explicit non-empty `--reason`. It is CLI-only
+  and uses the elevated-key passphrase path when the acting HUMAN principal
+  has registered one.
+- No deletion cool-down or deleted-agent payload snapshot is part of this
+  release.

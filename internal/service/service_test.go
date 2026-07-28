@@ -661,6 +661,41 @@ func TestExecuteRequiresPassphrasePromptToRevokeOrchestrator(t *testing.T) {
 	}
 }
 
+func TestExecuteRequiresPassphrasePromptToDeleteRevokedAgent(t *testing.T) {
+	s := setup(t)
+	activate(t, s, "candidate", model.PrincipalAgent)
+	if _, err := s.ElevateKey("owner", "correct passphrase"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Execute("owner", "agent.revoke", "candidate",
+		model.RuntimeStatusChanged{Reason: "retired"}); err != nil {
+		t.Fatalf("revoke candidate: %v", err)
+	}
+
+	if _, err := s.Execute("owner", "agent.delete", "candidate",
+		model.AgentDeleted{Reason: "remove retired identity"}); err == nil {
+		t.Fatal("expected deleting a revoked principal to fail with no PassphrasePrompt configured")
+	} else if !strings.Contains(err.Error(), "passphrase") {
+		t.Fatalf("expected a passphrase-shaped error, got: %v", err)
+	}
+	s.PassphrasePrompt = func(string) (string, error) { return "correct passphrase", nil }
+	event, err := s.Execute("owner", "agent.delete", "candidate",
+		model.AgentDeleted{Reason: "remove retired identity"})
+	if err != nil {
+		t.Fatalf("expected deletion to succeed with the correct passphrase: %v", err)
+	}
+	if event.KeyFingerprint == "" {
+		t.Fatal("service result did not expose the authority-attested signing-key fingerprint")
+	}
+	state, err := s.State()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := state.Agents["candidate"]; exists {
+		t.Fatal("deleted principal remained in state")
+	}
+}
+
 // TestExecuteDoesNotPromptForRoutineActions guards against the passphrase
 // prompt leaking into ordinary, non-sensitive writes once an elevated key
 // exists -- the whole point of scoping this narrowly rather than

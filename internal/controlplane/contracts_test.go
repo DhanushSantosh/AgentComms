@@ -123,6 +123,55 @@ func TestVerifyEventHashRecomputesNativeEvents(t *testing.T) {
 	}
 }
 
+func TestEventHashKeepsPreFingerprintCanonicalBytesCompatible(t *testing.T) {
+	event := Event{
+		ProjectID: "project-1", Sequence: 7, ID: "evt-00000000000000000007",
+		Time:  time.Date(2026, 7, 28, 12, 34, 56, 123456789, time.UTC),
+		Actor: "alpha", Type: "task.create", EntityID: "task-1",
+		Payload: json.RawMessage(`{"title":"stable"}`), PreviousHash: "previous",
+		ActorIntentHash: "intent", IdempotencyKey: "idem-1",
+	}
+	const preFingerprintHash = "478c10380ac0469328871a76c7304d635034a20571bc474fcdc1ea912d442776"
+	hash, err := HashEvent(event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hash != preFingerprintHash {
+		t.Fatalf("empty actor key fingerprint changed the pre-RFC canonical hash: got %s want %s", hash, preFingerprintHash)
+	}
+}
+
+func TestEventHashAttestsActorKeyFingerprint(t *testing.T) {
+	event := Event{
+		ProjectID: "project", Sequence: 1, ID: "evt-1", Time: time.Now().UTC(),
+		Actor: "owner", ActorKeyFingerprint: "key-fingerprint-a",
+		Type: "agent.register", Payload: json.RawMessage(`{"display_name":"owner"}`),
+		ActorIntentHash: strings.Repeat("b", 64), IdempotencyKey: "request-1",
+	}
+	hash, err := HashEvent(event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	event.Hash = hash
+	if !VerifyEventHash(event) {
+		t.Fatal("correctly hashed actor key fingerprint was rejected")
+	}
+	tampered := event
+	tampered.ActorKeyFingerprint = "key-fingerprint-b"
+	if VerifyEventHash(tampered) {
+		t.Fatal("event with a tampered actor key fingerprint was accepted")
+	}
+	withoutFingerprint := event
+	withoutFingerprint.ActorKeyFingerprint = ""
+	withoutFingerprintHash, err := HashEvent(withoutFingerprint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if withoutFingerprintHash == hash {
+		t.Fatal("populating actor key fingerprint did not change the event hash")
+	}
+}
+
 func TestCursorAndLimits(t *testing.T) {
 	cursor := EncodeCursor(42)
 	sequence, err := DecodeCursor(cursor)

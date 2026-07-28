@@ -73,9 +73,10 @@ capabilities are added.
   can complete every step itself, in the human's name — proven live. A
   passphrase-encrypted "elevated" Ed25519 keypair per HUMAN principal
   (`agent-comms agent elevate-key`, `internal/identity`) closes that gap for
-  exactly two transitions: `agent.activate` granting ORCHESTRATOR and
-  `approval.approve` for a HUMAN-tier approval (`protocol.RequiresElevatedKey`,
-  enforced identically by both authority backends). Decrypting it requires
+  the transitions classified by `protocol.RequiresElevatedKey`: granting
+  ORCHESTRATOR, approving a HUMAN-tier approval, revoking another
+  ORCHESTRATOR or HUMAN principal, and deleting any revoked principal.
+  Both authority backends enforce the same classification. Decrypting it requires
   an interactive terminal passphrase prompt that refuses outright — not
   hangs or silently reads garbage — when stdin isn't a real TTY; this is
   CLI-only by design (`agent-comms agent elevate-key`, `agent activate`,
@@ -87,6 +88,10 @@ capabilities are added.
   is registered for the actor, requires that same elevated-key signature —
   symmetric with the grant side, closing the identical credential-only gap
   on the revoke path.
+- `agent.delete` is a separate HUMAN-only, elevated-key-gated transition
+  after revocation. It releases the ID for reuse without deleting history;
+  each new event now hash-attests the exact verified actor-key fingerprint
+  so occupants on either side of reuse remain distinguishable.
 - `agent.suspend` now blocks targeting the OWNER outright, and requires a
   HUMAN principal (ordinary credential, not the elevated key) to suspend an
   ORCHESTRATOR or HUMAN principal — mirroring `agent.revoke`'s existing

@@ -37,11 +37,11 @@ type Agent struct {
 	KeyFingerprint string        `json:"key_fingerprint"`
 	Capabilities   []string      `json:"capabilities"`
 	Scopes         []string      `json:"scopes"`
-	// ElevatedPublicKey, when set, must sign agent.activate(ORCHESTRATOR)
-	// and approval.approve(HUMAN tier) instead of PublicKey (see
-	// internal/protocol.RequiresElevatedKey). Registered self-service via
-	// agent.elevate-key; empty means no elevated key exists yet and those
-	// transitions still verify against PublicKey.
+	// ElevatedPublicKey, when set, must sign the security-sensitive
+	// transitions classified by internal/protocol.RequiresElevatedKey
+	// instead of PublicKey. Registered self-service via agent.elevate-key;
+	// empty means no elevated key exists yet and those transitions still
+	// verify against PublicKey.
 	ElevatedPublicKey      string `json:"elevated_public_key,omitempty"`
 	ElevatedKeyFingerprint string `json:"elevated_key_fingerprint,omitempty"`
 }

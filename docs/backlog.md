@@ -77,11 +77,10 @@ one is picked up, remove it from here and note the landing commit.
 ## Cross-reference
 
 - [RFC 0012](rfcs/0012-agent-identity-deletion-and-key-fingerprinting.md) —
-  planned, not yet implemented: `agent.delete` (permanent ID-reuse
-  release, revoked agents only) plus per-event actor key fingerprinting so
-  a reused ID's old and new occupants stay distinguishable in history
-  forever. Full design is written; verify against it here once another
-  agent implements it.
+  implemented: revoked principals can be deliberately deleted by a HUMAN
+  through the elevated CLI path, while every new event permanently attests
+  the verified actor-key fingerprint so a reused ID's occupants remain
+  distinguishable.
 - [RFC 0011's "Known gaps"](rfcs/0011-managed-project-lifecycle-and-upgrades.md#known-gaps) —
   the TUI's one-confirmation upgrade-approval UX isn't built; a
   confirmation-required plan just blocks the TUI from launching instead.

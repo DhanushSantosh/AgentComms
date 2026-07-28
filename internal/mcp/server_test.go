@@ -122,6 +122,24 @@ func TestInitializeAndToolCatalog(t *testing.T) {
 			t.Errorf("missing %s", want)
 		}
 	}
+	if strings.Contains(out.String(), `"name":"agent_delete"`) {
+		t.Fatal("agent_delete must remain unavailable over MCP")
+	}
+}
+
+func TestHistorySurfacesAuthorityAttestedActorKeyFingerprint(t *testing.T) {
+	instance, _ := testsupport.StartPersonalProject(t)
+	if _, err := instance.Sync(); err != nil {
+		t.Fatal(err)
+	}
+	input := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"history","arguments":{"limit":10}}}` + "\n"
+	var output bytes.Buffer
+	if err := Serve(instance, asActor("owner"), testServerVersion, strings.NewReader(input), &output); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), `"actor_key_fingerprint"`) {
+		t.Fatalf("MCP history omitted the authority-attested actor key fingerprint: %s", output.String())
+	}
 }
 
 func TestIdentityToolReportsConnectionActor(t *testing.T) {

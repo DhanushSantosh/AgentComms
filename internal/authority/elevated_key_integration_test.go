@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
+	"github.com/DhanushSantosh/AgentComms/internal/identity"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 	"github.com/DhanushSantosh/AgentComms/internal/protocol"
 	"github.com/google/uuid"
@@ -107,5 +108,63 @@ func TestPostgresOrchestratorGrantRejectsPrimaryKeySignatureOnceElevatedKeyRegis
 	}
 	if _, _, err = mutate("owner", elevated, "agent.revoke", "candidate", model.RuntimeStatusChanged{}); err != nil {
 		t.Fatalf("expected the elevated-key signature to be accepted: %v", err)
+	}
+
+	if _, _, err = mutate("owner", owner, "agent.delete", "candidate",
+		model.AgentDeleted{Reason: "remove retired identity"}); err == nil {
+		t.Fatal("expected a primary-key signature to be rejected deleting a principal once an elevated key is registered")
+	}
+	deleted, _, err := mutate("owner", elevated, "agent.delete", "candidate",
+		model.AgentDeleted{Reason: "remove retired identity"})
+	if err != nil {
+		t.Fatalf("expected elevated-key deletion to be accepted: %v", err)
+	}
+	if deleted.ActorKeyFingerprint != identity.Fingerprint(elevated.PublicKey()) {
+		t.Fatalf("delete event fingerprint=%q want elevated key fingerprint", deleted.ActorKeyFingerprint)
+	}
+	state, _, err := engine.State(context.Background(), projectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := state.Agents["candidate"]; exists {
+		t.Fatal("deleted principal remained in the Postgres projection")
+	}
+
+	replacement, _ := controlplane.GenerateSigner()
+	registered, _, err := mutate("candidate", replacement, "agent.register", "candidate",
+		model.AgentRegistered{PublicKey: replacement.PublicKey(), PrincipalType: model.PrincipalAgent, DisplayName: "replacement"})
+	if err != nil {
+		t.Fatalf("expected deleted ID to be reusable: %v", err)
+	}
+	if registered.ActorKeyFingerprint != identity.Fingerprint(replacement.PublicKey()) ||
+		registered.ActorKeyFingerprint == deleted.ActorKeyFingerprint {
+		t.Fatalf("replacement registration did not record a distinct key fingerprint: delete=%q register=%q",
+			deleted.ActorKeyFingerprint, registered.ActorKeyFingerprint)
+	}
+	if verifyErr := engine.VerifyRange(context.Background(), projectID, 1, 0); verifyErr != nil {
+		t.Fatalf("verification failed across deletion and ID reuse: %v", verifyErr)
+	}
+	page, err := engine.Events(context.Background(), projectID,
+		controlplane.PageRequest{Limit: controlplane.MaxPageSize})
+	if err != nil {
+		t.Fatal(err)
+	}
+	originalFingerprint := identity.Fingerprint(candidate.PublicKey())
+	seenOriginal := false
+	seenReplacement := false
+	for _, record := range page.Items {
+		if record.Event.Type != "agent.register" || record.Event.Actor != "candidate" {
+			continue
+		}
+		switch record.Event.ActorKeyFingerprint {
+		case originalFingerprint:
+			seenOriginal = true
+		case registered.ActorKeyFingerprint:
+			seenReplacement = true
+		}
+	}
+	if !seenOriginal || !seenReplacement || originalFingerprint == registered.ActorKeyFingerprint {
+		t.Fatalf("Postgres history did not retain the identity-reuse key boundary: original=%t replacement=%t",
+			seenOriginal, seenReplacement)
 	}
 }

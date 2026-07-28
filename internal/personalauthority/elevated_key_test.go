@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
+	"github.com/DhanushSantosh/AgentComms/internal/identity"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 	"github.com/DhanushSantosh/AgentComms/internal/protocol"
 	"github.com/google/uuid"
@@ -246,5 +247,74 @@ func TestSelfRevokeOfOrchestratorBypassesElevatedKeyRequirement(t *testing.T) {
 
 	if _, _, err = f.mutate("candidate", f.candidate, "agent.revoke", "candidate", model.RuntimeStatusChanged{}); err != nil {
 		t.Fatalf("expected self-revocation to bypass the elevated-key requirement: %v", err)
+	}
+}
+
+func TestDeleteRequiresElevatedKeyAndAllowsIdentityReuse(t *testing.T) {
+	f := newElevatedKeyFixture(t)
+	elevated, err := controlplane.GenerateSigner()
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.mustMutate("owner", f.owner, "agent.elevate-key", "owner",
+		model.AgentElevatedKeyRegistered{PublicKey: elevated.PublicKey()})
+	f.mustMutate("owner", f.owner, "agent.revoke", "candidate",
+		model.RuntimeStatusChanged{Reason: "retired"})
+
+	if _, _, err = f.mutate("owner", f.owner, "agent.delete", "candidate",
+		model.AgentDeleted{Reason: "remove retired identity"}); err == nil {
+		t.Fatal("expected a primary-key signature to be rejected deleting a principal once an elevated key is registered")
+	}
+	deleteEvent, _, err := f.mutate("owner", elevated, "agent.delete", "candidate",
+		model.AgentDeleted{Reason: "remove retired identity"})
+	if err != nil {
+		t.Fatalf("expected elevated-key deletion to succeed: %v", err)
+	}
+	if deleteEvent.ActorKeyFingerprint != identity.Fingerprint(elevated.PublicKey()) {
+		t.Fatalf("delete event fingerprint=%q want elevated key fingerprint", deleteEvent.ActorKeyFingerprint)
+	}
+	state, _, err := f.engine.State(context.Background(), f.projectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := state.Agents["candidate"]; exists {
+		t.Fatal("deleted principal remained in the current projection")
+	}
+
+	replacement, err := controlplane.GenerateSigner()
+	if err != nil {
+		t.Fatal(err)
+	}
+	registerEvent := f.mustMutate("candidate", replacement, "agent.register", "candidate",
+		model.AgentRegistered{PublicKey: replacement.PublicKey(), PrincipalType: model.PrincipalAgent, DisplayName: "replacement"})
+	if registerEvent.ActorKeyFingerprint != identity.Fingerprint(replacement.PublicKey()) {
+		t.Fatalf("replacement registration fingerprint=%q want replacement key fingerprint", registerEvent.ActorKeyFingerprint)
+	}
+	if registerEvent.ActorKeyFingerprint == deleteEvent.ActorKeyFingerprint {
+		t.Fatal("delete and replacement registration did not preserve distinct signing-key fingerprints")
+	}
+	page, err := f.engine.Events(context.Background(), f.projectID, controlplane.PageRequest{Limit: controlplane.MaxPageSize})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seenDelete := false
+	seenReplacement := false
+	seenOriginal := false
+	originalFingerprint := identity.Fingerprint(f.candidate.PublicKey())
+	for _, record := range page.Items {
+		if record.Event.Type == "agent.register" && record.Event.Actor == "candidate" &&
+			record.Event.ActorKeyFingerprint == originalFingerprint {
+			seenOriginal = true
+		}
+		switch record.Event.ID {
+		case deleteEvent.ID:
+			seenDelete = record.Event.ActorKeyFingerprint == deleteEvent.ActorKeyFingerprint
+		case registerEvent.ID:
+			seenReplacement = record.Event.ActorKeyFingerprint == registerEvent.ActorKeyFingerprint
+		}
+	}
+	if !seenDelete || !seenOriginal || !seenReplacement || originalFingerprint == registerEvent.ActorKeyFingerprint {
+		t.Fatalf("history did not retain the identity-reuse key boundary: delete=%t original=%t replacement=%t",
+			seenDelete, seenOriginal, seenReplacement)
 	}
 }

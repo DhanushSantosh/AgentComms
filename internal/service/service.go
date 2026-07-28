@@ -276,7 +276,7 @@ func (s *Service) executeRemote(actor, typ, id string, payload any) (model.Event
 func (s *Service) elevateCredentialIfNeeded(
 	cfg store.Config, actor, typ, id string, payload any, primary identity.Credential,
 ) (identity.Credential, error) {
-	if typ != "agent.activate" && typ != "approval.approve" && typ != "agent.revoke" {
+	if typ != "agent.activate" && typ != "approval.approve" && typ != "agent.revoke" && typ != "agent.delete" {
 		return primary, nil
 	}
 	// st stays the zero-value model.State{} for agent.activate, whose
@@ -284,9 +284,9 @@ func (s *Service) elevateCredentialIfNeeded(
 	// the invariant documented on RequiresElevatedKey itself (and mirrored
 	// by internal/authority/postgres.go's scopedElevationState, which makes
 	// the same per-type assumption via targeted SQL instead of a full
-	// fetch). Only fetch state for the two types that actually need it.
+	// fetch). Only fetch state for the transition types that actually need it.
 	var st model.State
-	if typ == "approval.approve" || typ == "agent.revoke" {
+	if typ == "approval.approve" || typ == "agent.revoke" || typ == "agent.delete" {
 		fetched, err := s.State()
 		if err != nil {
 			return identity.Credential{}, err
@@ -376,7 +376,7 @@ func (s *Service) executeRemoteWithCredential(
 		Sequence: event.Sequence, Time: event.Time, Actor: event.Actor, Type: event.Type,
 		EntityID: event.EntityID, Data: event.Payload, PreviousHash: event.PreviousHash,
 		Hash: event.Hash, Signature: command.Signature,
-		KeyFingerprint: identity.Fingerprint(credential.PublicKey),
+		KeyFingerprint: event.ActorKeyFingerprint,
 		ServerReceipt:  metadata.Receipt, Consistency: metadata.Consistency,
 		Connectivity: metadata.Connectivity,
 	}, nil
@@ -483,7 +483,7 @@ func (s *Service) RotateKey(actor string) (model.Event, error) {
 		Sequence: remoteEvent.Sequence, Time: remoteEvent.Time, Actor: remoteEvent.Actor,
 		Type: remoteEvent.Type, EntityID: remoteEvent.EntityID, Data: remoteEvent.Payload,
 		PreviousHash: remoteEvent.PreviousHash, Hash: remoteEvent.Hash, Signature: command.Signature,
-		KeyFingerprint: identity.Fingerprint(old.PublicKey), ServerReceipt: metadata.Receipt,
+		KeyFingerprint: remoteEvent.ActorKeyFingerprint, ServerReceipt: metadata.Receipt,
 		Consistency: metadata.Consistency, Connectivity: metadata.Connectivity,
 	}
 	if e = s.Store.Credentials.Put(next); e != nil {

@@ -1,6 +1,9 @@
 package authority
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // TestSchemaMigrationsAreOrderedAndClassified is a pure, non-DB unit test
 // of the migration list's own invariants: ApplySchema iterates
@@ -31,5 +34,11 @@ func TestSchemaMigrationsAreOrderedAndClassified(t *testing.T) {
 	}
 	if !schemaMigrations[0].Automatic {
 		t.Fatal("the initial schema migration must remain automatic -- it only creates tables that don't yet exist")
+	}
+	if strings.Contains(schemaMigrations[0].SQL, "actor_key_fingerprint") {
+		t.Fatal("migration v1 was modified; existing installations depend on its recorded checksum")
+	}
+	if !strings.Contains(schemaMigrations[1].SQL, "actor_key_fingerprint") {
+		t.Fatal("migration v2 does not add the actor key fingerprint column")
 	}
 }

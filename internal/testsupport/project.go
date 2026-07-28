@@ -14,6 +14,11 @@ import (
 	"github.com/DhanushSantosh/AgentComms/internal/store"
 )
 
+const (
+	personalDaemonReadyTimeout = 5 * time.Second
+	personalDaemonPollInterval = 10 * time.Millisecond
+)
+
 func StartPersonalProject(t testing.TB) (*service.Service, string) {
 	t.Helper()
 	root := t.TempDir()
@@ -49,11 +54,12 @@ func StartPersonalProject(t testing.TB) (*service.Service, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for attempt := 0; attempt < 100; attempt++ {
+	deadline := time.Now().Add(personalDaemonReadyTimeout)
+	for time.Now().Before(deadline) {
 		if client.Healthy(context.Background()) == nil {
 			return service.New(root), root
 		}
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(personalDaemonPollInterval)
 	}
 	t.Fatal("personal daemon did not become ready")
 	return nil, ""

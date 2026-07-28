@@ -49,6 +49,8 @@ func ApplyEvent(s *model.State, e model.Event) error {
 		a := s.Agents[e.EntityID]
 		a.DisplayName = p.DisplayName
 		s.Agents[e.EntityID] = a
+	case *model.AgentDeleted:
+		delete(s.Agents, e.EntityID)
 	case *model.TaskCreated:
 		s.Tasks[e.EntityID] = model.Task{ID: e.EntityID, Title: p.Title, Summary: p.Summary, Status: "OPEN", Repository: p.Repository, Branch: p.Branch, Worktree: p.Worktree, Resources: p.Resources, ExternalRef: p.ExternalRef, Risk: defaultRisk(p.Risk)}
 	case *model.TaskOffered:

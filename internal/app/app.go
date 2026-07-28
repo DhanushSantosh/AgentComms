@@ -792,20 +792,38 @@ func (c *cli) controlCmd() *cobra.Command {
 func (c *cli) historyCmd() *cobra.Command {
 	var cursor string
 	var limit int
+	var actor string
+	var keyFingerprint string
 	cmd := &cobra.Command{Use: "history", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		v, e := c.svc.History(controlplane.PageRequest{Cursor: cursor, Limit: limit})
 		if e != nil {
 			return e
 		}
+		if actor != "" || keyFingerprint != "" {
+			filtered := make([]controlplane.EventRecord, 0, len(v.Items))
+			for _, record := range v.Items {
+				if actor != "" && record.Event.Actor != actor {
+					continue
+				}
+				if keyFingerprint != "" && record.Event.ActorKeyFingerprint != keyFingerprint {
+					continue
+				}
+				filtered = append(filtered, record)
+			}
+			v.Items = filtered
+		}
 		return c.emit("history", v)
 	}}
 	cmd.Flags().StringVar(&cursor, "cursor", "", "opaque pagination cursor")
 	cmd.Flags().IntVar(&limit, "limit", controlplane.DefaultPageSize, "events per page")
+	cmd.Flags().StringVar(&actor, "actor", "", "only events signed by this actor in the current page")
+	cmd.Flags().StringVar(&keyFingerprint, "key-fingerprint", "", "only events signed by this key fingerprint in the current page")
 	return cmd
 }
 func (c *cli) searchCmd() *cobra.Command {
 	var cursor string
 	var limit int
+	var keyFingerprint string
 	cmd := &cobra.Command{Use: "search <query>", Args: cobra.MinimumNArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		q := strings.ToLower(strings.Join(args, " "))
 		page, e := c.svc.History(controlplane.PageRequest{Cursor: cursor, Limit: limit})
@@ -814,6 +832,9 @@ func (c *cli) searchCmd() *cobra.Command {
 		}
 		out := []controlplane.EventRecord{}
 		for _, v := range page.Items {
+			if keyFingerprint != "" && v.Event.ActorKeyFingerprint != keyFingerprint {
+				continue
+			}
 			b, _ := json.Marshal(v)
 			if strings.Contains(strings.ToLower(string(b)), q) {
 				out = append(out, v)
@@ -826,6 +847,7 @@ func (c *cli) searchCmd() *cobra.Command {
 	}}
 	cmd.Flags().StringVar(&cursor, "cursor", "", "opaque pagination cursor")
 	cmd.Flags().IntVar(&limit, "limit", controlplane.DefaultPageSize, "events scanned per page")
+	cmd.Flags().StringVar(&keyFingerprint, "key-fingerprint", "", "only events signed by this key fingerprint in the current page")
 	return cmd
 }
 func (c *cli) agentCmd() *cobra.Command {
@@ -873,6 +895,12 @@ func (c *cli) agentCmd() *cobra.Command {
 		return model.RuntimeStatusChanged{Reason: revokeReason}
 	})
 	revoke.Flags().StringVar(&revokeReason, "reason", "", "revocation reason")
+	var deleteReason string
+	deleteAgent := payloadStatus(c, "agent", "delete", func(string) any {
+		return model.AgentDeleted{Reason: deleteReason}
+	})
+	deleteAgent.Flags().StringVar(&deleteReason, "reason", "", "auditable deletion reason")
+	_ = deleteAgent.MarkFlagRequired("reason")
 	rotate := &cobra.Command{Use: "rotate-key", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		v, e := c.svc.RotateKey(c.actor)
 		if e != nil {
@@ -886,7 +914,7 @@ func (c *cli) agentCmd() *cobra.Command {
 	// prompt with in the first place). See docs/governance.md for what this
 	// closes: a locally-running agent can otherwise sign anything with the
 	// primary key exactly as if it were the human, indistinguishably.
-	elevate := &cobra.Command{Use: "elevate-key", Args: cobra.NoArgs, Short: "Register a passphrase-protected elevated key required for orchestrator grants and HUMAN-tier approvals", RunE: func(cmd *cobra.Command, args []string) error {
+	elevate := &cobra.Command{Use: "elevate-key", Args: cobra.NoArgs, Short: "Register a passphrase-protected key for sensitive identity and HUMAN-approval actions", RunE: func(cmd *cobra.Command, args []string) error {
 		passphrase, e := promptNewPassphrase(c.actor)
 		if e != nil {
 			return e
@@ -917,7 +945,7 @@ func (c *cli) agentCmd() *cobra.Command {
 		}
 		return c.emit("agent.list", st.Agents)
 	}}
-	root.AddCommand(reg, act, suspend, rotate, elevate, rename, revoke, list)
+	root.AddCommand(reg, act, suspend, rotate, elevate, rename, revoke, deleteAgent, list)
 	return root
 }
 func (c *cli) runtimeCmd() *cobra.Command {
