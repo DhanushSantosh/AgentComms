@@ -562,6 +562,16 @@ func (c *cli) initCmd() *cobra.Command {
 			if answer == "" || strings.EqualFold(answer, "y") {
 				svc := service.New(root)
 				svc.PassphrasePrompt = promptPassphrase
+				// init never goes through PersistentPreRunE (it's exempted --
+				// the project doesn't exist yet when that runs), so unlike
+				// every other command nothing has started the daemon this
+				// runtime needs for ElevateKey's signed command. Wire the
+				// same on-demand recovery PersistentPreRunE sets up for
+				// ordinary commands rather than requiring one to already be
+				// running.
+				if svcCfg, cfgErr := svc.Store.Config(); cfgErr == nil {
+					svc.SetRemoteRecovery(func() error { return ensureDaemon(root, svcCfg) })
+				}
 				passphrase, e := promptNewPassphrase(owner)
 				if e == nil {
 					_, e = svc.ElevateKey(owner, passphrase)
