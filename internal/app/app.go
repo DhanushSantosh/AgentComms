@@ -1160,7 +1160,7 @@ func (c *cli) runtimeCmd() *cobra.Command {
 				}
 			}
 			code, err := interactiveserve.Serve(cmd.Context(), interactiveserve.ServeOptions{
-				ProjectRoot: root, RuntimeID: interactiveServeID, Command: args,
+				ProjectRoot: root, RuntimeID: interactiveServeID, Command: args, Actor: c.actor,
 			})
 			if err != nil {
 				return err

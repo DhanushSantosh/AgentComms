@@ -95,6 +95,14 @@ func Serve(ctx context.Context, opts ServeOptions) (int, error) {
 	defer func() { _ = os.Remove(sockPath) }()
 
 	cmd := exec.Command(opts.Command[0], opts.Command[1:]...)
+	if opts.Actor != "" {
+		// Appended, not prepended: os/exec keeps only the last value for a
+		// duplicate key, so this deliberately overrides any AGENT_COMMS_ACTOR
+		// already present in the wrapper's own environment (e.g. one set by
+		// hand in the shell) with the identity actually resolved for this
+		// invocation -- the explicit, resolved value should win.
+		cmd.Env = append(os.Environ(), "AGENT_COMMS_ACTOR="+opts.Actor)
+	}
 	w, h, sizeErr := term.GetSize(fd)
 	if sizeErr != nil {
 		w, h = 80, 24

@@ -45,6 +45,18 @@ type ServeOptions struct {
 	RuntimeID   string
 	Command     []string
 
+	// Actor is the identity the wrapper itself resolved (--actor, --profile,
+	// host-label match, or the active profile) for its OWN agent-comms
+	// actions. Serve exports it into the child's environment as
+	// AGENT_COMMS_ACTOR, so the wrapped provider's own subsequent
+	// agent-comms calls (invocation claim/start/complete, etc.) authenticate
+	// as the same identity, instead of falling back to ambient owner
+	// resolution -- the same fallback path that let an unregistered agent
+	// self-grant ORCHESTRATOR before the elevated key existed. Left empty,
+	// the child simply inherits the wrapper's environment unchanged and
+	// resolves its own actor however it otherwise would.
+	Actor string
+
 	// ControlFD is the file descriptor of the wrapper's own controlling
 	// terminal — the one put into raw mode and resized on SIGWINCH. Defaults
 	// to os.Stdin.Fd() in the real CLI path; overridable so tests can point

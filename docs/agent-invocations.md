@@ -599,6 +599,25 @@ independently inspected the project, flagged what looked suspicious, and
 asked for confirmation before proceeding on a low-stakes request; once
 satisfied, it drove `invocation claim/start/complete` unattended.
 
+Whatever actor the wrapper itself resolves (`--actor`, `--profile`,
+host-label match, or the active profile) is automatically exported into the
+wrapped child's environment as `AGENT_COMMS_ACTOR`, so its own subsequent
+`agent-comms` calls authenticate as that identity too, instead of falling
+back to ambient owner resolution the moment it makes its own call. This
+matters more than it sounds like it should: without it, every agent-comms
+call the wrapped session makes on its own resolves to whichever identity
+its environment happens to fall back to — commonly the project owner — and
+a HUMAN-tier action succeeding under that identity is indistinguishable
+from you having typed it yourself. Pass it explicitly rather than relying
+on a shell-exported env var:
+
+```sh
+agent-comms --actor DAMON runtime interactive-serve --id DAMON --claude-allow-agent-comms -- claude --continue
+```
+
+(`--id DAMON`, matching the agent's own registered ID, is the simplest
+setup — see the same-ID fallback note below.)
+
 From then on, `agent-comms invocation request --to <agent-name> ...` targets
 the agent identity, not a runtime name. Agent Comms resolves that agent's
 eligible registered runtimes and, when exactly one has a live interactive session,

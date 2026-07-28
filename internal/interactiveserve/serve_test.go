@@ -193,6 +193,91 @@ func TestServeEndToEnd(t *testing.T) {
 	}
 }
 
+// TestServeExportsActorToChildEnvironment guards the actual fix: the wrapped
+// child must see AGENT_COMMS_ACTOR set to whatever identity the wrapper
+// itself resolved, so its own subsequent agent-comms calls authenticate as
+// that actor instead of falling back to ambient owner resolution -- without
+// this, every agent-comms call the wrapped session makes on its own would
+// need a manually-set env var or an explicit --actor flag on every
+// invocation, exactly the friction this closes.
+func TestServeExportsActorToChildEnvironment(t *testing.T) {
+	requireBash(t)
+	_, controlSlave := newControlPty(t)
+
+	dir := t.TempDir()
+	scriptPath := filepath.Join(dir, "printenv.sh")
+	script := "#!/bin/bash\n" +
+		"echo \"ACTOR=$AGENT_COMMS_ACTOR\"\n" +
+		"exit 0\n"
+	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout := &syncBuffer{}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	code, err := Serve(ctx, ServeOptions{
+		ProjectRoot: dir,
+		RuntimeID:   "actor-test-runtime",
+		Command:     []string{"bash", scriptPath},
+		ControlFD:   int(controlSlave.Fd()),
+		Stdin:       strings.NewReader(""),
+		Stdout:      stdout,
+		Actor:       "DAMON",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code != 0 {
+		t.Fatalf("expected exit code 0, got %d", code)
+	}
+	if !bytes.Contains([]byte(stdout.String()), []byte("ACTOR=DAMON")) {
+		t.Fatalf("expected the child to see AGENT_COMMS_ACTOR=DAMON, got: %s", stdout.String())
+	}
+}
+
+// TestServeLeavesEnvironmentUnchangedWithoutActor confirms the fix doesn't
+// overreach: when the caller doesn't resolve an actor (Actor left empty,
+// e.g. an already-set AGENT_COMMS_ACTOR from the shell), the child still
+// inherits the wrapper's environment exactly as it always did.
+func TestServeLeavesEnvironmentUnchangedWithoutActor(t *testing.T) {
+	requireBash(t)
+	_, controlSlave := newControlPty(t)
+	t.Setenv("AGENT_COMMS_ACTOR", "shell-set-actor")
+
+	dir := t.TempDir()
+	scriptPath := filepath.Join(dir, "printenv.sh")
+	script := "#!/bin/bash\n" +
+		"echo \"ACTOR=$AGENT_COMMS_ACTOR\"\n" +
+		"exit 0\n"
+	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout := &syncBuffer{}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	code, err := Serve(ctx, ServeOptions{
+		ProjectRoot: dir,
+		RuntimeID:   "actor-fallback-runtime",
+		Command:     []string{"bash", scriptPath},
+		ControlFD:   int(controlSlave.Fd()),
+		Stdin:       strings.NewReader(""),
+		Stdout:      stdout,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code != 0 {
+		t.Fatalf("expected exit code 0, got %d", code)
+	}
+	if !bytes.Contains([]byte(stdout.String()), []byte("ACTOR=shell-set-actor")) {
+		t.Fatalf("expected the child to inherit the wrapper's own AGENT_COMMS_ACTOR unchanged, got: %s", stdout.String())
+	}
+}
+
 // TestServeWritesSessionDedicationBanner guards the one mitigation available
 // for the structural "a session must be dedicated" limitation (nothing can
 // detect a human typing directly into a live session vs. the runtime being
