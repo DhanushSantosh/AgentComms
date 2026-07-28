@@ -2,6 +2,7 @@ package controlplane
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -133,5 +134,39 @@ func TestCursorAndLimits(t *testing.T) {
 	}
 	if _, err = (PageRequest{Limit: MaxPageSize + 1}).BoundedLimit(); err == nil {
 		t.Fatal("oversized page accepted")
+	}
+}
+
+// TestClassifyValidationError guards the single shared classification both
+// authority backends (internal/personalauthority, internal/authority) call
+// -- previously each hand-maintained its own copy, which had already
+// drifted (a dead "already claimed" branch existed in one but not the
+// other; no real ValidateTransition message has ever contained that
+// phrase).
+func TestClassifyValidationError(t *testing.T) {
+	cases := []struct {
+		name    string
+		message string
+		want    ErrorCode
+	}{
+		{"role required", "owner or orchestrator role required", CodeAuthorization},
+		{"principal required", "human principal required to grant the orchestrator role", CodeAuthorization},
+		{"scope required", "a matching scope is required for this resource", CodeAuthorization},
+		{"required without a matching keyword", "active message recipient x is required", CodeValidation},
+		{"resource overlap", "write lease overlaps task t-1", CodeConflict},
+		{"already leased", "worktree w is already leased by owner (task t-1, expires 10:00)", CodeConflict},
+		{"already claimed is not special-cased", "task is no longer available to claim", CodeValidation},
+		{"generic validation", "display name is required", CodeValidation},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := ClassifyValidationError(errors.New(c.message))
+			if got.Code != c.want {
+				t.Fatalf("ClassifyValidationError(%q) code = %q, want %q", c.message, got.Code, c.want)
+			}
+			if got.Message != c.message {
+				t.Fatalf("expected the original message to be preserved, got %q", got.Message)
+			}
+		})
 	}
 }

@@ -57,6 +57,30 @@ type Error struct {
 
 func (e *Error) Error() string { return e.Message }
 
+// ClassifyValidationError maps a plain error returned by
+// internal/protocol.ValidateTransition to a *controlplane.Error with the
+// right Code, by pattern-matching its message. Both authority backends
+// (internal/personalauthority, internal/authority) need this identical
+// classification and used to each hand-maintain their own copy -- which had
+// already drifted (one had a dead "already claimed" branch the other
+// lacked; no ValidateTransition message has ever actually contained that
+// phrase, real claim conflicts say "no longer available to claim"). Shared
+// here so the two backends can never again classify the same error
+// differently.
+func ClassifyValidationError(err error) *Error {
+	message := err.Error()
+	lower := strings.ToLower(message)
+	if strings.Contains(lower, "required") &&
+		(strings.Contains(lower, "role") || strings.Contains(lower, "principal") ||
+			strings.Contains(lower, "owner") || strings.Contains(lower, "scope")) {
+		return &Error{Code: CodeAuthorization, Message: message}
+	}
+	if strings.Contains(lower, "overlap") || strings.Contains(lower, "already leased") {
+		return &Error{Code: CodeConflict, Message: message}
+	}
+	return &Error{Code: CodeValidation, Message: message}
+}
+
 type Command struct {
 	ProjectID        string          `json:"project_id"`
 	Actor            string          `json:"actor"`

@@ -68,6 +68,44 @@ capabilities are added.
   (`approval.action` == `agent.activate:<id>`) — a real two-step
   apply-then-approve control, enforced in the same shared validator, that
   a single self-contained command cannot satisfy unattended.
+- Both controls above are still credential-based, which has its own limit:
+  a locally-running agent with OS-level access to the same credential store
+  can complete every step itself, in the human's name — proven live. A
+  passphrase-encrypted "elevated" Ed25519 keypair per HUMAN principal
+  (`agent-comms agent elevate-key`, `internal/identity`) closes that gap for
+  exactly two transitions: `agent.activate` granting ORCHESTRATOR and
+  `approval.approve` for a HUMAN-tier approval (`protocol.RequiresElevatedKey`,
+  enforced identically by both authority backends). Decrypting it requires
+  an interactive terminal passphrase prompt that refuses outright — not
+  hangs or silently reads garbage — when stdin isn't a real TTY; this is
+  CLI-only by design (`agent-comms agent elevate-key`, `agent activate`,
+  `approval approve` typed directly), never exposed as an MCP tool, and the
+  TUI/MCP contexts are wired to refuse cleanly rather than attempt a prompt
+  that would race another consumer of the same stdin fd (bubbletea's own
+  raw-mode reader, or a pty an MCP host might allocate).
+- `agent.revoke` of an ORCHESTRATOR or HUMAN principal, once an elevated key
+  is registered for the actor, requires that same elevated-key signature —
+  symmetric with the grant side, closing the identical credential-only gap
+  on the revoke path.
+- `agent.suspend` now blocks targeting the OWNER outright, and requires a
+  HUMAN principal (ordinary credential, not the elevated key) to suspend an
+  ORCHESTRATOR or HUMAN principal — mirroring `agent.revoke`'s existing
+  protection, which `agent.suspend` had lacked. Unprotected, a suspended
+  owner has no path back except trusting another principal to reactivate
+  them, since a suspended principal fails every subsequent action including
+  reactivating itself.
+- `agent.rotate-key` targeting a principal other than the caller is rejected
+  outright, for every actor including the owner — no shipped interface has
+  ever used this, and unrestricted it would let an elevated actor replace
+  another principal's public key with one it controls, a full identity
+  takeover with no consent check.
+- `project.settings.update` requires a HUMAN principal (not the elevated
+  key), closing a path where an AGENT-principal orchestrator could
+  unilaterally disable `RequireReview` project-wide.
+- `env.set`/`env.delete` now require ordinary owner-or-orchestrator
+  elevation; previously any active principal, including an OBSERVER-role
+  one, could write or delete arbitrary key/value data in the shared,
+  append-only signed log.
 
 ### Interface error consistency
 

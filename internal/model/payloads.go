@@ -250,3 +250,19 @@ func DecodePayload(typ string, raw json.RawMessage) (any, error) {
 	return v, nil
 }
 func KnownEventType(typ string) bool { _, ok := payloadFactories[typ]; return ok }
+
+// RegisteredEventTypes returns every event type payloadFactories knows how
+// to encode/decode. Exported so tests outside this package can cross-check
+// their own per-type registries (e.g. internal/projection/apply.go's
+// ApplyEvent switch, internal/authority/postgres.go's own decodePayload
+// switch) against this one, authoritative list -- catching a type that's
+// missing from one of those the moment it's added here, rather than only
+// when someone happens to exercise it against that specific backend. Order
+// is unspecified.
+func RegisteredEventTypes() []string {
+	types := make([]string, 0, len(payloadFactories))
+	for typ := range payloadFactories {
+		types = append(types, typ)
+	}
+	return types
+}

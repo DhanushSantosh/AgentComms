@@ -160,7 +160,14 @@ func (c *cli) root() *cobra.Command {
 		} else {
 			c.svc = service.New(root)
 		}
-		c.svc.PassphrasePrompt = promptPassphrase
+		switch cmd.Name() {
+		case "mcp":
+			c.svc.PassphrasePrompt = nonInteractivePassphrasePrompt("an MCP connection")
+		case "tui":
+			c.svc.PassphrasePrompt = nonInteractivePassphrasePrompt("the TUI")
+		default:
+			c.svc.PassphrasePrompt = promptPassphrase
+		}
 		cfg, e := c.svc.Store.Config()
 		if e != nil {
 			return fmt.Errorf("open project runtime: %w", e)

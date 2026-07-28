@@ -276,18 +276,24 @@ func (s *Service) executeRemote(actor, typ, id string, payload any) (model.Event
 func (s *Service) elevateCredentialIfNeeded(
 	cfg store.Config, actor, typ, id string, payload any, primary identity.Credential,
 ) (identity.Credential, error) {
-	if typ != "agent.activate" && typ != "approval.approve" {
+	if typ != "agent.activate" && typ != "approval.approve" && typ != "agent.revoke" {
 		return primary, nil
 	}
+	// st stays the zero-value model.State{} for agent.activate, whose
+	// RequiresElevatedKey branch reads only the payload, never state -- see
+	// the invariant documented on RequiresElevatedKey itself (and mirrored
+	// by internal/authority/postgres.go's scopedElevationState, which makes
+	// the same per-type assumption via targeted SQL instead of a full
+	// fetch). Only fetch state for the two types that actually need it.
 	var st model.State
-	if typ == "approval.approve" {
+	if typ == "approval.approve" || typ == "agent.revoke" {
 		fetched, err := s.State()
 		if err != nil {
 			return identity.Credential{}, err
 		}
 		st = fetched
 	}
-	if !protocol.RequiresElevatedKey(st, typ, id, payload) {
+	if !protocol.RequiresElevatedKey(st, actor, typ, id, payload) {
 		return primary, nil
 	}
 	elevated, err := s.Store.Credentials.Get(cfg.ProjectID, identity.ElevatedActor(actor))

@@ -179,3 +179,72 @@ func TestOrchestratorTierApprovalStillUsesPrimaryKeyEvenWithElevatedKeyRegistere
 		t.Fatalf("expected an ORCHESTRATOR-tier approval to still verify against the primary key: %v", err)
 	}
 }
+
+// TestRevokeOfOrchestratorRejectsPrimaryKeySignatureOnceElevatedKeyRegistered
+// closes the same class of gap the orchestrator-grant tests above cover, but
+// for the revoke side: an agent.revoke targeting an ORCHESTRATOR or HUMAN
+// principal is exactly as sensitive as granting the role in the first
+// place, and had the identical credential-only weakness until now.
+func TestRevokeOfOrchestratorRejectsPrimaryKeySignatureOnceElevatedKeyRegistered(t *testing.T) {
+	f := newElevatedKeyFixture(t)
+	f.grantOrchestratorApproval("candidate")
+	elevated, err := controlplane.GenerateSigner()
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.mustMutate("owner", f.owner, "agent.elevate-key", "owner",
+		model.AgentElevatedKeyRegistered{PublicKey: elevated.PublicKey()})
+	f.mustMutate("owner", elevated, "agent.activate", "candidate",
+		model.AgentActivated{Role: model.RoleOrchestrator, Scopes: []string{"src"}})
+
+	if _, _, err = f.mutate("owner", f.owner, "agent.revoke", "candidate", model.RuntimeStatusChanged{}); err == nil {
+		t.Fatal("expected a primary-key signature to be rejected revoking an orchestrator once an elevated key is registered")
+	}
+	if _, _, err = f.mutate("owner", elevated, "agent.revoke", "candidate", model.RuntimeStatusChanged{}); err != nil {
+		t.Fatalf("expected the elevated-key signature to be accepted: %v", err)
+	}
+	state, _, err := f.engine.State(context.Background(), f.projectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Agents["candidate"].Status != "REVOKED" {
+		t.Fatalf("expected candidate to be revoked: %+v", state.Agents["candidate"])
+	}
+}
+
+// TestRevokeOfPlainAgentStillUsesPrimaryKeyEvenWithElevatedKeyRegistered
+// confirms the new protection doesn't overreach: revoking a plain
+// AGENT-principal, non-orchestrator target is unaffected.
+func TestRevokeOfPlainAgentStillUsesPrimaryKeyEvenWithElevatedKeyRegistered(t *testing.T) {
+	f := newElevatedKeyFixture(t)
+	elevated, err := controlplane.GenerateSigner()
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.mustMutate("owner", f.owner, "agent.elevate-key", "owner",
+		model.AgentElevatedKeyRegistered{PublicKey: elevated.PublicKey()})
+	if _, _, err = f.mutate("owner", f.owner, "agent.revoke", "candidate", model.RuntimeStatusChanged{}); err != nil {
+		t.Fatalf("expected revoking a plain agent to still verify against the primary key: %v", err)
+	}
+}
+
+// TestSelfRevokeOfOrchestratorBypassesElevatedKeyRequirement mirrors the
+// existing human-only check's self-revoke bypass: an AGENT-principal
+// orchestrator can still voluntarily revoke itself without an elevated key,
+// since self-revocation is not an escalation.
+func TestSelfRevokeOfOrchestratorBypassesElevatedKeyRequirement(t *testing.T) {
+	f := newElevatedKeyFixture(t)
+	f.grantOrchestratorApproval("candidate")
+	elevated, err := controlplane.GenerateSigner()
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.mustMutate("owner", f.owner, "agent.elevate-key", "owner",
+		model.AgentElevatedKeyRegistered{PublicKey: elevated.PublicKey()})
+	f.mustMutate("owner", elevated, "agent.activate", "candidate",
+		model.AgentActivated{Role: model.RoleOrchestrator, Scopes: []string{"src"}})
+
+	if _, _, err = f.mutate("candidate", f.candidate, "agent.revoke", "candidate", model.RuntimeStatusChanged{}); err != nil {
+		t.Fatalf("expected self-revocation to bypass the elevated-key requirement: %v", err)
+	}
+}

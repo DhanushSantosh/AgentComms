@@ -509,6 +509,87 @@ func TestAgentActivateToolRequiresHumanToGrantOrchestratorRole(t *testing.T) {
 	}
 }
 
+// TestMCPElevatedKeyTransitionsFailClosed proves the exact threat model
+// internal/app/passphrase.go's own doc comment names: an MCP-connected
+// agent has no interactive terminal to answer a passphrase prompt with, so
+// once an elevated key is registered for an actor, agent_activate(ORCHESTRATOR)
+// and agent_revoke of an orchestrator must fail closed over MCP, not hang or
+// silently fall back to the primary key. This test never wires
+// instance.PassphrasePrompt at all, mirroring the realistic MCP default --
+// internal/app wires mcp specifically to a prompt that always refuses
+// (nonInteractivePassphrasePrompt), and a bare *service.Service like this
+// one has a nil prompt by construction either way. (approval_approve isn't
+// tested here because it isn't an MCP tool at all -- server.go's tools()
+// never registers it.)
+func TestMCPElevatedKeyTransitionsFailClosed(t *testing.T) {
+	instance, _ := testsupport.StartPersonalProject(t)
+	if _, e := instance.Register("candidate", "Candidate", model.PrincipalAgent); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := instance.Execute("owner", "agent.activate", "candidate", model.AgentActivated{Role: model.RoleAgent, Scopes: []string{"src"}}); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := instance.ElevateKey("owner", "a strong passphrase"); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := instance.Execute("owner", "approval.request", "candidate-orchestrator-approval", model.ApprovalRequested{
+		Tier: "HUMAN", Action: protocol.OrchestratorGrantApprovalAction("candidate"), Reason: "test",
+	}); e != nil {
+		t.Fatal(e)
+	}
+	// approval.approve isn't exposed over MCP, so approve this directly
+	// through the service to reach the activate-over-MCP scenario below --
+	// this direct call also goes through instance.PassphrasePrompt (nil),
+	// so it doubles as proof the approve step itself fails closed too.
+	if _, e := instance.Execute("owner", "approval.approve", "candidate-orchestrator-approval", model.ApprovalResponse{}); e == nil {
+		t.Fatal("expected approval.approve to fail closed with no PassphrasePrompt configured, once an elevated key is registered")
+	}
+
+	activateInput := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"agent_activate","arguments":{"id":"candidate","role":"ORCHESTRATOR"}}}` + "\n"
+	var activateOut bytes.Buffer
+	if e := Serve(instance, asActor("owner"), testServerVersion, strings.NewReader(activateInput), &activateOut); e != nil {
+		t.Fatal(e)
+	}
+	if !strings.Contains(activateOut.String(), `"error"`) {
+		t.Fatalf("expected agent_activate(ORCHESTRATOR) over MCP to fail closed once an elevated key is registered, got: %s", activateOut.String())
+	}
+	state, e := instance.State()
+	if e != nil {
+		t.Fatal(e)
+	}
+	if state.Agents["candidate"].Role == model.RoleOrchestrator {
+		t.Fatal("candidate must not have been granted the orchestrator role over MCP")
+	}
+
+	// Grant it directly through the service using an explicit, correctly
+	// answering prompt (bypassing MCP), so the revoke-over-MCP path below
+	// has an actual orchestrator to target.
+	instance.PassphrasePrompt = func(string) (string, error) { return "a strong passphrase", nil }
+	if _, e := instance.Execute("owner", "approval.approve", "candidate-orchestrator-approval", model.ApprovalResponse{}); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := instance.Execute("owner", "agent.activate", "candidate", model.AgentActivated{Role: model.RoleOrchestrator, Scopes: []string{"src"}}); e != nil {
+		t.Fatal(e)
+	}
+	instance.PassphrasePrompt = nil
+
+	revokeInput := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"agent_revoke","arguments":{"id":"candidate"}}}` + "\n"
+	var revokeOut bytes.Buffer
+	if e := Serve(instance, asActor("owner"), testServerVersion, strings.NewReader(revokeInput), &revokeOut); e != nil {
+		t.Fatal(e)
+	}
+	if !strings.Contains(revokeOut.String(), `"error"`) {
+		t.Fatalf("expected agent_revoke of an orchestrator over MCP to fail closed once an elevated key is registered, got: %s", revokeOut.String())
+	}
+	state, e = instance.State()
+	if e != nil {
+		t.Fatal(e)
+	}
+	if state.Agents["candidate"].Status == "REVOKED" {
+		t.Fatal("candidate must not have been revoked over MCP")
+	}
+}
+
 // TestAgentRevokeToolRejectsAgentOrchestratorRevokingAnotherOrchestrator is
 // the revoke-side sibling of TestAgentActivateToolRequiresHumanToGrantOrchestratorRole:
 // an AGENT-principal orchestrator must not be able to unilaterally revoke a

@@ -187,7 +187,7 @@ func (e *Engine) Mutate(ctx context.Context, command controlplane.Command) (cont
 	} else {
 		payload, err = protocol.ValidateTransition(state, command.Actor, command.Type, command.EntityID, payload, now)
 		if err != nil {
-			return controlplane.Event{}, controlplane.Receipt{}, classify(err)
+			return controlplane.Event{}, controlplane.Receipt{}, controlplane.ClassifyValidationError(err)
 		}
 	}
 	normalizedPayload, err := model.EncodePayload(command.Type, payload)
@@ -366,7 +366,7 @@ func commandPublicKey(state model.State, command controlplane.Command, payload a
 	if !found {
 		return "", controlError(controlplane.CodeAuthorization, "actor is not registered")
 	}
-	if agent.ElevatedPublicKey != "" && protocol.RequiresElevatedKey(state, command.Type, command.EntityID, payload) {
+	if agent.ElevatedPublicKey != "" && protocol.RequiresElevatedKey(state, command.Actor, command.Type, command.EntityID, payload) {
 		return agent.ElevatedPublicKey, nil
 	}
 	return agent.PublicKey, nil
@@ -410,17 +410,3 @@ func unavailable(err error) error {
 	return controlError(controlplane.CodeUnavailable, err.Error())
 }
 
-func classify(err error) error {
-	message := err.Error()
-	lower := strings.ToLower(message)
-	if strings.Contains(lower, "required") &&
-		(strings.Contains(lower, "role") || strings.Contains(lower, "principal") ||
-			strings.Contains(lower, "owner") || strings.Contains(lower, "scope")) {
-		return controlError(controlplane.CodeAuthorization, message)
-	}
-	if strings.Contains(lower, "overlap") || strings.Contains(lower, "already leased") ||
-		strings.Contains(lower, "already claimed") {
-		return controlError(controlplane.CodeConflict, message)
-	}
-	return controlError(controlplane.CodeValidation, message)
-}

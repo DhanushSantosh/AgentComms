@@ -95,4 +95,17 @@ func TestPostgresOrchestratorGrantRejectsPrimaryKeySignatureOnceElevatedKeyRegis
 	if _, _, err = mutate("owner", elevated, "approval.approve", "release-approval", model.ApprovalResponse{}); err != nil {
 		t.Fatalf("expected the elevated-key signature to be accepted: %v", err)
 	}
+
+	// The revoke side: candidate is now an orchestrator (granted above), so
+	// revoking it is exactly as sensitive as the grant and must hit the same
+	// elevated-key requirement -- this is the Postgres-backend sibling of
+	// personalauthority's TestRevokeOfOrchestratorRejectsPrimaryKeySignatureOnceElevatedKeyRegistered,
+	// exercising scopedElevationState's own "agent.revoke" SQL query, not
+	// just the personal-mode in-memory state path.
+	if _, _, err = mutate("owner", owner, "agent.revoke", "candidate", model.RuntimeStatusChanged{}); err == nil {
+		t.Fatal("expected a primary-key signature to be rejected revoking an orchestrator once an elevated key is registered")
+	}
+	if _, _, err = mutate("owner", elevated, "agent.revoke", "candidate", model.RuntimeStatusChanged{}); err != nil {
+		t.Fatalf("expected the elevated-key signature to be accepted: %v", err)
+	}
 }

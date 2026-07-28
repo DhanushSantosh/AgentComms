@@ -317,7 +317,7 @@ func (e *Engine) Mutate(ctx context.Context, command controlplane.Command) (cont
 	} else {
 		payload, err = protocol.ValidateTransition(state, command.Actor, command.Type, command.EntityID, payload, now)
 		if err != nil {
-			return controlplane.Event{}, controlplane.Receipt{}, classify(err)
+			return controlplane.Event{}, controlplane.Receipt{}, controlplane.ClassifyValidationError(err)
 		}
 	}
 	normalizedPayload, err := model.EncodePayload(command.Type, payload)
@@ -432,38 +432,62 @@ func commandPublicKey(ctx context.Context, tx *sql.Tx, command controlplane.Comm
 	if agent.ElevatedPublicKey == "" {
 		return agent.PublicKey, nil
 	}
-	scopedState, err := scopedApprovalState(ctx, tx, command)
+	scopedState, err := scopedElevationState(ctx, tx, command)
 	if err != nil {
 		return "", err
 	}
-	if protocol.RequiresElevatedKey(scopedState, command.Type, command.EntityID, payload) {
+	if protocol.RequiresElevatedKey(scopedState, command.Actor, command.Type, command.EntityID, payload) {
 		return agent.ElevatedPublicKey, nil
 	}
 	return agent.PublicKey, nil
 }
 
-// scopedApprovalState builds the minimal model.State protocol.RequiresElevatedKey
-// actually reads (only st.Approvals[id]) via a single targeted row lookup,
-// instead of the full loadState -- so verifying a signature never pays the
-// cost of loading the whole project just to classify which key it needed.
-func scopedApprovalState(ctx context.Context, tx *sql.Tx, command controlplane.Command) (model.State, error) {
-	if command.Type != "approval.approve" {
+// scopedElevationState builds the minimal model.State protocol.RequiresElevatedKey
+// actually reads for each transition type it classifies -- st.Approvals[id]
+// for approval.approve, st.Agents[id] (the TARGET being revoked, distinct
+// from the actor's own row already fetched above) for agent.revoke -- via a
+// single targeted row lookup, instead of the full loadState. Keeps
+// signature verification cheap regardless of which transition type it's
+// classifying: an attacker spamming invalid-signature commands never gets
+// to force a full project state load. If RequiresElevatedKey ever needs to
+// read a different field for a new transition type, this function needs a
+// matching case or the two will silently drift -- see the comment on
+// RequiresElevatedKey itself.
+func scopedElevationState(ctx context.Context, tx *sql.Tx, command controlplane.Command) (model.State, error) {
+	switch command.Type {
+	case "approval.approve":
+		var stateJSON []byte
+		err := tx.QueryRowContext(ctx, `SELECT state FROM approvals WHERE project_id=$1 AND approval_id=$2`,
+			command.ProjectID, command.EntityID).Scan(&stateJSON)
+		if errors.Is(err, sql.ErrNoRows) {
+			return model.State{}, nil
+		}
+		if err != nil {
+			return model.State{}, unavailable(err)
+		}
+		var approval model.Approval
+		if err = json.Unmarshal(stateJSON, &approval); err != nil {
+			return model.State{}, err
+		}
+		return model.State{Approvals: map[string]model.Approval{command.EntityID: approval}}, nil
+	case "agent.revoke":
+		var stateJSON []byte
+		err := tx.QueryRowContext(ctx, `SELECT state FROM agents WHERE project_id=$1 AND agent_id=$2`,
+			command.ProjectID, command.EntityID).Scan(&stateJSON)
+		if errors.Is(err, sql.ErrNoRows) {
+			return model.State{}, nil
+		}
+		if err != nil {
+			return model.State{}, unavailable(err)
+		}
+		var target model.Agent
+		if err = json.Unmarshal(stateJSON, &target); err != nil {
+			return model.State{}, err
+		}
+		return model.State{Agents: map[string]model.Agent{command.EntityID: target}}, nil
+	default:
 		return model.State{}, nil
 	}
-	var stateJSON []byte
-	err := tx.QueryRowContext(ctx, `SELECT state FROM approvals WHERE project_id=$1 AND approval_id=$2`,
-		command.ProjectID, command.EntityID).Scan(&stateJSON)
-	if errors.Is(err, sql.ErrNoRows) {
-		return model.State{}, nil
-	}
-	if err != nil {
-		return model.State{}, unavailable(err)
-	}
-	var approval model.Approval
-	if err = json.Unmarshal(stateJSON, &approval); err != nil {
-		return model.State{}, err
-	}
-	return model.State{Approvals: map[string]model.Approval{command.EntityID: approval}}, nil
 }
 
 func decodePayload(eventType string, raw json.RawMessage) (any, error) {
@@ -479,6 +503,8 @@ func decodePayload(eventType string, raw json.RawMessage) (any, error) {
 	case *model.AgentKeyRotated:
 		return *value, nil
 	case *model.AgentElevatedKeyRegistered:
+		return *value, nil
+	case *model.AgentRenamed:
 		return *value, nil
 	case *model.TaskCreated:
 		return *value, nil
@@ -543,19 +569,6 @@ func decodePayload(eventType string, raw json.RawMessage) (any, error) {
 	default:
 		return nil, fmt.Errorf("unsupported payload for %s", eventType)
 	}
-}
-
-func classify(err error) error {
-	message := err.Error()
-	lower := strings.ToLower(message)
-	if strings.Contains(lower, "required") && (strings.Contains(lower, "role") || strings.Contains(lower, "principal") ||
-		strings.Contains(lower, "owner") || strings.Contains(lower, "scope")) {
-		return &controlplane.Error{Code: controlplane.CodeAuthorization, Message: message}
-	}
-	if strings.Contains(lower, "overlap") || strings.Contains(lower, "already leased") {
-		return &controlplane.Error{Code: controlplane.CodeConflict, Message: message}
-	}
-	return &controlplane.Error{Code: controlplane.CodeValidation, Message: message}
 }
 
 func conflictOrUnavailable(err error) error {

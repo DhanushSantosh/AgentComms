@@ -28,7 +28,12 @@ func active(st model.State, actor string) (model.Agent, error) {
 	return a, nil
 }
 func elevated(typ string) bool {
-	return typ == "approval.approve" || typ == "approval.reject" || typ == "agent.activate" || typ == "agent.suspend" || typ == "agent.rotate-key" || typ == "agent.rename" || typ == "agent.revoke" || typ == "project.settings.update"
+	// env.set/env.delete write into the shared, append-only signed log with
+	// no undo -- even an OBSERVER-role principal (intended read-only) could
+	// otherwise write or delete arbitrary key/value data there. Owner-or-
+	// orchestrator only, matching every other write with log-wide
+	// consequences.
+	return typ == "approval.approve" || typ == "approval.reject" || typ == "agent.activate" || typ == "agent.suspend" || typ == "agent.rotate-key" || typ == "agent.rename" || typ == "agent.revoke" || typ == "project.settings.update" || typ == "env.set" || typ == "env.delete"
 }
 func hasApproval(st model.State, action string) bool {
 	for _, a := range st.Approvals {
@@ -58,21 +63,38 @@ func hasHumanApproval(st model.State, action string) bool {
 // exact command instead of duplicating the "agent.activate:"+id format.
 func OrchestratorGrantApprovalAction(id string) string { return "agent.activate:" + id }
 
-// RequiresElevatedKey reports whether typ/id/payload is one of the two
+// RequiresElevatedKey reports whether actor/typ/id/payload is one of the
 // transitions that must be signed with the actor's passphrase-protected
 // elevated key (internal/identity.ElevatedActor) rather than its everyday
 // key, when one is registered (model.Agent.ElevatedPublicKey != ""). This is
 // the single classification both the client-side signer
 // (internal/service.Service) and every server-side verifier (personal and
 // Postgres authority backends) call, so they can never disagree about which
-// key a given transition needed.
-func RequiresElevatedKey(st model.State, typ, id string, payload any) bool {
+// key a given transition needed. Only ever reads st.Approvals[id] and
+// st.Agents[id] (the target, never the actor's own record) -- see the
+// comment on scopedElevationState in internal/authority/postgres.go before
+// adding a read of any other field, since that backend deliberately passes
+// a minimal, targeted state rather than the full project state here.
+func RequiresElevatedKey(st model.State, actor, typ, id string, payload any) bool {
 	switch typ {
 	case "agent.activate":
 		activation, ok := payload.(model.AgentActivated)
 		return ok && activation.Role == model.RoleOrchestrator
 	case "approval.approve":
 		return st.Approvals[id].Tier == "HUMAN"
+	case "agent.revoke":
+		// Mirrors the human-only check ValidateTransition already applies to
+		// agent.revoke: self-revocation is never an escalation and always
+		// bypasses it, but revoking a different orchestrator or human
+		// principal is exactly as sensitive as granting the role in the
+		// first place -- it was defeatable by the same ambient-fallback /
+		// local-credential-access gap agent.activate(ORCHESTRATOR) had
+		// before the elevated key existed, and nothing had closed it there.
+		if id == actor {
+			return false
+		}
+		target := st.Agents[id]
+		return target.Role == model.RoleOrchestrator || target.PrincipalType == model.PrincipalHuman
 	default:
 		return false
 	}
@@ -190,6 +212,20 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 			return nil, errors.New("a public key is required to register an elevated key")
 		}
 	}
+	if typ == "agent.rotate-key" && id != actor {
+		// Rotating a DIFFERENT principal's key is a full identity-hijack
+		// primitive: the reducer (internal/projection/apply.go) applies
+		// AgentKeyRotated.PublicKey to the target unconditionally, with no
+		// proof the target consented to or controls the new key -- an
+		// orchestrator could rotate the owner's key to one it holds and
+		// permanently lock the real owner out, worse than revoke (which at
+		// least leaves the record intact rather than replacing its identity
+		// outright). No shipped interface (CLI, MCP, TUI) has ever exposed
+		// id != actor here -- every caller already hard-codes self-rotation
+		// -- so this closes a latent gap in the shared validator itself
+		// rather than removing real functionality.
+		return nil, errors.New("a key can only be rotated for your own actor")
+	}
 	if typ == "agent.rename" {
 		target, ok := st.Agents[id]
 		if !ok {
@@ -210,6 +246,21 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 		}
 		if target.Status == "REVOKED" {
 			return nil, errors.New("cannot suspend a revoked principal")
+		}
+		// Suspension is temporary, unlike revocation, but an unprotected
+		// owner-target is actually the more severe lockout: a suspended
+		// principal fails active() (above) on every subsequent action,
+		// including trying to reactivate itself -- if the owner is the
+		// project's only human and gets suspended by a rogue
+		// AGENT-principal orchestrator, there is no path back without
+		// trusting some other principal to reactivate them. Mirrors
+		// agent.revoke's protection below exactly, for the same reason.
+		if target.Role == model.RoleOwner {
+			return nil, errors.New("owner principal cannot be suspended")
+		}
+		if id != actor && (target.Role == model.RoleOrchestrator || target.PrincipalType == model.PrincipalHuman) &&
+			st.Agents[actor].PrincipalType != model.PrincipalHuman {
+			return nil, errors.New("human principal required to suspend an orchestrator or human principal")
 		}
 	}
 	if typ == "agent.revoke" {
@@ -236,6 +287,18 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 		}
 	}
 	if typ == "project.settings.update" {
+		// An AGENT-principal orchestrator could otherwise unilaterally
+		// weaken project-wide safety settings (e.g. disabling RequireReview)
+		// -- combined with task.create's self-declared, ungated Risk field,
+		// that's enough for an orchestrator agent to label its own work
+		// ROUTINE and then turn off the review requirement that would
+		// otherwise have caught it. Not gated behind the elevated key (that
+		// stays reserved for the two most severe transitions), just a
+		// human-principal requirement, matching the bar already set for
+		// revoking/suspending an orchestrator or human principal.
+		if st.Agents[actor].PrincipalType != model.PrincipalHuman {
+			return nil, errors.New("human principal required to update project settings")
+		}
 		settings, ok := payload.(model.ProjectSettingsUpdated)
 		if !ok {
 			return nil, errors.New("invalid project settings payload")

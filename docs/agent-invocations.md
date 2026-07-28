@@ -138,9 +138,19 @@ multiple actors and never borrows an active profile from another project.
 An explicit `--actor` or `--profile` can resolve an intentional ambiguity.
 
 `agent_activate` is exposed too, but stays exactly as gated as the CLI's
-`agent activate` — owner/orchestrator-only. Until an agent is activated,
-every other tool (`runtime_register`, `invocation_*`, ...) fails the same
-"active principal required" check the CLI enforces.
+`agent activate` — owner/orchestrator-only for an ordinary role. Until an
+agent is activated, every other tool (`runtime_register`, `invocation_*`,
+...) fails the same "active principal required" check the CLI enforces.
+Requesting `role: "ORCHESTRATOR"` specifically is gated far more heavily
+than "owner/orchestrator-only" implies: it additionally requires a HUMAN
+principal, a pre-existing, separately-approved, HUMAN-tier approval record
+for that exact grant, and — once the target human has registered a
+passphrase-protected elevated key (`agent-comms agent elevate-key`) — a
+signature from that elevated key specifically, which no MCP connection can
+ever produce (see docs/governance.md). `agent_revoke` targeting an existing
+ORCHESTRATOR or HUMAN principal is gated identically. `approval_approve`
+is not exposed as an MCP tool at all — there is no way to approve anything
+over this connection.
 
 **Known limitation — MCP delivery is pull-only, confirmed live, not yet
 fixed.** `agent-comms mcp`'s stdio loop reads one request and writes one

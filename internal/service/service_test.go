@@ -628,6 +628,39 @@ func TestExecuteRequiresPassphrasePromptOnceElevatedKeyIsRegistered(t *testing.T
 	}
 }
 
+// TestExecuteRequiresPassphrasePromptToRevokeOrchestrator is the revoke-side
+// sibling of TestExecuteRequiresPassphrasePromptOnceElevatedKeyIsRegistered:
+// revoking an orchestrator is exactly as sensitive as granting the role and
+// goes through the identical client-side PassphrasePrompt path.
+func TestExecuteRequiresPassphrasePromptToRevokeOrchestrator(t *testing.T) {
+	s := setup(t)
+	activate(t, s, "candidate", model.PrincipalAgent)
+	if _, err := s.ElevateKey("owner", "correct passphrase"); err != nil {
+		t.Fatal(err)
+	}
+	s.PassphrasePrompt = func(string) (string, error) { return "correct passphrase", nil }
+	grantOrchestrator(t, s, "owner", "candidate", []string{"src"})
+
+	s.PassphrasePrompt = nil
+	if _, err := s.Execute("owner", "agent.revoke", "candidate", model.RuntimeStatusChanged{}); err == nil {
+		t.Fatal("expected revoking an orchestrator to fail with no PassphrasePrompt configured")
+	} else if !strings.Contains(err.Error(), "passphrase") {
+		t.Fatalf("expected a passphrase-shaped error, got: %v", err)
+	}
+
+	s.PassphrasePrompt = func(string) (string, error) { return "correct passphrase", nil }
+	if _, err := s.Execute("owner", "agent.revoke", "candidate", model.RuntimeStatusChanged{}); err != nil {
+		t.Fatalf("expected the revoke to succeed with the correct passphrase: %v", err)
+	}
+	state, err := s.State()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Agents["candidate"].Status != "REVOKED" {
+		t.Fatalf("expected candidate to be revoked, got %+v", state.Agents["candidate"])
+	}
+}
+
 // TestExecuteDoesNotPromptForRoutineActions guards against the passphrase
 // prompt leaking into ordinary, non-sensitive writes once an elevated key
 // exists -- the whole point of scoping this narrowly rather than

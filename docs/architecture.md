@@ -60,3 +60,11 @@ rotation boundaries remain part of the audit record.
 In both modes, private actor keys live in platform keyrings. The target
 repository receives a compact `.agents` bootstrap; credentials are never
 stored in project history.
+
+A HUMAN principal may additionally hold a second, distinct "elevated" key
+(`agent-comms agent elevate-key`), stored under its own keyring entry
+(`internal/identity.ElevatedActor`) and encrypted at rest with a passphrase
+(Argon2id + AES-256-GCM) — unlike the everyday key above, this one isn't
+usable without the passphrase, never written anywhere. It's required, in
+place of the everyday key, only for granting the Orchestrator role and
+approving a HUMAN-tier approval (see docs/governance.md).
