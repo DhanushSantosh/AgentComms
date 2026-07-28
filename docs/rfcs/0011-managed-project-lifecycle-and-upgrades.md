@@ -108,6 +108,17 @@ are compatible. The TUI presents lifecycle progress and one confirmation.
 MCP automatically performs safe reconciliation and exposes read-only upgrade
 status; it cannot approve disruptive maintenance.
 
+## Known gaps
+
+- The TUI does not yet present the one-confirmation flow described above.
+  Today, a plan with `RequiresConfirmation: true` simply blocks the TUI from
+  launching at all (the existing `PersistentPreRunE` gate returns
+  `UPGRADE_REQUIRED` before the TUI ever starts), so a disruptive action is
+  never applied without the CLI's explicit `--approve`. This is safe by
+  omission -- no confirmation is bypassed -- but it is not the in-TUI
+  confirmation UX this document describes. Building that UX is tracked as
+  future work, not part of this implementation.
+
 ## Alternatives considered
 
 - Mutating every project from an installer was rejected because installers do

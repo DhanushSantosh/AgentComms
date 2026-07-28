@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
+	"github.com/DhanushSantosh/AgentComms/internal/protocol"
 	"github.com/DhanushSantosh/AgentComms/internal/service"
 	"github.com/DhanushSantosh/AgentComms/internal/testsupport"
 )
@@ -19,6 +20,21 @@ func registerAgent(t *testing.T, s *service.Service, id string, role model.Role,
 	t.Helper()
 	if _, e := s.Register(id, id, model.PrincipalAgent); e != nil {
 		t.Fatal(e)
+	}
+	if role == model.RoleOrchestrator {
+		// ORCHESTRATOR grants now require a separately-approved, HUMAN-tier
+		// approval on top of the ordinary elevation/human-principal checks
+		// (internal/protocol/transitions.go) — apply and approve it here so
+		// existing fixtures asking for an orchestrator still get one.
+		approvalID := id + "-orchestrator-approval"
+		if _, e := s.Execute("owner", "approval.request", approvalID, model.ApprovalRequested{
+			Tier: "HUMAN", Action: protocol.OrchestratorGrantApprovalAction(id), Reason: "test fixture",
+		}); e != nil {
+			t.Fatal(e)
+		}
+		if _, e := s.Execute("owner", "approval.approve", approvalID, model.ApprovalResponse{}); e != nil {
+			t.Fatal(e)
+		}
 	}
 	if _, e := s.Execute("owner", "agent.activate", id, model.AgentActivated{Role: role, Capabilities: []string{"*"}, Scopes: scopes}); e != nil {
 		t.Fatal(e)

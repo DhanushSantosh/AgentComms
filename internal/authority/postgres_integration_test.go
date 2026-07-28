@@ -2,6 +2,7 @@ package authority
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"os"
 	"sync"
@@ -264,5 +265,62 @@ func TestConcurrentSchemaInitializationIsSerialized(t *testing.T) {
 		if err != nil {
 			t.Fatalf("concurrent authority initialization failed: %v", err)
 		}
+	}
+}
+
+// TestApplySchemaSkipsDisruptiveMigrationWithoutAllowFlag proves finding
+// 6/7's classification actually gates ordinary startup: a pending
+// migration marked Automatic:false must be refused (and left unrecorded)
+// under normal ApplySchema(allowDisruptive=false) startup, and only
+// applied when the caller passes allowDisruptive=true -- the same flag
+// `agent-comms-server migrate apply --yes --allow-disruptive` sets.
+func TestApplySchemaSkipsDisruptiveMigrationWithoutAllowFlag(t *testing.T) {
+	databaseURL := os.Getenv("AGENT_COMMS_TEST_POSTGRES_URL")
+	if databaseURL == "" {
+		t.Skip("AGENT_COMMS_TEST_POSTGRES_URL is not configured")
+	}
+	db, err := sql.Open("pgx", databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err = ApplySchema(context.Background(), db, false); err != nil {
+		t.Fatal(err)
+	}
+
+	const disruptiveVersion = 900001
+	original := schemaMigrations
+	schemaMigrations = append(append([]schemaMigration{}, original...), schemaMigration{
+		Version: disruptiveVersion, Name: "test-disruptive-migration", Automatic: false, SQL: "SELECT 1",
+	})
+	defer func() { schemaMigrations = original }()
+	if _, err = db.ExecContext(context.Background(), `DELETE FROM schema_migrations WHERE version=$1`, disruptiveVersion); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_, _ = db.ExecContext(context.Background(), `DELETE FROM schema_migrations WHERE version=$1`, disruptiveVersion)
+	}()
+
+	if err = ApplySchema(context.Background(), db, false); err == nil {
+		t.Fatal("expected ApplySchema to refuse a pending disruptive migration without --allow-disruptive")
+	}
+	var recorded bool
+	if err = db.QueryRowContext(context.Background(),
+		`SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=$1)`, disruptiveVersion).Scan(&recorded); err != nil {
+		t.Fatal(err)
+	}
+	if recorded {
+		t.Fatal("disruptive migration must not be recorded as applied when it was refused")
+	}
+
+	if err = ApplySchema(context.Background(), db, true); err != nil {
+		t.Fatalf("expected ApplySchema to apply the disruptive migration once allowDisruptive=true: %v", err)
+	}
+	if err = db.QueryRowContext(context.Background(),
+		`SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=$1)`, disruptiveVersion).Scan(&recorded); err != nil {
+		t.Fatal(err)
+	}
+	if !recorded {
+		t.Fatal("expected the disruptive migration to be recorded as applied after --allow-disruptive")
 	}
 }

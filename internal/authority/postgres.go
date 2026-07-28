@@ -78,7 +78,7 @@ func Open(ctx context.Context, cfg Config, signer *controlplane.Signer) (*Engine
 		_ = db.Close()
 		return nil, fmt.Errorf("connect PostgreSQL: %w", err)
 	}
-	if err = ApplySchema(ctx, db); err != nil {
+	if err = ApplySchema(ctx, db, false); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("apply authority schema: %w", err)
 	}

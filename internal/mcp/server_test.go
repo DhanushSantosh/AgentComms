@@ -3,11 +3,16 @@ package mcp
 import (
 	"bytes"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/DhanushSantosh/AgentComms/internal/identity"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
+	"github.com/DhanushSantosh/AgentComms/internal/protocol"
+	"github.com/DhanushSantosh/AgentComms/internal/service"
+	"github.com/DhanushSantosh/AgentComms/internal/store"
 	"github.com/DhanushSantosh/AgentComms/internal/testsupport"
 )
 
@@ -17,6 +22,27 @@ const testServerVersion = "test-version"
 // bound actor, not how it was resolved.
 func asActor(actor string) identity.ActorResolution {
 	return identity.ActorResolution{Actor: actor}
+}
+
+// grantOrchestrator drives the two-step apply-then-approve flow the
+// ORCHESTRATOR role now requires (internal/protocol/transitions.go):
+// approver applies a HUMAN-tier approval for this exact grant, separately
+// approves it, then activates id as ORCHESTRATOR.
+func grantOrchestrator(t *testing.T, instance *service.Service, approver, id string, scopes []string) {
+	t.Helper()
+	approvalID := id + "-orchestrator-approval"
+	if _, e := instance.Execute(approver, "approval.request", approvalID, model.ApprovalRequested{
+		Tier: "HUMAN", Action: protocol.OrchestratorGrantApprovalAction(id), Reason: "test fixture",
+	}); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := instance.Execute(approver, "approval.approve", approvalID, model.ApprovalResponse{}); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := instance.Execute(approver, "agent.activate", id,
+		model.AgentActivated{Role: model.RoleOrchestrator, Scopes: scopes}); e != nil {
+		t.Fatal(e)
+	}
 }
 
 // TestToolSchemasNeverEmitNullRequired guards a real, live-discovered bug:
@@ -38,6 +64,42 @@ func TestToolSchemasNeverEmitNullRequired(t *testing.T) {
 		if strings.Contains(string(b), `"required":null`) {
 			t.Fatalf("tool %v marshals required as null: %s", def["name"], b)
 		}
+	}
+}
+
+// TestProjectUpgradeStatusReportsProjectLifecycleErrorCode guards finding
+// 8: a *projectlifecycle.Error (here CodeProjectTooNew, from a project
+// whose recorded MinimumToolkit is newer than the running binary) must
+// report its real stable code over MCP's error.data.code, the same way
+// internal/app/app.go's CLI errorCode/exitCode already does, rather than
+// rpcFail falling back to a generic classification.
+func TestProjectUpgradeStatusReportsProjectLifecycleErrorCode(t *testing.T) {
+	instance, root := testsupport.StartPersonalProject(t)
+	configPath := filepath.Join(root, store.Runtime, "config.json")
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var config map[string]any
+	if err = json.Unmarshal(raw, &config); err != nil {
+		t.Fatal(err)
+	}
+	config["minimum_toolkit_version"] = "999.0.0"
+	raw, err = json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(configPath, append(raw, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	input := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"project_upgrade_status","arguments":{}}}` + "\n"
+	var output bytes.Buffer
+	if err = Serve(instance, asActor("owner"), testServerVersion, strings.NewReader(input), &output); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), `"code":"PROJECT_TOO_NEW"`) {
+		t.Fatalf("expected error.data.code=PROJECT_TOO_NEW, got: %s", output.String())
 	}
 }
 
@@ -283,10 +345,7 @@ func TestAgentRegisterToolPermitsActiveOrchestratorSponsorship(t *testing.T) {
 	if _, e := instance.Register("lead", "Lead", model.PrincipalAgent); e != nil {
 		t.Fatal(e)
 	}
-	if _, e := instance.Execute("owner", "agent.activate", "lead",
-		model.AgentActivated{Role: model.RoleOrchestrator, Scopes: []string{"src"}}); e != nil {
-		t.Fatal(e)
-	}
+	grantOrchestrator(t, instance, "owner", "lead", []string{"src"})
 
 	input := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"agent_register","arguments":{"id":"sponsored-agent"}}}` + "\n"
 	var out bytes.Buffer
@@ -401,10 +460,7 @@ func TestAgentActivateToolRequiresHumanToGrantOrchestratorRole(t *testing.T) {
 	if _, e := instance.Register("agent-lead", "Agent Lead", model.PrincipalAgent); e != nil {
 		t.Fatal(e)
 	}
-	if _, e := instance.Execute("owner", "agent.activate", "agent-lead",
-		model.AgentActivated{Role: model.RoleOrchestrator, Scopes: []string{"src"}}); e != nil {
-		t.Fatal(e)
-	}
+	grantOrchestrator(t, instance, "owner", "agent-lead", []string{"src"})
 	if _, e := instance.Register("candidate", "Candidate", model.PrincipalAgent); e != nil {
 		t.Fatal(e)
 	}
@@ -425,12 +481,31 @@ func TestAgentActivateToolRequiresHumanToGrantOrchestratorRole(t *testing.T) {
 		t.Fatal("candidate must not have been granted the orchestrator role")
 	}
 
+	// The human-principal check alone is not enough either: the owner's own
+	// grant must also fail without a prior, separately-approved, HUMAN-tier
+	// approval on record for this exact id.
+	var unapprovedOut bytes.Buffer
+	if e := Serve(instance, asActor("owner"), testServerVersion, strings.NewReader(input), &unapprovedOut); e != nil {
+		t.Fatal(e)
+	}
+	if !strings.Contains(unapprovedOut.String(), `"error"`) {
+		t.Fatalf("expected the owner's grant to be rejected without a prior approval, got: %s", unapprovedOut.String())
+	}
+	if _, e := instance.Execute("owner", "approval.request", "candidate-orchestrator-approval", model.ApprovalRequested{
+		Tier: "HUMAN", Action: protocol.OrchestratorGrantApprovalAction("candidate"), Reason: "test",
+	}); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := instance.Execute("owner", "approval.approve", "candidate-orchestrator-approval", model.ApprovalResponse{}); e != nil {
+		t.Fatal(e)
+	}
+
 	var ownerOut bytes.Buffer
 	if e := Serve(instance, asActor("owner"), testServerVersion, strings.NewReader(input), &ownerOut); e != nil {
 		t.Fatal(e)
 	}
 	if strings.Contains(ownerOut.String(), `"error"`) {
-		t.Fatalf("expected the human owner's orchestrator grant to succeed, got: %s", ownerOut.String())
+		t.Fatalf("expected the human owner's orchestrator grant to succeed once approved, got: %s", ownerOut.String())
 	}
 }
 
@@ -443,17 +518,11 @@ func TestAgentRevokeToolRejectsAgentOrchestratorRevokingAnotherOrchestrator(t *t
 	if _, e := instance.Register("agent-lead", "Agent Lead", model.PrincipalAgent); e != nil {
 		t.Fatal(e)
 	}
-	if _, e := instance.Execute("owner", "agent.activate", "agent-lead",
-		model.AgentActivated{Role: model.RoleOrchestrator, Scopes: []string{"src"}}); e != nil {
-		t.Fatal(e)
-	}
+	grantOrchestrator(t, instance, "owner", "agent-lead", []string{"src"})
 	if _, e := instance.Register("other-orchestrator", "Other Orchestrator", model.PrincipalAgent); e != nil {
 		t.Fatal(e)
 	}
-	if _, e := instance.Execute("owner", "agent.activate", "other-orchestrator",
-		model.AgentActivated{Role: model.RoleOrchestrator, Scopes: []string{"src"}}); e != nil {
-		t.Fatal(e)
-	}
+	grantOrchestrator(t, instance, "owner", "other-orchestrator", []string{"src"})
 
 	input := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"agent_revoke","arguments":{"id":"other-orchestrator"}}}` + "\n"
 	var agentOut bytes.Buffer

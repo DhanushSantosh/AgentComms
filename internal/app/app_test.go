@@ -16,10 +16,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/DhanushSantosh/AgentComms/internal/buildinfo"
 	"github.com/DhanushSantosh/AgentComms/internal/daemon"
+	"github.com/DhanushSantosh/AgentComms/internal/daemonclient"
 	"github.com/DhanushSantosh/AgentComms/internal/identity"
 	"github.com/DhanushSantosh/AgentComms/internal/interactiveserve"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
+	"github.com/DhanushSantosh/AgentComms/internal/projectlifecycle"
 	"github.com/DhanushSantosh/AgentComms/internal/runtimeinit"
 	"github.com/DhanushSantosh/AgentComms/internal/service"
 	"github.com/DhanushSantosh/AgentComms/internal/store"
@@ -103,6 +106,116 @@ func TestVersionEnvelope(t *testing.T) {
 	if !v.OK || v.APIVersion != APIVersion {
 		t.Fatalf("bad envelope: %#v", v)
 	}
+}
+
+// TestEnsureDaemonReplacesIncompatibleDaemon guards ensureDaemon's
+// replace-on-mismatch path end to end: a running daemon that reports a
+// stale BuildID/ProductVersion must be shut down and replaced with a
+// fresh one, not silently reused. It reuses the same fake-daemon harness
+// TestMain already installs (launchDaemonProcess overridden to run
+// daemon.Run in-process instead of spawning a real subprocess) so the
+// replacement daemon it launches genuinely answers on the same endpoint.
+func TestEnsureDaemonReplacesIncompatibleDaemon(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(t.TempDir(), "credentials"))
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(t.TempDir(), "config"))
+	if _, err := runtimeinit.Initialize(context.Background(), runtimeinit.Config{
+		ProjectRoot: root, Owner: "owner", Mode: "personal",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	projectStore := store.Open(root)
+	config, err := projectStore.Config()
+	if err != nil {
+		t.Fatal(err)
+	}
+	credential, err := identity.ResolveCredential(projectStore.Credentials, config.ProjectID, "__personal_authority__")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	staleCtx, stopStale := context.WithCancel(context.Background())
+	defer stopStale()
+	go func() {
+		_ = daemon.Run(staleCtx, daemon.RunConfig{
+			ServicePublicKey: config.ServicePublicKey, CachePath: runtimeinit.ProjectionPath(root),
+			Endpoint: config.DaemonEndpoint, RuntimeMode: "personal", PersonalDatabase: runtimeinit.DatabasePath(root),
+			ServicePrivateKey: credential.PrivateKey, ProjectID: config.ProjectID,
+			ProductVersion: "stale-version", BuildID: "stale-build",
+		})
+	}()
+
+	client, err := daemonclient.New(config.DaemonEndpoint, 300*time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var staleHealth daemonclient.Health
+	for attempt := 0; ; attempt++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+		staleHealth, err = client.Health(ctx)
+		cancel()
+		if err == nil {
+			break
+		}
+		if attempt >= 50 {
+			t.Fatalf("fixture stale daemon never became healthy: %v", err)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if staleHealth.BuildID != "stale-build" {
+		t.Fatalf("fixture daemon did not report the expected stale build ID: %+v", staleHealth)
+	}
+
+	if err = ensureDaemon(root, config); err != nil {
+		t.Fatal(err)
+	}
+	freshHealth, err := client.Health(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if freshHealth.BuildID == "stale-build" || freshHealth.BuildID != buildinfo.ResolvedBuildID() {
+		t.Fatalf("expected ensureDaemon to replace the stale daemon with one reporting the current build ID, got: %+v", freshHealth)
+	}
+	if freshHealth.ProductVersion != Version {
+		t.Fatalf("expected the replacement daemon to report the current product version, got: %+v", freshHealth)
+	}
+}
+
+// TestHandoffProjectUpgradePropagatesChildErrorCode guards finding 7's
+// handoff fix: when the spawned (already-updated) child binary's `project
+// upgrade --json` run fails with a classified error -- UPGRADE_REQUIRED is
+// the normal, expected "needs confirmation" outcome, not a real failure --
+// the parent `update apply` must surface that exact code, not collapse it
+// into a generic UPGRADE_FAILED.
+func TestHandoffProjectUpgradePropagatesChildErrorCode(t *testing.T) {
+	fakeChild := writeFakeUpgradeChild(t, `{"api_version":"agent-comms/v1","ok":false,"command":"project upgrade","error":{"code":"UPGRADE_REQUIRED","message":"project upgrade requires explicit confirmation"}}`)
+	client := &cli{json: true, out: &bytes.Buffer{}, err: &bytes.Buffer{}}
+	_, err := client.handoffProjectUpgrade(context.Background(), fakeChild, t.TempDir(), false, false)
+	if err == nil {
+		t.Fatal("expected handoffProjectUpgrade to return an error when the child reports one")
+	}
+	lifecycleErr, ok := err.(*projectlifecycle.Error)
+	if !ok {
+		t.Fatalf("expected a *projectlifecycle.Error, got %T: %v", err, err)
+	}
+	if lifecycleErr.Code != projectlifecycle.CodeUpgradeRequired {
+		t.Fatalf("code=%q, want %q -- the child's real classified error must survive the handoff, not collapse into a generic failure", lifecycleErr.Code, projectlifecycle.CodeUpgradeRequired)
+	}
+}
+
+// writeFakeUpgradeChild writes an executable shell script standing in for
+// the already-updated binary that `update apply` hands off to. It ignores
+// its arguments and writes envelopeJSON to stderr with a non-zero exit,
+// matching how the real CLI reports a classified `--json` failure (see
+// Run()'s error path, which encodes to stderr, not stdout).
+func writeFakeUpgradeChild(t *testing.T, envelopeJSON string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "fake-agent-comms")
+	script := "#!/bin/sh\ncat <<'EOF' 1>&2\n" + envelopeJSON + "\nEOF\nexit 1\n"
+	if err := os.WriteFile(path, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
 
 func TestProfileListDoesNotRequireInitializedProject(t *testing.T) {
@@ -225,6 +338,18 @@ func TestHostLabelResolvesActorAcrossInvocations(t *testing.T) {
 // or human principal, matching the same rule the MCP agent_register tool
 // enforces (internal/mcp/server.go), via the shared
 // Service.CanSponsorRegistration.
+// grantOrchestratorCLI drives the two-step apply-then-approve flow the
+// ORCHESTRATOR role now requires (internal/protocol/transitions.go) through
+// the CLI: approver applies a HUMAN-tier approval for this exact grant,
+// approves it, then activates id as ORCHESTRATOR.
+func grantOrchestratorCLI(t *testing.T, must func(args ...string), approver, id string) {
+	t.Helper()
+	approvalID := id + "-orchestrator-approval"
+	must("approval", "request", "--actor", approver, "--id", approvalID, "--tier", "HUMAN", "--action", "agent.activate:"+id)
+	must("approval", "approve", "--actor", approver, "--id", approvalID)
+	must("agent", "activate", "--actor", approver, "--id", id, "--role", "ORCHESTRATOR", "--scope", "src")
+}
+
 func TestAgentRegisterCLIEnforcesSponsorshipRule(t *testing.T) {
 	project := t.TempDir()
 	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
@@ -248,7 +373,7 @@ func TestAgentRegisterCLIEnforcesSponsorshipRule(t *testing.T) {
 	// The project owner (an active HUMAN principal by construction) may
 	// register on behalf of a different id.
 	must("agent", "register", "--actor", "owner", "--id", "lead")
-	must("agent", "activate", "--actor", "owner", "--id", "lead", "--role", "ORCHESTRATOR", "--scope", "src")
+	grantOrchestratorCLI(t, must, "owner", "lead")
 
 	// An active ORCHESTRATOR-role agent principal may also sponsor a
 	// registration on behalf of a different id.
@@ -300,7 +425,7 @@ func TestAgentActivateCLIRequiresHumanToGrantOrchestratorRole(t *testing.T) {
 	}
 	must("init", "--non-interactive", "--owner", "owner", "--mode", "personal")
 	must("agent", "register", "--actor", "agent-lead", "--id", "agent-lead")
-	must("agent", "activate", "--actor", "owner", "--id", "agent-lead", "--role", "ORCHESTRATOR", "--scope", "src")
+	grantOrchestratorCLI(t, must, "owner", "agent-lead")
 	must("agent", "register", "--actor", "candidate", "--id", "candidate")
 
 	if e := run("agent", "activate", "--actor", "agent-lead", "--id", "candidate", "--role", "ORCHESTRATOR", "--scope", "src"); e == nil {
@@ -324,7 +449,7 @@ func TestAgentActivateCLIRequiresHumanToGrantOrchestratorRole(t *testing.T) {
 		t.Fatal("candidate must not have been granted the orchestrator role")
 	}
 
-	must("agent", "activate", "--actor", "owner", "--id", "candidate", "--role", "ORCHESTRATOR", "--scope", "src")
+	grantOrchestratorCLI(t, must, "owner", "candidate")
 }
 
 // TestAgentRevokeCLIRejectsAgentOrchestratorRevokingAnotherOrchestrator is
@@ -349,9 +474,9 @@ func TestAgentRevokeCLIRejectsAgentOrchestratorRevokingAnotherOrchestrator(t *te
 	}
 	must("init", "--non-interactive", "--owner", "owner", "--mode", "personal")
 	must("agent", "register", "--actor", "agent-lead", "--id", "agent-lead")
-	must("agent", "activate", "--actor", "owner", "--id", "agent-lead", "--role", "ORCHESTRATOR", "--scope", "src")
+	grantOrchestratorCLI(t, must, "owner", "agent-lead")
 	must("agent", "register", "--actor", "other-orchestrator", "--id", "other-orchestrator")
-	must("agent", "activate", "--actor", "owner", "--id", "other-orchestrator", "--role", "ORCHESTRATOR", "--scope", "src")
+	grantOrchestratorCLI(t, must, "owner", "other-orchestrator")
 
 	if e := run("agent", "revoke", "--actor", "agent-lead", "--id", "other-orchestrator"); e == nil {
 		t.Fatal("expected an agent-principal orchestrator's revoke to be rejected")

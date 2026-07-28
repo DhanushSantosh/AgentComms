@@ -60,6 +60,14 @@ capabilities are added.
   orchestrators on its own. Enforced once in the shared transition
   validator (`internal/protocol/transitions.go`), covering CLI, MCP, TUI,
   and the daemon across both authority backends.
+- The principal-type check above is satisfiable by an unregistered agent
+  operating over the ambient owner-fallback identity, so it alone doesn't
+  guarantee a human decided the grant in the moment. Granting the
+  Orchestrator role additionally requires a pre-existing, separately
+  approved, HUMAN-tier approval record for that exact grant
+  (`approval.action` == `agent.activate:<id>`) — a real two-step
+  apply-then-approve control, enforced in the same shared validator, that
+  a single self-contained command cannot satisfy unattended.
 
 ### Interface error consistency
 

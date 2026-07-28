@@ -112,11 +112,24 @@ func Inspect(root, version, buildID string) (Plan, store.Config, error) {
 		return Plan{}, store.Config{}, fmt.Errorf("decode project manifest: %w", err)
 	}
 	if config.RuntimeMode != "personal" && config.RuntimeMode != "service" {
-		return Plan{}, store.Config{}, fmt.Errorf("unsupported runtime mode %q", config.RuntimeMode)
+		// A typed error here matters specifically because this is exactly
+		// the shape a project stuck on a removed legacy runtime mode
+		// takes (the legacy runtime/migration paths were removed in an
+		// earlier refactor this project went through) -- an untyped error
+		// is invisible to internal/failure's classifier and to the
+		// per-project isolation in reconcileUserInstallation, which needs
+		// to tell "this one project is unsupported" apart from a generic
+		// failure to decide whether to hard-fail or just warn and skip.
+		return Plan{}, store.Config{}, &Error{Code: CodeUpgradeUnsupported, Message: fmt.Sprintf(
+			"unsupported runtime mode %q", config.RuntimeMode)}
 	}
 	plan := Plan{
 		ProjectRoot: root, ProjectID: config.ProjectID,
 		CurrentBuildID: config.ToolkitBuildID, TargetBuildID: buildID,
+	}
+	if config.MinimumToolkit != "" && versionOlder(version, config.MinimumToolkit) {
+		return plan, config, &Error{Code: CodeProjectTooNew, Message: fmt.Sprintf(
+			"project requires toolkit %s or newer, running %s", config.MinimumToolkit, version)}
 	}
 	if config.ProjectFormatVersion > store.ProjectFormatVersion {
 		return plan, config, &Error{Code: CodeProjectTooNew, Message: fmt.Sprintf(
@@ -162,7 +175,7 @@ func Inspect(root, version, buildID string) (Plan, store.Config, error) {
 		if databaseVersion.current < databaseVersion.target {
 			plan.Actions = append(plan.Actions, Action{
 				Component: databaseVersion.component, From: strconv.Itoa(databaseVersion.current),
-				To: strconv.Itoa(databaseVersion.target), Operation: databaseVersion.operation, Automatic: true,
+				To: strconv.Itoa(databaseVersion.target), Operation: databaseVersion.operation, Automatic: databaseVersion.automatic,
 			})
 		}
 	}
@@ -178,6 +191,29 @@ func Inspect(root, version, buildID string) (Plan, store.Config, error) {
 		plan.RequiresConfirmation = plan.RequiresConfirmation || !action.Automatic
 	}
 	return plan, config, nil
+}
+
+// versionOlder reports whether toolkit version a is older than b, comparing
+// dotted numeric segments (e.g. "0.1.0" vs "0.2.0"). A non-numeric segment
+// compares as 0 rather than erroring, so an unexpected version string never
+// panics or blocks an upgrade -- it just can't win a comparison it can't
+// parse.
+func versionOlder(a, b string) bool {
+	as := strings.Split(a, ".")
+	bs := strings.Split(b, ".")
+	for i := 0; i < len(as) || i < len(bs); i++ {
+		var av, bv int
+		if i < len(as) {
+			av, _ = strconv.Atoi(as[i])
+		}
+		if i < len(bs) {
+			bv, _ = strconv.Atoi(bs[i])
+		}
+		if av != bv {
+			return av < bv
+		}
+	}
+	return false
 }
 
 func Reconcile(ctx context.Context, options Options) (Result, error) {
@@ -209,6 +245,15 @@ func Reconcile(ctx context.Context, options Options) (Result, error) {
 		return result, err
 	}
 	result.Plan = plan
+	// Re-check confirmation against the freshly re-Inspect()'d, post-lock
+	// plan, not just the pre-lock one checked above: on-disk state could
+	// change during the lock-wait window (e.g. a concurrent process
+	// advances a database) such that a new disruptive action appears.
+	// Checking only the stale pre-lock plan would let that slip through
+	// unconfirmed.
+	if plan.RequiresConfirmation && !options.Approved {
+		return result, &Error{Code: CodeUpgradeRequired, Message: "project upgrade requires explicit confirmation"}
+	}
 	if len(plan.Actions) == 0 && !plan.Interrupted {
 		result.Verified = true
 		return result, nil
@@ -222,6 +267,22 @@ func Reconcile(ctx context.Context, options Options) (Result, error) {
 	state, err := loadOrCreateJournal(plan)
 	if err != nil {
 		return result, upgradeFailed("create reconciliation journal", err)
+	}
+	switch state.Stage {
+	case "prepared", "backed_up", "databases_migrated", "files_published", "verified":
+		// known stage; fall through to the resume cascade below.
+	default:
+		// Refuse to proceed rather than silently skipping every remaining
+		// stage. Critically: return here, before the final Inspect()+
+		// journal-deletion below, so a corrupt or unrecognized journal
+		// never reports false success and the journal itself survives for
+		// a human to inspect or use to restore the last completed backup.
+		return result, &Error{Code: CodeUpgradeFailed, Message: fmt.Sprintf(
+			"reconciliation journal has unrecognized stage %q (%s); refusing to proceed without deleting it -- "+
+				"inspect %s, or restore the most recent completed backup under %s and delete the journal manually",
+			state.Stage, journalBuildMismatchHint(state.Plan.TargetBuildID, options.BuildID),
+			filepath.Join(plan.ProjectRoot, store.Runtime, journalName),
+			filepath.Join(plan.ProjectRoot, store.Runtime, "backups"))}
 	}
 	if state.Stage == "prepared" {
 		state.BackupPath, err = backupProject(plan.ProjectRoot, config, state.ID)
@@ -285,6 +346,16 @@ type databaseVersion struct {
 	current   int
 	target    int
 	operation string
+	// automatic is set per migration step, not per database: a database
+	// component may gain a genuinely disruptive migration in the future
+	// while an earlier step on the same component stays safe. Only the
+	// projection cache defaults to automatic today -- it is explicitly
+	// disposable and rebuilt, never backed up, per the project's own
+	// design (docs/rfcs/0011-managed-project-lifecycle-and-upgrades.md).
+	// personal_authority (signing/trust state) and draft_store (unique
+	// user data) default to disruptive until a specific future migration
+	// step is individually reviewed and proven safe enough to flip.
+	automatic bool
 }
 
 func inspectDatabases(root string, config store.Config) ([]databaseVersion, error) {
@@ -294,7 +365,7 @@ func inspectDatabases(root string, config store.Config) ([]databaseVersion, erro
 		if err != nil {
 			return nil, err
 		}
-		result = append(result, databaseVersion{"personal_authority", version, PersonalAuthoritySchemaVersion, "apply transactional schema migrations"})
+		result = append(result, databaseVersion{"personal_authority", version, PersonalAuthoritySchemaVersion, "apply transactional schema migrations", false})
 	}
 	cachePath, pathErr := projectionPath(root, config)
 	if pathErr != nil {
@@ -310,29 +381,120 @@ func inspectDatabases(root string, config store.Config) ([]databaseVersion, erro
 				version = ProjectionCacheSchemaVersion
 			}
 		}
-		result = append(result, databaseVersion{"projection_cache", version, ProjectionCacheSchemaVersion, "mark cache for rebuild"})
+		result = append(result, databaseVersion{"projection_cache", version, ProjectionCacheSchemaVersion, "mark cache for rebuild", true})
 	}
 	draftPath := filepath.Join(root, store.Runtime, "data", "drafts.db")
 	draftVersion, err := sqliteVersion(draftPath)
 	if err != nil {
 		return nil, err
 	}
-	if draftVersion == 0 && config.ProjectFormatVersion == store.ProjectFormatVersion {
+	if draftVersion == 0 {
 		if _, statErr := os.Stat(draftPath); os.IsNotExist(statErr) {
-			draftVersion = DraftStoreSchemaVersion
+			// drafts.db doesn't exist yet -- only treat this as "nothing to
+			// migrate" if the old projection cache genuinely has no
+			// un-migrated draft rows sitting in it. Relying only on
+			// config.ProjectFormatVersion already looking current (the
+			// previous check) is a proxy that can be fooled: drafts.db
+			// could be missing for a reason other than "already migrated"
+			// (deleted, an incomplete restore, runtime state not copied to
+			// a new machine) while the manifest still reports current
+			// format, silently orphaning real drafts forever.
+			hasUnmigrated, draftsErr := cacheHasUnmigratedDrafts(cachePath)
+			if draftsErr != nil {
+				return nil, draftsErr
+			}
+			if !hasUnmigrated {
+				draftVersion = DraftStoreSchemaVersion
+			}
+		} else if statErr != nil {
+			return nil, statErr
 		}
 	}
-	result = append(result, databaseVersion{"draft_store", draftVersion, DraftStoreSchemaVersion, "preserve drafts in durable storage"})
+	result = append(result, databaseVersion{"draft_store", draftVersion, DraftStoreSchemaVersion, "preserve drafts in durable storage", false})
 	return result, nil
 }
 
+// sqliteOpen opens a SQLite database with a busy timeout, so a connection
+// that finds another connection mid-transaction on the same file waits
+// briefly and retries instead of failing immediately with SQLITE_BUSY.
+// This matters specifically because Reconcile's own concurrency guard --
+// the process-level upgrade.lock file -- only serializes the WRITE stages;
+// Inspect's read-only version checks run both before that lock is taken
+// and from unrelated commands (any `agent-comms` invocation reconciles the
+// project it targets via PersistentPreRunE), so two ordinary commands
+// running at the same time can legitimately open the same SQLite file
+// concurrently.
+func sqliteOpen(path string) (*sql.DB, error) {
+	return sql.Open("sqlite", path+"?_pragma=busy_timeout(5000)")
+}
+
+// cacheHasUnmigratedDrafts reports whether the old projection cache at
+// cachePath still has draft rows that haven't been copied into the
+// dedicated draft store yet. A missing cache, or a cache with no drafts
+// table or zero rows, means there is genuinely nothing to migrate.
+func cacheHasUnmigratedDrafts(cachePath string) (bool, error) {
+	if cachePath == "" {
+		return false, nil
+	}
+	if err := rejectSymlinkPath(cachePath); err != nil {
+		return false, err
+	}
+	if _, statErr := os.Stat(cachePath); os.IsNotExist(statErr) {
+		return false, nil
+	} else if statErr != nil {
+		return false, statErr
+	}
+	db, err := sqliteOpen(cachePath)
+	if err != nil {
+		return false, err
+	}
+	defer db.Close()
+	var tableExists int
+	if err = db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='drafts'`).Scan(&tableExists); err != nil {
+		return false, err
+	}
+	if tableExists == 0 {
+		return false, nil
+	}
+	var draftCount int
+	if err = db.QueryRow(`SELECT COUNT(*) FROM drafts`).Scan(&draftCount); err != nil {
+		return false, err
+	}
+	return draftCount > 0, nil
+}
+
+// rejectSymlinkPath returns an error if path exists and is a symlink. A
+// missing path is not an error -- callers create it fresh in that case.
+// Guards every SQLite path this package opens or writes against a symlink
+// swap (e.g. .agent-comms/cache/personal-authority.db replaced with a
+// symlink pointing at a different project's database), the same class of
+// check cleanProjectRoot/managedFilesCurrent/copyRegularFile already apply
+// to the project root and managed files -- SQLite paths need the identical
+// treatment, not just plain files.
+func rejectSymlinkPath(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("%s must not be a symlink", path)
+	}
+	return nil
+}
+
 func sqliteVersion(path string) (int, error) {
+	if err := rejectSymlinkPath(path); err != nil {
+		return 0, err
+	}
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return 0, nil
 	} else if err != nil {
 		return 0, err
 	}
-	db, err := sql.Open("sqlite", path)
+	db, err := sqliteOpen(path)
 	if err != nil {
 		return 0, err
 	}
@@ -347,7 +509,7 @@ func sqliteVersion(path string) (int, error) {
 func migrateDatabases(ctx context.Context, root string, config store.Config) error {
 	if config.RuntimeMode == "personal" {
 		path := filepath.Join(root, store.Runtime, "cache", "personal-authority.db")
-		if err := setSQLiteVersion(path, PersonalAuthoritySchemaVersion); err != nil {
+		if err := setSQLiteVersion("personal_authority", path, PersonalAuthoritySchemaVersion); err != nil {
 			return err
 		}
 	}
@@ -359,7 +521,7 @@ func migrateDatabases(ctx context.Context, root string, config store.Config) err
 		return err
 	}
 	if _, statErr := os.Stat(cachePath); statErr == nil {
-		if err = setSQLiteVersion(cachePath, ProjectionCacheSchemaVersion); err != nil {
+		if err = setSQLiteVersion("projection_cache", cachePath, ProjectionCacheSchemaVersion); err != nil {
 			return err
 		}
 	} else if !os.IsNotExist(statErr) {
@@ -370,6 +532,9 @@ func migrateDatabases(ctx context.Context, root string, config store.Config) err
 
 func migrateDrafts(ctx context.Context, root string, config store.Config) error {
 	destination := filepath.Join(root, store.Runtime, "data", "drafts.db")
+	if err := rejectSymlinkPath(destination); err != nil {
+		return err
+	}
 	storeInstance, err := draftstore.Open(destination)
 	if err != nil {
 		return err
@@ -379,12 +544,15 @@ func migrateDrafts(ctx context.Context, root string, config store.Config) error 
 	if err != nil {
 		return err
 	}
+	if err = rejectSymlinkPath(cachePath); err != nil {
+		return err
+	}
 	if _, err = os.Stat(cachePath); os.IsNotExist(err) {
 		return nil
 	} else if err != nil {
 		return err
 	}
-	cache, err := sql.Open("sqlite", cachePath)
+	cache, err := sqliteOpen(cachePath)
 	if err != nil {
 		return err
 	}
@@ -436,8 +604,28 @@ func projectionPath(root string, config store.Config) (string, error) {
 	return filepath.Join(configDirectory, "cache.db"), nil
 }
 
-func setSQLiteVersion(path string, target int) error {
-	db, err := sql.Open("sqlite", path)
+// sqliteMigrationKey identifies one (component, fromVersion) migration
+// step. sqliteMigrations is the real place a future genuine schema change
+// adds transformation logic. Today every existing version bump has no
+// actual DDL delta -- the embedded CREATE TABLE IF NOT EXISTS schema
+// already produces the target shape, and the bump only exists to stamp
+// pre-versioning databases -- so no migration is registered yet, and
+// setSQLiteVersion's stamp is correct as a no-op transformation. Without
+// this slot, a future real schema change would have nowhere to put
+// transformation logic other than blindly stamping user_version over
+// un-migrated data.
+type sqliteMigrationKey struct {
+	component string
+	from      int
+}
+
+var sqliteMigrations = map[sqliteMigrationKey]func(*sql.Tx) error{}
+
+func setSQLiteVersion(component, path string, target int) error {
+	if err := rejectSymlinkPath(path); err != nil {
+		return err
+	}
+	db, err := sqliteOpen(path)
 	if err != nil {
 		return err
 	}
@@ -453,6 +641,13 @@ func setSQLiteVersion(path string, target int) error {
 	}
 	if current > target {
 		return &Error{Code: CodeProjectTooNew, Message: "database schema is newer than this binary"}
+	}
+	for version := current; version < target; version++ {
+		if migrate, ok := sqliteMigrations[sqliteMigrationKey{component, version}]; ok {
+			if err = migrate(tx); err != nil {
+				return fmt.Errorf("migrate %s from schema %d: %w", component, version, err)
+			}
+		}
 	}
 	if _, err = tx.Exec(fmt.Sprintf("PRAGMA user_version = %d", target)); err != nil {
 		return err
@@ -523,9 +718,50 @@ func saveJournal(root string, state journal) error {
 	return writeJSONAtomic(filepath.Join(root, store.Runtime, journalName), state, 0o600)
 }
 
+// existingBackup returns the path of a previously created backup directory
+// for this journal ID, if one exists, so a Reconcile retry that lands back
+// on the "prepared" stage (e.g. after a crash partway through backupProject
+// itself, before the journal ever advances to "backed_up") reuses and
+// overwrites it instead of leaving an orphaned partial backup behind and
+// creating a fresh one on every retry.
+func existingBackup(backupsDir, id string) (string, error) {
+	entries, err := os.ReadDir(backupsDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", err
+	}
+	suffix := "-" + id
+	for _, entry := range entries {
+		if entry.IsDir() && strings.HasSuffix(entry.Name(), suffix) {
+			return filepath.Join(backupsDir, entry.Name()), nil
+		}
+	}
+	return "", nil
+}
+
 func backupProject(root string, config store.Config, id string) (string, error) {
-	name := time.Now().UTC().Format("20060102T150405Z") + "-" + id
-	destination := filepath.Join(root, store.Runtime, "backups", name)
+	backupsDir := filepath.Join(root, store.Runtime, "backups")
+	destination, err := existingBackup(backupsDir, id)
+	if err != nil {
+		return "", err
+	}
+	if destination == "" {
+		name := time.Now().UTC().Format("20060102T150405Z") + "-" + id
+		destination = filepath.Join(backupsDir, name)
+	} else {
+		// Reusing a directory from an interrupted attempt: wipe whatever
+		// partial content it holds first. copyRegularFile below opens each
+		// destination file with O_EXCL (a deliberate protection against a
+		// symlink-swap TOCTOU on a normal, single-shot backup), which would
+		// otherwise fail with "file exists" against a file a prior,
+		// crashed attempt already created -- live-verified failure mode,
+		// not theoretical.
+		if err := os.RemoveAll(destination); err != nil {
+			return "", err
+		}
+	}
 	if err := os.MkdirAll(destination, 0o700); err != nil {
 		return "", err
 	}
@@ -577,7 +813,13 @@ func backupProject(root string, config store.Config, id string) (string, error) 
 }
 
 func backupSQLite(source, destination string) error {
-	db, err := sql.Open("sqlite", source)
+	if err := rejectSymlinkPath(source); err != nil {
+		return err
+	}
+	if err := rejectSymlinkPath(destination); err != nil {
+		return err
+	}
+	db, err := sqliteOpen(source)
 	if err != nil {
 		return err
 	}
@@ -590,8 +832,13 @@ func backupSQLite(source, destination string) error {
 		return fmt.Errorf("SQLite quick_check: %s", check)
 	}
 	escaped := strings.ReplaceAll(destination, "'", "''")
-	_, err = db.Exec(`VACUUM INTO '` + escaped + `'`)
-	return err
+	if _, err = db.Exec(`VACUUM INTO '` + escaped + `'`); err != nil {
+		return err
+	}
+	// VACUUM INTO creates its output via SQLite's own open(), subject to
+	// process umask -- explicitly harden it rather than trusting the
+	// umask to produce 0600 for a file that may contain signed history.
+	return os.Chmod(destination, 0o600)
 }
 
 func copyRegularFile(source, destination string) error {
@@ -772,6 +1019,17 @@ func upgradeFailed(operation string, err error) error {
 		return err
 	}
 	return &Error{Code: CodeUpgradeFailed, Message: operation + ": " + err.Error()}
+}
+
+// journalBuildMismatchHint phrases an unrecognized-journal-stage error as
+// version skew (a different binary build wrote this journal) rather than
+// generic corruption, when that's distinguishable from the journal's own
+// recorded target build.
+func journalBuildMismatchHint(journalTargetBuildID, runningBuildID string) string {
+	if journalTargetBuildID != "" && journalTargetBuildID != runningBuildID {
+		return fmt.Sprintf("this journal targeted build %s, this binary is build %s", journalTargetBuildID, runningBuildID)
+	}
+	return "this may be disk corruption or a manually edited journal file"
 }
 
 func FileHash(path string) (string, error) {

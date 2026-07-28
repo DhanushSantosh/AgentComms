@@ -17,6 +17,8 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+const SchemaVersion = 2
+
 const schema = `
 PRAGMA journal_mode=WAL;
 PRAGMA synchronous=NORMAL;
@@ -50,8 +52,6 @@ CREATE TABLE IF NOT EXISTS drafts (
 );
 
 CREATE INDEX IF NOT EXISTS drafts_project_idx ON drafts (project_id, updated_at DESC);
-
-PRAGMA user_version=2;
 `
 
 type Cache struct {
@@ -75,9 +75,34 @@ func Open(path, serverPublicKey string) (*Cache, error) {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
+	var currentVersion int
+	if err = db.QueryRow(`PRAGMA user_version`).Scan(&currentVersion); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("read local cache schema version: %w", err)
+	}
+	// Fail closed rather than blindly stamping: CREATE TABLE IF NOT EXISTS
+	// is a no-op against an existing table with a different shape, so
+	// silently running the current schema's DDL and re-stamping
+	// user_version over a database at some OTHER version could paper over
+	// a schema that was never actually migrated. 0 means a genuinely fresh
+	// database (DDL creates everything from scratch); already-current
+	// means the normal, expected case. This is a distinct check from
+	// projectlifecycle's own reconciliation -- it protects any direct
+	// Open call (e.g. `daemon serve` invoked outside the usual
+	// Reconcile-then-ensureDaemon sequence) from the same risk.
+	if currentVersion != 0 && currentVersion != SchemaVersion {
+		_ = db.Close()
+		return nil, fmt.Errorf(
+			"local cache schema is version %d, this binary expects %d; run `agent-comms project upgrade` before opening it directly",
+			currentVersion, SchemaVersion)
+	}
 	if _, err = db.Exec(schema); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("initialize local cache: %w", err)
+	}
+	if _, err = db.Exec(fmt.Sprintf("PRAGMA user_version=%d", SchemaVersion)); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("stamp local cache schema version: %w", err)
 	}
 	for _, databaseFile := range []string{path, path + "-wal", path + "-shm"} {
 		if chmodErr := os.Chmod(databaseFile, 0o600); chmodErr != nil && !os.IsNotExist(chmodErr) {

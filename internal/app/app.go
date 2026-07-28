@@ -79,6 +79,7 @@ type cli struct {
 	svc                                  *service.Service
 	cmd                                  string
 	actorResolution                      identity.ActorResolution
+	pendingWarnings                      []string
 }
 
 var launchDaemonProcess = func(executable, projectRoot string, output io.Writer) error {
@@ -128,7 +129,9 @@ func (c *cli) root() *cobra.Command {
 		}
 		if cmd.CommandPath() == "agent-comms profile list" ||
 			cmd.CommandPath() == "agent-comms profile use" {
-			return c.reconcileUserInstallation(cmd.Context(), "")
+			warnings, e := c.reconcileUserInstallation(cmd.Context(), "")
+			c.pendingWarnings = append(c.pendingWarnings, warnings...)
+			return e
 		}
 		root := c.project
 		if root == "" {
@@ -140,7 +143,9 @@ func (c *cli) root() *cobra.Command {
 		}
 		applyLifecycle := cmd.Name() != "doctor"
 		if applyLifecycle {
-			if e := c.reconcileUserInstallation(cmd.Context(), root); e != nil {
+			warnings, e := c.reconcileUserInstallation(cmd.Context(), root)
+			c.pendingWarnings = append(c.pendingWarnings, warnings...)
+			if e != nil {
 				return e
 			}
 		}
@@ -203,6 +208,9 @@ func (c *cli) root() *cobra.Command {
 	return r
 }
 func (c *cli) emit(command string, v any, warnings ...string) error {
+	if len(c.pendingWarnings) > 0 {
+		warnings = append(append([]string{}, c.pendingWarnings...), warnings...)
+	}
 	if c.json {
 		return json.NewEncoder(c.out).Encode(Envelope{APIVersion: APIVersion, OK: true, Command: command, Result: v, Warnings: warnings})
 	}
@@ -321,25 +329,14 @@ func (c *cli) captureRuntimeSession(runtimeID string) {
 	}
 }
 
+// errorCode/exitCode delegate entirely to internal/failure's shared
+// classifier -- the same one MCP's rpcFail uses -- so
+// *projectlifecycle.Error and every other classified error type is
+// unwrapped in exactly one place, not duplicated per interface.
 func errorCode(e error) string {
-	var lifecycleError *projectlifecycle.Error
-	if errors.As(e, &lifecycleError) {
-		return string(lifecycleError.Code)
-	}
 	return failure.Code(e)
 }
 func exitCode(e error) int {
-	var lifecycleError *projectlifecycle.Error
-	if errors.As(e, &lifecycleError) {
-		switch lifecycleError.Code {
-		case projectlifecycle.CodeUpgradeRequired, projectlifecycle.CodeProjectTooNew, projectlifecycle.CodeUpgradeUnsupported:
-			return 11
-		case projectlifecycle.CodeUpgradeFailed:
-			return 12
-		case projectlifecycle.CodeConflict:
-			return 9
-		}
-	}
 	return failure.ExitStatus(e)
 }
 func (c *cli) versionCmd() *cobra.Command {
@@ -445,18 +442,24 @@ func (c *cli) projectUpgradeCmd() *cobra.Command {
 }
 
 func (c *cli) upgradeRoots(allKnown bool) ([]string, error) {
-	if !allKnown {
-		root := c.project
-		if root == "" {
-			var err error
-			root, err = os.Getwd()
-			if err != nil {
-				return nil, err
-			}
+	root := c.project
+	if root == "" {
+		var err error
+		root, err = os.Getwd()
+		if err != nil {
+			return nil, err
 		}
+	}
+	if !allKnown {
 		return []string{root}, nil
 	}
-	roots, err := c.knownProjectRoots("")
+	// Fold in the current project root even if it isn't registered in
+	// identity profiles, matching reconcileUserInstallation and update
+	// apply's handoff -- otherwise "--all-known" could silently exclude
+	// the very project the user is standing in (e.g. a moved directory
+	// whose stored profile.ProjectRoot no longer matches, or a profile
+	// write that failed to save).
+	roots, err := c.knownProjectRoots(root)
 	if err != nil {
 		return nil, err
 	}
@@ -2032,6 +2035,14 @@ func (c *cli) updateCmd() *cobra.Command {
 		} else if allKnown || projectFound {
 			upgradeResult, upgradeErr := c.handoffProjectUpgrade(ctx, result["installed"].(string), projectRoot, yes, allKnown)
 			if upgradeErr != nil {
+				// Preserve the handed-off binary's own classified error
+				// (e.g. UPGRADE_REQUIRED is a normal, expected outcome, not
+				// a failure) rather than collapsing every kind of error
+				// into a generic UPGRADE_FAILED.
+				var lifecycleErr *projectlifecycle.Error
+				if errors.As(upgradeErr, &lifecycleErr) {
+					return lifecycleErr
+				}
 				return &projectlifecycle.Error{
 					Code:    projectlifecycle.CodeUpgradeFailed,
 					Message: "binary updated successfully but project reconciliation failed: " + upgradeErr.Error(),
@@ -2089,6 +2100,19 @@ func (c *cli) handoffProjectUpgrade(ctx context.Context, executable, projectRoot
 		process.Stdout = &stdout
 		process.Stderr = &stderr
 		if err := process.Run(); err != nil {
+			// The child's --json error envelope goes to its stderr (see
+			// Run(), which encodes failures to the stderr writer), not
+			// stdout. Parse it so the child's real classified error code
+			// (e.g. UPGRADE_REQUIRED for a completely normal, expected
+			// "needs confirmation" outcome) survives the handoff instead
+			// of every failure collapsing into a generic UPGRADE_FAILED.
+			var childEnvelope Envelope
+			if decodeErr := json.Unmarshal(stderr.Bytes(), &childEnvelope); decodeErr == nil && childEnvelope.Error != nil {
+				return nil, &projectlifecycle.Error{
+					Code:    projectlifecycle.ErrorCode(childEnvelope.Error.Code),
+					Message: childEnvelope.Error.Message,
+				}
+			}
 			return nil, fmt.Errorf("%w: %s", err, strings.TrimSpace(stderr.String()))
 		}
 		var envelope Envelope
@@ -2530,6 +2554,7 @@ func ensureDaemon(projectRoot string, cfg store.Config) error {
 		if health.RuntimeMode == cfg.RuntimeMode &&
 			(health.ProjectID == cfg.ProjectID || (cfg.RuntimeMode == "service" && health.ProjectID == "*")) &&
 			health.ProtocolVersion == controlplane.LocalDaemonProtocolVersion &&
+			health.ProductVersion == Version &&
 			health.BuildID == buildinfo.ResolvedBuildID() &&
 			health.ProjectFormatVersion == store.ProjectFormatVersion &&
 			health.CacheSchemaVersion == projectlifecycle.ProjectionCacheSchemaVersion &&

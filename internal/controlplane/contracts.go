@@ -109,6 +109,15 @@ type eventCanonical struct {
 	PreviousHash    string `json:"previous_hash,omitempty"`
 	ActorIntentHash string `json:"actor_intent_hash"`
 	IdempotencyKey  string `json:"idempotency_key"`
+	// Legacy is not stored on Event -- it is derived at hash time from the
+	// idempotency-key namespace ("legacy:" prefix) so HashEvent stays
+	// byte-compatible with what was originally computed for events
+	// imported by the now-removed legacy migration path (which included
+	// this field, then true, in its own canonical hash). Removing this
+	// field entirely (as an earlier refactor did) silently breaks
+	// verification for any pre-existing legacy-imported event, since
+	// recomputing the hash today would no longer match what's stored.
+	Legacy bool `json:"legacy,omitempty"`
 }
 
 type Receipt struct {
@@ -324,6 +333,7 @@ func HashEvent(event Event) (string, error) {
 		Type: event.Type, EntityID: event.EntityID,
 		PayloadHash: hex.EncodeToString(payloadHash[:]), PreviousHash: event.PreviousHash,
 		ActorIntentHash: event.ActorIntentHash, IdempotencyKey: event.IdempotencyKey,
+		Legacy: strings.HasPrefix(event.IdempotencyKey, "legacy:"),
 	})
 	if err != nil {
 		return "", err
@@ -332,23 +342,21 @@ func HashEvent(event Event) (string, error) {
 	return hex.EncodeToString(h[:]), nil
 }
 
-// VerifyEventHash validates native events by recomputing their canonical hash.
-// Events imported by the removed legacy migration path are distinguishable by
-// their immutable idempotency-key namespace. Their original model envelope was
-// verified before import but was not retained in the normalized authority
-// record, so the service-signed receipt is the durable content-attestation
-// boundary for those records. Structural validation here prevents malformed
-// imported records from entering a rebuilt projection; callers must also
-// verify the matching receipt and chain link.
+// VerifyEventHash validates every event, including ones imported by the
+// removed legacy migration path, by recomputing their canonical hash.
+// Legacy-imported events are distinguishable by their immutable
+// idempotency-key namespace; HashEvent includes that fact in the canonical
+// form it hashes, exactly matching what was originally computed for them,
+// so recomputing and comparing here is a real content-integrity check for
+// every event -- not just a structural sanity check backed only by the
+// service-signed receipt.
 func VerifyEventHash(event Event) bool {
 	if strings.HasPrefix(event.IdempotencyKey, "legacy:") {
 		if event.ProjectID == "" || event.Sequence == 0 || event.ID == "" ||
 			event.Time.IsZero() || event.Actor == "" || event.Type == "" ||
-			event.ActorIntentHash == "" || len(event.Payload) == 0 {
+			event.ActorIntentHash == "" || len(event.Payload) == 0 || !json.Valid(event.Payload) {
 			return false
 		}
-		decoded, err := hex.DecodeString(event.Hash)
-		return err == nil && len(decoded) == sha256.Size && json.Valid(event.Payload)
 	}
 	hash, err := HashEvent(event)
 	return err == nil && hash == event.Hash

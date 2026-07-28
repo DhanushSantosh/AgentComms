@@ -116,12 +116,39 @@ func run() error {
 	return server.Shutdown(shutdownCtx)
 }
 
-func runMigrationCommand(databaseURL string, args []string) error {
+// parseMigrationCommand validates the migrate subcommand's arguments and
+// flags with no I/O, so this gating logic (arg arity, and --yes plus
+// --allow-disruptive both being required for apply) is unit-testable
+// without a live Postgres instance. It returns the resolved subcommand
+// ("plan" or "apply") on success.
+func parseMigrationCommand(databaseURL string, args []string) (string, error) {
 	if strings.TrimSpace(databaseURL) == "" {
-		return errors.New("AGENT_COMMS_DATABASE_URL is required")
+		return "", errors.New("AGENT_COMMS_DATABASE_URL is required")
 	}
 	if len(args) != 1 && !(len(args) == 3 && args[0] == "apply") {
-		return errors.New("usage: agent-comms-server migrate plan | migrate apply --yes --allow-disruptive")
+		return "", errors.New("usage: agent-comms-server migrate plan | migrate apply --yes --allow-disruptive")
+	}
+	switch args[0] {
+	case "plan":
+		return "plan", nil
+	case "apply":
+		flags := map[string]bool{}
+		for _, flag := range args[1:] {
+			flags[flag] = true
+		}
+		if !flags["--yes"] || !flags["--allow-disruptive"] {
+			return "", errors.New("migrate apply requires --yes and --allow-disruptive")
+		}
+		return "apply", nil
+	default:
+		return "", errors.New("migration command must be plan or apply")
+	}
+}
+
+func runMigrationCommand(databaseURL string, args []string) error {
+	command, err := parseMigrationCommand(databaseURL, args)
+	if err != nil {
+		return err
 	}
 	connectionConfig, err := pgx.ParseConfig(databaseURL)
 	if err != nil {
@@ -134,7 +161,7 @@ func runMigrationCommand(databaseURL string, args []string) error {
 	if err = db.PingContext(ctx); err != nil {
 		return err
 	}
-	switch args[0] {
+	switch command {
 	case "plan":
 		plan, planErr := authority.SchemaPlan(ctx, db)
 		if planErr != nil {
@@ -144,22 +171,14 @@ func runMigrationCommand(databaseURL string, args []string) error {
 			"schema_version": authority.CurrentSchemaVersion, "migrations": plan,
 		})
 	case "apply":
-		flags := map[string]bool{}
-		for _, flag := range args[1:] {
-			flags[flag] = true
-		}
-		if !flags["--yes"] || !flags["--allow-disruptive"] {
-			return errors.New("migrate apply requires --yes and --allow-disruptive")
-		}
-		if err = authority.ApplySchema(ctx, db); err != nil {
+		if err = authority.ApplySchema(ctx, db, true); err != nil {
 			return err
 		}
 		return json.NewEncoder(os.Stdout).Encode(map[string]any{
 			"schema_version": authority.CurrentSchemaVersion, "applied": true,
 		})
-	default:
-		return errors.New("migration command must be plan or apply")
 	}
+	return nil
 }
 
 func loadSigner(production bool) (*controlplane.Signer, bool, error) {

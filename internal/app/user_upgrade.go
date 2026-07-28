@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -25,25 +26,44 @@ type userLifecycleState struct {
 	CompletedAt  time.Time `json:"completed_at"`
 }
 
-func (c *cli) reconcileUserInstallation(ctx context.Context, currentRoot string) error {
+// reconcileUserInstallation reconciles every project registered in the
+// user's identity profiles. A failure on the project the current command
+// actually targets (cleanedCurrentRoot) is a hard, blocking error -- the
+// command genuinely cannot proceed against a broken project. A failure on
+// any OTHER registered project is collected as a warning and skipped, not
+// fatal: one broken or confirmation-pending project must never brick every
+// command against every other project on the machine. The completion
+// marker is only persisted when every registered project reconciled
+// cleanly, so a persistently broken project keeps re-surfacing its warning
+// (and gets retried) on every later command rather than going silent after
+// one warning.
+func (c *cli) reconcileUserInstallation(ctx context.Context, currentRoot string) ([]string, error) {
 	roots, err := c.knownProjectRoots(currentRoot)
 	if err != nil {
-		return err
+		return nil, err
+	}
+	var cleanedCurrentRoot string
+	if currentRoot != "" {
+		if absolute, absoluteErr := filepath.Abs(currentRoot); absoluteErr == nil {
+			cleanedCurrentRoot = filepath.Clean(absolute)
+		}
 	}
 	registryHash := projectRegistryHash(roots)
 	currentState, err := loadUserLifecycleState()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	buildID := buildinfo.ResolvedBuildID()
 	if currentState.BuildID == buildID && currentState.RegistryHash == registryHash {
-		return nil
+		return nil, nil
 	}
 
 	type candidate struct {
 		root string
 		plan projectlifecycle.Plan
 	}
+	var warnings []string
+	allClean := true
 	candidates := make([]candidate, 0, len(roots))
 	for _, root := range roots {
 		if !initializedProject(root) {
@@ -51,13 +71,23 @@ func (c *cli) reconcileUserInstallation(ctx context.Context, currentRoot string)
 		}
 		plan, _, inspectErr := projectlifecycle.Inspect(root, Version, buildID)
 		if inspectErr != nil {
-			return inspectErr
+			if root == cleanedCurrentRoot {
+				return warnings, inspectErr
+			}
+			warnings = append(warnings, fmt.Sprintf("skipped lifecycle inspection for project %s: %v", root, inspectErr))
+			allClean = false
+			continue
 		}
 		if plan.RequiresConfirmation {
-			return &projectlifecycle.Error{
-				Code:    projectlifecycle.CodeUpgradeRequired,
-				Message: "the user-level installation has confirmation-required project migrations; run `agent-comms project upgrade --all-known`",
+			if root == cleanedCurrentRoot {
+				return warnings, &projectlifecycle.Error{
+					Code:    projectlifecycle.CodeUpgradeRequired,
+					Message: "this project has confirmation-required migrations; run `agent-comms project upgrade`",
+				}
 			}
+			warnings = append(warnings, fmt.Sprintf("project %s has confirmation-required upgrades pending; run `agent-comms project upgrade` for that project", root))
+			allClean = false
+			continue
 		}
 		candidates = append(candidates, candidate{root: root, plan: plan})
 	}
@@ -69,10 +99,18 @@ func (c *cli) reconcileUserInstallation(ctx context.Context, currentRoot string)
 			Root: candidate.root, Version: Version, BuildID: buildID,
 			Apply: true, Timeout: c.timeout, StopDaemon: true,
 		}); err != nil {
-			return err
+			if candidate.root == cleanedCurrentRoot {
+				return warnings, err
+			}
+			warnings = append(warnings, fmt.Sprintf("failed to reconcile project %s: %v", candidate.root, err))
+			allClean = false
+			continue
 		}
 	}
-	return saveUserLifecycleState(userLifecycleState{
+	if !allClean {
+		return warnings, nil
+	}
+	return warnings, saveUserLifecycleState(userLifecycleState{
 		BuildID: buildID, RegistryHash: registryHash, CompletedAt: time.Now().UTC(),
 	})
 }

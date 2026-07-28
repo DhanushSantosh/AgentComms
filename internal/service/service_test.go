@@ -11,6 +11,7 @@ import (
 
 	"github.com/DhanushSantosh/AgentComms/internal/identity"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
+	"github.com/DhanushSantosh/AgentComms/internal/protocol"
 	"github.com/DhanushSantosh/AgentComms/internal/service"
 	"github.com/DhanushSantosh/AgentComms/internal/testsupport"
 )
@@ -32,6 +33,21 @@ func activate(t *testing.T, s *service.Service, id string, pt model.PrincipalTyp
 		t.Fatal(e)
 	}
 	must(t, s, "owner", "agent.activate", id, model.AgentActivated{Role: model.RoleAgent, Scopes: []string{"src"}})
+}
+
+// grantOrchestrator drives the two-step apply-then-approve flow the
+// ORCHESTRATOR role now requires: approver "applies" a HUMAN-tier approval
+// for this exact grant, then separately approves it, before finally
+// activating id as ORCHESTRATOR. approver must already be elevated
+// (owner/orchestrator) and a HUMAN principal for the approve step to work.
+func grantOrchestrator(t *testing.T, s *service.Service, approver, id string, scopes []string) {
+	t.Helper()
+	approvalID := id + "-orchestrator-approval"
+	must(t, s, approver, "approval.request", approvalID, model.ApprovalRequested{
+		Tier: "HUMAN", Action: protocol.OrchestratorGrantApprovalAction(id), Reason: "test fixture",
+	})
+	must(t, s, approver, "approval.approve", approvalID, model.ApprovalResponse{})
+	must(t, s, approver, "agent.activate", id, model.AgentActivated{Role: model.RoleOrchestrator, Scopes: scopes})
 }
 func TestIdentityTaskOfferLeaseAndHandoff(t *testing.T) {
 	s := setup(t)
@@ -231,7 +247,7 @@ func TestGrantingOrchestratorRoleRequiresHumanPrincipal(t *testing.T) {
 	if _, err := s.Register("agent-lead", "Agent Lead", model.PrincipalAgent); err != nil {
 		t.Fatal(err)
 	}
-	must(t, s, "owner", "agent.activate", "agent-lead", model.AgentActivated{Role: model.RoleOrchestrator, Scopes: []string{"src"}})
+	grantOrchestrator(t, s, "owner", "agent-lead", []string{"src"})
 
 	if _, err := s.Register("candidate", "Candidate", model.PrincipalAgent); err != nil {
 		t.Fatal(err)
@@ -250,11 +266,66 @@ func TestGrantingOrchestratorRoleRequiresHumanPrincipal(t *testing.T) {
 	if _, err := s.Register("human-lead", "Human Lead", model.PrincipalHuman); err != nil {
 		t.Fatal(err)
 	}
-	must(t, s, "owner", "agent.activate", "human-lead", model.AgentActivated{Role: model.RoleOrchestrator, Scopes: []string{"src"}})
+	grantOrchestrator(t, s, "owner", "human-lead", []string{"src"})
 	if _, err := s.Register("second-candidate", "Second Candidate", model.PrincipalAgent); err != nil {
 		t.Fatal(err)
 	}
-	must(t, s, "human-lead", "agent.activate", "second-candidate", model.AgentActivated{Role: model.RoleOrchestrator, Scopes: []string{"src"}})
+	grantOrchestrator(t, s, "human-lead", "second-candidate", []string{"src"})
+}
+
+// TestGrantingOrchestratorRoleRequiresPriorHumanApproval closes the gap the
+// principal-type check alone leaves open: that check only verifies the
+// signing credential's type, which is satisfied trivially by an unregistered
+// agent operating over the ambient owner-fallback identity (see
+// docs/governance.md) — a fully autonomous session, with no human ever
+// deciding anything in the moment, can still be cryptographically "human".
+// ORCHESTRATOR grants must additionally require a separately-approved,
+// HUMAN-tier approval record for this exact id, forcing a genuine two-step
+// apply-then-approve flow instead of one self-contained command.
+func TestGrantingOrchestratorRoleRequiresPriorHumanApproval(t *testing.T) {
+	s := setup(t)
+	if _, err := s.Register("candidate", "Candidate", model.PrincipalAgent); err != nil {
+		t.Fatal(err)
+	}
+
+	// The owner is a human principal and already elevated, yet the grant
+	// still fails with no approval on record at all.
+	if _, err := s.Execute("owner", "agent.activate", "candidate",
+		model.AgentActivated{Role: model.RoleOrchestrator, Scopes: []string{"src"}}); err == nil {
+		t.Fatal("expected the orchestrator grant to be rejected without a prior approval")
+	}
+
+	// Applying (requesting) alone is not enough either — the request must be
+	// separately approved before the grant proceeds.
+	must(t, s, "owner", "approval.request", "candidate-orchestrator-approval",
+		model.ApprovalRequested{Tier: "HUMAN", Action: protocol.OrchestratorGrantApprovalAction("candidate"), Reason: "promotion"})
+	if _, err := s.Execute("owner", "agent.activate", "candidate",
+		model.AgentActivated{Role: model.RoleOrchestrator, Scopes: []string{"src"}}); err == nil {
+		t.Fatal("expected the orchestrator grant to be rejected while the approval is still pending")
+	}
+
+	// An approved ORCHESTRATOR-tier (not HUMAN-tier) approval for the same
+	// action must not substitute — only a HUMAN-tier approval closes the gap.
+	must(t, s, "owner", "approval.request", "candidate-orchestrator-tier-approval",
+		model.ApprovalRequested{Tier: "ORCHESTRATOR", Action: protocol.OrchestratorGrantApprovalAction("candidate"), Reason: "wrong tier"})
+	must(t, s, "owner", "approval.approve", "candidate-orchestrator-tier-approval", model.ApprovalResponse{})
+	if _, err := s.Execute("owner", "agent.activate", "candidate",
+		model.AgentActivated{Role: model.RoleOrchestrator, Scopes: []string{"src"}}); err == nil {
+		t.Fatal("expected an ORCHESTRATOR-tier approval to be rejected as insufficient for the orchestrator grant")
+	}
+
+	// Once a matching HUMAN-tier approval is actually approved, the grant
+	// succeeds.
+	must(t, s, "owner", "approval.approve", "candidate-orchestrator-approval", model.ApprovalResponse{})
+	must(t, s, "owner", "agent.activate", "candidate", model.AgentActivated{Role: model.RoleOrchestrator, Scopes: []string{"src"}})
+
+	state, err := s.State()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Agents["candidate"].Role != model.RoleOrchestrator {
+		t.Fatalf("expected candidate to be granted the orchestrator role, got %+v", state.Agents["candidate"])
+	}
 }
 
 // TestAgentRevokeIsTerminal guards the core contract: revocation is a
@@ -360,11 +431,11 @@ func TestAgentRevokeOfOrchestratorRequiresHumanActor(t *testing.T) {
 	if _, err := s.Register("agent-lead", "Agent Lead", model.PrincipalAgent); err != nil {
 		t.Fatal(err)
 	}
-	must(t, s, "owner", "agent.activate", "agent-lead", model.AgentActivated{Role: model.RoleOrchestrator, Scopes: []string{"src"}})
+	grantOrchestrator(t, s, "owner", "agent-lead", []string{"src"})
 	if _, err := s.Register("other-orchestrator", "Other Orchestrator", model.PrincipalAgent); err != nil {
 		t.Fatal(err)
 	}
-	must(t, s, "owner", "agent.activate", "other-orchestrator", model.AgentActivated{Role: model.RoleOrchestrator, Scopes: []string{"src"}})
+	grantOrchestrator(t, s, "owner", "other-orchestrator", []string{"src"})
 
 	if _, err := s.Execute("agent-lead", "agent.revoke", "other-orchestrator", model.RuntimeStatusChanged{}); err == nil {
 		t.Fatal("expected an agent-principal orchestrator to be rejected revoking another orchestrator")
@@ -385,7 +456,7 @@ func TestAgentRevokeSelfOrchestratorBypassesHumanGate(t *testing.T) {
 	if _, err := s.Register("agent-lead", "Agent Lead", model.PrincipalAgent); err != nil {
 		t.Fatal(err)
 	}
-	must(t, s, "owner", "agent.activate", "agent-lead", model.AgentActivated{Role: model.RoleOrchestrator, Scopes: []string{"src"}})
+	grantOrchestrator(t, s, "owner", "agent-lead", []string{"src"})
 	must(t, s, "agent-lead", "agent.revoke", "agent-lead", model.RuntimeStatusChanged{Reason: "stepping down"})
 }
 

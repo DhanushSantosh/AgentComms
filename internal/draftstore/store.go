@@ -43,6 +43,9 @@ func Open(path string) (*Store, error) {
 	if strings.TrimSpace(path) == "" {
 		return nil, errors.New("draft store path is required")
 	}
+	if err := rejectSymlink(path); err != nil {
+		return nil, err
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, err
 	}
@@ -56,12 +59,39 @@ func Open(path string) (*Store, error) {
 		return nil, fmt.Errorf("initialize draft store: %w", err)
 	}
 	for _, databaseFile := range []string{path, path + "-wal", path + "-shm"} {
-		if chmodErr := os.Chmod(databaseFile, 0o600); chmodErr != nil && !os.IsNotExist(chmodErr) {
+		if chmodErr := chmodRejectingSymlink(databaseFile, 0o600); chmodErr != nil && !os.IsNotExist(chmodErr) {
 			_ = db.Close()
 			return nil, fmt.Errorf("secure draft store: %w", chmodErr)
 		}
 	}
 	return &Store{db: db, now: func() time.Time { return time.Now().UTC() }}, nil
+}
+
+// rejectSymlink returns an error if path exists and is a symlink. A
+// missing path is not an error -- Open creates it fresh in that case.
+func rejectSymlink(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("%s must not be a symlink", path)
+	}
+	return nil
+}
+
+// chmodRejectingSymlink chmods path only after confirming (via Lstat) it
+// is not a symlink. Go's os.Chmod always follows symlinks -- without this
+// check, a symlinked drafts.db/-wal/-shm would silently have its *target*
+// file's permissions changed instead of being rejected.
+func chmodRejectingSymlink(path string, mode os.FileMode) error {
+	if err := rejectSymlink(path); err != nil {
+		return err
+	}
+	return os.Chmod(path, mode)
 }
 
 func (s *Store) Close() error {

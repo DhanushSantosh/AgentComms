@@ -38,6 +38,25 @@ func hasApproval(st model.State, action string) bool {
 	}
 	return false
 }
+
+// hasHumanApproval is hasApproval narrowed to HUMAN-tier approvals only. An
+// ORCHESTRATOR-tier approval can be approved by any AGENT-principal
+// orchestrator (see the elevated()/approval.approve handling below), so it
+// cannot stand in for genuine human sign-off on the orchestrator grant itself.
+func hasHumanApproval(st model.State, action string) bool {
+	for _, a := range st.Approvals {
+		if a.Action == action && a.Status == "APPROVED" && a.Tier == "HUMAN" {
+			return true
+		}
+	}
+	return false
+}
+
+// OrchestratorGrantApprovalAction is the approval.request Action string that
+// must be APPROVED (tier HUMAN) before agent.activate may grant id the
+// ORCHESTRATOR role. Exported so the CLI/MCP/TUI can point a caller at the
+// exact command instead of duplicating the "agent.activate:"+id format.
+func OrchestratorGrantApprovalAction(id string) string { return "agent.activate:" + id }
 func scopeAllows(scopes, resources []string) bool {
 	for _, resource := range resources {
 		allowed := false
@@ -110,6 +129,23 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 		// daemon) and both authority backends, not duplicated per-interface.
 		if activation.Role == model.RoleOrchestrator && st.Agents[actor].PrincipalType != model.PrincipalHuman {
 			return nil, errors.New("human principal required to grant the orchestrator role")
+		}
+		// The principal-type check above is defeated the moment an agent
+		// operates over an unregistered, ambient-owner-fallback connection
+		// (docs/agent-onboarding.md): the signing credential is genuinely
+		// HUMAN by construction, so a fully autonomous agent session can
+		// satisfy it without a human ever deciding anything in the moment.
+		// Close that gap with a real two-step control: granting ORCHESTRATOR
+		// additionally requires a pre-existing, separately-approved,
+		// HUMAN-tier approval record for this exact grant. Anyone (including
+		// an agent) may "apply" via `approval request --tier HUMAN --action
+		// agent.activate:<id>`, but the approval itself must be granted in a
+		// distinct, later action — giving a human a real request to see and
+		// manually approve (e.g. in the TUI) before the grant can proceed,
+		// rather than a single self-contained command completing the whole
+		// escalation unattended.
+		if activation.Role == model.RoleOrchestrator && !hasHumanApproval(st, OrchestratorGrantApprovalAction(id)) {
+			return nil, fmt.Errorf("granting the orchestrator role to %s requires an approved HUMAN-tier approval first: run `approval request --tier HUMAN --action %s`, then have a human approve it separately", id, OrchestratorGrantApprovalAction(id))
 		}
 	}
 	if typ == "agent.rename" {

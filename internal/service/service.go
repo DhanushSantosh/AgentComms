@@ -347,13 +347,25 @@ func (s *Service) Register(actor, display string, pt model.PrincipalType) (model
 	if e = s.Store.Credentials.Put(cred); e != nil {
 		return event, fmt.Errorf("registration recorded but credential could not be stored: %w", e)
 	}
-	user, _ := identity.LoadUserConfig()
+	user, e := identity.LoadUserConfig()
+	if e != nil {
+		return event, fmt.Errorf("registration recorded but could not load the identity profile registry: %w", e)
+	}
 	name := cfg.ProjectID + ":" + actor
 	user.Profiles[name] = identity.Profile{Name: name, ProjectID: cfg.ProjectID, Actor: actor, ProjectRoot: s.Store.Root, HostLabel: os.Getenv("AGENT_COMMS_HOST_LABEL")}
 	if user.ActiveProfile == "" {
 		user.ActiveProfile = name
 	}
-	_ = identity.SaveUserConfig(user)
+	if e = identity.SaveUserConfig(user); e != nil {
+		// The registration itself is already durably recorded above --
+		// only the local profile-registry entry failed to save. Surface
+		// this rather than discarding it silently: the whole managed
+		// project lifecycle upgrade system (agent-comms update apply,
+		// project upgrade --all-known) depends on this registry to know
+		// which projects exist at all, so a silently-lost entry here means
+		// this project would never be reconciled automatically.
+		return event, fmt.Errorf("registration recorded but could not save the identity profile registry entry: %w", e)
+	}
 	return event, nil
 }
 
