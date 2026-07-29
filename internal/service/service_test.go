@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -22,6 +23,32 @@ func setup(t *testing.T) *service.Service {
 	s, _ := testsupport.StartPersonalProject(t)
 	return s
 }
+
+func setupWithLocalConnector(t *testing.T) *service.Service {
+	t.Helper()
+	configDirectory := t.TempDir()
+	executable := filepath.Join(configDirectory, "connector.sh")
+	if err := os.WriteFile(executable, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(configDirectory, "connectors.json")
+	raw, err := json.Marshal(map[string]any{
+		"connectors": map[string]any{
+			"test-local-process": map[string]any{
+				"type": "LOCAL_PROCESS", "executable": executable, "timeout": "5s",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(configPath, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AGENT_COMMS_CONNECTOR_CONFIG", configPath)
+	t.Setenv("AGENT_COMMS_TEST_CONNECTOR_EXECUTABLE", executable)
+	return setup(t)
+}
 func must(t *testing.T, s *service.Service, a, k, id string, p any) {
 	t.Helper()
 	if _, e := s.Execute(a, k, id, p); e != nil {
@@ -34,6 +61,24 @@ func activate(t *testing.T, s *service.Service, id string, pt model.PrincipalTyp
 		t.Fatal(e)
 	}
 	must(t, s, "owner", "agent.activate", id, model.AgentActivated{Role: model.RoleAgent, Scopes: []string{"src"}})
+}
+
+func registerOnlineWorker(t *testing.T, s *service.Service, agentID, runtimeID string, maxConcurrent int) {
+	t.Helper()
+	must(t, s, agentID, "runtime.register", runtimeID, model.RuntimeRegistered{
+		AgentID: agentID, Kind: model.RuntimeKindWorker, Connector: "MCP",
+		MaxConcurrent: maxConcurrent,
+	})
+	must(t, s, agentID, "runtime.heartbeat", runtimeID, model.RuntimeHeartbeat{Health: "HEALTHY"})
+}
+
+func registerOnlineDeliverableWorker(t *testing.T, s *service.Service, agentID, runtimeID string) {
+	t.Helper()
+	must(t, s, agentID, "runtime.register", runtimeID, model.RuntimeRegistered{
+		AgentID: agentID, Kind: model.RuntimeKindWorker, Connector: "LOCAL_PROCESS",
+		ConfigReference: "test-local-process", MaxConcurrent: 1,
+	})
+	must(t, s, agentID, "runtime.heartbeat", runtimeID, model.RuntimeHeartbeat{Health: "HEALTHY"})
 }
 
 // grantOrchestrator drives the two-step apply-then-approve flow the

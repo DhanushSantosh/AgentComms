@@ -101,11 +101,11 @@ func TestInvocationRowActionsFollowStateAndAuthority(t *testing.T) {
 		actor  string
 		want   []string
 	}{
-		{"PENDING", "builder", []string{"claim", "reject"}},
+		{"PENDING", "builder", []string{"claim", "reject", "redeliver"}},
 		{"CLAIMED", "builder", []string{"start", "reject"}},
 		{"RUNNING", "builder", []string{"wait", "complete"}},
 		{"WAITING", "builder", []string{"resume", "complete"}},
-		{"PENDING", "owner", []string{"cancel"}},
+		{"PENDING", "owner", []string{"redeliver", "cancel"}},
 		{"COMPLETED", "owner", nil},
 	}
 	for _, testCase := range cases {
@@ -147,7 +147,7 @@ func TestRuntimeRowActionsExposeDrainResumeAndRevoke(t *testing.T) {
 	runtime.Status = "DRAINING"
 	state.AgentRuntimes["runtime"] = runtime
 	actions = runtimeRowSource{}.Actions("runtime", state, "builder")
-	if len(actions) != 1 || actions[0].Label != "resume" {
+	if len(actions) != 2 || actions[0].Label != "resume" || actions[1].Label != "configure" {
 		t.Fatalf("draining runtime actions=%v", actions)
 	}
 }

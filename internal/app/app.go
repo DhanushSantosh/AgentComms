@@ -41,6 +41,7 @@ import (
 	"github.com/DhanushSantosh/AgentComms/internal/store"
 	tuiterm "github.com/DhanushSantosh/AgentComms/internal/tui"
 	runtimeworker "github.com/DhanushSantosh/AgentComms/internal/worker"
+	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 )
 
@@ -48,13 +49,14 @@ var Version = buildinfo.Version
 
 const APIVersion = "agent-comms/v1"
 
-const directDeliveryTimeout = 15 * time.Second
+const interactiveHeartbeatInterval = 15 * time.Second
 
 type Envelope struct {
 	APIVersion string     `json:"api_version"`
 	OK         bool       `json:"ok"`
 	Command    string     `json:"command"`
 	Result     any        `json:"result,omitempty"`
+	Delivery   any        `json:"delivery,omitempty"`
 	Error      *ErrorBody `json:"error,omitempty"`
 	Warnings   []string   `json:"warnings,omitempty"`
 }
@@ -80,6 +82,7 @@ type cli struct {
 	cmd                                  string
 	actorResolution                      identity.ActorResolution
 	pendingWarnings                      []string
+	processExitCode                      int
 }
 
 var launchDaemonProcess = func(executable, projectRoot string, output io.Writer) error {
@@ -111,6 +114,10 @@ func Run(args []string, stdout, stderr io.Writer) error {
 		}
 		return &ExitError{Code: exitCode(e), Kind: errorCode(e), Err: e}
 	}
+	if c.processExitCode != 0 {
+		err := fmt.Errorf("wrapped process exited with status %d", c.processExitCode)
+		return &ExitError{Code: c.processExitCode, Kind: "PROCESS_EXIT", Err: err}
+	}
 	return nil
 }
 func (c *cli) root() *cobra.Command {
@@ -123,8 +130,7 @@ func (c *cli) root() *cobra.Command {
 			cmd.CommandPath() == "agent-comms claude serve" ||
 			cmd.CommandPath() == "agent-comms claude attach" ||
 			cmd.CommandPath() == "agent-comms codex serve" ||
-			cmd.CommandPath() == "agent-comms codex attach" ||
-			cmd.CommandPath() == "agent-comms runtime interactive-serve" {
+			cmd.CommandPath() == "agent-comms codex attach" {
 			return nil
 		}
 		if cmd.CommandPath() == "agent-comms profile list" ||
@@ -216,11 +222,18 @@ func (c *cli) root() *cobra.Command {
 	return r
 }
 func (c *cli) emit(command string, v any, warnings ...string) error {
+	return c.emitWithDelivery(command, v, nil, warnings...)
+}
+
+func (c *cli) emitWithDelivery(command string, v, delivery any, warnings ...string) error {
 	if len(c.pendingWarnings) > 0 {
 		warnings = append(append([]string{}, c.pendingWarnings...), warnings...)
 	}
 	if c.json {
-		return json.NewEncoder(c.out).Encode(Envelope{APIVersion: APIVersion, OK: true, Command: command, Result: v, Warnings: warnings})
+		return json.NewEncoder(c.out).Encode(Envelope{
+			APIVersion: APIVersion, OK: true, Command: command,
+			Result: v, Delivery: delivery, Warnings: warnings,
+		})
 	}
 	if c.quiet {
 		return nil
@@ -232,6 +245,15 @@ func (c *cli) emit(command string, v any, warnings ...string) error {
 	if _, e = fmt.Fprintln(c.out, string(b)); e != nil {
 		return e
 	}
+	if delivery != nil {
+		deliveryBody, marshalErr := json.MarshalIndent(delivery, "", "  ")
+		if marshalErr != nil {
+			return marshalErr
+		}
+		if _, e = fmt.Fprintln(c.out, "delivery:", string(deliveryBody)); e != nil {
+			return e
+		}
+	}
 	for _, w := range warnings {
 		if _, e = fmt.Fprintln(c.err, "warning:", w); e != nil {
 			return e
@@ -240,85 +262,19 @@ func (c *cli) emit(command string, v any, warnings ...string) error {
 	return nil
 }
 
-// notifyInteractiveTarget resolves an invocation's target agent to its
-// registered runtime before attempting the best-effort terminal nudge. A
-// same-ID fallback preserves the zero-registration interactive workflow.
-// Multiple live sessions are not guessed between: waking an arbitrary
-// runtime could make the wrong session race to claim the invocation.
-func (c *cli) notifyInteractiveTarget(invocationID, targetAgentID, preferredRuntimeID string) []string {
+type invocationDeliveryResult = service.InvocationDeliveryResult
+
+func (c *cli) invocationDeliveryOutcome(invocationID, deliveryID string) (invocationDeliveryResult, error) {
 	state, err := c.svc.State()
 	if err != nil {
-		return []string{fmt.Sprintf("invocation was recorded, but live runtime resolution failed: %v", err)}
+		return invocationDeliveryResult{}, err
 	}
-	candidates := interactiveRuntimeCandidates(state, targetAgentID)
-	if preferredRuntimeID != "" {
-		runtimeState, registered := state.AgentRuntimes[preferredRuntimeID]
-		if preferredRuntimeID != targetAgentID &&
-			(!registered || runtimeState.AgentID != targetAgentID ||
-				runtimeState.Status == "DRAINING" || runtimeState.Status == "REVOKED") {
-			return []string{fmt.Sprintf(
-				"runtime %s is not an eligible runtime for agent %s",
-				preferredRuntimeID, targetAgentID,
-			)}
-		}
-		candidates = []string{preferredRuntimeID}
+	localHostID, _ := identity.LoadHostID()
+	result, exists := service.SummarizeInvocationDelivery(state, invocationID, deliveryID, localHostID)
+	if !exists {
+		return invocationDeliveryResult{}, errors.New("invocation not found after commit")
 	}
-	type liveRuntime struct {
-		id   string
-		busy bool
-	}
-	live := make([]liveRuntime, 0, len(candidates))
-	for _, runtimeID := range candidates {
-		ctx, cancel := context.WithTimeout(context.Background(), directDeliveryTimeout)
-		alive, busy := interactiveserve.Probe(ctx, c.svc.Store.Root, runtimeID)
-		cancel()
-		if alive {
-			live = append(live, liveRuntime{id: runtimeID, busy: busy})
-		}
-	}
-	if len(live) == 0 {
-		return nil
-	}
-	if len(live) > 1 {
-		ids := make([]string, 0, len(live))
-		for _, runtime := range live {
-			ids = append(ids, runtime.id)
-		}
-		return []string{fmt.Sprintf(
-			"invocation was recorded, but agent %s has multiple live runtimes (%s); use `invocation redeliver --id %s --runtime <runtime-id>`",
-			targetAgentID, strings.Join(ids, ", "), invocationID,
-		)}
-	}
-	target := live[0]
-	if target.busy {
-		return []string{fmt.Sprintf(
-			"invocation was recorded, but runtime %s is busy; retry with `invocation redeliver --id %s` when it is idle",
-			target.id, invocationID,
-		)}
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), directDeliveryTimeout)
-	defer cancel()
-	if err = interactiveserve.NotifyInvocation(ctx, c.svc.Store.Root, target.id, targetAgentID, invocationID, c.actor); err != nil {
-		return []string{fmt.Sprintf("could not deliver directly into %s's live session: %v", target.id, err)}
-	}
-	return nil
-}
-
-func interactiveRuntimeCandidates(state model.State, targetAgentID string) []string {
-	candidateSet := map[string]struct{}{targetAgentID: {}}
-	for runtimeID, agentRuntime := range state.AgentRuntimes {
-		if agentRuntime.AgentID != targetAgentID ||
-			agentRuntime.Status == "DRAINING" || agentRuntime.Status == "REVOKED" {
-			continue
-		}
-		candidateSet[runtimeID] = struct{}{}
-	}
-	candidates := make([]string, 0, len(candidateSet))
-	for runtimeID := range candidateSet {
-		candidates = append(candidates, runtimeID)
-	}
-	sort.Strings(candidates)
-	return candidates
+	return result, nil
 }
 
 // captureRuntimeSession opportunistically binds a freshly registered runtime
@@ -654,7 +610,75 @@ func (c *cli) doctorCmd() *cobra.Command {
 						break
 					}
 				}
-				invocationTerminal := map[string]bool{"COMPLETED": true, "REJECTED": true, "EXPIRED": true, "DEAD_LETTER": true}
+				connectorConfigPath := strings.TrimSpace(os.Getenv("AGENT_COMMS_CONNECTOR_CONFIG"))
+				connectorConfigs := map[string]daemon.ConnectorConfig{}
+				if connectorConfigPath != "" {
+					var connectorConfigErr error
+					connectorConfigs, connectorConfigErr = daemon.LoadConnectorConfigs(connectorConfigPath)
+					if connectorConfigErr != nil {
+						add("ERROR", "CONNECTOR_CONFIG_INVALID", connectorConfigErr.Error(),
+							"Repair the private connector configuration before registering or delivering through local connectors.")
+					}
+				}
+				localHostID, _ := identity.LoadHostID()
+				interactiveByAgent := map[string]int{}
+				for id, runtimeState := range st.AgentRuntimes {
+					kind := runtimeState.Kind
+					if kind == "" {
+						kind = model.RuntimeKindWorker
+					}
+					if runtimeState.Connector == "LOCAL_PROCESS" || runtimeState.Connector == "WEBHOOK" {
+						config, configured := connectorConfigs[runtimeState.ConfigReference]
+						if runtimeState.ConfigReference == "" || connectorConfigPath == "" ||
+							!configured || config.Type != runtimeState.Connector {
+							add("ERROR", "RUNTIME_CONFIG_INVALID",
+								fmt.Sprintf("runtime %s has no usable %s connector configuration", id, runtimeState.Connector),
+								fmt.Sprintf("Drain it and run `agent-comms runtime configure --id %s` with a valid config reference.", id))
+						}
+					}
+					if kind != model.RuntimeKindInteractive {
+						continue
+					}
+					if runtimeState.Connector != "INTERACTIVE" || runtimeState.HostID == "" {
+						add("ERROR", "INTERACTIVE_RUNTIME_MISMATCH",
+							fmt.Sprintf("runtime %s is interactive but its connector or host binding is invalid", id),
+							fmt.Sprintf("Drain it and run `agent-comms runtime configure --id %s --kind INTERACTIVE --connector INTERACTIVE --max-concurrent 1`.", id))
+						continue
+					}
+					if localHostID != "" && runtimeState.HostID != localHostID {
+						add("WARNING", "INTERACTIVE_RUNTIME_FOREIGN_HOST",
+							fmt.Sprintf("runtime %s belongs to another host and cannot receive local PTY delivery", id),
+							"Use the target host or choose a local compatible runtime explicitly.")
+						continue
+					}
+					if runtimeState.Status == "ONLINE" {
+						interactiveByAgent[runtimeState.AgentID]++
+						if !interactiveserve.Alive(cmd.Context(), c.svc.Store.Root, id) {
+							add("WARNING", "INTERACTIVE_SOCKET_UNAVAILABLE",
+								fmt.Sprintf("runtime %s is governed online but its local PTY socket is not dialable", id),
+								"Restart runtime interactive-serve; it will clear stale presence and establish a new endpoint.")
+						}
+					}
+				}
+				for agentID, count := range interactiveByAgent {
+					if count > 1 && st.InvocationPolicies[agentID].PreferredInteractiveRuntimeID == "" {
+						add("WARNING", "INTERACTIVE_RUNTIME_AMBIGUOUS",
+							fmt.Sprintf("agent %s has %d online local interactive runtimes and no preferred runtime", agentID, count),
+							"Set `invocation policy set --interactive-runtime` or specify `invocation request --runtime`.")
+					}
+				}
+				for id, delivery := range st.InvocationDeliveries {
+					if delivery.Status == "ATTEMPTED" && delivery.AttemptUntil != nil &&
+						!delivery.AttemptUntil.After(now) {
+						add("WARNING", "STALE_DELIVERY_ATTEMPT",
+							fmt.Sprintf("delivery %s for invocation %s expired without a result", id, delivery.InvocationID),
+							"Run a sync or targeted invocation redeliver; the daemon will record the timeout before retrying.")
+					}
+				}
+				invocationTerminal := map[string]bool{
+					"COMPLETED": true, "REJECTED": true, "EXPIRED": true,
+					"CANCELLED": true, "DEAD_LETTER": true,
+				}
 				taskTerminal := map[string]bool{"COMPLETED": true, "CANCELLED": true}
 				for id, agent := range st.Agents {
 					if agent.Status != "REVOKED" {
@@ -797,7 +821,7 @@ func (c *cli) controlCmd() *cobra.Command {
 		blockedTasks := map[string]model.Task{}
 		pendingApprovals := map[string]model.Approval{}
 		waitingInvocations := map[string]model.Invocation{}
-		failedDeliveries := map[string]model.Invocation{}
+		failedDeliveries := map[string]model.InvocationDelivery{}
 		degradedRuntimes := map[string]model.AgentRuntime{}
 		for id, task := range state.Tasks {
 			if task.Status == "BLOCKED" {
@@ -813,8 +837,10 @@ func (c *cli) controlCmd() *cobra.Command {
 			if invocation.Status == "WAITING" {
 				waitingInvocations[id] = invocation
 			}
-			if invocation.Status == "DEAD_LETTER" {
-				failedDeliveries[id] = invocation
+		}
+		for id, delivery := range state.InvocationDeliveries {
+			if delivery.Status == "FAILED" || delivery.Status == "EXHAUSTED" {
+				failedDeliveries[id] = delivery
 			}
 		}
 		for id, runtime := range state.AgentRuntimes {
@@ -1012,13 +1038,23 @@ func (c *cli) agentCmd() *cobra.Command {
 }
 func (c *cli) runtimeCmd() *cobra.Command {
 	root := &cobra.Command{Use: "runtime", Short: "Manage agent runtime connectors and presence"}
-	var agentID, connector, configReference string
+	var agentID, runtimeKind, connector, configReference string
 	var maxConcurrent int
 	var scopes, capabilities []string
 	register := &cobra.Command{Use: "register", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		id, _ := cmd.Flags().GetString("id")
+		hostID := ""
+		if strings.EqualFold(runtimeKind, string(model.RuntimeKindInteractive)) ||
+			strings.EqualFold(connector, "INTERACTIVE") {
+			var hostErr error
+			hostID, hostErr = identity.LoadOrCreateHostID()
+			if hostErr != nil {
+				return hostErr
+			}
+		}
 		value, err := c.svc.Execute(c.actor, "runtime.register", id, model.RuntimeRegistered{
-			AgentID: agentID, Connector: connector, ConfigReference: configReference,
+			AgentID: agentID, Kind: model.RuntimeKind(strings.ToUpper(runtimeKind)),
+			Connector: connector, ConfigReference: configReference, HostID: hostID,
 			MaxConcurrent: maxConcurrent, Scopes: scopes, Capabilities: capabilities,
 		})
 		if err != nil {
@@ -1031,18 +1067,49 @@ func (c *cli) runtimeCmd() *cobra.Command {
 	_ = register.MarkFlagRequired("id")
 	register.Flags().StringVar(&agentID, "agent", "", "agent that owns the runtime")
 	_ = register.MarkFlagRequired("agent")
-	register.Flags().StringVar(&connector, "connector", "MANUAL", "MANUAL, MCP, LOCAL_PROCESS, WEBHOOK, or QUEUE")
+	register.Flags().StringVar(&runtimeKind, "kind", "WORKER", "WORKER or INTERACTIVE")
+	register.Flags().StringVar(&connector, "connector", "MANUAL", "MANUAL, MCP, LOCAL_PROCESS, WEBHOOK, QUEUE, or INTERACTIVE")
 	register.Flags().StringVar(&configReference, "config-reference", "", "non-secret local connector configuration reference")
 	register.Flags().IntVar(&maxConcurrent, "max-concurrent", 1, "maximum concurrent invocations")
 	register.Flags().StringSliceVar(&scopes, "scope", nil, "runtime scope")
 	register.Flags().StringSliceVar(&capabilities, "capability", nil, "runtime capability")
 
-	var health string
+	configure := &cobra.Command{Use: "configure", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		id, _ := cmd.Flags().GetString("id")
+		hostID := ""
+		if strings.EqualFold(runtimeKind, string(model.RuntimeKindInteractive)) ||
+			strings.EqualFold(connector, "INTERACTIVE") {
+			var hostErr error
+			hostID, hostErr = identity.LoadOrCreateHostID()
+			if hostErr != nil {
+				return hostErr
+			}
+		}
+		value, err := c.svc.Execute(c.actor, "runtime.configure", id, model.RuntimeConfigured{
+			Kind: model.RuntimeKind(strings.ToUpper(runtimeKind)), Connector: connector,
+			ConfigReference: configReference, HostID: hostID, MaxConcurrent: maxConcurrent,
+			Scopes: scopes, Capabilities: capabilities,
+		})
+		if err != nil {
+			return err
+		}
+		return c.emit("runtime.configure", value)
+	}}
+	configure.Flags().String("id", "", "runtime ID")
+	_ = configure.MarkFlagRequired("id")
+	configure.Flags().StringVar(&runtimeKind, "kind", "WORKER", "WORKER or INTERACTIVE")
+	configure.Flags().StringVar(&connector, "connector", "MANUAL", "MANUAL, MCP, LOCAL_PROCESS, WEBHOOK, QUEUE, or INTERACTIVE")
+	configure.Flags().StringVar(&configReference, "config-reference", "", "non-secret local connector configuration reference")
+	configure.Flags().IntVar(&maxConcurrent, "max-concurrent", 1, "maximum concurrent invocations")
+	configure.Flags().StringSliceVar(&scopes, "scope", nil, "runtime scope")
+	configure.Flags().StringSliceVar(&capabilities, "capability", nil, "runtime capability")
+
+	var health, endpointID string
 	var activeInvocations []string
 	heartbeat := &cobra.Command{Use: "heartbeat", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		id, _ := cmd.Flags().GetString("id")
 		value, err := c.svc.Execute(c.actor, "runtime.heartbeat", id, model.RuntimeHeartbeat{
-			Health: health, ActiveInvocations: activeInvocations,
+			Health: health, ActiveInvocations: activeInvocations, EndpointID: endpointID,
 		})
 		if err != nil {
 			return err
@@ -1052,6 +1119,7 @@ func (c *cli) runtimeCmd() *cobra.Command {
 	heartbeat.Flags().String("id", "", "runtime ID")
 	_ = heartbeat.MarkFlagRequired("id")
 	heartbeat.Flags().StringVar(&health, "health", "HEALTHY", "HEALTHY or DEGRADED")
+	heartbeat.Flags().StringVar(&endpointID, "endpoint-id", "", "opaque interactive endpoint ID")
 	heartbeat.Flags().StringSliceVar(&activeInvocations, "active-invocation", nil, "active invocation ID")
 
 	for _, operation := range []string{"drain", "resume", "revoke"} {
@@ -1074,6 +1142,24 @@ func (c *cli) runtimeCmd() *cobra.Command {
 		state, err := c.svc.State()
 		if err != nil {
 			return err
+		}
+		localHostID, _ := identity.LoadHostID()
+		for id, runtimeState := range state.AgentRuntimes {
+			kind := runtimeState.Kind
+			if kind == "" {
+				kind = model.RuntimeKindWorker
+				runtimeState.Kind = kind
+			}
+			if kind == model.RuntimeKindInteractive {
+				local := localHostID != "" && runtimeState.HostID == localHostID
+				session := &model.InteractiveSessionState{Local: local}
+				if local {
+					session.Alive, session.Busy = interactiveserve.Probe(cmd.Context(), c.svc.Store.Root, id)
+					session.SocketPath = interactiveserve.SocketPath(c.svc.Store.Root, id)
+				}
+				runtimeState.InteractiveSession = session
+			}
+			state.AgentRuntimes[id] = runtimeState
 		}
 		return c.emit("runtime.list", state.AgentRuntimes)
 	}}
@@ -1213,22 +1299,7 @@ func (c *cli) runtimeCmd() *cobra.Command {
 					return err
 				}
 			}
-			root := c.project
-			if root == "" {
-				var e error
-				root, e = os.Getwd()
-				if e != nil {
-					return e
-				}
-			}
-			code, err := interactiveserve.Serve(cmd.Context(), interactiveserve.ServeOptions{
-				ProjectRoot: root, RuntimeID: interactiveServeID, Command: args, Actor: c.actor,
-			})
-			if err != nil {
-				return err
-			}
-			os.Exit(code)
-			return nil
+			return c.runInteractiveServe(cmd.Context(), interactiveServeID, args)
 		},
 	}
 	interactiveServe.Flags().StringVar(&interactiveServeID, "id", "", "runtime ID")
@@ -1248,9 +1319,122 @@ func (c *cli) runtimeCmd() *cobra.Command {
 	interactiveShow.Flags().StringVar(&interactiveShowID, "id", "", "runtime ID")
 	_ = interactiveShow.MarkFlagRequired("id")
 
-	root.AddCommand(register, heartbeat, list, workerCommand, bindSession, sessionShow,
+	root.AddCommand(register, configure, heartbeat, list, workerCommand, bindSession, sessionShow,
 		interactiveServe, interactiveShow)
 	return root
+}
+
+func (c *cli) runInteractiveServe(ctx context.Context, runtimeID string, command []string) (runErr error) {
+	hostID, err := identity.LoadOrCreateHostID()
+	if err != nil {
+		return fmt.Errorf("load local host identity: %w", err)
+	}
+	state, err := c.svc.State()
+	if err != nil {
+		return err
+	}
+	runtimeState, exists := state.AgentRuntimes[runtimeID]
+	if !exists {
+		if _, err = c.svc.Execute(c.actor, "runtime.register", runtimeID, model.RuntimeRegistered{
+			AgentID: c.actor, Kind: model.RuntimeKindInteractive,
+			Connector: "INTERACTIVE", HostID: hostID, MaxConcurrent: 1,
+		}); err != nil {
+			return fmt.Errorf("register interactive runtime: %w", err)
+		}
+	} else {
+		kind := runtimeState.Kind
+		if kind == "" {
+			kind = model.RuntimeKindWorker
+		}
+		if runtimeState.AgentID != c.actor || kind != model.RuntimeKindInteractive ||
+			runtimeState.Connector != "INTERACTIVE" || runtimeState.HostID != hostID {
+			return fmt.Errorf(
+				"runtime %s is not this actor's local INTERACTIVE runtime; repair it while offline with `agent-comms --actor %s runtime configure --id %s --kind INTERACTIVE --connector INTERACTIVE --max-concurrent 1`",
+				runtimeID, c.actor, runtimeID,
+			)
+		}
+		if runtimeState.Status == "DRAINING" {
+			return fmt.Errorf("runtime %s is draining; run `agent-comms --actor %s runtime resume --id %s` before starting it", runtimeID, c.actor, runtimeID)
+		}
+		if runtimeState.Status == "REVOKED" {
+			return fmt.Errorf("runtime %s is revoked and cannot start", runtimeID)
+		}
+		if interactiveserve.Alive(ctx, c.svc.Store.Root, runtimeID) {
+			return fmt.Errorf("runtime %s already has a live interactive session", runtimeID)
+		}
+		if runtimeState.Status == "ONLINE" {
+			if _, err = c.svc.Execute(c.actor, "runtime.offline", runtimeID,
+				model.RuntimeStatusChanged{
+					Reason: "replacing a stale interactive session", EndpointID: runtimeState.EndpointID,
+				}); err != nil {
+				return fmt.Errorf("clear stale interactive runtime presence: %w", err)
+			}
+		}
+	}
+	endpointID := uuid.NewString()
+	if err = c.heartbeatInteractiveRuntime(runtimeID, endpointID); err != nil {
+		return fmt.Errorf("start interactive runtime heartbeat: %w", err)
+	}
+	serveCtx, cancel := context.WithCancel(ctx)
+	heartbeatDone := make(chan error, 1)
+	go func() {
+		ticker := time.NewTicker(interactiveHeartbeatInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-serveCtx.Done():
+				heartbeatDone <- nil
+				return
+			case <-ticker.C:
+				if heartbeatErr := c.heartbeatInteractiveRuntime(runtimeID, endpointID); heartbeatErr != nil {
+					heartbeatDone <- heartbeatErr
+					cancel()
+					return
+				}
+			}
+		}
+	}()
+	defer func() {
+		cancel()
+		heartbeatErr := <-heartbeatDone
+		_, offlineErr := c.svc.Execute(c.actor, "runtime.offline", runtimeID,
+			model.RuntimeStatusChanged{Reason: "interactive session exited", EndpointID: endpointID})
+		if runErr == nil && heartbeatErr != nil {
+			runErr = fmt.Errorf("interactive runtime heartbeat: %w", heartbeatErr)
+		}
+		if runErr == nil && offlineErr != nil {
+			runErr = fmt.Errorf("mark interactive runtime offline: %w", offlineErr)
+		}
+	}()
+	code, err := interactiveserve.Serve(serveCtx, interactiveserve.ServeOptions{
+		ProjectRoot: c.svc.Store.Root, RuntimeID: runtimeID, Command: command, Actor: c.actor,
+	})
+	if err != nil {
+		return err
+	}
+	c.processExitCode = code
+	return nil
+}
+
+func (c *cli) heartbeatInteractiveRuntime(runtimeID, endpointID string) error {
+	state, err := c.svc.State()
+	if err != nil {
+		return err
+	}
+	activeInvocations := make([]string, 0)
+	for _, invocation := range state.Invocations {
+		if invocation.RuntimeID == runtimeID &&
+			(invocation.Status == "CLAIMED" || invocation.Status == "RUNNING" ||
+				invocation.Status == "WAITING") {
+			activeInvocations = append(activeInvocations, invocation.ID)
+		}
+	}
+	sort.Strings(activeInvocations)
+	_, err = c.svc.Execute(c.actor, "runtime.heartbeat", runtimeID, model.RuntimeHeartbeat{
+		Health: "HEALTHY", EndpointID: endpointID,
+		ActiveInvocations: activeInvocations,
+	})
+	return err
 }
 
 // withClaudeAllowAgentComms validates that args wraps claude (by basename)
@@ -1294,6 +1478,7 @@ func withClaudeAllowAgentComms(args []string, executablePath func() (string, err
 func (c *cli) invocationCmd() *cobra.Command {
 	root := &cobra.Command{Use: "invocation", Short: "Request and process agent invocations"}
 	var target, messageID, taskID, instruction, expectedResult, priority string
+	var consumerMode, preferredRuntimeID string
 	var invocationScopes []string
 	var expiresIn time.Duration
 	request := &cobra.Command{Use: "request", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
@@ -1308,12 +1493,21 @@ func (c *cli) invocationCmd() *cobra.Command {
 		}
 		event, err := c.svc.Execute(c.actor, "invocation.request", id, model.InvocationRequested{
 			Target: target, MessageID: messageID, TaskID: taskID, Instruction: instruction,
-			ExpectedResult: expectedResult, Scopes: invocationScopes, Priority: priority, Deadline: deadline,
+			ExpectedResult: expectedResult, Scopes: invocationScopes, Priority: priority,
+			ConsumerMode:       model.ConsumerMode(strings.ToUpper(consumerMode)),
+			PreferredRuntimeID: preferredRuntimeID, Deadline: deadline,
 		})
 		if err != nil {
 			return err
 		}
-		return c.emit("invocation.request", event, c.notifyInteractiveTarget(id, target, "")...)
+		outcome, outcomeErr := c.invocationDeliveryOutcome(id, "")
+		warnings := []string{}
+		if outcomeErr != nil {
+			warnings = append(warnings, "invocation was recorded, but delivery state could not be read: "+outcomeErr.Error())
+		} else if outcome.Outcome == "UNAVAILABLE" || outcome.Outcome == "AMBIGUOUS" {
+			warnings = append(warnings, "invocation was recorded, but no compatible delivery transport completed")
+		}
+		return c.emitWithDelivery("invocation.request", event, outcome, warnings...)
 	}}
 	request.Flags().String("id", "", "invocation ID (auto-generated if omitted)")
 	request.Flags().StringVar(&target, "to", "", "target agent")
@@ -1325,6 +1519,8 @@ func (c *cli) invocationCmd() *cobra.Command {
 	request.Flags().StringVar(&expectedResult, "expected-result", "", "expected result")
 	request.Flags().StringSliceVar(&invocationScopes, "scope", nil, "scope required by the invocation")
 	request.Flags().StringVar(&priority, "priority", "NORMAL", "LOW, NORMAL, HIGH, or URGENT")
+	request.Flags().StringVar(&consumerMode, "consumer", "", "INTERACTIVE_ONLY, WORKER_ONLY, or EITHER (target policy default when omitted)")
+	request.Flags().StringVar(&preferredRuntimeID, "runtime", "", "specific target runtime")
 	request.Flags().DurationVar(&expiresIn, "expires-in", 0, "deadline relative to now")
 
 	list := &cobra.Command{Use: "list", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
@@ -1349,6 +1545,33 @@ func (c *cli) invocationCmd() *cobra.Command {
 	list.Flags().String("status", "", "filter by status")
 	list.Flags().String("to", "", "filter by target agent")
 
+	inspect := &cobra.Command{Use: "inspect", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		id, _ := cmd.Flags().GetString("id")
+		state, err := c.svc.State()
+		if err != nil {
+			return err
+		}
+		invocation, exists := state.Invocations[id]
+		if !exists {
+			return fmt.Errorf("invocation %s not found", id)
+		}
+		deliveries := make([]model.InvocationDelivery, 0)
+		for _, delivery := range state.InvocationDeliveries {
+			if delivery.InvocationID == id {
+				deliveries = append(deliveries, delivery)
+			}
+		}
+		sort.Slice(deliveries, func(left, right int) bool {
+			return deliveries[left].Attempt < deliveries[right].Attempt
+		})
+		return c.emit("invocation.inspect", map[string]any{
+			"invocation": deliveriesAcknowledged(invocation),
+			"deliveries": deliveries,
+		})
+	}}
+	inspect.Flags().String("id", "", "invocation ID")
+	_ = inspect.MarkFlagRequired("id")
+
 	next := &cobra.Command{Use: "next", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		runtimeID, _ := cmd.Flags().GetString("runtime")
 		invocation, found, err := c.svc.NextInvocation(c.actor, runtimeID)
@@ -1370,15 +1593,38 @@ func (c *cli) invocationCmd() *cobra.Command {
 		if !ok {
 			return fmt.Errorf("invocation %s not found", id)
 		}
-		if invocation.Status != "PENDING" {
-			return fmt.Errorf("invocation %s is %s, not PENDING", id, invocation.Status)
+		if invocation.Status != "PENDING" && invocation.Status != "NOTIFIED" {
+			return fmt.Errorf("invocation %s is %s, not open for redelivery", id, invocation.Status)
 		}
-		return c.emit("invocation.redeliver", map[string]any{"id": id, "target": invocation.Target},
-			c.notifyInteractiveTarget(id, invocation.Target, redeliveryRuntimeID)...)
+		runtimeState, runtimeExists := state.AgentRuntimes[redeliveryRuntimeID]
+		if !runtimeExists || runtimeState.AgentID != invocation.Target {
+			return errors.New("redelivery runtime must be registered to the invocation target")
+		}
+		deliveryID := uuid.NewString()
+		event, executeErr := c.svc.Execute(c.actor, "invocation.delivery-attempt", id,
+			model.InvocationDeliveryAttempted{
+				DeliveryID: deliveryID, RuntimeID: redeliveryRuntimeID,
+				Transport: runtimeState.Connector, HostID: runtimeState.HostID, Manual: true,
+			})
+		if executeErr != nil {
+			return executeErr
+		}
+		outcome, outcomeErr := c.invocationDeliveryOutcome(id, deliveryID)
+		if outcomeErr != nil {
+			return outcomeErr
+		}
+		if outcome.Outcome != "SUCCEEDED" {
+			return &controlplane.Error{
+				Code:    controlplane.CodeUnavailable,
+				Message: "redelivery did not complete: " + outcome.Error,
+			}
+		}
+		return c.emitWithDelivery("invocation.redeliver", event, outcome)
 	}}
-	redeliver.Flags().String("id", "", "invocation ID to re-attempt direct delivery for")
+	redeliver.Flags().String("id", "", "open invocation ID to redeliver")
 	_ = redeliver.MarkFlagRequired("id")
-	redeliver.Flags().StringVar(&redeliveryRuntimeID, "runtime", "", "specific eligible runtime when the target agent has multiple live runtimes")
+	redeliver.Flags().StringVar(&redeliveryRuntimeID, "runtime", "", "specific eligible target runtime")
+	_ = redeliver.MarkFlagRequired("runtime")
 
 	var runtimeID string
 	var listenDuration time.Duration
@@ -1447,20 +1693,33 @@ func (c *cli) invocationCmd() *cobra.Command {
 	_ = cancelInvocation.MarkFlagRequired("reason")
 
 	policy := c.invocationPolicyCmd()
-	root.AddCommand(request, list, next, redeliver, listen, claim, start, waitCommand, resume, complete, reject, expire, cancelInvocation, policy)
+	root.AddCommand(request, list, inspect, next, redeliver, listen, claim, start, waitCommand, resume, complete, reject, expire, cancelInvocation, policy)
 	return root
+}
+
+func deliveriesAcknowledged(invocation model.Invocation) map[string]any {
+	return map[string]any{
+		"state":               invocation,
+		"target_acknowledged": invocation.ClaimedAt != nil,
+		"acknowledged_at":     invocation.ClaimedAt,
+	}
 }
 
 func (c *cli) invocationPolicyCmd() *cobra.Command {
 	root := &cobra.Command{Use: "policy", Short: "Manage per-agent invocation policy"}
 	var mode string
 	var trustedActors, allowedScopes []string
+	var defaultConsumer, preferredInteractiveRuntime string
+	var allowedConsumers []string
 	var requireHuman bool
 	set := &cobra.Command{Use: "set", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		agentID, _ := cmd.Flags().GetString("agent")
 		event, err := c.svc.Execute(c.actor, "invocation.policy.update", agentID, model.InvocationPolicyUpdated{
 			Mode: mode, TrustedActors: trustedActors, AllowedScopes: allowedScopes,
-			RequireHumanForSensitive: requireHuman,
+			DefaultConsumerMode:           model.ConsumerMode(strings.ToUpper(defaultConsumer)),
+			AllowedConsumerModes:          consumerModes(allowedConsumers),
+			PreferredInteractiveRuntimeID: preferredInteractiveRuntime,
+			RequireHumanForSensitive:      requireHuman,
 		})
 		if err != nil {
 			return err
@@ -1472,6 +1731,9 @@ func (c *cli) invocationPolicyCmd() *cobra.Command {
 	set.Flags().StringVar(&mode, "mode", "MANUAL", "MANUAL, TRUSTED, AUTOMATIC, or DISABLED")
 	set.Flags().StringSliceVar(&trustedActors, "trusted-actor", nil, "actor allowed by TRUSTED mode")
 	set.Flags().StringSliceVar(&allowedScopes, "scope", nil, "allowed invocation scope")
+	set.Flags().StringVar(&defaultConsumer, "default-consumer", "EITHER", "INTERACTIVE_ONLY, WORKER_ONLY, or EITHER")
+	set.Flags().StringSliceVar(&allowedConsumers, "allow-consumer", nil, "allowed consumer mode (repeatable; defaults to all)")
+	set.Flags().StringVar(&preferredInteractiveRuntime, "interactive-runtime", "", "preferred interactive runtime ID")
 	set.Flags().BoolVar(&requireHuman, "require-human-for-sensitive", true, "require human approval for sensitive work")
 	show := &cobra.Command{Use: "show", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		agentID, _ := cmd.Flags().GetString("agent")
@@ -1485,6 +1747,14 @@ func (c *cli) invocationPolicyCmd() *cobra.Command {
 	_ = show.MarkFlagRequired("agent")
 	root.AddCommand(set, show)
 	return root
+}
+
+func consumerModes(values []string) []model.ConsumerMode {
+	result := make([]model.ConsumerMode, 0, len(values))
+	for _, value := range values {
+		result = append(result, model.ConsumerMode(strings.ToUpper(strings.TrimSpace(value))))
+	}
+	return result
 }
 
 func (c *cli) sessionCmd() *cobra.Command {
@@ -2651,6 +2921,7 @@ func (c *cli) daemonCmd() *cobra.Command {
 			CacheSchemaVersion:   projectlifecycle.ProjectionCacheSchemaVersion,
 			DraftSchemaVersion:   projectlifecycle.DraftStoreSchemaVersion,
 			DraftPath:            runtimeinit.DraftPath(projectRoot),
+			ProjectRoot:          projectRoot,
 		})
 	}}
 	root.AddCommand(serve)

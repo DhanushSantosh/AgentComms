@@ -130,6 +130,25 @@ func TestPostgresTransactionalAuthority(t *testing.T) {
 		model.RuntimeHeartbeat{Health: "HEALTHY"}, uuid.NewString()); err != nil {
 		t.Fatal(err)
 	}
+	if _, _, err = mutate("alpha", alpha, "runtime.register", "runtime-delivery",
+		model.RuntimeRegistered{
+			AgentID: "alpha", Connector: "LOCAL_PROCESS",
+			ConfigReference: "integration-local", MaxConcurrent: 1,
+		}, uuid.NewString()); err != nil {
+		t.Fatal(err)
+	}
+	for _, runtimeID := range []string{"runtime-a", "runtime-b"} {
+		if _, _, err = mutate("alpha", alpha, "runtime.register", runtimeID,
+			model.RuntimeRegistered{
+				AgentID: "alpha", Connector: "MCP", MaxConcurrent: 1,
+			}, uuid.NewString()); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err = mutate("alpha", alpha, "runtime.heartbeat", runtimeID,
+			model.RuntimeHeartbeat{Health: "HEALTHY"}, uuid.NewString()); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if _, _, err = mutate("owner", owner, "invocation.request", "inv-exclusive",
 		model.InvocationRequested{Target: "alpha", Instruction: "Perform one exclusive action"}, uuid.NewString()); err != nil {
 		t.Fatal(err)
@@ -142,8 +161,11 @@ func TestPostgresTransactionalAuthority(t *testing.T) {
 		go func(deliveryID string) {
 			defer notificationWriters.Done()
 			<-notificationStart
-			_, _, notifyErr := mutate("owner", owner, "invocation.notify", "inv-exclusive",
-				model.InvocationNotified{DeliveryID: deliveryID, RuntimeID: "runtime-alpha", Attempt: 1}, uuid.NewString())
+			_, _, notifyErr := mutate("owner", owner, "invocation.delivery-attempt", "inv-exclusive",
+				model.InvocationDeliveryAttempted{
+					DeliveryID: deliveryID, RuntimeID: "runtime-delivery",
+					Transport: "LOCAL_PROCESS",
+				}, uuid.NewString())
 			notificationResults <- notifyErr
 		}(deliveryID)
 	}

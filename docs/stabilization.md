@@ -38,12 +38,16 @@ capabilities are added.
 - Invocation `target` and CLI `--to` mean an agent ID.
 - Registered runtime ownership is used when the runtime ID differs from the
   agent ID.
-- A same-ID runtime remains the simple local fallback.
-- Multiple live runtimes require an explicit `invocation redeliver --runtime`
-  selection.
+- Interactive delivery requires a first-class registered `INTERACTIVE`
+  runtime; matching an agent ID is only a naming convenience, never a fallback
+  registration.
+- Multiple eligible live runtimes require a preferred runtime. Explicit
+  redelivery always names the runtime.
 - Busy interactive sessions return a retryable warning quickly instead of
   holding the requester through the target's active turn.
 - Socket request deadlines honor caller cancellation after connecting.
+- A successful transport, a target claim, and completion are separate durable
+  facts with separate evidence.
 
 ### Registration and role-escalation authorization
 
@@ -125,8 +129,8 @@ capabilities are added.
 
 1. Extend stable error codes and action-precondition explanations through
    TUI and worker status surfaces.
-2. Make delivery state and retry ownership explicit across interactive,
-   connector, and MCP-only runtimes.
+2. Exercise delivery coordinator recovery and cache lag under sustained
+   multi-runtime load.
 3. Audit every list/search/history surface for bounded results and consistent
    cursor semantics.
 4. Reduce TUI action ambiguity by showing why an action is available, disabled,

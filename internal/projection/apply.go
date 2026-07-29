@@ -155,24 +155,52 @@ func ApplyEvent(s *model.State, e model.Event) error {
 		s.Invocations[e.EntityID] = model.Invocation{
 			ID: e.EntityID, RequestedBy: e.Actor, Target: p.Target, MessageID: p.MessageID,
 			TaskID: p.TaskID, Instruction: p.Instruction, ExpectedResult: p.ExpectedResult,
-			Scopes: p.Scopes, Priority: priority, Status: "PENDING", CreatedAt: e.Time, Deadline: p.Deadline,
+			Scopes: p.Scopes, Priority: priority, ConsumerMode: effectiveConsumerMode(p.ConsumerMode),
+			PreferredRuntimeID: p.PreferredRuntimeID, Status: "PENDING",
+			CreatedAt: e.Time, Deadline: p.Deadline,
+		}
+	case *model.InvocationDeliveryAttempted:
+		now := e.Time
+		attemptUntil := p.AttemptUntil
+		s.InvocationDeliveries[p.DeliveryID] = model.InvocationDelivery{
+			ID: p.DeliveryID, InvocationID: e.EntityID, RuntimeID: p.RuntimeID,
+			Transport: p.Transport, HostID: p.HostID, EndpointID: p.EndpointID, Attempt: p.Attempt,
+			Manual: p.Manual, Status: "ATTEMPTED", AttemptedAt: &now,
+			AttemptUntil: &attemptUntil,
 		}
 	case *model.InvocationNotified:
 		invocation := s.Invocations[e.EntityID]
 		now := e.Time
-		invocation.Status = "NOTIFIED"
-		s.Invocations[e.EntityID] = invocation
-		s.InvocationDeliveries[p.DeliveryID] = model.InvocationDelivery{
-			ID: p.DeliveryID, InvocationID: e.EntityID, RuntimeID: p.RuntimeID,
-			Attempt: p.Attempt, Status: "NOTIFIED", NotifiedAt: &now,
+		if invocation.Status == "PENDING" {
+			invocation.Status = "NOTIFIED"
 		}
+		s.Invocations[e.EntityID] = invocation
+		delivery, attempted := s.InvocationDeliveries[p.DeliveryID]
+		if !attempted {
+			// Compatibility for signed 2.0 histories where notify itself
+			// created the delivery record.
+			delivery = model.InvocationDelivery{
+				ID: p.DeliveryID, InvocationID: e.EntityID,
+				RuntimeID: p.RuntimeID, Attempt: p.Attempt, Status: "NOTIFIED",
+			}
+		} else {
+			delivery.Status = "SUCCEEDED"
+		}
+		delivery.RuntimeID = p.RuntimeID
+		delivery.Transport = p.Transport
+		delivery.EndpointID = p.EndpointID
+		delivery.Evidence = p.Evidence
+		delivery.NotifiedAt = &now
+		s.InvocationDeliveries[p.DeliveryID] = delivery
 	case *model.InvocationClaimed:
 		invocation := s.Invocations[e.EntityID]
-		now := p.ClaimUntil
+		claimUntil := p.ClaimUntil
+		claimedAt := e.Time
 		invocation.Status = "CLAIMED"
 		invocation.ClaimedBy = e.Actor
 		invocation.RuntimeID = p.RuntimeID
-		invocation.ClaimUntil = &now
+		invocation.ClaimedAt = &claimedAt
+		invocation.ClaimUntil = &claimUntil
 		s.Invocations[e.EntityID] = invocation
 	case *model.InvocationProgress:
 		invocation := s.Invocations[e.EntityID]
@@ -217,30 +245,50 @@ func ApplyEvent(s *model.State, e model.Event) error {
 		now := e.Time
 		status := "FAILED"
 		if p.Final {
-			status = "DEAD_LETTER"
-			invocation.Status = status
-			invocation.CompletedAt = &now
-			invocation.Reason = p.Error
-		} else {
-			invocation.Status = "PENDING"
+			status = "EXHAUSTED"
 		}
-		invocation.NextAttemptAt = p.NextRetry
+		if invocation.Status == "PENDING" || invocation.Status == "NOTIFIED" {
+			if hasSuccessfulDelivery(*s, e.EntityID) {
+				invocation.Status = "NOTIFIED"
+			} else {
+				invocation.Status = "PENDING"
+			}
+		}
 		s.Invocations[e.EntityID] = invocation
-		s.InvocationDeliveries[p.DeliveryID] = model.InvocationDelivery{
-			ID: p.DeliveryID, InvocationID: e.EntityID, RuntimeID: p.RuntimeID,
-			Attempt: p.Attempt, Status: status, FailedAt: &now, NextRetryAt: p.NextRetry, Error: p.Error,
-		}
+		delivery := s.InvocationDeliveries[p.DeliveryID]
+		delivery.Status = status
+		delivery.FailedAt = &now
+		delivery.NextRetryAt = p.NextRetry
+		delivery.Error = p.Error
+		s.InvocationDeliveries[p.DeliveryID] = delivery
 	case *model.RuntimeRegistered:
 		s.AgentRuntimes[e.EntityID] = model.AgentRuntime{
-			ID: e.EntityID, AgentID: p.AgentID, Connector: p.Connector,
-			ConfigReference: p.ConfigReference, Status: "OFFLINE", Health: "UNKNOWN",
+			ID: e.EntityID, AgentID: p.AgentID, Kind: effectiveRuntimeKind(p.Kind, p.Connector),
+			Connector: p.Connector, ConfigReference: p.ConfigReference, HostID: p.HostID,
+			Status: "OFFLINE", Health: "UNKNOWN",
 			MaxConcurrent: p.MaxConcurrent, Scopes: p.Scopes, Capabilities: p.Capabilities,
 			RegisteredAt: e.Time, LastChangedBy: e.Actor,
 		}
+	case *model.RuntimeConfigured:
+		runtime := s.AgentRuntimes[e.EntityID]
+		runtime.Kind = effectiveRuntimeKind(p.Kind, p.Connector)
+		runtime.Connector = p.Connector
+		runtime.ConfigReference = p.ConfigReference
+		runtime.HostID = p.HostID
+		runtime.EndpointID = ""
+		runtime.MaxConcurrent = p.MaxConcurrent
+		runtime.Scopes = p.Scopes
+		runtime.Capabilities = p.Capabilities
+		runtime.Status = "OFFLINE"
+		runtime.Health = "UNKNOWN"
+		runtime.Reason = ""
+		runtime.LastChangedBy = e.Actor
+		s.AgentRuntimes[e.EntityID] = runtime
 	case *model.RuntimeHeartbeat:
 		runtime := s.AgentRuntimes[e.EntityID]
 		runtime.Status = "ONLINE"
 		runtime.Health = p.Health
+		runtime.EndpointID = p.EndpointID
 		runtime.ActiveInvocations = p.ActiveInvocations
 		runtime.LastSeenAt = e.Time
 		runtime.LastChangedBy = e.Actor
@@ -251,11 +299,8 @@ func ApplyEvent(s *model.State, e model.Event) error {
 			a := s.Agents[e.EntityID]
 			a.Status = "REVOKED"
 			s.Agents[e.EntityID] = a
-			// Cascade to this agent's own runtimes so the interactive-serve
-			// wake-up path (internal/app/app.go's notifyInteractiveTarget /
-			// interactiveRuntimeCandidates) stops trying to wake them -- that
-			// path checks runtime Status only, never the owning agent's
-			// Status.
+			// Cascade revocation to the principal's runtimes so neither the
+			// delivery coordinator nor a consumer can route new work to them.
 			for rid, rt := range s.AgentRuntimes {
 				if rt.AgentID == e.EntityID && rt.Status != "REVOKED" {
 					rt.Status, rt.Reason, rt.LastChangedBy = "REVOKED", "agent revoked", e.Actor
@@ -266,6 +311,11 @@ func ApplyEvent(s *model.State, e model.Event) error {
 		}
 		runtime := s.AgentRuntimes[e.EntityID]
 		switch e.Type {
+		case "runtime.offline":
+			runtime.Status = "OFFLINE"
+			runtime.Health = "UNKNOWN"
+			runtime.EndpointID = ""
+			runtime.ActiveInvocations = nil
 		case "runtime.drain":
 			runtime.Status = "DRAINING"
 		case "runtime.resume":
@@ -277,10 +327,22 @@ func ApplyEvent(s *model.State, e model.Event) error {
 		runtime.LastChangedBy = e.Actor
 		s.AgentRuntimes[e.EntityID] = runtime
 	case *model.InvocationPolicyUpdated:
+		defaultConsumer := effectiveConsumerMode(p.DefaultConsumerMode)
+		allowedConsumers := p.AllowedConsumerModes
+		if len(allowedConsumers) == 0 {
+			allowedConsumers = []model.ConsumerMode{
+				model.ConsumerModeInteractiveOnly,
+				model.ConsumerModeWorkerOnly,
+				model.ConsumerModeEither,
+			}
+		}
 		s.InvocationPolicies[e.EntityID] = model.InvocationPolicy{
 			AgentID: e.EntityID, Mode: p.Mode, TrustedActors: p.TrustedActors,
-			AllowedScopes: p.AllowedScopes, RequireHumanForSensitive: p.RequireHumanForSensitive,
-			UpdatedBy: e.Actor, UpdatedAt: e.Time,
+			AllowedScopes: p.AllowedScopes, DefaultConsumerMode: defaultConsumer,
+			AllowedConsumerModes:          allowedConsumers,
+			PreferredInteractiveRuntimeID: p.PreferredInteractiveRuntimeID,
+			RequireHumanForSensitive:      p.RequireHumanForSensitive,
+			UpdatedBy:                     e.Actor, UpdatedAt: e.Time,
 		}
 	case *model.ProjectSettingsUpdated:
 		s.ProjectSettings = model.ProjectSettings{
@@ -355,6 +417,32 @@ func defaultRisk(v string) string {
 		return "ROUTINE"
 	}
 	return strings.ToUpper(v)
+}
+func effectiveRuntimeKind(kind model.RuntimeKind, connector string) model.RuntimeKind {
+	if kind != "" {
+		return kind
+	}
+	if strings.EqualFold(connector, "INTERACTIVE") {
+		return model.RuntimeKindInteractive
+	}
+	return model.RuntimeKindWorker
+}
+func effectiveConsumerMode(mode model.ConsumerMode) model.ConsumerMode {
+	switch mode {
+	case model.ConsumerModeInteractiveOnly, model.ConsumerModeWorkerOnly, model.ConsumerModeEither:
+		return mode
+	default:
+		return model.ConsumerModeEither
+	}
+}
+func hasSuccessfulDelivery(state model.State, invocationID string) bool {
+	for _, delivery := range state.InvocationDeliveries {
+		if delivery.InvocationID == invocationID &&
+			(delivery.Status == "SUCCEEDED" || delivery.Status == "NOTIFIED") {
+			return true
+		}
+	}
+	return false
 }
 func initialRecipientStatus(kind string) string {
 	if kind == "FYI" {

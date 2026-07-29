@@ -35,6 +35,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // ServeOptions configures Serve. Defined here, with no build tag, so both
@@ -141,6 +142,29 @@ func TryDeliver(ctx context.Context, projectRoot, runtimeID, message string) err
 	return deliver(ctx, projectRoot, runtimeID, "try-deliver", message)
 }
 
+type DeliveryReceipt struct {
+	TextEchoedAt time.Time
+	EnterSentAt  time.Time
+}
+
+func TryDeliverWithEvidence(ctx context.Context, projectRoot, runtimeID, message string) (DeliveryReceipt, error) {
+	if strings.ContainsAny(message, "\n\r") {
+		return DeliveryReceipt{}, errors.New("interactiveserve: message must be a single line")
+	}
+	resp, err := call(ctx, SocketPath(projectRoot, runtimeID), Request{Kind: "try-deliver", Message: message})
+	if err != nil {
+		return DeliveryReceipt{}, fmt.Errorf("interactiveserve: deliver to %q: %w", runtimeID, err)
+	}
+	if !resp.OK {
+		return DeliveryReceipt{}, fmt.Errorf("interactiveserve: %q refused delivery: %s", runtimeID, resp.Error)
+	}
+	if resp.TextEchoedAt == nil || resp.EnterSentAt == nil ||
+		resp.EnterSentAt.Before(*resp.TextEchoedAt) {
+		return DeliveryReceipt{}, errors.New("interactiveserve: successful delivery omitted valid PTY evidence")
+	}
+	return DeliveryReceipt{TextEchoedAt: *resp.TextEchoedAt, EnterSentAt: *resp.EnterSentAt}, nil
+}
+
 func deliver(ctx context.Context, projectRoot, runtimeID, kind, message string) error {
 	if strings.ContainsAny(message, "\n\r") {
 		return errors.New("interactiveserve: message must be a single line; Deliver sends one line of terminal input followed by one Enter, not a multi-line paste")
@@ -163,9 +187,14 @@ func deliver(ctx context.Context, projectRoot, runtimeID, kind, message string) 
 // limited to "wake up and look," never a second, unaudited path for
 // instruction content to reach the runtime.
 func NotifyInvocation(ctx context.Context, projectRoot, targetRuntimeID, targetAgentID, invocationID, requestedBy string) error {
+	_, err := NotifyInvocationWithEvidence(ctx, projectRoot, targetRuntimeID, targetAgentID, invocationID, requestedBy)
+	return err
+}
+
+func NotifyInvocationWithEvidence(ctx context.Context, projectRoot, targetRuntimeID, targetAgentID, invocationID, requestedBy string) (DeliveryReceipt, error) {
 	message := fmt.Sprintf(
 		"Agent Comms: new invocation %q is pending for you (requested by %s). Run agent-comms invocation list --status PENDING --to %s --json to see it, then handle it per your existing protocol.",
 		invocationID, requestedBy, targetAgentID,
 	)
-	return TryDeliver(ctx, projectRoot, targetRuntimeID, message)
+	return TryDeliverWithEvidence(ctx, projectRoot, targetRuntimeID, message)
 }

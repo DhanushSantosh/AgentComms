@@ -142,12 +142,14 @@ func (s *Service) ListenInvocation(actor, runtimeID string, wait time.Duration) 
 }
 
 func SelectNextInvocation(state model.State, actor, runtimeID string, now time.Time) (model.Invocation, bool) {
+	var selectedRuntime model.AgentRuntime
 	if runtimeID != "" {
 		runtime, exists := state.AgentRuntimes[runtimeID]
-		if !exists || runtime.AgentID != actor || runtime.Status == "DRAINING" ||
-			runtime.Status == "REVOKED" || len(runtime.ActiveInvocations) >= runtime.MaxConcurrent {
+		if !exists || runtime.AgentID != actor || runtime.Status != "ONLINE" ||
+			runtimeLoad(state, runtimeID) >= runtime.MaxConcurrent {
 			return model.Invocation{}, false
 		}
+		selectedRuntime = runtime
 	}
 	var selected model.Invocation
 	found := false
@@ -155,6 +157,25 @@ func SelectNextInvocation(state model.State, actor, runtimeID string, now time.T
 	for _, invocation := range state.Invocations {
 		if invocation.Target != actor || (invocation.Status != "PENDING" && invocation.Status != "NOTIFIED") {
 			continue
+		}
+		consumerMode := invocation.ConsumerMode
+		if consumerMode == "" {
+			consumerMode = model.ConsumerModeEither
+		}
+		if runtimeID == "" {
+			if consumerMode != model.ConsumerModeEither || invocation.PreferredRuntimeID != "" {
+				continue
+			}
+		} else {
+			kind := selectedRuntime.Kind
+			if kind == "" {
+				kind = model.RuntimeKindWorker
+			}
+			if (consumerMode == model.ConsumerModeInteractiveOnly && kind != model.RuntimeKindInteractive) ||
+				(consumerMode == model.ConsumerModeWorkerOnly && kind != model.RuntimeKindWorker) ||
+				(invocation.PreferredRuntimeID != "" && invocation.PreferredRuntimeID != runtimeID) {
+				continue
+			}
 		}
 		if invocation.Deadline != nil && !invocation.Deadline.After(now) {
 			continue
@@ -167,6 +188,100 @@ func SelectNextInvocation(state model.State, actor, runtimeID string, now time.T
 		}
 	}
 	return selected, found
+}
+
+func runtimeLoad(state model.State, runtimeID string) int {
+	load := 0
+	for _, invocation := range state.Invocations {
+		if invocation.RuntimeID == runtimeID &&
+			(invocation.Status == "CLAIMED" || invocation.Status == "RUNNING" ||
+				invocation.Status == "WAITING") {
+			load++
+		}
+	}
+	return load
+}
+
+type InvocationDeliveryResult struct {
+	Outcome    string                   `json:"outcome"`
+	Invocation string                   `json:"invocation_id"`
+	DeliveryID string                   `json:"delivery_id,omitempty"`
+	RuntimeID  string                   `json:"runtime_id,omitempty"`
+	Transport  string                   `json:"transport,omitempty"`
+	Evidence   []model.DeliveryEvidence `json:"evidence,omitempty"`
+	Error      string                   `json:"error,omitempty"`
+}
+
+func SummarizeInvocationDelivery(
+	state model.State,
+	invocationID string,
+	deliveryID string,
+	localHostID string,
+) (InvocationDeliveryResult, bool) {
+	invocation, exists := state.Invocations[invocationID]
+	if !exists {
+		return InvocationDeliveryResult{}, false
+	}
+	var selected model.InvocationDelivery
+	found := false
+	for _, delivery := range state.InvocationDeliveries {
+		if delivery.InvocationID != invocationID ||
+			(deliveryID != "" && delivery.ID != deliveryID) {
+			continue
+		}
+		if !found || delivery.Attempt > selected.Attempt {
+			selected = delivery
+			found = true
+		}
+	}
+	result := InvocationDeliveryResult{Invocation: invocationID}
+	if !found {
+		mode := invocation.ConsumerMode
+		if mode == "" {
+			mode = model.ConsumerModeEither
+		}
+		if mode != model.ConsumerModeInteractiveOnly {
+			result.Outcome = "PENDING_CONSUMER"
+			return result, true
+		}
+		eligibleInteractive := 0
+		for _, runtimeState := range state.AgentRuntimes {
+			if runtimeState.AgentID == invocation.Target &&
+				runtimeState.Kind == model.RuntimeKindInteractive &&
+				runtimeState.Connector == "INTERACTIVE" &&
+				runtimeState.Status == "ONLINE" &&
+				localHostID != "" && runtimeState.HostID == localHostID {
+				eligibleInteractive++
+			}
+		}
+		if invocation.PreferredRuntimeID == "" && eligibleInteractive > 1 {
+			result.Outcome = "AMBIGUOUS"
+			result.Error = "multiple local interactive runtimes are eligible; select a preferred runtime"
+		} else {
+			result.Outcome = "UNAVAILABLE"
+			result.Error = "no compatible local interactive delivery completed"
+		}
+		return result, true
+	}
+	result.DeliveryID = selected.ID
+	result.RuntimeID = selected.RuntimeID
+	result.Transport = selected.Transport
+	result.Evidence = selected.Evidence
+	result.Error = selected.Error
+	switch selected.Status {
+	case "SUCCEEDED":
+		result.Outcome = "SUCCEEDED"
+	case "NOTIFIED":
+		result.Outcome = "LEGACY_UNVERIFIED"
+		if result.Error == "" {
+			result.Error = "legacy notification has no transport evidence"
+		}
+	case "ATTEMPTED":
+		result.Outcome = "ATTEMPTED"
+	default:
+		result.Outcome = "UNAVAILABLE"
+	}
+	return result, true
 }
 
 func (s *Service) History(page controlplane.PageRequest) (controlplane.EventPage, error) {

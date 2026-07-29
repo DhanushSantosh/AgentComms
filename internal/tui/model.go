@@ -502,7 +502,8 @@ func (m Model) renderBody(p palette, w, h int) string {
 			m.agentList.View(p, m.state, m.actor, contentW, max(5, contentH-4))
 	case "Invocations":
 		bodyContent = m.invocationControlBar(p, contentW) + "\n\n" +
-			m.invocationList.View(p, m.state, m.actor, contentW, max(5, contentH-4))
+			m.invocationList.View(p, m.state, m.actor, contentW, max(5, contentH-10)) + "\n\n" +
+			m.invocationDeliveryDetails(p, contentW)
 	case "Runtimes":
 		bodyContent = m.runtimeList.View(p, m.state, m.actor, contentW, contentH)
 	case "Approvals":
@@ -714,10 +715,13 @@ func (m Model) attention(p palette) string {
 		switch invocation.Status {
 		case "WAITING":
 			rows = append(rows, "◫ "+invocation.ID+"  "+invocation.Target+" waits: "+invocation.Reason)
-		case "DEAD_LETTER":
-			rows = append(rows, "✕ "+invocation.ID+"  delivery failed: "+invocation.Reason)
 		case "PENDING":
 			rows = append(rows, "→ "+invocation.ID+"  pending delivery to "+invocation.Target)
+		}
+	}
+	for _, delivery := range m.state.InvocationDeliveries {
+		if delivery.Status == "FAILED" || delivery.Status == "EXHAUSTED" {
+			rows = append(rows, "✕ "+delivery.InvocationID+"  delivery failed: "+delivery.Error)
 		}
 	}
 	for _, runtime := range m.state.AgentRuntimes {

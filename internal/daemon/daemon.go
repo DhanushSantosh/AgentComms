@@ -171,6 +171,24 @@ func (d *Daemon) command(w http.ResponseWriter, r *http.Request) {
 		writeControlError(w, &controlplane.Error{Code: controlplane.CodeValidation, Message: "path and command project IDs differ"})
 		return
 	}
+	if d.dispatcher != nil && (command.Type == "runtime.register" || command.Type == "runtime.configure") {
+		decoded, decodeErr := model.DecodePayload(command.Type, command.Payload)
+		if decodeErr != nil {
+			writeControlError(w, &controlplane.Error{Code: controlplane.CodeValidation, Message: decodeErr.Error()})
+			return
+		}
+		var connector, configReference, hostID string
+		switch runtimePayload := decoded.(type) {
+		case *model.RuntimeRegistered:
+			connector, configReference, hostID = runtimePayload.Connector, runtimePayload.ConfigReference, runtimePayload.HostID
+		case *model.RuntimeConfigured:
+			connector, configReference, hostID = runtimePayload.Connector, runtimePayload.ConfigReference, runtimePayload.HostID
+		}
+		if validationErr := d.dispatcher.ValidateRuntime(connector, configReference, hostID); validationErr != nil {
+			writeControlError(w, &controlplane.Error{Code: controlplane.CodeValidation, Message: validationErr.Error()})
+			return
+		}
+	}
 	event, receipt, err := d.remote.Command(r.Context(), command)
 	if err != nil {
 		writeControlError(w, err)
@@ -186,9 +204,33 @@ func (d *Daemon) command(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	response := map[string]any{
 		"event": event, "metadata": d.metadata(event.Sequence, &receipt),
-	})
+	}
+	if d.dispatcher != nil &&
+		(command.Type == "invocation.request" || command.Type == "invocation.delivery-attempt") {
+		state, _, stateErr := d.cache.State(r.Context(), command.ProjectID)
+		if stateErr == nil {
+			service.RefreshRuntimePresence(&state, time.Now().UTC())
+			if command.Type == "invocation.request" {
+				stateErr = d.dispatcher.Dispatch(r.Context(), command.ProjectID, state)
+			} else {
+				decoded, decodeErr := model.DecodePayload(command.Type, event.Payload)
+				if decodeErr != nil {
+					stateErr = decodeErr
+				} else {
+					attempt := decoded.(*model.InvocationDeliveryAttempted)
+					stateErr = d.dispatcher.DeliverAttempt(
+						r.Context(), command.ProjectID, command.EntityID, attempt.DeliveryID, state,
+					)
+				}
+			}
+		}
+		if stateErr != nil {
+			response["delivery_error"] = stateErr.Error()
+		}
+	}
+	writeJSON(w, http.StatusOK, response)
 }
 
 func (d *Daemon) state(w http.ResponseWriter, r *http.Request) {
@@ -405,7 +447,7 @@ func (d *Daemon) submitConnectorCommand(ctx context.Context, projectID, actor, e
 		return err
 	}
 	if err = d.cache.Apply(ctx, event, receipt); err != nil {
-		return d.Sync(ctx, projectID)
+		return fmt.Errorf("apply connector event to local cache: %w", err)
 	}
 	return nil
 }

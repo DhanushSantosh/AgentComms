@@ -1,10 +1,16 @@
 package tui
 
 import (
+	"context"
+	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/table"
+	"github.com/DhanushSantosh/AgentComms/internal/daemon"
+	"github.com/DhanushSantosh/AgentComms/internal/identity"
+	"github.com/DhanushSantosh/AgentComms/internal/interactiveserve"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 	"github.com/DhanushSantosh/AgentComms/internal/service"
 	"github.com/DhanushSantosh/AgentComms/internal/sessionbind"
@@ -16,6 +22,7 @@ var runtimeRegisterForm = &ActionForm{
 	Fields: []FormField{
 		{Label: "Runtime ID", Placeholder: "builder-local", Required: true},
 		{Label: "Agent ID", Placeholder: "builder", Required: true},
+		{Label: "Kind (WORKER/INTERACTIVE)", Placeholder: "WORKER", Required: true},
 		{Label: "Connector", Placeholder: "MCP", Required: true},
 		{Label: "Config reference", Placeholder: "builder-local"},
 		{Label: "Max concurrent", Placeholder: "1", Required: true},
@@ -23,17 +30,58 @@ var runtimeRegisterForm = &ActionForm{
 		{Label: "Capabilities (comma-separated)", Placeholder: "go,test"},
 	},
 	Build: func(values []string) (any, error) {
-		maxConcurrent, err := strconv.Atoi(values[4])
+		maxConcurrent, err := strconv.Atoi(values[5])
 		if err != nil {
 			return nil, err
 		}
+		kind := model.RuntimeKind(strings.ToUpper(values[2]))
+		hostID := ""
+		if kind == model.RuntimeKindInteractive || strings.EqualFold(values[3], "INTERACTIVE") {
+			hostID, err = identity.LoadOrCreateHostID()
+			if err != nil {
+				return nil, err
+			}
+		}
 		return model.RuntimeRegistered{
-			AgentID: values[1], Connector: strings.ToUpper(values[2]),
-			ConfigReference: values[3], MaxConcurrent: maxConcurrent,
-			Scopes: splitCSV(values[5]), Capabilities: splitCSV(values[6]),
+			AgentID: values[1], Kind: kind, Connector: strings.ToUpper(values[3]),
+			ConfigReference: values[4], HostID: hostID, MaxConcurrent: maxConcurrent,
+			Scopes: splitCSV(values[6]), Capabilities: splitCSV(values[7]),
 		}, nil
 	},
 	ResolveID: func(_ string, values []string) string { return values[0] },
+}
+
+var runtimeConfigureForm = &ActionForm{
+	Title: "Configure runtime",
+	Hint:  "The runtime must be offline or draining with no active invocation.",
+	Fields: []FormField{
+		{Label: "Kind (WORKER/INTERACTIVE)", Placeholder: "WORKER", Required: true},
+		{Label: "Connector", Placeholder: "MANUAL", Required: true},
+		{Label: "Config reference", Placeholder: ""},
+		{Label: "Max concurrent", Placeholder: "1", Required: true},
+		{Label: "Scopes (comma-separated)", Placeholder: "src"},
+		{Label: "Capabilities (comma-separated)", Placeholder: "go,test"},
+	},
+	Build: func(values []string) (any, error) {
+		maxConcurrent, err := strconv.Atoi(values[3])
+		if err != nil {
+			return nil, err
+		}
+		kind := model.RuntimeKind(strings.ToUpper(values[0]))
+		connector := strings.ToUpper(values[1])
+		hostID := ""
+		if kind == model.RuntimeKindInteractive || connector == "INTERACTIVE" {
+			hostID, err = identity.LoadOrCreateHostID()
+			if err != nil {
+				return nil, err
+			}
+		}
+		return model.RuntimeConfigured{
+			Kind: kind, Connector: connector, ConfigReference: values[2],
+			HostID: hostID, MaxConcurrent: maxConcurrent,
+			Scopes: splitCSV(values[4]), Capabilities: splitCSV(values[5]),
+		}, nil
+	},
 }
 
 var (
@@ -51,16 +99,22 @@ var (
 		Payload: func() any { return model.RuntimeStatusChanged{Reason: "revoked from control room"} },
 		Prompt:  func(id string) string { return "Revoke " + id + "? This runtime cannot reconnect." },
 	}
+	runtimeConfigure = RowAction{
+		Key: "c", Label: "configure", EventType: "runtime.configure",
+		Form: runtimeConfigureForm,
+	}
 )
 
 type runtimeRowSource struct{ root string }
 
 func (runtimeRowSource) Columns(width int) []table.Column {
-	status, health, agent, connector, load, provider, session := 11, 10, 15, 15, 9, 9, 38
-	reference := max(12, width-status-health-agent-connector-load-provider-session)
+	status, health, agent, kind, connector, pty, configHealth, load, provider, session := 11, 10, 14, 12, 14, 12, 14, 9, 9, 26
+	reference := max(12, width-status-health-agent-kind-connector-pty-configHealth-load-provider-session)
 	return []table.Column{
 		{Title: "STATUS", Width: status}, {Title: "HEALTH", Width: health},
-		{Title: "AGENT", Width: agent}, {Title: "CONNECTOR", Width: connector},
+		{Title: "AGENT", Width: agent}, {Title: "KIND", Width: kind},
+		{Title: "CONNECTOR", Width: connector}, {Title: "LOCAL PTY", Width: pty},
+		{Title: "CONFIG HEALTH", Width: configHealth},
 		{Title: "LOAD", Width: load}, {Title: "PROVIDER", Width: provider},
 		{Title: "SESSION / THREAD ID", Width: session}, {Title: "CONFIG", Width: reference},
 	}
@@ -69,16 +123,71 @@ func (runtimeRowSource) Columns(width int) []table.Column {
 func (r runtimeRowSource) Rows(state model.State, _ string, _ bool) []table.Row {
 	ids := service.SortedKeys(state.AgentRuntimes)
 	rows := make([]table.Row, 0, len(ids))
+	localHostID, _ := identity.LoadOrCreateHostID()
+	configPath := strings.TrimSpace(os.Getenv("AGENT_COMMS_CONNECTOR_CONFIG"))
+	configs, configErr := daemon.LoadConnectorConfigs(configPath)
 	for _, id := range ids {
 		runtime := state.AgentRuntimes[id]
 		provider, session := r.sessionBinding(id)
+		kind := runtime.Kind
+		if kind == "" {
+			kind = model.RuntimeKindWorker
+		}
+		ptyState := "—"
+		if kind == model.RuntimeKindInteractive {
+			if runtime.HostID != localHostID {
+				ptyState = "foreign host"
+			} else {
+				ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+				alive, busy := interactiveserve.Probe(ctx, r.root, id)
+				cancel()
+				switch {
+				case alive && busy:
+					ptyState = "live · busy"
+				case alive:
+					ptyState = "live · idle"
+				default:
+					ptyState = "not dialable"
+				}
+			}
+		}
 		rows = append(rows, table.Row{
-			runtime.Status, runtime.Health, runtime.AgentID, runtime.Connector,
+			runtime.Status, runtime.Health, runtime.AgentID, string(kind), runtime.Connector, ptyState,
+			runtimeConfigurationHealth(runtime, configs, configPath, configErr),
 			strconv.Itoa(len(runtime.ActiveInvocations)) + "/" + strconv.Itoa(runtime.MaxConcurrent),
 			provider, session, runtime.ConfigReference,
 		})
 	}
 	return rows
+}
+
+func runtimeConfigurationHealth(
+	runtime model.AgentRuntime,
+	configs map[string]daemon.ConnectorConfig,
+	configPath string,
+	configErr error,
+) string {
+	if runtime.Kind == model.RuntimeKindInteractive || runtime.Connector == "INTERACTIVE" {
+		if runtime.Kind == model.RuntimeKindInteractive && runtime.Connector == "INTERACTIVE" &&
+			runtime.HostID != "" && runtime.MaxConcurrent == 1 {
+			return "valid"
+		}
+		return "mismatch"
+	}
+	if runtime.Connector != "LOCAL_PROCESS" && runtime.Connector != "WEBHOOK" {
+		return "not required"
+	}
+	if configPath == "" {
+		return "unavailable"
+	}
+	if configErr != nil {
+		return "invalid file"
+	}
+	config, exists := configs[runtime.ConfigReference]
+	if runtime.ConfigReference == "" || !exists || config.Type != runtime.Connector {
+		return "missing"
+	}
+	return "valid"
 }
 
 // sessionBinding shows exactly which AI service provider and conversation a
@@ -124,13 +233,19 @@ func (runtimeRowSource) Actions(id string, state model.State, actor string) []Ro
 	}
 	switch runtime.Status {
 	case "DRAINING":
-		actions := []RowAction{runtimeResume}
+		actions := []RowAction{runtimeResume, runtimeConfigure}
 		if elevated {
 			actions = append(actions, runtimeRevoke)
 		}
 		return actions
 	case "REVOKED":
 		return nil
+	case "OFFLINE":
+		actions := []RowAction{runtimeDrain, runtimeConfigure}
+		if elevated {
+			actions = append(actions, runtimeRevoke)
+		}
+		return actions
 	default:
 		actions := []RowAction{runtimeDrain}
 		if elevated {

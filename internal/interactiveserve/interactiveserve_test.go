@@ -55,7 +55,9 @@ func TestNotifyInvocationMentionsIDAndTarget(t *testing.T) {
 	var gotMessage string
 	go serveOneRequest(t, listener, func(req Request) Response {
 		gotMessage = req.Message
-		return Response{OK: true}
+		echoedAt := time.Now().UTC()
+		enterSentAt := echoedAt.Add(time.Millisecond)
+		return Response{OK: true, TextEchoedAt: &echoedAt, EnterSentAt: &enterSentAt}
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

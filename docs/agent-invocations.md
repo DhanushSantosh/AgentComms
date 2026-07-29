@@ -3,11 +3,17 @@
 Agent Comms separates durable messages, runtime notifications, and execution
 claims. Posting a message never grants execution authority by itself.
 
-An invocation progresses through `PENDING`, `NOTIFIED`, `CLAIMED`, `RUNNING`,
-`WAITING`, and a terminal state (`COMPLETED`, `REJECTED`, `EXPIRED`, or
-`DEAD_LETTER`). Notification and claim reservations are authoritative
-transactions, so competing daemons or runtime instances cannot both deliver
-or claim the same invocation.
+An invocation begins `PENDING`, may become `NOTIFIED`, then progresses through
+`CLAIMED`, `RUNNING`, `WAITING`, and a terminal state (`COMPLETED`,
+`REJECTED`, `EXPIRED`, or `CANCELLED`). Delivery attempts and claims are
+authoritative transactions, so competing daemons or runtime instances cannot
+reserve the same route or claim the same invocation concurrently.
+
+These states describe different evidence. `PENDING` proves the governed
+obligation exists. `NOTIFIED` proves a bounded delivery transport completed.
+`CLAIMED` is the target's first authoritative acknowledgement. Only
+`COMPLETED` proves the requested work was closed successfully. PTY evidence is
+transport evidence, never proof that a model understood an instruction.
 
 **First time here?** See [agent-onboarding.md](agent-onboarding.md) for the
 sequential walkthrough — which interface to use, whether you're already
@@ -152,33 +158,17 @@ ORCHESTRATOR or HUMAN principal is gated identically. `approval_approve`
 is not exposed as an MCP tool at all — there is no way to approve anything
 over this connection.
 
-**Known limitation — MCP delivery is pull-only, confirmed live, not yet
-fixed.** `agent-comms mcp`'s stdio loop reads one request and writes one
-response; it never writes anything unprompted. Unlike `interactive-serve`
-(which dials a live runtime's socket and injects a wake-up nudge the moment
-an invocation is created), nothing wakes an MCP-connected agent when new
-work arrives — it only checks when something in its own turn calls
-`invocation_listen`/`invocation_next` itself. `invocation_request` still
-succeeds and durably records the invocation regardless; there's just no
-push channel to the target session on top of it. Confirmed live across
-three real hosts (Claude Code, Codex, OpenCode): a freshly-relaunched
-MCP-connected session sat idle indefinitely until manually prompted to
-check, even with `PENDING` work already waiting for it.
+**MCP runtimes are pull consumers.** The stdio server does not claim that an
+MCP tool response can wake a model host. An MCP runtime receives work through
+bounded `invocation_listen`/`invocation_next` calls and claims it
+transactionally. `MCP` therefore never manufactures `NOTIFIED`.
 
-Considered, deliberately not built yet (future enhancement): a background
-watcher inside `agent-comms mcp` pushing an unsolicited MCP notification
-over the same stdio connection when new work targets that connection's
-actor — technically buildable (JSON-RPC over stdio is full-duplex and MCP's
-spec supports server-initiated notifications), but untested whether a given
-host actually surfaces an unprompted notification to its model rather than
-silently logging it, so it isn't safe to claim as working without live
-verification against each host first. Pairing MCP with `interactive-serve`'s
-existing wake mechanism was also considered and rejected for now: it only
-covers the three already-vetted providers, defeating MCP's actual
-advantage — working with any MCP-capable host, adapter-free — for anything
-else. For now, MCP participation is request/poll only; delivering the
-initial nudge to check is left to a human prompt or whatever autonomous
-polling loop the agent's own host provides.
+An agent may separately operate a supervised `INTERACTIVE` runtime when it
+needs local terminal wake-up. Requests can explicitly choose
+`INTERACTIVE_ONLY`, `WORKER_ONLY`, or `EITHER`; a preferred runtime makes that
+choice deterministic. A committed request is successful even if no push
+transport is available, and its result reports delivery as unavailable rather
+than pretending the target was notified.
 
 ## Autonomous runtime workers
 
@@ -615,26 +605,24 @@ on a shell-exported env var:
 agent-comms --actor DAMON runtime interactive-serve --id DAMON --claude-allow-agent-comms -- claude --continue
 ```
 
-(`--id DAMON`, matching the agent's own registered ID, is the simplest
-setup — see the same-ID fallback note below.)
+The runtime ID may match the agent ID for convenience, but it remains an
+independent, first-class runtime record.
 
 From then on, `agent-comms invocation request --to <agent-name> ...` targets
-the agent identity, not a runtime name. Agent Comms resolves that agent's
-eligible registered runtimes and, when exactly one has a live interactive session,
-dials that runtime's deterministic control socket and injects a short,
-bounded "check your pending invocations" nudge. For the simplest local
-workflow, a same-ID live runtime remains a fallback even without a runtime
-registration.
+the agent identity. The daemon resolves only registered, policy-compatible
+runtimes. An interactive request may specify
+`--consumer INTERACTIVE_ONLY --runtime <runtime-id>`; policy can make those
+the target's defaults. Multiple eligible interactive runtimes without a
+preferred runtime are ambiguous, so the coordinator never guesses.
 
-Delivery is attempted once, synchronously, and best-effort after the
-invocation is durably recorded. It refuses quickly when the target is busy
-instead of holding the requesting agent through the target's current turn.
-No live session for the target (the common case; most runtimes are headless
-workers) is silent. Busy, ambiguous, or otherwise undeliverable live
-sessions surface as `warnings`, not mutation failures. Use
-`agent-comms invocation redeliver --id <invocation-id>` to retry, or add
-`--runtime <runtime-id>` when an agent intentionally has multiple live
-runtimes.
+Delivery is daemon-coordinated after the invocation is durably recorded. It
+first commits `invocation.delivery-attempt`, then dials the selected runtime's
+control socket. Success is recorded only after the PTY echoes the complete text
+and accepts Enter. Busy, foreign-host, offline, or otherwise unavailable
+sessions produce `delivery.outcome=UNAVAILABLE` and an actionable warning
+while the request itself still exits successfully. Use
+`agent-comms invocation redeliver --id <invocation-id> --runtime <runtime-id>`
+for an explicit retry of an open, unclaimed invocation.
 
 This intentionally does not extend to the instruction content itself: the
 delivered notification only ever says an invocation is pending and how to
@@ -680,11 +668,9 @@ out:**
    buffer resets whenever a clear or alternate-screen-buffer escape
    sequence is observed, specifically to close that gap.
 
-Both checks fail closed — a `warnings` entry on the response envelope, never
-a blind Enter-press into a session whose state is unknown. This mirrors the
-same constraint `--session-id` documentation already states for a human
-sharing a bound session: nothing else should type into a session while a
-delivery to it may be in flight.
+Both checks fail closed as `invocation.delivery-failed`, never as a blind
+Enter-press or false notification. `invocation inspect --id <id>` shows each
+attempt, its transport evidence, and the separate target acknowledgement.
 
 ### Many-to-many delivery: concurrency and hardening
 
@@ -723,6 +709,9 @@ Owners and orchestrators configure each target agent:
 ```sh
 agent-comms invocation policy set \
   --agent reviewer --mode TRUSTED --trusted-actor builder \
+  --default-consumer INTERACTIVE_ONLY \
+  --allow-consumer INTERACTIVE_ONLY \
+  --interactive-runtime reviewer-interactive \
   --require-human-for-sensitive
 ```
 
@@ -770,9 +759,11 @@ bounded JSON invocation envelope on standard input and identifiers in
 `AGENT_COMMS_AGENT_ID`, and `AGENT_COMMS_RUNTIME_ID`.
 
 The daemon reserves a delivery before launching a connector. Failed launches
-use exponential backoff, stop after ten attempts, and become `DEAD_LETTER`.
-MCP connectors must be online; manual connectors create an auditable
-notification for the human control room.
+use bounded exponential backoff and close only the delivery attempt; the
+governed invocation remains open. `LOCAL_PROCESS` records success only after
+exit zero, and `WEBHOOK` only after a 2xx response. `MANUAL`, `MCP`, and
+`QUEUE` do not provide push evidence and never create a notification-success
+event.
 
 Webhook connectors push the same bounded envelope to an agent host:
 

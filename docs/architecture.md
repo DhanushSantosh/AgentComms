@@ -18,6 +18,11 @@ connectivity. It requires no listening TCP port, container runtime, or database
 server. SQLite database files and the signing key are user-private; the key is
 stored in the platform credential store.
 
+The daemon also owns invocation wake-up delivery. It reserves an authoritative
+delivery attempt before touching a connector and records success only after
+bounded connector or PTY evidence exists. Request commitment, transport
+delivery, target claim, and completion remain separate facts.
+
 Personal mode coordinates concurrent processes on one machine. It does not
 claim multi-host availability or PostgreSQL service-mode load targets.
 
@@ -43,6 +48,10 @@ server sequence, and cache sequence over a Unix socket or Windows named pipe.
 Governed mutations require the authority. Offline documents, message bodies,
 and artifact metadata are explicitly bounded drafts, not events or current
 truth.
+
+Interactive runtimes are host-local supervised sessions. A random
+per-installation host ID prevents one host from treating another host's PTY as
+local. Cross-host terminal relay is intentionally not provided.
 
 The HTTP authority applies request-size limits, bounded admission, per-actor
 and per-project rate limits, opaque pagination cursors, database statement

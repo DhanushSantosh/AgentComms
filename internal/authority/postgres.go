@@ -528,6 +528,8 @@ func decodePayload(eventType string, raw json.RawMessage) (any, error) {
 		return *value, nil
 	case *model.InvocationRequested:
 		return *value, nil
+	case *model.InvocationDeliveryAttempted:
+		return *value, nil
 	case *model.InvocationNotified:
 		return *value, nil
 	case *model.InvocationClaimed:
@@ -543,6 +545,8 @@ func decodePayload(eventType string, raw json.RawMessage) (any, error) {
 	case *model.InvocationDeliveryFailed:
 		return *value, nil
 	case *model.RuntimeRegistered:
+		return *value, nil
+	case *model.RuntimeConfigured:
 		return *value, nil
 	case *model.RuntimeHeartbeat:
 		return *value, nil
@@ -864,13 +868,14 @@ func persistRuntimeChanges(ctx context.Context, tx *sql.Tx, projectID string, se
 			return err
 		}
 		if _, err = tx.ExecContext(ctx, `INSERT INTO agent_runtimes
-			(project_id,runtime_id,agent_id,connector,status,health,last_seen_at,state,updated_sequence)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+			(project_id,runtime_id,agent_id,runtime_kind,connector,host_id,status,health,last_seen_at,state,updated_sequence)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
 			ON CONFLICT (project_id,runtime_id) DO UPDATE SET agent_id=EXCLUDED.agent_id,
-			connector=EXCLUDED.connector,status=EXCLUDED.status,health=EXCLUDED.health,
+			runtime_kind=EXCLUDED.runtime_kind,connector=EXCLUDED.connector,host_id=EXCLUDED.host_id,
+			status=EXCLUDED.status,health=EXCLUDED.health,
 			last_seen_at=EXCLUDED.last_seen_at,state=EXCLUDED.state,updated_sequence=EXCLUDED.updated_sequence`,
-			projectID, id, runtime.AgentID, runtime.Connector, runtime.Status, runtime.Health,
-			nullableTime(runtime.LastSeenAt), raw, sequence); err != nil {
+			projectID, id, runtime.AgentID, runtime.Kind, runtime.Connector, runtime.HostID,
+			runtime.Status, runtime.Health, nullableTime(runtime.LastSeenAt), raw, sequence); err != nil {
 			return err
 		}
 	}
@@ -907,13 +912,16 @@ func persistInvocationChanges(ctx context.Context, tx *sql.Tx, projectID string,
 			return err
 		}
 		if _, err = tx.ExecContext(ctx, `INSERT INTO invocations
-			(project_id,invocation_id,target_id,requested_by,status,deadline,claim_until,state,updated_sequence)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+			(project_id,invocation_id,target_id,requested_by,consumer_mode,preferred_runtime_id,status,deadline,claim_until,state,updated_sequence)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
 			ON CONFLICT (project_id,invocation_id) DO UPDATE SET target_id=EXCLUDED.target_id,
-			requested_by=EXCLUDED.requested_by,status=EXCLUDED.status,deadline=EXCLUDED.deadline,
-			claim_until=EXCLUDED.claim_until,state=EXCLUDED.state,updated_sequence=EXCLUDED.updated_sequence`,
-			projectID, id, invocation.Target, invocation.RequestedBy, invocation.Status,
-			invocation.Deadline, invocation.ClaimUntil, raw, sequence); err != nil {
+			requested_by=EXCLUDED.requested_by,consumer_mode=EXCLUDED.consumer_mode,
+			preferred_runtime_id=EXCLUDED.preferred_runtime_id,status=EXCLUDED.status,
+			deadline=EXCLUDED.deadline,claim_until=EXCLUDED.claim_until,
+			state=EXCLUDED.state,updated_sequence=EXCLUDED.updated_sequence`,
+			projectID, id, invocation.Target, invocation.RequestedBy, invocation.ConsumerMode,
+			invocation.PreferredRuntimeID, invocation.Status, invocation.Deadline,
+			invocation.ClaimUntil, raw, sequence); err != nil {
 			return err
 		}
 	}
@@ -930,13 +938,14 @@ func persistInvocationDeliveryChanges(ctx context.Context, tx *sql.Tx, projectID
 			return err
 		}
 		if _, err = tx.ExecContext(ctx, `INSERT INTO invocation_deliveries
-			(project_id,delivery_id,invocation_id,runtime_id,attempt,status,next_retry_at,state,updated_sequence)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+			(project_id,delivery_id,invocation_id,runtime_id,transport,attempt,status,next_retry_at,state,updated_sequence)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
 			ON CONFLICT (project_id,delivery_id) DO UPDATE SET invocation_id=EXCLUDED.invocation_id,
-			runtime_id=EXCLUDED.runtime_id,attempt=EXCLUDED.attempt,status=EXCLUDED.status,
+			runtime_id=EXCLUDED.runtime_id,transport=EXCLUDED.transport,
+			attempt=EXCLUDED.attempt,status=EXCLUDED.status,
 			next_retry_at=EXCLUDED.next_retry_at,state=EXCLUDED.state,updated_sequence=EXCLUDED.updated_sequence`,
-			projectID, id, delivery.InvocationID, delivery.RuntimeID, delivery.Attempt,
-			delivery.Status, delivery.NextRetryAt, raw, sequence); err != nil {
+			projectID, id, delivery.InvocationID, delivery.RuntimeID, delivery.Transport,
+			delivery.Attempt, delivery.Status, delivery.NextRetryAt, raw, sequence); err != nil {
 			return err
 		}
 	}

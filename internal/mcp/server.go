@@ -3,8 +3,10 @@ package mcp
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 	"time"
 
@@ -16,6 +18,7 @@ import (
 	"github.com/DhanushSantosh/AgentComms/internal/onboarding"
 	"github.com/DhanushSantosh/AgentComms/internal/projectlifecycle"
 	"github.com/DhanushSantosh/AgentComms/internal/service"
+	"github.com/google/uuid"
 )
 
 type request struct {
@@ -71,10 +74,33 @@ func tools() []map[string]any {
 			"id": map[string]any{"type": "string"}, "target": map[string]any{"type": "string"},
 			"instruction":     map[string]any{"type": "string", "maxLength": controlplane.MaxInvocationBytes},
 			"expected_result": map[string]any{"type": "string"}, "message_id": map[string]any{"type": "string"},
-			"task_id":  map[string]any{"type": "string"},
-			"scopes":   map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
-			"priority": map[string]any{"type": "string", "enum": []string{"LOW", "NORMAL", "HIGH", "URGENT"}},
+			"task_id":              map[string]any{"type": "string"},
+			"scopes":               map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+			"priority":             map[string]any{"type": "string", "enum": []string{"LOW", "NORMAL", "HIGH", "URGENT"}},
+			"consumer_mode":        map[string]any{"type": "string", "enum": []string{"INTERACTIVE_ONLY", "WORKER_ONLY", "EITHER"}},
+			"preferred_runtime_id": map[string]any{"type": "string"},
 		}, "id", "target", "instruction"),
+		tool("invocation_get", "Read one invocation with its delivery evidence and target acknowledgement", map[string]any{
+			"id": map[string]any{"type": "string"},
+		}, "id"),
+		tool("invocation_redeliver", "Explicitly retry delivery of an unclaimed open invocation to one runtime", map[string]any{
+			"id": map[string]any{"type": "string"}, "runtime_id": map[string]any{"type": "string"},
+		}, "id", "runtime_id"),
+		tool("invocation_policy_get", "Read the invocation policy and consumer-routing defaults for one agent", map[string]any{
+			"agent_id": map[string]any{"type": "string"},
+		}, "agent_id"),
+		tool("invocation_policy_set", "Govern who may invoke an agent and which runtime kinds may consume its work", map[string]any{
+			"agent_id":              map[string]any{"type": "string"},
+			"mode":                  map[string]any{"type": "string", "enum": []string{"MANUAL", "TRUSTED", "AUTOMATIC", "DISABLED"}},
+			"trusted_actors":        map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+			"allowed_scopes":        map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+			"default_consumer_mode": map[string]any{"type": "string", "enum": []string{"INTERACTIVE_ONLY", "WORKER_ONLY", "EITHER"}},
+			"allowed_consumer_modes": map[string]any{"type": "array", "items": map[string]any{
+				"type": "string", "enum": []string{"INTERACTIVE_ONLY", "WORKER_ONLY", "EITHER"},
+			}},
+			"preferred_interactive_runtime_id": map[string]any{"type": "string"},
+			"require_human_for_sensitive":      map[string]any{"type": "boolean"},
+		}, "agent_id", "mode"),
 		tool("invocation_next", "Read the next claimable invocation for this agent", map[string]any{
 			"runtime_id": map[string]any{"type": "string"},
 		}),
@@ -119,13 +145,23 @@ func tools() []map[string]any {
 		}, "id"),
 		tool("runtime_register", "Register an agent runtime without embedding connector secrets", map[string]any{
 			"id": map[string]any{"type": "string"}, "connector": map[string]any{"type": "string"},
+			"kind":             map[string]any{"type": "string", "enum": []string{"WORKER", "INTERACTIVE"}},
 			"config_reference": map[string]any{"type": "string"}, "max_concurrent": map[string]any{"type": "integer", "minimum": 1, "maximum": controlplane.MaxRuntimeConcurrency},
 			"scopes":       map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 			"capabilities": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 		}, "id", "connector", "max_concurrent"),
+		tool("runtime_configure", "Repair a stopped runtime's governed kind, connector, and bounded capabilities", map[string]any{
+			"id": map[string]any{"type": "string"}, "connector": map[string]any{"type": "string"},
+			"kind":             map[string]any{"type": "string", "enum": []string{"WORKER", "INTERACTIVE"}},
+			"config_reference": map[string]any{"type": "string"},
+			"max_concurrent":   map[string]any{"type": "integer", "minimum": 1, "maximum": controlplane.MaxRuntimeConcurrency},
+			"scopes":           map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+			"capabilities":     map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+		}, "id", "connector", "max_concurrent"),
 		tool("runtime_heartbeat", "Update this agent runtime's bounded presence record", map[string]any{
 			"id": map[string]any{"type": "string"}, "health": map[string]any{"type": "string", "enum": []string{"HEALTHY", "DEGRADED"}},
 			"active_invocations": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+			"endpoint_id":        map[string]any{"type": "string"},
 		}, "id", "health"),
 		tool("verify", "Verify signatures and hash-chain integrity", map[string]any{}),
 	}
@@ -289,12 +325,120 @@ func call(s *service.Service, resolution identity.ActorResolution, p callParams)
 	case "message_post":
 		return s.Execute(actor, "message.post", stringArg(p.Arguments, "id"), model.MessagePosted{Kind: stringArg(p.Arguments, "kind"), To: stringsArg(p.Arguments["to"]), Subject: stringArg(p.Arguments, "subject"), Body: stringArg(p.Arguments, "body")})
 	case "invocation_request":
-		return s.Execute(actor, "invocation.request", stringArg(p.Arguments, "id"), model.InvocationRequested{
+		invocationID := stringArg(p.Arguments, "id")
+		event, err := s.Execute(actor, "invocation.request", invocationID, model.InvocationRequested{
 			Target: stringArg(p.Arguments, "target"), MessageID: stringArg(p.Arguments, "message_id"),
 			TaskID: stringArg(p.Arguments, "task_id"), Instruction: stringArg(p.Arguments, "instruction"),
 			ExpectedResult: stringArg(p.Arguments, "expected_result"),
 			Scopes:         stringsArg(p.Arguments["scopes"]), Priority: stringArg(p.Arguments, "priority"),
+			ConsumerMode:       model.ConsumerMode(stringArg(p.Arguments, "consumer_mode")),
+			PreferredRuntimeID: stringArg(p.Arguments, "preferred_runtime_id"),
 		})
+		if err != nil {
+			return nil, err
+		}
+		state, err := s.State()
+		if err != nil {
+			return nil, err
+		}
+		rawEvent, err := json.Marshal(event)
+		if err != nil {
+			return nil, err
+		}
+		result := map[string]any{}
+		if err = json.Unmarshal(rawEvent, &result); err != nil {
+			return nil, err
+		}
+		localHostID, _ := identity.LoadHostID()
+		delivery, exists := service.SummarizeInvocationDelivery(state, invocationID, "", localHostID)
+		if !exists {
+			return nil, fmt.Errorf("invocation %s not found after commit", invocationID)
+		}
+		result["delivery"] = delivery
+		return result, nil
+	case "invocation_get":
+		invocationID := stringArg(p.Arguments, "id")
+		state, err := s.State()
+		if err != nil {
+			return nil, err
+		}
+		invocation, exists := state.Invocations[invocationID]
+		if !exists {
+			return nil, fmt.Errorf("invocation %s not found", invocationID)
+		}
+		deliveries := make([]model.InvocationDelivery, 0)
+		for _, delivery := range state.InvocationDeliveries {
+			if delivery.InvocationID == invocationID {
+				deliveries = append(deliveries, delivery)
+			}
+		}
+		sort.Slice(deliveries, func(left, right int) bool {
+			return deliveries[left].Attempt < deliveries[right].Attempt
+		})
+		return map[string]any{
+			"invocation": invocation, "deliveries": deliveries,
+			"target_acknowledged": invocation.ClaimedAt != nil,
+			"acknowledged_at":     invocation.ClaimedAt,
+		}, nil
+	case "invocation_redeliver":
+		invocationID := stringArg(p.Arguments, "id")
+		runtimeID := stringArg(p.Arguments, "runtime_id")
+		state, err := s.State()
+		if err != nil {
+			return nil, err
+		}
+		invocation, exists := state.Invocations[invocationID]
+		if !exists {
+			return nil, fmt.Errorf("invocation %s not found", invocationID)
+		}
+		if invocation.Status != "PENDING" && invocation.Status != "NOTIFIED" {
+			return nil, fmt.Errorf("invocation %s is not open for redelivery", invocationID)
+		}
+		runtimeState, exists := state.AgentRuntimes[runtimeID]
+		if !exists || runtimeState.AgentID != invocation.Target {
+			return nil, errors.New("redelivery runtime must be registered to the invocation target")
+		}
+		deliveryID := uuid.NewString()
+		attemptEvent, err := s.Execute(actor, "invocation.delivery-attempt", invocationID,
+			model.InvocationDeliveryAttempted{
+				DeliveryID: deliveryID, RuntimeID: runtimeID,
+				Transport: runtimeState.Connector, HostID: runtimeState.HostID, Manual: true,
+			})
+		if err != nil {
+			return nil, err
+		}
+		updated, err := s.State()
+		if err != nil {
+			return nil, err
+		}
+		delivery := updated.InvocationDeliveries[deliveryID]
+		if delivery.Status != "SUCCEEDED" {
+			message := "redelivery did not complete"
+			if delivery.Error != "" {
+				message += ": " + delivery.Error
+			}
+			return nil, &controlplane.Error{Code: controlplane.CodeUnavailable, Message: message}
+		}
+		return map[string]any{"attempt_event": attemptEvent, "delivery": delivery}, nil
+	case "invocation_policy_get":
+		agentID := stringArg(p.Arguments, "agent_id")
+		state, err := s.State()
+		if err != nil {
+			return nil, err
+		}
+		policy, configured := state.InvocationPolicies[agentID]
+		return map[string]any{"configured": configured, "policy": policy}, nil
+	case "invocation_policy_set":
+		return s.Execute(actor, "invocation.policy.update", stringArg(p.Arguments, "agent_id"),
+			model.InvocationPolicyUpdated{
+				Mode:                          stringArg(p.Arguments, "mode"),
+				TrustedActors:                 stringsArg(p.Arguments["trusted_actors"]),
+				AllowedScopes:                 stringsArg(p.Arguments["allowed_scopes"]),
+				DefaultConsumerMode:           model.ConsumerMode(stringArg(p.Arguments, "default_consumer_mode")),
+				AllowedConsumerModes:          consumerModesArg(p.Arguments["allowed_consumer_modes"]),
+				PreferredInteractiveRuntimeID: stringArg(p.Arguments, "preferred_interactive_runtime_id"),
+				RequireHumanForSensitive:      boolArg(p.Arguments, "require_human_for_sensitive", false),
+			})
 	case "invocation_next":
 		invocation, found, err := s.NextInvocation(actor, stringArg(p.Arguments, "runtime_id"))
 		if err != nil {
@@ -344,16 +488,40 @@ func call(s *service.Service, resolution identity.ActorResolution, p callParams)
 		return s.Execute(actor, "invocation.reject", stringArg(p.Arguments, "id"),
 			model.InvocationRejected{Reason: stringArg(p.Arguments, "reason")})
 	case "runtime_register":
+		kind := model.RuntimeKind(stringArg(p.Arguments, "kind"))
+		if kind == "" {
+			kind = model.RuntimeKindWorker
+		}
+		hostID, err := runtimeHostID(kind)
+		if err != nil {
+			return nil, err
+		}
 		return s.Execute(actor, "runtime.register", stringArg(p.Arguments, "id"), model.RuntimeRegistered{
-			AgentID: actor, Connector: stringArg(p.Arguments, "connector"),
-			ConfigReference: stringArg(p.Arguments, "config_reference"),
-			MaxConcurrent:   intArg(p.Arguments, "max_concurrent"),
-			Scopes:          stringsArg(p.Arguments["scopes"]), Capabilities: stringsArg(p.Arguments["capabilities"]),
+			AgentID: actor, Kind: kind, Connector: stringArg(p.Arguments, "connector"),
+			ConfigReference: stringArg(p.Arguments, "config_reference"), HostID: hostID,
+			MaxConcurrent: intArg(p.Arguments, "max_concurrent"),
+			Scopes:        stringsArg(p.Arguments["scopes"]), Capabilities: stringsArg(p.Arguments["capabilities"]),
+		})
+	case "runtime_configure":
+		kind := model.RuntimeKind(stringArg(p.Arguments, "kind"))
+		if kind == "" {
+			kind = model.RuntimeKindWorker
+		}
+		hostID, err := runtimeHostID(kind)
+		if err != nil {
+			return nil, err
+		}
+		return s.Execute(actor, "runtime.configure", stringArg(p.Arguments, "id"), model.RuntimeConfigured{
+			Kind: kind, Connector: stringArg(p.Arguments, "connector"),
+			ConfigReference: stringArg(p.Arguments, "config_reference"), HostID: hostID,
+			MaxConcurrent: intArg(p.Arguments, "max_concurrent"),
+			Scopes:        stringsArg(p.Arguments["scopes"]), Capabilities: stringsArg(p.Arguments["capabilities"]),
 		})
 	case "runtime_heartbeat":
 		return s.Execute(actor, "runtime.heartbeat", stringArg(p.Arguments, "id"), model.RuntimeHeartbeat{
 			Health:            stringArg(p.Arguments, "health"),
 			ActiveInvocations: stringsArg(p.Arguments["active_invocations"]),
+			EndpointID:        stringArg(p.Arguments, "endpoint_id"),
 		})
 	}
 	return nil, fmt.Errorf("unknown tool %s", p.Name)
@@ -380,4 +548,20 @@ func stringsArg(v any) []string {
 		}
 	}
 	return o
+}
+
+func consumerModesArg(value any) []model.ConsumerMode {
+	values := stringsArg(value)
+	result := make([]model.ConsumerMode, len(values))
+	for index, item := range values {
+		result[index] = model.ConsumerMode(item)
+	}
+	return result
+}
+
+func runtimeHostID(kind model.RuntimeKind) (string, error) {
+	if kind != model.RuntimeKindInteractive {
+		return "", nil
+	}
+	return identity.LoadOrCreateHostID()
 }

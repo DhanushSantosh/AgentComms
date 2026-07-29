@@ -59,14 +59,29 @@ var invocationPolicyForm = &ActionForm{
 		{Label: "Trusted actors (comma-separated)", Placeholder: ""},
 		{Label: "Allowed scopes (comma-separated)", Placeholder: "src"},
 		{Label: "Require human for sensitive (yes/no)", Placeholder: "yes", Required: true},
+		{Label: "Default consumer", Placeholder: "EITHER", Required: true},
+		{Label: "Allowed consumers (comma-separated)", Placeholder: "INTERACTIVE_ONLY,WORKER_ONLY,EITHER"},
+		{Label: "Preferred interactive runtime", Placeholder: ""},
 	},
 	Build: func(values []string) (any, error) {
 		requireHuman := strings.EqualFold(values[3], "yes") || strings.EqualFold(values[3], "true")
 		return model.InvocationPolicyUpdated{
 			Mode: strings.ToUpper(values[0]), TrustedActors: splitCSV(values[1]),
-			AllowedScopes: splitCSV(values[2]), RequireHumanForSensitive: requireHuman,
+			AllowedScopes:                 splitCSV(values[2]),
+			DefaultConsumerMode:           model.ConsumerMode(strings.ToUpper(values[4])),
+			AllowedConsumerModes:          consumerModeValues(splitCSV(values[5])),
+			PreferredInteractiveRuntimeID: values[6],
+			RequireHumanForSensitive:      requireHuman,
 		}, nil
 	},
+}
+
+func consumerModeValues(values []string) []model.ConsumerMode {
+	result := make([]model.ConsumerMode, 0, len(values))
+	for _, value := range values {
+		result = append(result, model.ConsumerMode(strings.ToUpper(value)))
+	}
+	return result
 }
 
 var (

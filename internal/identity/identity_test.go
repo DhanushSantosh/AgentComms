@@ -3,6 +3,9 @@ package identity
 import (
 	"crypto/ed25519"
 	"encoding/base64"
+	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -211,5 +214,28 @@ func TestResolveActorRejectsProfileFromAnotherProject(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected cross-project profile selection to fail")
+	}
+}
+
+func TestHostIDIsRandomStableAndPrivate(t *testing.T) {
+	configDir := t.TempDir()
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", configDir)
+	first, err := LoadOrCreateHostID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := LoadOrCreateHostID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == "" || first != second {
+		t.Fatalf("host ID was not stable: first=%q second=%q", first, second)
+	}
+	info, err := os.Stat(filepath.Join(configDir, hostIDFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
+		t.Fatalf("host ID permissions=%#o, want 0600", info.Mode().Perm())
 	}
 }

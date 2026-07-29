@@ -117,6 +117,189 @@ func scopeAllows(scopes, resources []string) bool {
 	}
 	return true
 }
+
+func runtimeKind(kind model.RuntimeKind, connector string) model.RuntimeKind {
+	if kind != "" {
+		return kind
+	}
+	if strings.EqualFold(connector, "INTERACTIVE") {
+		return model.RuntimeKindInteractive
+	}
+	return model.RuntimeKindWorker
+}
+
+func validConsumerMode(mode model.ConsumerMode) bool {
+	return mode == model.ConsumerModeInteractiveOnly ||
+		mode == model.ConsumerModeWorkerOnly ||
+		mode == model.ConsumerModeEither
+}
+
+func effectiveInvocationConsumer(mode model.ConsumerMode) model.ConsumerMode {
+	if validConsumerMode(mode) {
+		return mode
+	}
+	return model.ConsumerModeEither
+}
+
+func consumerAllowsKind(mode model.ConsumerMode, kind model.RuntimeKind) bool {
+	mode = effectiveInvocationConsumer(mode)
+	switch mode {
+	case model.ConsumerModeInteractiveOnly:
+		return kind == model.RuntimeKindInteractive
+	case model.ConsumerModeWorkerOnly:
+		return kind == model.RuntimeKindWorker
+	case model.ConsumerModeEither:
+		return kind == model.RuntimeKindWorker || kind == model.RuntimeKindInteractive
+	default:
+		return false
+	}
+}
+
+func effectiveConsumerPolicy(policy model.InvocationPolicy) (model.ConsumerMode, []model.ConsumerMode) {
+	defaultMode := policy.DefaultConsumerMode
+	if !validConsumerMode(defaultMode) {
+		defaultMode = model.ConsumerModeEither
+	}
+	allowed := append([]model.ConsumerMode(nil), policy.AllowedConsumerModes...)
+	if len(allowed) == 0 {
+		allowed = []model.ConsumerMode{
+			model.ConsumerModeInteractiveOnly,
+			model.ConsumerModeWorkerOnly,
+			model.ConsumerModeEither,
+		}
+	}
+	return defaultMode, allowed
+}
+
+func containsConsumerMode(values []model.ConsumerMode, target model.ConsumerMode) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
+}
+
+func nextDeliveryAttempt(state model.State, invocationID string) int {
+	next := 1
+	for _, delivery := range state.InvocationDeliveries {
+		if delivery.InvocationID == invocationID && delivery.Attempt >= next {
+			next = delivery.Attempt + 1
+		}
+	}
+	return next
+}
+
+func automaticDeliveryAttempts(state model.State, invocationID string) int {
+	count := 0
+	for _, delivery := range state.InvocationDeliveries {
+		if delivery.InvocationID == invocationID && !delivery.Manual {
+			count++
+		}
+	}
+	return count
+}
+
+func hasSuccessfulDelivery(state model.State, invocationID string) bool {
+	for _, delivery := range state.InvocationDeliveries {
+		if delivery.InvocationID == invocationID &&
+			(delivery.Status == "SUCCEEDED" || delivery.Status == "NOTIFIED") {
+			return true
+		}
+	}
+	return false
+}
+
+func runtimeInvocationLoad(state model.State, runtimeID string) int {
+	load := 0
+	for _, invocation := range state.Invocations {
+		if invocation.RuntimeID != runtimeID {
+			continue
+		}
+		if invocation.Status == "CLAIMED" || invocation.Status == "RUNNING" ||
+			invocation.Status == "WAITING" {
+			load++
+		}
+	}
+	return load
+}
+
+func validateDeliveryEvidence(transport, endpointID string, evidence []model.DeliveryEvidence, attemptedAt, completedAt time.Time) error {
+	if len(evidence) == 0 || len(evidence) > controlplane.MaxDeliveryEvidence {
+		return fmt.Errorf("delivery evidence must contain from 1 to %d stages", controlplane.MaxDeliveryEvidence)
+	}
+	allowed := map[string]bool{"CONNECTOR_ACCEPTED": true}
+	if transport == "INTERACTIVE" {
+		allowed = map[string]bool{"PTY_TEXT_ECHOED": true, "PTY_ENTER_SENT": true}
+		if strings.TrimSpace(endpointID) == "" {
+			return errors.New("interactive delivery endpoint ID is required")
+		}
+	}
+	seen := map[string]bool{}
+	previous := attemptedAt
+	for _, item := range evidence {
+		stage := strings.ToUpper(strings.TrimSpace(item.Stage))
+		if !allowed[stage] || seen[stage] {
+			return fmt.Errorf("delivery evidence stage %q is invalid or duplicated for %s", item.Stage, transport)
+		}
+		if item.At.Before(attemptedAt) || item.At.After(completedAt.Add(controlplane.CommandClockSkew)) ||
+			item.At.Before(previous) {
+			return errors.New("delivery evidence timestamps must be monotonic and within the attempt window")
+		}
+		seen[stage] = true
+		previous = item.At
+	}
+	if transport == "INTERACTIVE" && (!seen["PTY_TEXT_ECHOED"] || !seen["PTY_ENTER_SENT"]) {
+		return errors.New("interactive delivery requires PTY_TEXT_ECHOED and PTY_ENTER_SENT evidence")
+	}
+	if transport != "INTERACTIVE" && !seen["CONNECTOR_ACCEPTED"] {
+		return errors.New("connector delivery requires CONNECTOR_ACCEPTED evidence")
+	}
+	return nil
+}
+
+func normalizeRuntimeDefinition(kind model.RuntimeKind, connector, configReference, hostID string, maxConcurrent int) (model.RuntimeKind, string, error) {
+	connector = strings.ToUpper(strings.TrimSpace(connector))
+	kind = runtimeKind(kind, connector)
+	if kind != model.RuntimeKindWorker && kind != model.RuntimeKindInteractive {
+		return "", "", errors.New("runtime kind must be WORKER or INTERACTIVE")
+	}
+	validConnector := connector == "MANUAL" || connector == "MCP" ||
+		connector == "LOCAL_PROCESS" || connector == "WEBHOOK" ||
+		connector == "QUEUE" || connector == "INTERACTIVE"
+	if !validConnector {
+		return "", "", errors.New("runtime connector must be MANUAL, MCP, LOCAL_PROCESS, WEBHOOK, QUEUE, or INTERACTIVE")
+	}
+	if maxConcurrent < 1 || maxConcurrent > controlplane.MaxRuntimeConcurrency {
+		return "", "", fmt.Errorf("runtime concurrency must be from 1 to %d", controlplane.MaxRuntimeConcurrency)
+	}
+	if (connector == "LOCAL_PROCESS" || connector == "WEBHOOK") && strings.TrimSpace(configReference) == "" {
+		return "", "", fmt.Errorf("%s runtime requires a connector configuration reference", connector)
+	}
+	if strings.Contains(strings.ToLower(configReference), "secret") ||
+		strings.Contains(strings.ToLower(configReference), "token") ||
+		strings.Contains(strings.ToLower(configReference), "password") {
+		return "", "", errors.New("runtime config reference must not contain secret material")
+	}
+	if kind == model.RuntimeKindInteractive {
+		if connector != "INTERACTIVE" {
+			return "", "", errors.New("INTERACTIVE runtime kind requires the INTERACTIVE connector")
+		}
+		if strings.TrimSpace(hostID) == "" {
+			return "", "", errors.New("interactive runtime host ID is required")
+		}
+		if strings.TrimSpace(configReference) != "" {
+			return "", "", errors.New("interactive runtime must not use a connector configuration reference")
+		}
+		if maxConcurrent != 1 {
+			return "", "", errors.New("interactive runtime concurrency must be 1")
+		}
+	} else if connector == "INTERACTIVE" {
+		return "", "", errors.New("INTERACTIVE connector requires the INTERACTIVE runtime kind")
+	}
+	return kind, connector, nil
+}
+
 func ValidateTransition(st model.State, actor, typ, id string, payload any, now time.Time) (any, error) {
 	if actor == "" {
 		return nil, errors.New("actor is required")
@@ -617,23 +800,144 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 				!hasApproval(st, "invocation-sensitive:"+id) {
 				return nil, errors.New("human approval is required for sensitive invocation")
 			}
+			defaultConsumer, allowedConsumers := effectiveConsumerPolicy(policy)
+			if p.ConsumerMode == "" {
+				p.ConsumerMode = defaultConsumer
+			}
+			p.ConsumerMode = model.ConsumerMode(strings.ToUpper(strings.TrimSpace(string(p.ConsumerMode))))
+			if !validConsumerMode(p.ConsumerMode) {
+				return nil, errors.New("invocation consumer mode must be INTERACTIVE_ONLY, WORKER_ONLY, or EITHER")
+			}
+			if !containsConsumerMode(allowedConsumers, p.ConsumerMode) {
+				return nil, errors.New("invocation consumer mode is not allowed by target policy")
+			}
+			if p.PreferredRuntimeID == "" && p.ConsumerMode != model.ConsumerModeWorkerOnly {
+				p.PreferredRuntimeID = policy.PreferredInteractiveRuntimeID
+			}
+			if p.PreferredRuntimeID != "" {
+				preferred, preferredExists := st.AgentRuntimes[p.PreferredRuntimeID]
+				if !preferredExists || preferred.AgentID != p.Target ||
+					!consumerAllowsKind(p.ConsumerMode, runtimeKind(preferred.Kind, preferred.Connector)) {
+					return nil, errors.New("preferred runtime must belong to the target and match the invocation consumer mode")
+				}
+				if preferred.Status == "REVOKED" {
+					return nil, errors.New("preferred runtime is revoked")
+				}
+			}
+			payload = p
+		case model.InvocationDeliveryAttempted:
+			if !exists {
+				return nil, errors.New("invocation not found")
+			}
+			if invocation.Status != "PENDING" && invocation.Status != "NOTIFIED" {
+				return nil, fmt.Errorf("cannot attempt delivery while invocation is %s", invocation.Status)
+			}
+			if actor != invocation.RequestedBy && actor != invocation.Target && !actorElevated(st, actor) {
+				return nil, errors.New("invocation requester, target, owner, or orchestrator required")
+			}
+			if strings.TrimSpace(p.DeliveryID) == "" || strings.TrimSpace(p.RuntimeID) == "" {
+				return nil, errors.New("delivery ID and runtime ID are required")
+			}
+			if _, duplicate := st.InvocationDeliveries[p.DeliveryID]; duplicate {
+				return nil, errors.New("invocation delivery already exists")
+			}
+			runtime, runtimeExists := st.AgentRuntimes[p.RuntimeID]
+			if !runtimeExists || runtime.AgentID != invocation.Target {
+				return nil, errors.New("delivery runtime must belong to the invocation target")
+			}
+			kind := runtimeKind(runtime.Kind, runtime.Connector)
+			if !consumerAllowsKind(effectiveInvocationConsumer(invocation.ConsumerMode), kind) {
+				return nil, errors.New("delivery runtime does not match the invocation consumer mode")
+			}
+			if invocation.PreferredRuntimeID != "" && invocation.PreferredRuntimeID != p.RuntimeID {
+				return nil, errors.New("delivery runtime does not match the preferred runtime")
+			}
+			if runtime.Status == "DRAINING" || runtime.Status == "REVOKED" {
+				return nil, fmt.Errorf("delivery runtime is %s", strings.ToLower(runtime.Status))
+			}
+			if kind == model.RuntimeKindInteractive && runtime.Status != "ONLINE" {
+				return nil, errors.New("interactive delivery runtime must be online")
+			}
+			p.Transport = strings.ToUpper(strings.TrimSpace(p.Transport))
+			if p.Transport == "" {
+				p.Transport = runtime.Connector
+			}
+			if p.Transport != runtime.Connector {
+				return nil, errors.New("delivery transport must match the registered runtime connector")
+			}
+			if p.Transport == "MANUAL" || p.Transport == "MCP" || p.Transport == "QUEUE" {
+				return nil, fmt.Errorf("%s runtime does not support notification delivery attempts", p.Transport)
+			}
+			if p.HostID == "" {
+				p.HostID = runtime.HostID
+			}
+			if p.HostID != runtime.HostID {
+				return nil, errors.New("delivery host ID must match the registered runtime")
+			}
+			if kind == model.RuntimeKindInteractive {
+				if strings.TrimSpace(runtime.EndpointID) == "" {
+					return nil, errors.New("interactive delivery runtime has no active endpoint")
+				}
+				if p.EndpointID == "" {
+					p.EndpointID = runtime.EndpointID
+				}
+				if p.EndpointID != runtime.EndpointID {
+					return nil, errors.New("delivery endpoint ID must match the active interactive runtime endpoint")
+				}
+			} else if strings.TrimSpace(p.EndpointID) != "" {
+				return nil, errors.New("worker delivery attempt must not contain an interactive endpoint ID")
+			}
+			for _, delivery := range st.InvocationDeliveries {
+				if delivery.InvocationID == id && delivery.RuntimeID == p.RuntimeID &&
+					delivery.Status == "ATTEMPTED" && delivery.AttemptUntil != nil &&
+					delivery.AttemptUntil.After(now) {
+					return nil, errors.New("an unexpired delivery attempt already exists for this runtime")
+				}
+			}
+			if !p.Manual && automaticDeliveryAttempts(st, id) >= controlplane.MaxDeliveryAttempts {
+				return nil, fmt.Errorf("automatic delivery attempts exhausted at %d", controlplane.MaxDeliveryAttempts)
+			}
+			p.Attempt = nextDeliveryAttempt(st, id)
+			if p.AttemptUntil.IsZero() {
+				p.AttemptUntil = now.Add(controlplane.DefaultDeliveryAttemptLease)
+			}
+			if !p.AttemptUntil.After(now) ||
+				p.AttemptUntil.After(now.Add(controlplane.MaxDeliveryAttemptLease)) {
+				return nil, fmt.Errorf("delivery attempt lease must be within %s", controlplane.MaxDeliveryAttemptLease)
+			}
 			payload = p
 		case model.InvocationNotified:
 			if !exists {
 				return nil, errors.New("invocation not found")
 			}
-			if invocation.Status != "PENDING" {
-				return nil, fmt.Errorf("cannot notify invocation while %s", invocation.Status)
-			}
 			if actor != invocation.RequestedBy && actor != invocation.Target && !actorElevated(st, actor) {
 				return nil, errors.New("invocation requester, target, owner, or orchestrator required")
 			}
-			if strings.TrimSpace(p.DeliveryID) == "" || p.Attempt < 1 || p.Attempt > controlplane.MaxDeliveryAttempts {
-				return nil, fmt.Errorf("delivery ID and attempt from 1 to %d are required", controlplane.MaxDeliveryAttempts)
+			if strings.TrimSpace(p.DeliveryID) == "" {
+				return nil, errors.New("delivery ID is required")
 			}
-			if _, duplicate := st.InvocationDeliveries[p.DeliveryID]; duplicate {
-				return nil, errors.New("invocation delivery already exists")
+			delivery, deliveryExists := st.InvocationDeliveries[p.DeliveryID]
+			if !deliveryExists || delivery.InvocationID != id || delivery.Status != "ATTEMPTED" {
+				return nil, errors.New("matching attempted delivery is required")
 			}
+			if delivery.AttemptUntil == nil || !delivery.AttemptUntil.After(now) {
+				return nil, errors.New("delivery attempt lease has expired")
+			}
+			if delivery.AttemptedAt == nil {
+				return nil, errors.New("delivery attempt is missing its reservation timestamp")
+			}
+			p.RuntimeID = delivery.RuntimeID
+			p.Attempt = delivery.Attempt
+			p.Transport = delivery.Transport
+			if p.Transport == "INTERACTIVE" && p.EndpointID != delivery.EndpointID {
+				return nil, errors.New("interactive delivery evidence does not match the reserved endpoint")
+			}
+			if err := validateDeliveryEvidence(
+				p.Transport, p.EndpointID, p.Evidence, *delivery.AttemptedAt, now,
+			); err != nil {
+				return nil, err
+			}
+			payload = p
 		case model.InvocationClaimed:
 			if !exists {
 				return nil, errors.New("invocation not found")
@@ -649,6 +953,22 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 			}
 			if strings.TrimSpace(p.RuntimeID) == "" {
 				return nil, errors.New("runtime ID is required")
+			}
+			runtime, runtimeExists := st.AgentRuntimes[p.RuntimeID]
+			if !runtimeExists || runtime.AgentID != invocation.Target {
+				return nil, errors.New("claiming runtime must be registered to the invocation target")
+			}
+			if runtime.Status != "ONLINE" || runtime.Health == "UNKNOWN" {
+				return nil, errors.New("claiming runtime must be online")
+			}
+			if runtimeInvocationLoad(st, p.RuntimeID) >= runtime.MaxConcurrent {
+				return nil, errors.New("claiming runtime has no available capacity")
+			}
+			if !consumerAllowsKind(effectiveInvocationConsumer(invocation.ConsumerMode), runtimeKind(runtime.Kind, runtime.Connector)) {
+				return nil, errors.New("claiming runtime does not match the invocation consumer mode")
+			}
+			if invocation.PreferredRuntimeID != "" && invocation.PreferredRuntimeID != p.RuntimeID {
+				return nil, errors.New("claiming runtime does not match the preferred runtime")
 			}
 			if p.ClaimUntil.IsZero() {
 				p.ClaimUntil = now.Add(controlplane.DefaultClaimLease)
@@ -734,21 +1054,19 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 			if actor != invocation.RequestedBy && actor != invocation.Target && !actorElevated(st, actor) {
 				return nil, errors.New("invocation requester, target, owner, or orchestrator required")
 			}
-			if strings.TrimSpace(p.DeliveryID) == "" || strings.TrimSpace(p.Error) == "" ||
-				p.Attempt < 1 || p.Attempt > controlplane.MaxDeliveryAttempts {
+			if strings.TrimSpace(p.DeliveryID) == "" || strings.TrimSpace(p.Error) == "" {
 				return nil, errors.New("valid delivery ID, attempt, and error are required")
 			}
 			delivery, deliveryExists := st.InvocationDeliveries[p.DeliveryID]
-			if !deliveryExists || delivery.InvocationID != id || delivery.Status != "NOTIFIED" ||
-				delivery.Attempt != p.Attempt {
-				return nil, errors.New("matching notified delivery is required")
+			if !deliveryExists || delivery.InvocationID != id || delivery.Status != "ATTEMPTED" {
+				return nil, errors.New("matching attempted delivery is required")
 			}
-			if p.Final && p.Attempt < controlplane.MaxDeliveryAttempts {
-				return nil, fmt.Errorf("delivery cannot dead-letter before attempt %d", controlplane.MaxDeliveryAttempts)
-			}
+			p.RuntimeID = delivery.RuntimeID
+			p.Attempt = delivery.Attempt
 			if !p.Final && (p.NextRetry == nil || !p.NextRetry.After(now)) {
 				return nil, errors.New("future retry time is required for a retryable delivery failure")
 			}
+			payload = p
 		default:
 			return nil, errors.New("invalid invocation payload")
 		}
@@ -776,19 +1094,36 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 			if actor != p.AgentID && !actorElevated(st, actor) {
 				return nil, errors.New("runtime owner, project owner, or orchestrator required")
 			}
-			p.Connector = strings.ToUpper(strings.TrimSpace(p.Connector))
-			validConnector := p.Connector == "MANUAL" || p.Connector == "MCP" ||
-				p.Connector == "LOCAL_PROCESS" || p.Connector == "WEBHOOK" || p.Connector == "QUEUE"
-			if !validConnector {
-				return nil, errors.New("runtime connector must be MANUAL, MCP, LOCAL_PROCESS, WEBHOOK, or QUEUE")
+			var definitionErr error
+			p.Kind, p.Connector, definitionErr = normalizeRuntimeDefinition(
+				p.Kind, p.Connector, p.ConfigReference, p.HostID, p.MaxConcurrent,
+			)
+			if definitionErr != nil {
+				return nil, definitionErr
 			}
-			if p.MaxConcurrent < 1 || p.MaxConcurrent > controlplane.MaxRuntimeConcurrency {
-				return nil, fmt.Errorf("runtime concurrency must be from 1 to %d", controlplane.MaxRuntimeConcurrency)
+			payload = p
+		case model.RuntimeConfigured:
+			if typ != "runtime.configure" {
+				return nil, errors.New("invalid runtime configuration transition")
 			}
-			if strings.Contains(strings.ToLower(p.ConfigReference), "secret") ||
-				strings.Contains(strings.ToLower(p.ConfigReference), "token") ||
-				strings.Contains(strings.ToLower(p.ConfigReference), "password") {
-				return nil, errors.New("runtime config reference must not contain secret material")
+			if !exists {
+				return nil, errors.New("runtime not found")
+			}
+			if actor != runtime.AgentID && !actorElevated(st, actor) {
+				return nil, errors.New("runtime owner, project owner, or orchestrator required")
+			}
+			if runtime.Status != "OFFLINE" && runtime.Status != "DRAINING" {
+				return nil, errors.New("runtime must be offline or draining before configuration")
+			}
+			if len(runtime.ActiveInvocations) != 0 || runtimeInvocationLoad(st, id) != 0 {
+				return nil, errors.New("runtime with active invocations cannot be configured")
+			}
+			var definitionErr error
+			p.Kind, p.Connector, definitionErr = normalizeRuntimeDefinition(
+				p.Kind, p.Connector, p.ConfigReference, p.HostID, p.MaxConcurrent,
+			)
+			if definitionErr != nil {
+				return nil, definitionErr
 			}
 			payload = p
 		case model.RuntimeHeartbeat:
@@ -798,7 +1133,8 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 			if runtime.Status == "REVOKED" || runtime.Status == "DRAINING" {
 				return nil, fmt.Errorf("runtime cannot heartbeat while %s", runtime.Status)
 			}
-			if !runtime.LastSeenAt.IsZero() && now.Sub(runtime.LastSeenAt) < controlplane.MinHeartbeatInterval {
+			if runtime.Status == "ONLINE" && !runtime.LastSeenAt.IsZero() &&
+				now.Sub(runtime.LastSeenAt) < controlplane.MinHeartbeatInterval {
 				return nil, fmt.Errorf("runtime heartbeat interval must be at least %s", controlplane.MinHeartbeatInterval)
 			}
 			p.Health = strings.ToUpper(strings.TrimSpace(p.Health))
@@ -807,6 +1143,13 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 			}
 			if len(p.ActiveInvocations) > runtime.MaxConcurrent {
 				return nil, errors.New("active invocations exceed runtime concurrency")
+			}
+			if runtimeKind(runtime.Kind, runtime.Connector) == model.RuntimeKindInteractive {
+				if strings.TrimSpace(p.EndpointID) == "" {
+					return nil, errors.New("interactive runtime endpoint ID is required")
+				}
+			} else if strings.TrimSpace(p.EndpointID) != "" {
+				return nil, errors.New("worker runtime heartbeat must not contain an interactive endpoint ID")
 			}
 			seen := map[string]bool{}
 			for _, invocationID := range p.ActiveInvocations {
@@ -834,6 +1177,17 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 			} else {
 				if actor != runtime.AgentID && !actorElevated(st, actor) {
 					return nil, errors.New("runtime owner, project owner, or orchestrator required")
+				}
+				if typ == "runtime.offline" {
+					if runtime.Status == "REVOKED" {
+						return nil, errors.New("revoked runtime cannot transition offline")
+					}
+					if runtimeKind(runtime.Kind, runtime.Connector) == model.RuntimeKindInteractive &&
+						runtime.Status == "ONLINE" &&
+						(strings.TrimSpace(p.EndpointID) == "" || p.EndpointID != runtime.EndpointID) {
+						return nil, errors.New("interactive runtime offline transition must match the active endpoint")
+					}
+					break
 				}
 				if typ == "runtime.drain" && (runtime.Status == "DRAINING" || runtime.Status == "REVOKED") {
 					return nil, fmt.Errorf("runtime cannot drain while %s", runtime.Status)
@@ -864,6 +1218,42 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 			trusted, trustedExists := st.Agents[trustedActor]
 			if !trustedExists || trusted.Status != "ACTIVE" {
 				return nil, fmt.Errorf("trusted actor %s is not active", trustedActor)
+			}
+		}
+		if policy.DefaultConsumerMode == "" {
+			policy.DefaultConsumerMode = model.ConsumerModeEither
+		}
+		policy.DefaultConsumerMode = model.ConsumerMode(strings.ToUpper(
+			strings.TrimSpace(string(policy.DefaultConsumerMode)),
+		))
+		if !validConsumerMode(policy.DefaultConsumerMode) {
+			return nil, errors.New("default consumer mode must be INTERACTIVE_ONLY, WORKER_ONLY, or EITHER")
+		}
+		if len(policy.AllowedConsumerModes) == 0 {
+			policy.AllowedConsumerModes = []model.ConsumerMode{
+				model.ConsumerModeInteractiveOnly,
+				model.ConsumerModeWorkerOnly,
+				model.ConsumerModeEither,
+			}
+		}
+		seenConsumerModes := map[model.ConsumerMode]bool{}
+		for index, consumerMode := range policy.AllowedConsumerModes {
+			consumerMode = model.ConsumerMode(strings.ToUpper(strings.TrimSpace(string(consumerMode))))
+			if !validConsumerMode(consumerMode) || seenConsumerModes[consumerMode] {
+				return nil, errors.New("allowed consumer modes must be unique INTERACTIVE_ONLY, WORKER_ONLY, or EITHER values")
+			}
+			seenConsumerModes[consumerMode] = true
+			policy.AllowedConsumerModes[index] = consumerMode
+		}
+		if !seenConsumerModes[policy.DefaultConsumerMode] {
+			return nil, errors.New("default consumer mode must be included in allowed consumer modes")
+		}
+		if policy.PreferredInteractiveRuntimeID != "" {
+			preferred, preferredExists := st.AgentRuntimes[policy.PreferredInteractiveRuntimeID]
+			if !preferredExists || preferred.AgentID != id ||
+				runtimeKind(preferred.Kind, preferred.Connector) != model.RuntimeKindInteractive ||
+				preferred.Status == "REVOKED" {
+				return nil, errors.New("preferred interactive runtime must be a non-revoked interactive runtime owned by the target")
 			}
 		}
 		payload = policy
@@ -969,6 +1359,8 @@ func RefreshRuntimePresence(state *model.State, now time.Time) {
 			now.Sub(runtime.LastSeenAt) > controlplane.RuntimeOfflineAfter {
 			runtime.Status = "OFFLINE"
 			runtime.Health = "UNKNOWN"
+			runtime.EndpointID = ""
+			runtime.ActiveInvocations = nil
 			runtime.Reason = "heartbeat expired"
 			state.AgentRuntimes[id] = runtime
 		}

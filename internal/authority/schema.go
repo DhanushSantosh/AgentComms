@@ -14,11 +14,50 @@ import (
 //go:embed schema.sql
 var schema string
 
-const CurrentSchemaVersion = 2
+const CurrentSchemaVersion = 3
 
 const addActorKeyFingerprintMigration = `
 ALTER TABLE events
 ADD COLUMN IF NOT EXISTS actor_key_fingerprint TEXT NOT NULL DEFAULT '';
+`
+
+const addDeliveryIntegrityColumnsMigration = `
+ALTER TABLE invocations
+ADD COLUMN IF NOT EXISTS consumer_mode TEXT NOT NULL DEFAULT 'EITHER',
+ADD COLUMN IF NOT EXISTS preferred_runtime_id TEXT NOT NULL DEFAULT '';
+
+ALTER TABLE invocation_deliveries
+ADD COLUMN IF NOT EXISTS transport TEXT NOT NULL DEFAULT '';
+
+ALTER TABLE agent_runtimes
+ADD COLUMN IF NOT EXISTS runtime_kind TEXT NOT NULL DEFAULT 'WORKER',
+ADD COLUMN IF NOT EXISTS host_id TEXT NOT NULL DEFAULT '';
+
+UPDATE invocations
+SET state = jsonb_set(state, '{consumer_mode}', '"EITHER"', true)
+WHERE NOT (state ? 'consumer_mode') OR state->>'consumer_mode' = '';
+
+UPDATE agent_runtimes
+SET state = jsonb_set(state, '{kind}', '"WORKER"', true)
+WHERE NOT (state ? 'kind') OR state->>'kind' = '';
+
+UPDATE invocation_policies
+SET state = jsonb_set(
+	jsonb_set(state, '{default_consumer_mode}', '"EITHER"', true),
+	'{allowed_consumer_modes}',
+	'["INTERACTIVE_ONLY","WORKER_ONLY","EITHER"]'::jsonb,
+	true
+)
+WHERE NOT (state ? 'default_consumer_mode') OR state->>'default_consumer_mode' = '';
+
+CREATE INDEX IF NOT EXISTS invocations_consumer_runtime_idx
+ON invocations (project_id, consumer_mode, preferred_runtime_id, status);
+
+CREATE INDEX IF NOT EXISTS invocation_deliveries_transport_status_idx
+ON invocation_deliveries (project_id, transport, status, next_retry_at);
+
+CREATE INDEX IF NOT EXISTS agent_runtimes_kind_host_status_idx
+ON agent_runtimes (project_id, runtime_kind, host_id, status);
 `
 
 // schemaMigration is one ordered, checksummed step. Automatic migrations
@@ -40,6 +79,7 @@ type schemaMigration struct {
 var schemaMigrations = []schemaMigration{
 	{Version: 1, Name: "initial-hybrid-control-plane", Automatic: true, SQL: schema},
 	{Version: 2, Name: "event-actor-key-fingerprint", Automatic: true, SQL: addActorKeyFingerprintMigration},
+	{Version: 3, Name: "interactive-delivery-integrity", Automatic: true, SQL: addDeliveryIntegrityColumnsMigration},
 }
 
 type SchemaMigrationStatus struct {

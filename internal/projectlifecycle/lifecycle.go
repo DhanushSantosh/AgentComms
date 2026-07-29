@@ -28,7 +28,7 @@ import (
 
 const (
 	PersonalAuthoritySchemaVersion = 1
-	ProjectionCacheSchemaVersion   = 2
+	ProjectionCacheSchemaVersion   = 3
 	DraftStoreSchemaVersion        = 1
 	journalName                    = "upgrade-state.json"
 )

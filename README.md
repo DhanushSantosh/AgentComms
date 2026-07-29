@@ -76,7 +76,8 @@ agent-comms env get --key CI_BRANCH
 
 agent-comms control overview
 agent-comms invocation request --to reviewer \
-  --instruction "Review the current change" --scope src
+  --instruction "Review the current change" --scope src \
+  --consumer WORKER_ONLY
 agent-comms invocation next --actor reviewer --runtime reviewer-runtime
 
 agent-comms verify --json
@@ -106,6 +107,11 @@ Personal mode is the default for one user account and one machine. CLI, TUI,
 MCP, and local agent runtimes share one daemon and authoritative SQLite
 database. Commands remain actor-signed, transactional, idempotent, sequenced,
 receipt-signed, and locally streamable.
+
+Invocation commitment, wake-up delivery, target claim, and completion are
+reported as separate facts. Requests can isolate consumption to a supervised
+interactive runtime or a worker runtime, while existing projects retain
+`EITHER` routing until their policy is tightened.
 
 For multi-host team coordination, the PostgreSQL authority serializes mutations
 and returns service-signed receipts while a per-user daemon maintains a

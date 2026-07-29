@@ -2,6 +2,7 @@ package testsupport
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -48,6 +49,7 @@ func StartPersonalProject(t testing.TB) (*service.Service, string) {
 			CachePath:        runtimeinit.ProjectionPath(root), Endpoint: config.DaemonEndpoint,
 			RuntimeMode: "personal", PersonalDatabase: runtimeinit.DatabasePath(root),
 			ServicePrivateKey: authorityCredential.PrivateKey, ProjectID: config.ProjectID,
+			ProjectRoot: root, ConnectorConfigPath: os.Getenv("AGENT_COMMS_CONNECTOR_CONFIG"),
 		})
 	}()
 	client, err := daemonclient.New(config.DaemonEndpoint, time.Second)

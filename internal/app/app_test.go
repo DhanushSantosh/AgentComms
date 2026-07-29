@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -52,6 +51,8 @@ func TestMain(testingMain *testing.M) {
 				ProjectFormatVersion: store.ProjectFormatVersion,
 				CacheSchemaVersion:   projectlifecycle.ProjectionCacheSchemaVersion,
 				DraftSchemaVersion:   projectlifecycle.DraftStoreSchemaVersion,
+				ProjectRoot:          projectRoot,
+				ConnectorConfigPath:  os.Getenv("AGENT_COMMS_CONNECTOR_CONFIG"),
 			})
 		}()
 		return nil
@@ -779,6 +780,7 @@ func TestInvocationAndRuntimeCLIWorkflow(t *testing.T) {
 	run("agent", "activate", "--id", "builder", "--role", "AGENT", "--scope", "src")
 	run("runtime", "register", "--actor", "builder", "--id", "runtime-builder",
 		"--agent", "builder", "--connector", "MCP", "--max-concurrent", "1")
+	run("runtime", "heartbeat", "--actor", "builder", "--id", "runtime-builder")
 	run("invocation", "policy", "set", "--agent", "builder", "--mode", "AUTOMATIC")
 	run("invocation", "request", "--id", "inv-cli", "--to", "builder",
 		"--instruction", "Review the CLI workflow", "--priority", "URGENT")
@@ -834,7 +836,8 @@ func TestInvocationRequestDeliversDirectlyToLiveInteractiveSession(t *testing.T)
 	run("agent", "register", "--id", "opencode-agent")
 	run("agent", "activate", "--id", "opencode-agent", "--role", "AGENT", "--scope", "src")
 	run("runtime", "register", "--actor", "opencode-agent", "--id", "opencode-runtime",
-		"--agent", "opencode-agent", "--connector", "MANUAL", "--max-concurrent", "1")
+		"--agent", "opencode-agent", "--kind", "INTERACTIVE",
+		"--connector", "INTERACTIVE", "--max-concurrent", "1")
 	run("invocation", "policy", "set", "--agent", "opencode-agent", "--mode", "AUTOMATIC")
 
 	// Stand up a live session the same way `runtime interactive-serve`
@@ -867,8 +870,11 @@ func TestInvocationRequestDeliversDirectlyToLiveInteractiveSession(t *testing.T)
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
+	run("runtime", "heartbeat", "--actor", "opencode-agent", "--id", "opencode-runtime",
+		"--endpoint-id", "test-opencode-endpoint")
 
-	run("invocation", "request", "--id", "inv-direct", "--to", "opencode-agent", "--instruction", "say hi")
+	run("invocation", "request", "--id", "inv-direct", "--to", "opencode-agent",
+		"--instruction", "say hi", "--consumer", "INTERACTIVE_ONLY", "--runtime", "opencode-runtime")
 	if bytes.Contains(out.Bytes(), []byte(`"warnings"`)) {
 		t.Fatalf("expected no delivery warnings against a live session: %s", out.String())
 	}
@@ -897,20 +903,6 @@ func syncWriterFor(mu *sync.Mutex, buf *bytes.Buffer) io.Writer {
 type lockedWriter struct {
 	mu  *sync.Mutex
 	buf *bytes.Buffer
-}
-
-func TestInteractiveRuntimeCandidatesResolveAgentOwnership(t *testing.T) {
-	state := model.State{AgentRuntimes: map[string]model.AgentRuntime{
-		"builder-z":       {ID: "builder-z", AgentID: "builder", Status: "ONLINE"},
-		"builder-a":       {ID: "builder-a", AgentID: "builder", Status: "ONLINE"},
-		"builder-drained": {ID: "builder-drained", AgentID: "builder", Status: "DRAINING"},
-		"other-runtime":   {ID: "other-runtime", AgentID: "other", Status: "ONLINE"},
-	}}
-	got := interactiveRuntimeCandidates(state, "builder")
-	want := []string{"builder", "builder-a", "builder-z"}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("unexpected runtime candidates: got %v want %v", got, want)
-	}
 }
 
 func (w *lockedWriter) Write(p []byte) (int, error) {
@@ -996,6 +988,7 @@ func TestInvocationRedeliverRejectsNonPendingInvocation(t *testing.T) {
 	run("agent", "activate", "--id", "builder", "--role", "AGENT", "--scope", "src")
 	run("runtime", "register", "--actor", "builder", "--id", "runtime-builder",
 		"--agent", "builder", "--connector", "MCP", "--max-concurrent", "1")
+	run("runtime", "heartbeat", "--actor", "builder", "--id", "runtime-builder")
 	run("invocation", "policy", "set", "--agent", "builder", "--mode", "AUTOMATIC")
 	run("invocation", "request", "--id", "inv-done", "--to", "builder", "--instruction", "say hi")
 	run("invocation", "claim", "--actor", "builder", "--id", "inv-done", "--runtime", "runtime-builder")
@@ -1004,7 +997,8 @@ func TestInvocationRedeliverRejectsNonPendingInvocation(t *testing.T) {
 
 	out.Reset()
 	stderr.Reset()
-	err := Run([]string{"invocation", "redeliver", "--id", "inv-done", "--project", project, "--json"}, &out, &stderr)
+	err := Run([]string{"invocation", "redeliver", "--id", "inv-done", "--runtime", "runtime-builder",
+		"--project", project, "--json"}, &out, &stderr)
 	if err == nil {
 		t.Fatal("expected redeliver of a COMPLETED invocation to fail")
 	}
@@ -1036,14 +1030,18 @@ func TestInvocationRedeliverReachesSessionMissedByRequest(t *testing.T) {
 	run("init", "--non-interactive", "--owner", "owner", "--mode", "personal")
 	run("agent", "register", "--id", "opencode-runner")
 	run("agent", "activate", "--id", "opencode-runner", "--role", "AGENT", "--scope", "src")
+	run("runtime", "register", "--actor", "opencode-runner", "--id", "opencode-runtime",
+		"--agent", "opencode-runner", "--kind", "INTERACTIVE",
+		"--connector", "INTERACTIVE", "--max-concurrent", "1")
 	run("invocation", "policy", "set", "--agent", "opencode-runner", "--mode", "AUTOMATIC")
 
 	// No live session exists yet, so this request's own nudge is silently a
 	// no-op — the whole point of the test is to confirm redeliver can still
 	// reach the runtime later.
-	run("invocation", "request", "--id", "inv-missed", "--to", "opencode-runner", "--instruction", "say hi")
-	if bytes.Contains(out.Bytes(), []byte(`"warnings"`)) {
-		t.Fatalf("expected no warnings when no live session exists yet: %s", out.String())
+	run("invocation", "request", "--id", "inv-missed", "--to", "opencode-runner",
+		"--instruction", "say hi", "--consumer", "INTERACTIVE_ONLY", "--runtime", "opencode-runtime")
+	if !bytes.Contains(out.Bytes(), []byte(`"outcome":"UNAVAILABLE"`)) {
+		t.Fatalf("expected an unavailable delivery result while the session is offline: %s", out.String())
 	}
 
 	controlMaster, controlSlave, err := pty.Open()
@@ -1060,21 +1058,23 @@ func TestInvocationRedeliverReachesSessionMissedByRequest(t *testing.T) {
 	t.Cleanup(cancel)
 	go func() {
 		_, _ = interactiveserve.Serve(ctx, interactiveserve.ServeOptions{
-			ProjectRoot: project, RuntimeID: "opencode-runner",
+			ProjectRoot: project, RuntimeID: "opencode-runtime",
 			Command:   []string{"bash", "-c", "cat"},
 			ControlFD: int(controlSlave.Fd()), Stdin: stdinR,
 			Stdout: syncWriterFor(&stdoutMu, &stdout),
 		})
 	}()
 	deadline := time.Now().Add(5 * time.Second)
-	for !interactiveserve.Alive(context.Background(), project, "opencode-runner") {
+	for !interactiveserve.Alive(context.Background(), project, "opencode-runtime") {
 		if time.Now().After(deadline) {
 			t.Fatal("expected the live session to become dialable")
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
+	run("runtime", "heartbeat", "--actor", "opencode-runner", "--id", "opencode-runtime",
+		"--endpoint-id", "test-redelivery-endpoint")
 
-	run("invocation", "redeliver", "--id", "inv-missed")
+	run("invocation", "redeliver", "--id", "inv-missed", "--runtime", "opencode-runtime")
 	if bytes.Contains(out.Bytes(), []byte(`"warnings"`)) {
 		t.Fatalf("expected no delivery warnings against a now-live session: %s", out.String())
 	}

@@ -24,6 +24,11 @@ import (
 
 const Service = "agent-comms"
 
+const (
+	hostIDFileName = "host-id"
+	hostIDBytes    = 16
+)
+
 type Credential struct {
 	ProjectID  string `json:"project_id"`
 	Actor      string `json:"actor"`
@@ -380,6 +385,73 @@ func ConfigDir() (string, error) {
 	}
 	return filepath.Join(d, "agent-comms"), nil
 }
+
+func LoadOrCreateHostID() (string, error) {
+	directory, err := ConfigDir()
+	if err != nil {
+		return "", err
+	}
+	if err = os.MkdirAll(directory, 0o700); err != nil {
+		return "", err
+	}
+	path := filepath.Join(directory, hostIDFileName)
+	read := func() (string, error) { return readHostID(path, true) }
+	if value, readErr := read(); readErr == nil {
+		return value, nil
+	} else if !os.IsNotExist(readErr) {
+		return "", readErr
+	}
+	random := make([]byte, hostIDBytes)
+	if _, err = rand.Read(random); err != nil {
+		return "", err
+	}
+	value := hex.EncodeToString(random)
+	file, createErr := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if createErr != nil {
+		if os.IsExist(createErr) {
+			return read()
+		}
+		return "", createErr
+	}
+	if _, err = file.WriteString(value + "\n"); err == nil {
+		err = file.Sync()
+	}
+	closeErr := file.Close()
+	if err != nil {
+		return "", err
+	}
+	if closeErr != nil {
+		return "", closeErr
+	}
+	return value, nil
+}
+
+func LoadHostID() (string, error) {
+	directory, err := ConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return readHostID(filepath.Join(directory, hostIDFileName), false)
+}
+
+func readHostID(path string, securePermissions bool) (string, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	value := strings.TrimSpace(string(raw))
+	decoded, err := hex.DecodeString(value)
+	if err != nil || len(decoded) != hostIDBytes {
+		return "", errors.New("agent-comms host ID is malformed")
+	}
+	if securePermissions {
+		if err = os.Chmod(path, 0o600); err != nil {
+			return "", err
+		}
+	}
+	return value, nil
+}
+
 func LoadUserConfig() (UserConfig, error) {
 	d, e := ConfigDir()
 	if e != nil {

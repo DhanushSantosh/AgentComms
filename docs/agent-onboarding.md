@@ -52,9 +52,11 @@ Find out before doing anything else:
 
 ## 3. Core invocation lifecycle
 
-`PENDING` -> `NOTIFIED` -> `CLAIMED` -> `RUNNING` -> `WAITING` -> a terminal
-state (`COMPLETED`, `REJECTED`, `EXPIRED`, `DEAD_LETTER`). CLI on the left,
-MCP tool on the right — same underlying transaction either way:
+`PENDING` -> optional `NOTIFIED` -> `CLAIMED` -> `RUNNING` -> `WAITING` -> a
+terminal state (`COMPLETED`, `REJECTED`, `EXPIRED`, `CANCELLED`). `NOTIFIED`
+only proves a wake-up transport completed. `CLAIMED` is the first target
+acknowledgement; `COMPLETED` is the successful close. CLI on the left, MCP tool
+on the right — same underlying transaction either way:
 
 - `invocation next` / `invocation_next` — read the next claimable invocation.
 - `invocation listen --wait <duration> --claim` / `invocation_listen` —
@@ -90,12 +92,11 @@ sponsor either on someone else's behalf. If a human asks you to "get
 orchestrator or human principal, the right answer is to explain what
 `<agent-name>`'s own operator needs to run — not to attempt it yourself.
 
-Addressing another agent (section 4) never requires knowing how it's
-connected — `invocation request`/`invocation_request` works identically
-whether the target is MCP-connected, running under a headless
-`runtime worker`, or living inside an `interactive-serve`-wrapped terminal.
-Delivery is resolved automatically based on what's actually running; you
-never choose an adapter to reach someone else.
+Addressing another agent (section 4) always commits the same governed
+obligation. When consumer isolation matters, select `INTERACTIVE_ONLY` or
+`WORKER_ONLY` and optionally a preferred runtime; otherwise the compatibility
+default is `EITHER`. Delivery availability is reported separately from request
+success.
 
 Adapter/`interactive-serve` selection only applies to *your own* runtime:
 decided once, by whoever operates your session, before you ever receive

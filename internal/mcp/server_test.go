@@ -115,8 +115,9 @@ func TestInitializeAndToolCatalog(t *testing.T) {
 	}
 	for _, want := range []string{
 		"agent-comms", `"identity"`, `"get_started"`, "task_create", "message_post", "invocation_request",
+		"invocation_get", "invocation_redeliver", "invocation_policy_set",
 		"invocation_next", "invocation_listen", "invocation_claim",
-		"runtime_register", "runtime_heartbeat", "verify", `"agent_revoke"`,
+		"runtime_register", "runtime_configure", "runtime_heartbeat", "verify", `"agent_revoke"`,
 	} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("missing %s", want)
@@ -209,6 +210,10 @@ func TestInvocationToolsReturnAndClaimWork(t *testing.T) {
 	}
 	if _, err := instance.Execute("builder", "runtime.register", "runtime-builder",
 		model.RuntimeRegistered{AgentID: "builder", Connector: "MCP", MaxConcurrent: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := instance.Execute("builder", "runtime.heartbeat", "runtime-builder",
+		model.RuntimeHeartbeat{Health: "HEALTHY"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := instance.Execute("owner", "invocation.request", "inv-mcp",

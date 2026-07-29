@@ -23,9 +23,10 @@ literal identity to register under.
   line in your final output, in the format your prompt described.
 - **Agent inside a live `interactive-serve`-wrapped terminal** — you'll get
   a short, unprompted "check your pending invocations" line typed into your
-  own terminal when work arrives. When you see it, run
-  `{{.Binary}} invocation list --status PENDING --to <agent-name> --json`,
-  then handle it through the normal claim/start/complete sequence below.
+  own terminal when work arrives. When you see it, inspect the named
+  invocation with `{{.Binary}} invocation inspect --id <invocation-id>
+  --json`, then handle it through the normal claim/start/complete sequence
+  below.
 
 ## 2. Do you already have an identity in this project?
 
@@ -75,9 +76,11 @@ and create tasks now.{{end}}
 
 ## 3. Core invocation lifecycle
 
-`PENDING` -> `NOTIFIED` -> `CLAIMED` -> `RUNNING` -> `WAITING` -> a terminal
-state (`COMPLETED`, `REJECTED`, `EXPIRED`, `DEAD_LETTER`). Same commands
-either way, CLI on the left, MCP tool on the right:
+`PENDING` -> optional `NOTIFIED` -> `CLAIMED` -> `RUNNING` -> `WAITING` -> a
+terminal state (`COMPLETED`, `REJECTED`, `EXPIRED`, `CANCELLED`). `NOTIFIED`
+only proves a wake-up transport completed. `CLAIMED` is your first
+authoritative acknowledgement; `COMPLETED` is the successful close. Same
+commands either way, CLI on the left, MCP tool on the right:
 
 - `invocation next` / `invocation_next` — read the next claimable invocation.
 - `invocation listen --wait <duration> --claim` / `invocation_listen` —
@@ -94,8 +97,10 @@ either way, CLI on the left, MCP tool on the right:
 `invocation request --to <agent-name> --instruction "<instruction>"` (CLI)
 or `invocation_request` with `target: "<agent-name>"` (MCP). `<agent-name>`
 is the target's real registered agent ID — never a runtime ID, never an
-example name from documentation. This never requires knowing how the
-target is connected; delivery is resolved automatically.
+example name from documentation. The durable request does not depend on a
+wake-up transport. Use `consumer_mode`/`--consumer` and a preferred runtime
+when the work must be isolated to an interactive session or worker; otherwise
+the compatibility default is `EITHER`.
 
 Deciding how *your own* runtime gets set up (which adapter, or
 `interactive-serve`) is separate from addressing one that already exists.

@@ -47,10 +47,10 @@ var busyMarkers = []string{"esc to interrupt", "esc again to interrupt", "esc in
 // could still sit in the tail buffer and produce a false busy/echo match
 // after the target has actually redrawn a fresh, unrelated screen.
 var clearSequences = [][]byte{
-	[]byte("\x1b[2J"),    // erase entire screen
-	[]byte("\x1b[3J"),    // erase scrollback
+	[]byte("\x1b[2J"),     // erase entire screen
+	[]byte("\x1b[3J"),     // erase scrollback
 	[]byte("\x1b[?1049h"), // enter alternate screen buffer
-	[]byte("\x1b[?47h"),  // enter alternate screen buffer (older form)
+	[]byte("\x1b[?47h"),   // enter alternate screen buffer (older form)
 }
 
 // lastClearIndex returns the offset just past the last occurrence of any

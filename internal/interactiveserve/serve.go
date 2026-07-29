@@ -222,9 +222,13 @@ func handleConn(conn net.Conn, tee *outputTee, ptmx *os.File, mu *sync.Mutex) {
 		_ = json.NewEncoder(conn).Encode(Response{OK: true, Busy: isBusy(tee.snapshot())})
 	case "deliver":
 		mu.Lock()
-		err := deliverToPty(ptmx, tee, req.Message, idleTimeout, echoTimeout)
+		evidence, err := deliverToPtyWithEvidence(ptmx, tee, req.Message, idleTimeout, echoTimeout)
 		mu.Unlock()
 		resp := Response{OK: err == nil}
+		if err == nil {
+			resp.TextEchoedAt = &evidence.TextEchoedAt
+			resp.EnterSentAt = &evidence.EnterSentAt
+		}
 		if err != nil {
 			resp.Error = err.Error()
 		}
@@ -234,9 +238,13 @@ func handleConn(conn net.Conn, tee *outputTee, ptmx *os.File, mu *sync.Mutex) {
 			_ = json.NewEncoder(conn).Encode(Response{OK: false, Busy: true, Error: "another delivery is already in progress"})
 			return
 		}
-		err := deliverToPty(ptmx, tee, req.Message, directDeliveryIdleTimeout, echoTimeout)
+		evidence, err := deliverToPtyWithEvidence(ptmx, tee, req.Message, directDeliveryIdleTimeout, echoTimeout)
 		mu.Unlock()
 		resp := Response{OK: err == nil, Busy: err != nil && isBusy(tee.snapshot())}
+		if err == nil {
+			resp.TextEchoedAt = &evidence.TextEchoedAt
+			resp.EnterSentAt = &evidence.EnterSentAt
+		}
 		if err != nil {
 			resp.Error = err.Error()
 		}
@@ -256,19 +264,26 @@ func handleConn(conn net.Conn, tee *outputTee, ptmx *os.File, mu *sync.Mutex) {
 // package constants in production; tests call this directly with short
 // overrides rather than waiting out the real, deliberately generous values.
 func deliverToPty(ptmx *os.File, tee *outputTee, message string, idleTO, echoTO time.Duration) error {
+	_, err := deliverToPtyWithEvidence(ptmx, tee, message, idleTO, echoTO)
+	return err
+}
+
+func deliverToPtyWithEvidence(ptmx *os.File, tee *outputTee, message string, idleTO, echoTO time.Duration) (DeliveryReceipt, error) {
 	if !waitForIdle(tee, idleTO) {
-		return fmt.Errorf("target was still busy after %s; not injecting into an in-progress turn", idleTO)
+		return DeliveryReceipt{}, fmt.Errorf("target was still busy after %s; not injecting into an in-progress turn", idleTO)
 	}
 	if _, err := ptmx.Write([]byte(message)); err != nil {
-		return fmt.Errorf("write text: %w", err)
+		return DeliveryReceipt{}, fmt.Errorf("write text: %w", err)
 	}
 	if !waitForEchoBuf(tee, message, echoTO) {
-		return errors.New("target never echoed the sent text back within the timeout; refusing to send Enter blind")
+		return DeliveryReceipt{}, errors.New("target never echoed the sent text back within the timeout; refusing to send Enter blind")
 	}
+	textEchoedAt := time.Now().UTC()
 	if _, err := ptmx.Write([]byte("\r")); err != nil {
-		return fmt.Errorf("write enter: %w", err)
+		return DeliveryReceipt{}, fmt.Errorf("write enter: %w", err)
 	}
-	return nil
+	enterSentAt := time.Now().UTC()
+	return DeliveryReceipt{TextEchoedAt: textEchoedAt, EnterSentAt: enterSentAt}, nil
 }
 
 func waitForIdle(tee *outputTee, timeout time.Duration) bool {

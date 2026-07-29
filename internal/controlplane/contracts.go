@@ -14,26 +14,29 @@ import (
 )
 
 const (
-	LocalDaemonProtocolVersion = 3
-	MaxCommandBytes            = 256 * 1024
-	MaxRecipients              = 100
-	DefaultPageSize            = 100
-	MaxPageSize                = 500
-	MaxDraftBytes              = 5 * 1024 * 1024
-	MaxDraftsPerProject        = 1_000
-	MaxDraftStorageBytes       = 50 * 1024 * 1024
-	MaxInvocationBytes         = 16 * 1024
-	MaxInvocationListen        = 10 * time.Second
-	MaxDeliveryAttempts        = 10
-	MaxInvocationTTL           = 7 * 24 * time.Hour
-	DefaultClaimLease          = 15 * time.Minute
-	MaxClaimLease              = time.Hour
-	MaxRuntimesPerProject      = 500
-	MaxRuntimeConcurrency      = 100
-	MinHeartbeatInterval       = 10 * time.Second
-	RuntimeOfflineAfter        = 45 * time.Second
-	CommandClockSkew           = 5 * time.Minute
-	DefaultRequestTimeout      = 15 * time.Second
+	LocalDaemonProtocolVersion  = 4
+	MaxCommandBytes             = 256 * 1024
+	MaxRecipients               = 100
+	DefaultPageSize             = 100
+	MaxPageSize                 = 500
+	MaxDraftBytes               = 5 * 1024 * 1024
+	MaxDraftsPerProject         = 1_000
+	MaxDraftStorageBytes        = 50 * 1024 * 1024
+	MaxInvocationBytes          = 16 * 1024
+	MaxInvocationListen         = 10 * time.Second
+	MaxDeliveryAttempts         = 10
+	MaxDeliveryEvidence         = 8
+	DefaultDeliveryAttemptLease = 30 * time.Second
+	MaxDeliveryAttemptLease     = 2 * time.Minute
+	MaxInvocationTTL            = 7 * 24 * time.Hour
+	DefaultClaimLease           = 15 * time.Minute
+	MaxClaimLease               = time.Hour
+	MaxRuntimesPerProject       = 500
+	MaxRuntimeConcurrency       = 100
+	MinHeartbeatInterval        = 10 * time.Second
+	RuntimeOfflineAfter         = 45 * time.Second
+	CommandClockSkew            = 5 * time.Minute
+	DefaultRequestTimeout       = 15 * time.Second
 )
 
 type ErrorCode string

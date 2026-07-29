@@ -23,9 +23,11 @@ type Request struct {
 
 // Response is the single message shape returned for a Request.
 type Response struct {
-	OK    bool   `json:"ok"`
-	Error string `json:"error,omitempty"`
-	Busy  bool   `json:"busy,omitempty"` // set on "ping" responses
+	OK           bool       `json:"ok"`
+	Error        string     `json:"error,omitempty"`
+	Busy         bool       `json:"busy,omitempty"` // set on "ping" responses
+	TextEchoedAt *time.Time `json:"text_echoed_at,omitempty"`
+	EnterSentAt  *time.Time `json:"enter_sent_at,omitempty"`
 }
 
 const (

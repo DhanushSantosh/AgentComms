@@ -41,4 +41,11 @@ func TestSchemaMigrationsAreOrderedAndClassified(t *testing.T) {
 	if !strings.Contains(schemaMigrations[1].SQL, "actor_key_fingerprint") {
 		t.Fatal("migration v2 does not add the actor key fingerprint column")
 	}
+	for _, required := range []string{
+		"consumer_mode", "preferred_runtime_id", "transport", "runtime_kind", "host_id",
+	} {
+		if !strings.Contains(schemaMigrations[2].SQL, required) {
+			t.Fatalf("migration v3 does not add %s", required)
+		}
+	}
 }

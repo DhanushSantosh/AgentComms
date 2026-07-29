@@ -261,6 +261,183 @@ func TestAgentRotateKeySelfStillWorks(t *testing.T) {
 	}
 }
 
+func TestInvocationRequestNormalizesConsumerRoutingFromPolicy(t *testing.T) {
+	state := model.State{
+		Agents: map[string]model.Agent{
+			"owner":   humanAgent("owner"),
+			"builder": {ID: "builder", Status: "ACTIVE", Role: model.RoleAgent, PrincipalType: model.PrincipalAgent},
+		},
+		AgentRuntimes: map[string]model.AgentRuntime{
+			"builder-interactive": {
+				ID: "builder-interactive", AgentID: "builder",
+				Kind: model.RuntimeKindInteractive, Connector: "INTERACTIVE",
+				HostID: "host", Status: "OFFLINE", MaxConcurrent: 1,
+			},
+		},
+		InvocationPolicies: map[string]model.InvocationPolicy{
+			"builder": {
+				AgentID: "builder", Mode: "AUTOMATIC",
+				DefaultConsumerMode:           model.ConsumerModeInteractiveOnly,
+				AllowedConsumerModes:          []model.ConsumerMode{model.ConsumerModeInteractiveOnly},
+				PreferredInteractiveRuntimeID: "builder-interactive",
+			},
+		},
+	}
+	normalized, err := ValidateTransition(state, "owner", "invocation.request", "invocation",
+		model.InvocationRequested{Target: "builder", Instruction: "Review the change"}, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := normalized.(model.InvocationRequested)
+	if request.ConsumerMode != model.ConsumerModeInteractiveOnly ||
+		request.PreferredRuntimeID != "builder-interactive" {
+		t.Fatalf("unexpected normalized routing: %+v", request)
+	}
+}
+
+func TestInvocationClaimEnforcesKindPreferredRuntimeAndCapacity(t *testing.T) {
+	now := time.Now().UTC()
+	state := model.State{
+		Agents: map[string]model.Agent{
+			"builder": {ID: "builder", Status: "ACTIVE", Role: model.RoleAgent, PrincipalType: model.PrincipalAgent},
+		},
+		Invocations: map[string]model.Invocation{
+			"invocation": {
+				ID: "invocation", Target: "builder", RequestedBy: "owner", Status: "PENDING",
+				ConsumerMode: model.ConsumerModeInteractiveOnly, PreferredRuntimeID: "interactive",
+			},
+		},
+		AgentRuntimes: map[string]model.AgentRuntime{
+			"worker": {
+				ID: "worker", AgentID: "builder", Kind: model.RuntimeKindWorker,
+				Connector: "MCP", Status: "ONLINE", Health: "HEALTHY", MaxConcurrent: 1,
+			},
+			"other-interactive": {
+				ID: "other-interactive", AgentID: "builder", Kind: model.RuntimeKindInteractive,
+				Connector: "INTERACTIVE", HostID: "host", EndpointID: "other-endpoint",
+				Status: "ONLINE", Health: "HEALTHY", MaxConcurrent: 1,
+			},
+			"interactive": {
+				ID: "interactive", AgentID: "builder", Kind: model.RuntimeKindInteractive,
+				Connector: "INTERACTIVE", HostID: "host", EndpointID: "endpoint",
+				Status: "ONLINE", Health: "HEALTHY", MaxConcurrent: 1,
+			},
+		},
+	}
+	for _, runtimeID := range []string{"worker", "other-interactive"} {
+		if _, err := ValidateTransition(state, "builder", "invocation.claim", "invocation",
+			model.InvocationClaimed{RuntimeID: runtimeID}, now); err == nil {
+			t.Fatalf("ineligible runtime %s claimed the invocation", runtimeID)
+		}
+	}
+	if _, err := ValidateTransition(state, "builder", "invocation.claim", "invocation",
+		model.InvocationClaimed{RuntimeID: "interactive"}, now); err != nil {
+		t.Fatalf("preferred interactive runtime could not claim: %v", err)
+	}
+	state.Invocations["active"] = model.Invocation{
+		ID: "active", Target: "builder", RuntimeID: "interactive", Status: "RUNNING",
+	}
+	if _, err := ValidateTransition(state, "builder", "invocation.claim", "invocation",
+		model.InvocationClaimed{RuntimeID: "interactive"}, now); err == nil {
+		t.Fatal("capacity-exhausted runtime claimed another invocation")
+	}
+}
+
+func TestDeliveryAttemptAndEvidenceAreStrictlyBound(t *testing.T) {
+	now := time.Now().UTC()
+	attemptedAt := now.Add(-time.Second)
+	attemptUntil := now.Add(time.Minute)
+	state := model.State{
+		Agents: map[string]model.Agent{
+			"owner":   humanAgent("owner"),
+			"builder": {ID: "builder", Status: "ACTIVE", Role: model.RoleAgent, PrincipalType: model.PrincipalAgent},
+		},
+		Invocations: map[string]model.Invocation{
+			"invocation": {
+				ID: "invocation", Target: "builder", RequestedBy: "owner",
+				Status: "PENDING", ConsumerMode: model.ConsumerModeInteractiveOnly,
+			},
+		},
+		AgentRuntimes: map[string]model.AgentRuntime{
+			"interactive": {
+				ID: "interactive", AgentID: "builder", Kind: model.RuntimeKindInteractive,
+				Connector: "INTERACTIVE", HostID: "host", EndpointID: "endpoint",
+				Status: "ONLINE", Health: "HEALTHY", MaxConcurrent: 1,
+			},
+		},
+		InvocationDeliveries: map[string]model.InvocationDelivery{
+			"active-attempt": {
+				ID: "active-attempt", InvocationID: "invocation", RuntimeID: "interactive",
+				Transport: "INTERACTIVE", HostID: "host", EndpointID: "endpoint",
+				Attempt: 1, Status: "ATTEMPTED",
+				AttemptedAt: &attemptedAt, AttemptUntil: &attemptUntil,
+			},
+		},
+	}
+	if _, err := ValidateTransition(state, "owner", "invocation.delivery-attempt", "invocation",
+		model.InvocationDeliveryAttempted{
+			DeliveryID: "duplicate", RuntimeID: "interactive", Transport: "INTERACTIVE",
+		}, now); err == nil {
+		t.Fatal("second unexpired attempt for the same invocation/runtime was accepted")
+	}
+	if _, err := ValidateTransition(state, "owner", "invocation.notify", "invocation",
+		model.InvocationNotified{DeliveryID: "active-attempt"}, now); err == nil {
+		t.Fatal("interactive success without PTY evidence was accepted")
+	}
+	normalized, err := ValidateTransition(state, "owner", "invocation.notify", "invocation",
+		model.InvocationNotified{
+			DeliveryID: "active-attempt", EndpointID: "endpoint",
+			Evidence: []model.DeliveryEvidence{
+				{Stage: "PTY_TEXT_ECHOED", At: attemptedAt.Add(time.Millisecond)},
+				{Stage: "PTY_ENTER_SENT", At: attemptedAt.Add(2 * time.Millisecond)},
+			},
+		}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	notification := normalized.(model.InvocationNotified)
+	if notification.RuntimeID != "interactive" || notification.Transport != "INTERACTIVE" ||
+		notification.Attempt != 1 {
+		t.Fatalf("notification was not bound to the reserved attempt: %+v", notification)
+	}
+}
+
+func TestRuntimeConfigureRequiresInactiveOfflineRuntime(t *testing.T) {
+	now := time.Now().UTC()
+	state := model.State{
+		Agents: map[string]model.Agent{
+			"builder": {ID: "builder", Status: "ACTIVE", Role: model.RoleAgent, PrincipalType: model.PrincipalAgent},
+		},
+		AgentRuntimes: map[string]model.AgentRuntime{
+			"runtime": {
+				ID: "runtime", AgentID: "builder", Kind: model.RuntimeKindWorker,
+				Connector: "MCP", Status: "ONLINE", Health: "HEALTHY", MaxConcurrent: 1,
+			},
+		},
+		Invocations: map[string]model.Invocation{},
+	}
+	configure := model.RuntimeConfigured{
+		Kind: model.RuntimeKindWorker, Connector: "MCP", MaxConcurrent: 1,
+	}
+	if _, err := ValidateTransition(state, "builder", "runtime.configure", "runtime", configure, now); err == nil {
+		t.Fatal("online runtime was reconfigured")
+	}
+	runtimeState := state.AgentRuntimes["runtime"]
+	runtimeState.Status = "OFFLINE"
+	runtimeState.Health = "UNKNOWN"
+	state.AgentRuntimes["runtime"] = runtimeState
+	state.Invocations["active"] = model.Invocation{
+		ID: "active", Target: "builder", RuntimeID: "runtime", Status: "WAITING",
+	}
+	if _, err := ValidateTransition(state, "builder", "runtime.configure", "runtime", configure, now); err == nil {
+		t.Fatal("runtime with an authoritative active assignment was reconfigured")
+	}
+	delete(state.Invocations, "active")
+	if _, err := ValidateTransition(state, "builder", "runtime.configure", "runtime", configure, now); err != nil {
+		t.Fatalf("inactive offline runtime could not be repaired: %v", err)
+	}
+}
+
 func validSettings() model.ProjectSettingsUpdated {
 	return model.ProjectSettingsUpdated{
 		DefaultLease: "90m", StaleGrace: "30m", ActiveRetention: "720h",
