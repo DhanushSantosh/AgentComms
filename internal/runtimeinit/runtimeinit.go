@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
@@ -290,11 +289,4 @@ func saveProfile(projectRoot, projectID, owner string) error {
 		Name: name, ProjectID: projectID, Actor: owner, ProjectRoot: projectRoot,
 	}
 	return identity.SaveUserConfig(userConfig)
-}
-
-func DaemonEndpoint(projectRoot, projectID string) string {
-	if runtime.GOOS == "windows" {
-		return `\\.\pipe\agent-comms-` + projectID
-	}
-	return filepath.Join(os.TempDir(), "agent-comms", projectID+".sock")
 }

@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/DhanushSantosh/AgentComms/internal/claudepath"
 	"github.com/fsnotify/fsnotify"
 )
 
@@ -23,12 +24,7 @@ import (
 // transcript to, confirmed by inspecting real session files on disk:
 // <claudeHome>/projects/<projectDir, "/" replaced by "-">/<sessionID>.jsonl.
 func SessionPath(claudeHome, projectDir, sessionID string) (string, error) {
-	abs, err := filepath.Abs(projectDir)
-	if err != nil {
-		return "", err
-	}
-	slug := strings.ReplaceAll(abs, "/", "-")
-	return filepath.Join(claudeHome, "projects", slug, sessionID+".jsonl"), nil
+	return claudepath.SessionPath(claudeHome, projectDir, sessionID)
 }
 
 type transcriptEntry struct {

@@ -171,6 +171,65 @@ func TestFreshProjectDoesNotRequireImmediateUpgrade(t *testing.T) {
 	}
 }
 
+func TestReconcileMovesLegacyDaemonEndpoint(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(t.TempDir(), "credentials"))
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(t.TempDir(), "config"))
+	store.RuntimeVersion = "0.2.0"
+	store.RuntimeBuildID = "current-build"
+	if _, err := runtimeinit.Initialize(context.Background(), runtimeinit.Config{
+		ProjectRoot: root, Owner: "owner", Mode: "personal",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(root, store.Runtime, "config.json")
+	config, err := store.Open(root).ConfigStrict()
+	if err != nil {
+		t.Fatal(err)
+	}
+	config.DaemonEndpoint = filepath.Join(os.TempDir(), "agent-comms", config.ProjectID+".sock")
+	raw, err := json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(configPath, append(raw, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	plan, _, err := Inspect(root, "0.2.0", "current-build")
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundEndpointAction := false
+	for _, action := range plan.Actions {
+		if action.Component == "daemon_endpoint" {
+			foundEndpointAction = true
+			break
+		}
+	}
+	if !foundEndpointAction {
+		t.Fatalf("legacy daemon endpoint did not produce a lifecycle action: %+v", plan.Actions)
+	}
+	result, err := Reconcile(context.Background(), Options{
+		Root: root, Version: "0.2.0", BuildID: "current-build",
+		Apply: true, StopDaemon: false,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Changed || !result.Verified {
+		t.Fatalf("unexpected reconciliation result: %+v", result)
+	}
+	reconciled, err := store.Open(root).ConfigStrict()
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := runtimeinit.DaemonEndpoint(root, reconciled.ProjectID)
+	if reconciled.DaemonEndpoint != expected {
+		t.Fatalf("daemon endpoint=%q, want %q", reconciled.DaemonEndpoint, expected)
+	}
+}
+
 // newUpgradableFixture creates a project whose baseline needs both
 // automatic (project format, managed files, toolkit) and disruptive
 // (personal-authority, draft-store) actions, with one draft present, so

@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/DhanushSantosh/AgentComms/internal/claudepath"
 )
 
 const (
@@ -334,11 +336,10 @@ func SessionExists(workDir, sessionID string) bool {
 	if err != nil {
 		return false
 	}
-	abs, err := filepath.Abs(workDir)
+	sessionPath, err := claudepath.SessionPath(filepath.Join(home, ".claude"), workDir, sessionID)
 	if err != nil {
-		abs = workDir
+		return false
 	}
-	slug := strings.ReplaceAll(abs, "/", "-")
-	_, err = os.Stat(filepath.Join(home, ".claude", "projects", slug, sessionID+".jsonl"))
+	_, err = os.Stat(sessionPath)
 	return err == nil
 }

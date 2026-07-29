@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/DhanushSantosh/AgentComms/internal/claudepath"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 	"github.com/DhanushSantosh/AgentComms/internal/service"
 	"github.com/DhanushSantosh/AgentComms/internal/testsupport"
@@ -135,16 +136,15 @@ func writeFakeClaudeSession(t *testing.T, workDir, sessionID string) {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	abs, err := filepath.Abs(workDir)
+	sessionPath, err := claudepath.SessionPath(filepath.Join(home, ".claude"), workDir, sessionID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	slug := strings.ReplaceAll(abs, "/", "-")
-	dir := filepath.Join(home, ".claude", "projects", slug)
+	dir := filepath.Dir(sessionPath)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, sessionID+".jsonl"), []byte("{}\n"), 0o600); err != nil {
+	if err := os.WriteFile(sessionPath, []byte("{}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }

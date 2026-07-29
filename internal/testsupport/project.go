@@ -42,8 +42,9 @@ func StartPersonalProject(t testing.TB) (*service.Service, string) {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
+	daemonStopped := make(chan struct{})
 	go func() {
+		defer close(daemonStopped)
 		_ = daemon.Run(ctx, daemon.RunConfig{
 			ServicePublicKey: config.ServicePublicKey,
 			CachePath:        runtimeinit.ProjectionPath(root), Endpoint: config.DaemonEndpoint,
@@ -52,6 +53,14 @@ func StartPersonalProject(t testing.TB) (*service.Service, string) {
 			ProjectRoot: root, ConnectorConfigPath: os.Getenv("AGENT_COMMS_CONNECTOR_CONFIG"),
 		})
 	}()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-daemonStopped:
+		case <-time.After(personalDaemonReadyTimeout):
+			t.Errorf("personal daemon did not stop before test cleanup")
+		}
+	})
 	client, err := daemonclient.New(config.DaemonEndpoint, time.Second)
 	if err != nil {
 		t.Fatal(err)

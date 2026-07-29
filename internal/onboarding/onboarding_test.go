@@ -77,10 +77,11 @@ func TestSourceBranchesProduceDistinctText(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if strings.Contains(rendered, "<no value>") {
+			normalizedRendered := strings.ReplaceAll(rendered, "\r\n", "\n")
+			if strings.Contains(normalizedRendered, "<no value>") {
 				t.Fatalf("live render left an unresolved template action:\n%s", rendered)
 			}
-			if !strings.Contains(rendered, test.want) {
+			if !strings.Contains(normalizedRendered, test.want) {
 				t.Fatalf("expected rendered text to contain %q, got:\n%s", test.want, rendered)
 			}
 			assertSingleDisclaimer(t, rendered)

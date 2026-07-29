@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/DhanushSantosh/AgentComms/internal/buildinfo"
+	"github.com/DhanushSantosh/AgentComms/internal/durablefs"
 	"github.com/DhanushSantosh/AgentComms/internal/identity"
 	"github.com/DhanushSantosh/AgentComms/internal/projectlifecycle"
 	"github.com/DhanushSantosh/AgentComms/internal/store"
@@ -210,12 +211,7 @@ func saveUserLifecycleState(state userLifecycleState) error {
 	if err = os.Rename(temporaryPath, path); err != nil {
 		return err
 	}
-	directory, err := os.Open(configDirectory)
-	if err != nil {
-		return err
-	}
-	defer directory.Close()
-	return directory.Sync()
+	return durablefs.SyncDirectory(configDirectory)
 }
 
 func markUserInstallationCurrent(currentRoot string) error {

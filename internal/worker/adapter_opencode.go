@@ -20,7 +20,16 @@ import (
 // `--format json` gives a clean newline-delimited event stream to parse for
 // the final answer, and a `--session <id>` that doesn't exist fails with a
 // plain "Error: Session not found" line rather than hanging or crashing.
-type openCodeAdapter struct{}
+type openCodeExecutor func(
+	context.Context,
+	Config,
+	model.Invocation,
+	string,
+) (openCodeRunResult, string, error)
+
+type openCodeAdapter struct {
+	execute openCodeExecutor
+}
 
 func (openCodeAdapter) Validate(config *Config) error {
 	if config.PermissionMode == "" {
@@ -87,13 +96,17 @@ type openCodeEvent struct {
 	} `json:"part"`
 }
 
-func (openCodeAdapter) Execute(ctx context.Context, config Config, invocation model.Invocation) (string, error) {
+func (adapter openCodeAdapter) Execute(ctx context.Context, config Config, invocation model.Invocation) (string, error) {
 	sessionID := config.SessionID
 	if sessionID == "" {
 		sessionID = loadOpenCodeSessionID(config.WorkDir, config.RuntimeID)
 	}
 
-	output, resultSessionID, err := runOpenCode(ctx, config, invocation, sessionID)
+	execute := adapter.execute
+	if execute == nil {
+		execute = runOpenCode
+	}
+	output, resultSessionID, err := execute(ctx, config, invocation, sessionID)
 	if err != nil {
 		return "", err
 	}
@@ -102,7 +115,7 @@ func (openCodeAdapter) Execute(ctx context.Context, config Config, invocation mo
 		// at a caller-chosen ID, the same limitation opencode-acp/
 		// opencode-live already document. Retry once with no --session at
 		// all rather than failing the invocation outright.
-		output, resultSessionID, err = runOpenCode(ctx, config, invocation, "")
+		output, resultSessionID, err = execute(ctx, config, invocation, "")
 		if err != nil {
 			return "", err
 		}
@@ -153,7 +166,10 @@ func runOpenCode(ctx context.Context, config Config, invocation model.Invocation
 		return openCodeRunResult{}, "", fmt.Errorf("agent output exceeded %d bytes", maxAgentOutputBytes)
 	}
 
-	raw := stdout.String()
+	return parseOpenCodeOutput(stdout.String())
+}
+
+func parseOpenCodeOutput(raw string) (openCodeRunResult, string, error) {
 	result := openCodeRunResult{raw: raw}
 	var resultSessionID string
 	var text strings.Builder

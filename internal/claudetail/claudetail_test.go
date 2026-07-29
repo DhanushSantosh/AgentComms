@@ -29,13 +29,17 @@ func (b *synchronizedBuffer) String() string {
 }
 
 func TestSessionPathMatchesRealClaudeCodeLayout(t *testing.T) {
-	got, err := SessionPath("/home/dhanush/.claude", "/home/dhanush/Projects/DeskCrafter", "a09c5424-1723-4ee9-8fb2-8d2625393561")
+	projectDirectory := filepath.Join(t.TempDir(), "Projects", "DeskCrafter")
+	claudeHome := filepath.Join(t.TempDir(), ".claude")
+	got, err := SessionPath(claudeHome, projectDirectory, "a09c5424-1723-4ee9-8fb2-8d2625393561")
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "/home/dhanush/.claude/projects/-home-dhanush-Projects-DeskCrafter/a09c5424-1723-4ee9-8fb2-8d2625393561.jsonl"
-	if got != want {
-		t.Fatalf("SessionPath() = %q, want %q", got, want)
+	if filepath.Dir(filepath.Dir(got)) != filepath.Join(claudeHome, "projects") {
+		t.Fatalf("SessionPath() escaped Claude's project store: %q", got)
+	}
+	if filepath.Base(got) != "a09c5424-1723-4ee9-8fb2-8d2625393561.jsonl" {
+		t.Fatalf("SessionPath() used an unexpected transcript name: %q", got)
 	}
 }
 

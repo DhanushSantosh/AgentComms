@@ -12,6 +12,9 @@ func ListenLocal(endpoint string) (net.Listener, error) {
 	if err := os.MkdirAll(filepath.Dir(endpoint), 0o700); err != nil {
 		return nil, err
 	}
+	if err := os.Chmod(filepath.Dir(endpoint), 0o700); err != nil {
+		return nil, err
+	}
 	if info, err := os.Lstat(endpoint); err == nil && info.Mode()&os.ModeSocket != 0 {
 		if connection, dialErr := net.Dial("unix", endpoint); dialErr == nil {
 			_ = connection.Close()

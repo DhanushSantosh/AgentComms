@@ -28,6 +28,7 @@ import (
 	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
 	"github.com/DhanushSantosh/AgentComms/internal/daemon"
 	"github.com/DhanushSantosh/AgentComms/internal/daemonclient"
+	"github.com/DhanushSantosh/AgentComms/internal/durablefs"
 	"github.com/DhanushSantosh/AgentComms/internal/failure"
 	"github.com/DhanushSantosh/AgentComms/internal/identity"
 	"github.com/DhanushSantosh/AgentComms/internal/interactiveserve"
@@ -83,6 +84,31 @@ type cli struct {
 	actorResolution                      identity.ActorResolution
 	pendingWarnings                      []string
 	processExitCode                      int
+	handoffRunner                        commandRunner
+}
+
+type commandRunner func(
+	context.Context,
+	string,
+	[]string,
+	io.Reader,
+	io.Writer,
+	io.Writer,
+) error
+
+func runCommand(
+	ctx context.Context,
+	executable string,
+	arguments []string,
+	stdin io.Reader,
+	stdout io.Writer,
+	stderr io.Writer,
+) error {
+	process := exec.CommandContext(ctx, executable, arguments...)
+	process.Stdin = stdin
+	process.Stdout = stdout
+	process.Stderr = stderr
+	return process.Run()
 }
 
 var launchDaemonProcess = func(executable, projectRoot string, output io.Writer) error {
@@ -2476,15 +2502,14 @@ func (c *cli) handoffProjectUpgrade(ctx context.Context, executable, projectRoot
 	if allKnown {
 		arguments = append(arguments, "--all-known")
 	}
-	process := exec.CommandContext(ctx, executable, arguments...)
-	process.Stdin = os.Stdin
+	runner := c.handoffRunner
+	if runner == nil {
+		runner = runCommand
+	}
 	if c.json {
 		arguments = append(arguments, "--json", "--non-interactive")
-		process = exec.CommandContext(ctx, executable, arguments...)
 		var stdout, stderr bytes.Buffer
-		process.Stdout = &stdout
-		process.Stderr = &stderr
-		if err := process.Run(); err != nil {
+		if err := runner(ctx, executable, arguments, os.Stdin, &stdout, &stderr); err != nil {
 			// The child's --json error envelope goes to its stderr (see
 			// Run(), which encodes failures to the stderr writer), not
 			// stdout. Parse it so the child's real classified error code
@@ -2510,11 +2535,7 @@ func (c *cli) handoffProjectUpgrade(ctx context.Context, executable, projectRoot
 		return envelope.Result, nil
 	}
 	arguments = append(arguments, "--quiet")
-	process = exec.CommandContext(ctx, executable, arguments...)
-	process.Stdin = os.Stdin
-	process.Stdout = c.out
-	process.Stderr = c.err
-	if err := process.Run(); err != nil {
+	if err := runner(ctx, executable, arguments, os.Stdin, c.out, c.err); err != nil {
 		return nil, err
 	}
 	return map[string]any{"verified": true, "all_known": allKnown}, nil
@@ -2645,12 +2666,8 @@ func installRelease(ctx context.Context, r githubRelease) (map[string]any, error
 		_ = os.Rename(backup, exe)
 		return nil, e
 	}
-	if directory, openErr := os.Open(filepath.Dir(exe)); openErr == nil {
-		e = directory.Sync()
-		_ = directory.Close()
-		if e != nil {
-			return nil, e
-		}
+	if e = durablefs.SyncDirectory(filepath.Dir(exe)); e != nil {
+		return nil, e
 	}
 	return map[string]any{"version": r.Tag, "installed": exe, "previous": backup, "verified": true}, nil
 }

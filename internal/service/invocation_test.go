@@ -187,8 +187,8 @@ func TestInvocationDeliveryFailureDoesNotTerminateObligation(t *testing.T) {
 		Target: "builder", Instruction: "Wake the builder",
 	})
 	registerOnlineDeliverableWorker(t, instance, "builder", "runtime-dead")
-	if err := os.WriteFile(os.Getenv("AGENT_COMMS_TEST_CONNECTOR_EXECUTABLE"),
-		[]byte("#!/bin/sh\nexit 1\n"), 0o700); err != nil {
+	if err := os.WriteFile(os.Getenv("AGENT_COMMS_TEST_CONNECTOR_OUTCOME"),
+		[]byte("failure"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	must(t, instance, "owner", "invocation.delivery-attempt", "inv-dead", model.InvocationDeliveryAttempted{
@@ -223,8 +223,8 @@ func TestFailedRedeliveryPreservesEarlierSuccessfulEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitForDeliveryStatus(t, instance, "delivery-success", "SUCCEEDED")
-	if err = os.WriteFile(os.Getenv("AGENT_COMMS_TEST_CONNECTOR_EXECUTABLE"),
-		[]byte("#!/bin/sh\nexit 1\n"), 0o700); err != nil {
+	if err = os.WriteFile(os.Getenv("AGENT_COMMS_TEST_CONNECTOR_OUTCOME"),
+		[]byte("failure"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	must(t, instance, "owner", "invocation.delivery-attempt", "inv-preserve",

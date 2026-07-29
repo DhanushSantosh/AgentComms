@@ -6,10 +6,18 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 )
+
+func requireUnixInteractiveTransport(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("interactive PTY transport is not supported on Windows")
+	}
+}
 
 func TestSocketPathIsDeterministic(t *testing.T) {
 	a := SocketPath("/tmp/project", "codex-runner")
@@ -48,6 +56,7 @@ func TestSocketPathConfinesUnsafeRuntimeIDToSharedDirectory(t *testing.T) {
 }
 
 func TestNotifyInvocationCrossesDifferentTempDirectoryEnvironments(t *testing.T) {
+	requireUnixInteractiveTransport(t)
 	firstTempDirectory := t.TempDir()
 	secondTempDirectory := t.TempDir()
 	projectRoot := t.TempDir()
@@ -76,6 +85,7 @@ func TestNotifyInvocationCrossesDifferentTempDirectoryEnvironments(t *testing.T)
 }
 
 func TestAliveReportsFalseForUnknownRuntime(t *testing.T) {
+	requireUnixInteractiveTransport(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	if Alive(ctx, t.TempDir(), "no-such-runtime") {
@@ -84,6 +94,7 @@ func TestAliveReportsFalseForUnknownRuntime(t *testing.T) {
 }
 
 func TestDeliverFailsClosedWhenNothingListening(t *testing.T) {
+	requireUnixInteractiveTransport(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	if err := Deliver(ctx, t.TempDir(), "no-such-runtime", "hello"); err == nil {
@@ -102,6 +113,7 @@ func TestDeliverRejectsEmbeddedNewlines(t *testing.T) {
 }
 
 func TestNotifyInvocationMentionsIDAndTarget(t *testing.T) {
+	requireUnixInteractiveTransport(t)
 	dir := t.TempDir()
 	sockPath := SocketPath(dir, "opencode-runtime")
 	listener := listenTestSocket(t, sockPath)
@@ -123,6 +135,7 @@ func TestNotifyInvocationMentionsIDAndTarget(t *testing.T) {
 }
 
 func TestProbeReportsBusyLiveRuntime(t *testing.T) {
+	requireUnixInteractiveTransport(t)
 	dir := t.TempDir()
 	sockPath := SocketPath(dir, "busy-runtime")
 	listener := listenTestSocket(t, sockPath)
@@ -143,8 +156,9 @@ func TestProbeReportsBusyLiveRuntime(t *testing.T) {
 // --- protocol round-trip -----------------------------------------------
 
 func TestProtocolRoundTrip(t *testing.T) {
+	requireUnixInteractiveTransport(t)
 	dir := t.TempDir()
-	sockPath := filepath.Join(dir, "test.sock")
+	sockPath := SocketPath(dir, "protocol-round-trip")
 	listener := listenTestSocket(t, sockPath)
 	go serveOneRequest(t, listener, func(req Request) Response {
 		if req.Kind != "deliver" || req.Message != "ping-pong" {
@@ -164,8 +178,9 @@ func TestProtocolRoundTrip(t *testing.T) {
 }
 
 func TestProtocolRoundTripSurfacesError(t *testing.T) {
+	requireUnixInteractiveTransport(t)
 	dir := t.TempDir()
-	sockPath := filepath.Join(dir, "test.sock")
+	sockPath := SocketPath(dir, "protocol-error")
 	listener := listenTestSocket(t, sockPath)
 	go serveOneRequest(t, listener, func(req Request) Response {
 		return Response{OK: false, Error: "target refused"}
@@ -182,6 +197,7 @@ func TestProtocolRoundTripSurfacesError(t *testing.T) {
 }
 
 func TestCallHonorsContextDeadlineAfterConnecting(t *testing.T) {
+	requireUnixInteractiveTransport(t)
 	dir := t.TempDir()
 	sockPath := SocketPath(dir, "deadline")
 	listener := listenTestSocket(t, sockPath)
@@ -209,6 +225,7 @@ func TestCallHonorsContextDeadlineAfterConnecting(t *testing.T) {
 // --- stale-socket detection ----------------------------------------------
 
 func TestListenLocalRefusesWhenAlreadyLive(t *testing.T) {
+	requireUnixInteractiveTransport(t)
 	dir, err := os.MkdirTemp("/tmp", "agent-comms-interactive-")
 	if err != nil {
 		t.Fatal(err)
@@ -230,8 +247,9 @@ func TestListenLocalRefusesWhenAlreadyLive(t *testing.T) {
 }
 
 func TestListenLocalRecoversStaleSocket(t *testing.T) {
+	requireUnixInteractiveTransport(t)
 	dir := t.TempDir()
-	sockPath := filepath.Join(dir, "runtime.sock")
+	sockPath := SocketPath(dir, "stale-runtime")
 	first, err := listenLocal(sockPath)
 	if err != nil {
 		t.Fatal(err)

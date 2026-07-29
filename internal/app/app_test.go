@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -58,6 +59,46 @@ func TestMain(testingMain *testing.M) {
 		return nil
 	}
 	os.Exit(testingMain.Run())
+}
+
+func cleanupProjectDaemon(t *testing.T, projectRoot string) {
+	t.Helper()
+	t.Cleanup(func() {
+		projectStore := store.Open(projectRoot)
+		config, err := projectStore.Config()
+		if err != nil {
+			return
+		}
+		client, err := daemonclient.New(config.DaemonEndpoint, 300*time.Millisecond)
+		if err != nil {
+			t.Errorf("prepare daemon cleanup: %v", err)
+			return
+		}
+		healthContext, cancelHealth := context.WithTimeout(context.Background(), 300*time.Millisecond)
+		_, healthErr := client.Health(healthContext)
+		cancelHealth()
+		if healthErr != nil {
+			return
+		}
+		shutdownContext, cancelShutdown := context.WithTimeout(context.Background(), 5*time.Second)
+		shutdownErr := client.Shutdown(shutdownContext)
+		cancelShutdown()
+		if shutdownErr != nil {
+			t.Errorf("shut down test daemon: %v", shutdownErr)
+			return
+		}
+		deadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) {
+			probeContext, cancelProbe := context.WithTimeout(context.Background(), 100*time.Millisecond)
+			_, probeErr := client.Health(probeContext)
+			cancelProbe()
+			if probeErr != nil {
+				return
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		t.Error("test daemon did not stop before cleanup")
+	})
 }
 
 func TestClaudeAttachDoesNotRequireInitializedProject(t *testing.T) {
@@ -122,6 +163,7 @@ func TestVersionEnvelope(t *testing.T) {
 // replacement daemon it launches genuinely answers on the same endpoint.
 func TestEnsureDaemonReplacesIncompatibleDaemon(t *testing.T) {
 	root := t.TempDir()
+	cleanupProjectDaemon(t, root)
 	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(t.TempDir(), "credentials"))
 	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(t.TempDir(), "config"))
 	if _, err := runtimeinit.Initialize(context.Background(), runtimeinit.Config{
@@ -193,9 +235,24 @@ func TestEnsureDaemonReplacesIncompatibleDaemon(t *testing.T) {
 // the parent `update apply` must surface that exact code, not collapse it
 // into a generic UPGRADE_FAILED.
 func TestHandoffProjectUpgradePropagatesChildErrorCode(t *testing.T) {
-	fakeChild := writeFakeUpgradeChild(t, `{"api_version":"agent-comms/v1","ok":false,"command":"project upgrade","error":{"code":"UPGRADE_REQUIRED","message":"project upgrade requires explicit confirmation"}}`)
-	client := &cli{json: true, out: &bytes.Buffer{}, err: &bytes.Buffer{}}
-	_, err := client.handoffProjectUpgrade(context.Background(), fakeChild, t.TempDir(), false, false)
+	client := &cli{
+		json: true, out: &bytes.Buffer{}, err: &bytes.Buffer{},
+		handoffRunner: func(
+			_ context.Context,
+			_ string,
+			_ []string,
+			_ io.Reader,
+			_ io.Writer,
+			stderr io.Writer,
+		) error {
+			_, writeErr := io.WriteString(stderr, `{"api_version":"agent-comms/v1","ok":false,"command":"project upgrade","error":{"code":"UPGRADE_REQUIRED","message":"project upgrade requires explicit confirmation"}}`)
+			if writeErr != nil {
+				return writeErr
+			}
+			return errors.New("child exited unsuccessfully")
+		},
+	}
+	_, err := client.handoffProjectUpgrade(context.Background(), "fake-agent-comms", t.TempDir(), false, false)
 	if err == nil {
 		t.Fatal("expected handoffProjectUpgrade to return an error when the child reports one")
 	}
@@ -206,21 +263,6 @@ func TestHandoffProjectUpgradePropagatesChildErrorCode(t *testing.T) {
 	if lifecycleErr.Code != projectlifecycle.CodeUpgradeRequired {
 		t.Fatalf("code=%q, want %q -- the child's real classified error must survive the handoff, not collapse into a generic failure", lifecycleErr.Code, projectlifecycle.CodeUpgradeRequired)
 	}
-}
-
-// writeFakeUpgradeChild writes an executable shell script standing in for
-// the already-updated binary that `update apply` hands off to. It ignores
-// its arguments and writes envelopeJSON to stderr with a non-zero exit,
-// matching how the real CLI reports a classified `--json` failure (see
-// Run()'s error path, which encodes to stderr, not stdout).
-func writeFakeUpgradeChild(t *testing.T, envelopeJSON string) string {
-	t.Helper()
-	path := filepath.Join(t.TempDir(), "fake-agent-comms")
-	script := "#!/bin/sh\ncat <<'EOF' 1>&2\n" + envelopeJSON + "\nEOF\nexit 1\n"
-	if err := os.WriteFile(path, []byte(script), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	return path
 }
 
 func TestProfileListDoesNotRequireInitializedProject(t *testing.T) {
@@ -299,6 +341,7 @@ func TestCompletion(t *testing.T) {
 // later, independent command with no further prompting.
 func TestHostLabelResolvesActorAcrossInvocations(t *testing.T) {
 	project := t.TempDir()
+	cleanupProjectDaemon(t, project)
 	cmd := exec.Command("git", "init")
 	cmd.Dir = project
 	if b, e := cmd.CombinedOutput(); e != nil {
@@ -364,6 +407,7 @@ func grantOrchestratorCLI(t *testing.T, must func(args ...string), approver, id 
 // agent shelling out to this CLI) always looks like.
 func TestAgentElevateKeyCLIRefusesWithoutInteractiveTerminal(t *testing.T) {
 	project := t.TempDir()
+	cleanupProjectDaemon(t, project)
 	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
 	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
 	var out, stderr bytes.Buffer
@@ -411,6 +455,7 @@ func TestInitInteractiveOffersElevatedKeySetupAndDegradesGracefullyWithoutTTY(t 
 
 func TestDoctorWarnsWhenOwnerHasNoElevatedKeyAndClearsOnceRegistered(t *testing.T) {
 	project := t.TempDir()
+	cleanupProjectDaemon(t, project)
 	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
 	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
 	var out, stderr bytes.Buffer
@@ -449,6 +494,7 @@ func TestDoctorWarnsWhenOwnerHasNoElevatedKeyAndClearsOnceRegistered(t *testing.
 
 func TestAgentDeleteCLIRequiresReasonAndAllowsIDReuse(t *testing.T) {
 	project := t.TempDir()
+	cleanupProjectDaemon(t, project)
 	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
 	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
 	var out, stderr bytes.Buffer
@@ -521,6 +567,7 @@ func TestAgentDeleteCLIRequiresReasonAndAllowsIDReuse(t *testing.T) {
 
 func TestAgentDeleteCLIRefusesElevatedSigningWithoutInteractiveTerminal(t *testing.T) {
 	project := t.TempDir()
+	cleanupProjectDaemon(t, project)
 	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
 	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
 	var out, stderr bytes.Buffer
@@ -557,6 +604,7 @@ func TestAgentDeleteCLIRefusesElevatedSigningWithoutInteractiveTerminal(t *testi
 
 func TestAgentRegisterCLIEnforcesSponsorshipRule(t *testing.T) {
 	project := t.TempDir()
+	cleanupProjectDaemon(t, project)
 	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
 	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
 	var out, stderr bytes.Buffer
@@ -612,6 +660,7 @@ func TestAgentRegisterCLIEnforcesSponsorshipRule(t *testing.T) {
 // call `agent activate` at all.
 func TestAgentActivateCLIRequiresHumanToGrantOrchestratorRole(t *testing.T) {
 	project := t.TempDir()
+	cleanupProjectDaemon(t, project)
 	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
 	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
 	var out, stderr bytes.Buffer
@@ -661,6 +710,7 @@ func TestAgentActivateCLIRequiresHumanToGrantOrchestratorRole(t *testing.T) {
 // the revoke-side sibling of TestAgentActivateCLIRequiresHumanToGrantOrchestratorRole.
 func TestAgentRevokeCLIRejectsAgentOrchestratorRevokingAnotherOrchestrator(t *testing.T) {
 	project := t.TempDir()
+	cleanupProjectDaemon(t, project)
 	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
 	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
 	var out, stderr bytes.Buffer
@@ -716,6 +766,7 @@ func TestAgentRevokeCLIRejectsAgentOrchestratorRevokingAnotherOrchestrator(t *te
 
 func TestDoctorReportsRuntimeAndBootstrapProblems(t *testing.T) {
 	d := t.TempDir()
+	cleanupProjectDaemon(t, d)
 	cmd := exec.Command("git", "init")
 	cmd.Dir = d
 	if b, e := cmd.CombinedOutput(); e != nil {
@@ -763,6 +814,7 @@ func TestDoctorReportsRuntimeAndBootstrapProblems(t *testing.T) {
 
 func TestInvocationAndRuntimeCLIWorkflow(t *testing.T) {
 	project := t.TempDir()
+	cleanupProjectDaemon(t, project)
 	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
 	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
 	var out, stderr bytes.Buffer
@@ -821,6 +873,7 @@ func TestInvocationRequestDeliversDirectlyToLiveInteractiveSession(t *testing.T)
 	interactiveTempDirectory := t.TempDir()
 	t.Setenv("TMPDIR", "/tmp")
 	project := t.TempDir()
+	cleanupProjectDaemon(t, project)
 	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
 	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
 	var out, stderr bytes.Buffer
@@ -923,6 +976,7 @@ func (w *lockedWriter) Write(p []byte) (int, error) {
 // must stay exactly what it always was.
 func TestInvocationRequestWithoutRegisteredSessionIsUnaffected(t *testing.T) {
 	project := t.TempDir()
+	cleanupProjectDaemon(t, project)
 	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
 	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
 	var out, stderr bytes.Buffer
@@ -958,6 +1012,7 @@ func TestInvocationRequestWithoutRegisteredSessionIsUnaffected(t *testing.T) {
 
 func TestInvocationRedeliverRejectsUnknownID(t *testing.T) {
 	project := t.TempDir()
+	cleanupProjectDaemon(t, project)
 	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
 	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
 	var out, stderr bytes.Buffer
@@ -977,6 +1032,7 @@ func TestInvocationRedeliverRejectsUnknownID(t *testing.T) {
 
 func TestInvocationRedeliverRejectsNonPendingInvocation(t *testing.T) {
 	project := t.TempDir()
+	cleanupProjectDaemon(t, project)
 	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
 	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
 	var out, stderr bytes.Buffer
@@ -1020,6 +1076,7 @@ func TestInvocationRedeliverReachesSessionMissedByRequest(t *testing.T) {
 		t.Skip("bash not available")
 	}
 	project := t.TempDir()
+	cleanupProjectDaemon(t, project)
 	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
 	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
 	var out, stderr bytes.Buffer
@@ -1122,8 +1179,12 @@ func TestWithClaudeAllowAgentCommsAppendsScopedAllowedTools(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	resolvedFakeExecutable, err := filepath.EvalSymlinks(fakeExe)
+	if err != nil {
+		t.Fatal(err)
+	}
 	want := []string{"claude", "--resume", "abc",
-		"--allowedTools", "Bash(" + fakeExe + " *)",
+		"--allowedTools", "Bash(" + resolvedFakeExecutable + " *)",
 		"--allowedTools", "Bash(agent-comms *)"}
 	if len(got) != len(want) {
 		t.Fatalf("got %v, want %v", got, want)
@@ -1141,6 +1202,7 @@ func TestWithClaudeAllowAgentCommsAppendsScopedAllowedTools(t *testing.T) {
 // pty or call os.Exit, so this is safe to run through Run() directly.
 func TestInteractiveServeRejectsClaudeAllowAgentCommsForOtherCommands(t *testing.T) {
 	project := t.TempDir()
+	cleanupProjectDaemon(t, project)
 	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
 	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
 	var out, stderr bytes.Buffer

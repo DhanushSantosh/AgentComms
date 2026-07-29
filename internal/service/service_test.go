@@ -27,15 +27,20 @@ func setup(t *testing.T) *service.Service {
 func setupWithLocalConnector(t *testing.T) *service.Service {
 	t.Helper()
 	configDirectory := t.TempDir()
-	executable := filepath.Join(configDirectory, "connector.sh")
-	if err := os.WriteFile(executable, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
+	outcomePath := filepath.Join(configDirectory, "connector-outcome")
+	if err := os.WriteFile(outcomePath, []byte("success"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	configPath := filepath.Join(configDirectory, "connectors.json")
 	raw, err := json.Marshal(map[string]any{
 		"connectors": map[string]any{
 			"test-local-process": map[string]any{
-				"type": "LOCAL_PROCESS", "executable": executable, "timeout": "5s",
+				"type": "LOCAL_PROCESS", "executable": os.Args[0], "timeout": "5s",
+				"arguments": []string{"-test.run=TestServiceConnectorHelperProcess", "--"},
+				"environment": map[string]string{
+					"SERVICE_CONNECTOR_HELPER":  "1",
+					"SERVICE_CONNECTOR_OUTCOME": outcomePath,
+				},
 			},
 		},
 	})
@@ -46,8 +51,21 @@ func setupWithLocalConnector(t *testing.T) *service.Service {
 		t.Fatal(err)
 	}
 	t.Setenv("AGENT_COMMS_CONNECTOR_CONFIG", configPath)
-	t.Setenv("AGENT_COMMS_TEST_CONNECTOR_EXECUTABLE", executable)
+	t.Setenv("AGENT_COMMS_TEST_CONNECTOR_OUTCOME", outcomePath)
 	return setup(t)
+}
+
+func TestServiceConnectorHelperProcess(t *testing.T) {
+	if os.Getenv("SERVICE_CONNECTOR_HELPER") != "1" {
+		return
+	}
+	outcome, err := os.ReadFile(os.Getenv("SERVICE_CONNECTOR_OUTCOME"))
+	if err != nil {
+		os.Exit(2)
+	}
+	if strings.TrimSpace(string(outcome)) == "failure" {
+		os.Exit(1)
+	}
 }
 func must(t *testing.T, s *service.Service, a, k, id string, p any) {
 	t.Helper()

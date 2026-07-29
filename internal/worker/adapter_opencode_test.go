@@ -2,8 +2,6 @@ package worker
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -11,17 +9,21 @@ import (
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 )
 
-// writeFakeOpenCode writes a throwaway shell script standing in for the
-// real `opencode` binary, the same pattern
-// internal/interactiveserve/serve_test.go uses for a scripted fake child —
-// deterministic output instead of a real, slow, network-backed CLI.
-func writeFakeOpenCode(t *testing.T, dir, script string) string {
-	t.Helper()
-	path := filepath.Join(dir, "fake-opencode.sh")
-	if err := os.WriteFile(path, []byte("#!/bin/bash\n"+script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	return path
+func openCodeAdapterWithOutputs(outputs ...string) openCodeAdapter {
+	outputIndex := 0
+	return openCodeAdapter{execute: func(
+		_ context.Context,
+		_ Config,
+		_ model.Invocation,
+		_ string,
+	) (openCodeRunResult, string, error) {
+		if outputIndex >= len(outputs) {
+			outputIndex = len(outputs) - 1
+		}
+		output := outputs[outputIndex]
+		outputIndex++
+		return parseOpenCodeOutput(output)
+	}}
 }
 
 func testOpenCodeInvocation() model.Invocation {
@@ -30,18 +32,17 @@ func testOpenCodeInvocation() model.Invocation {
 
 func TestOpenCodeExecuteExtractsTextResult(t *testing.T) {
 	dir := t.TempDir()
-	script := `echo '{"type":"step_start","sessionID":"ses_abc"}'
-echo '{"type":"text","sessionID":"ses_abc","part":{"type":"text","text":"PONG"}}'
-echo '{"type":"step_finish","sessionID":"ses_abc","part":{"type":"step-finish","reason":"stop"}}'
+	output := `{"type":"step_start","sessionID":"ses_abc"}
+{"type":"text","sessionID":"ses_abc","part":{"type":"text","text":"PONG"}}
+{"type":"step_finish","sessionID":"ses_abc","part":{"type":"step-finish","reason":"stop"}}
 `
-	executable := writeFakeOpenCode(t, dir, script)
 	config := Config{
-		Executable: executable, WorkDir: dir, RuntimeID: "runtime-1",
+		Executable: "unused", WorkDir: dir, RuntimeID: "runtime-1",
 		PermissionMode: "acceptEdits",
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	result, err := openCodeAdapter{}.Execute(ctx, config, testOpenCodeInvocation())
+	result, err := openCodeAdapterWithOutputs(output).Execute(ctx, config, testOpenCodeInvocation())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -52,18 +53,17 @@ echo '{"type":"step_finish","sessionID":"ses_abc","part":{"type":"step-finish","
 
 func TestOpenCodeExecuteSkipsNonJSONLines(t *testing.T) {
 	dir := t.TempDir()
-	script := `echo "! permission requested: edit (some/file); auto-rejecting"
-echo '{"type":"text","sessionID":"ses_abc","part":{"type":"text","text":"STILL_OK"}}'
-echo '{"type":"step_finish","sessionID":"ses_abc","part":{"type":"step-finish","reason":"stop"}}'
+	output := `! permission requested: edit (some/file); auto-rejecting
+{"type":"text","sessionID":"ses_abc","part":{"type":"text","text":"STILL_OK"}}
+{"type":"step_finish","sessionID":"ses_abc","part":{"type":"step-finish","reason":"stop"}}
 `
-	executable := writeFakeOpenCode(t, dir, script)
 	config := Config{
-		Executable: executable, WorkDir: dir, RuntimeID: "runtime-1",
+		Executable: "unused", WorkDir: dir, RuntimeID: "runtime-1",
 		PermissionMode: "acceptEdits",
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	result, err := openCodeAdapter{}.Execute(ctx, config, testOpenCodeInvocation())
+	result, err := openCodeAdapterWithOutputs(output).Execute(ctx, config, testOpenCodeInvocation())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -74,17 +74,16 @@ echo '{"type":"step_finish","sessionID":"ses_abc","part":{"type":"step-finish","
 
 func TestOpenCodeExecuteReportsPermissionDenial(t *testing.T) {
 	dir := t.TempDir()
-	script := `echo '{"type":"tool_use","sessionID":"ses_abc","part":{"type":"tool","tool":"bash","state":{"status":"error","error":"The user rejected permission to use this specific tool call."}}}'
-echo '{"type":"step_finish","sessionID":"ses_abc","part":{"type":"step-finish","reason":"tool-calls"}}'
+	output := `{"type":"tool_use","sessionID":"ses_abc","part":{"type":"tool","tool":"bash","state":{"status":"error","error":"The user rejected permission to use this specific tool call."}}}
+{"type":"step_finish","sessionID":"ses_abc","part":{"type":"step-finish","reason":"tool-calls"}}
 `
-	executable := writeFakeOpenCode(t, dir, script)
 	config := Config{
-		Executable: executable, WorkDir: dir, RuntimeID: "runtime-1",
+		Executable: "unused", WorkDir: dir, RuntimeID: "runtime-1",
 		PermissionMode: "acceptEdits",
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	_, err := openCodeAdapter{}.Execute(ctx, config, testOpenCodeInvocation())
+	_, err := openCodeAdapterWithOutputs(output).Execute(ctx, config, testOpenCodeInvocation())
 	if err == nil {
 		t.Fatal("expected an error after a denied permission request produced no text result")
 	}
@@ -100,18 +99,17 @@ echo '{"type":"step_finish","sessionID":"ses_abc","part":{"type":"step-finish","
 // run...").
 func TestOpenCodeExecuteSeparatesDistinctMessages(t *testing.T) {
 	dir := t.TempDir()
-	script := `echo '{"type":"text","sessionID":"ses_abc","part":{"type":"text","text":"First turn.","messageID":"msg_1"}}'
-echo '{"type":"text","sessionID":"ses_abc","part":{"type":"text","text":"Second turn.","messageID":"msg_2"}}'
-echo '{"type":"step_finish","sessionID":"ses_abc","part":{"type":"step-finish","reason":"stop"}}'
+	output := `{"type":"text","sessionID":"ses_abc","part":{"type":"text","text":"First turn.","messageID":"msg_1"}}
+{"type":"text","sessionID":"ses_abc","part":{"type":"text","text":"Second turn.","messageID":"msg_2"}}
+{"type":"step_finish","sessionID":"ses_abc","part":{"type":"step-finish","reason":"stop"}}
 `
-	executable := writeFakeOpenCode(t, dir, script)
 	config := Config{
-		Executable: executable, WorkDir: dir, RuntimeID: "runtime-1",
+		Executable: "unused", WorkDir: dir, RuntimeID: "runtime-1",
 		PermissionMode: "acceptEdits",
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	result, err := openCodeAdapter{}.Execute(ctx, config, testOpenCodeInvocation())
+	result, err := openCodeAdapterWithOutputs(output).Execute(ctx, config, testOpenCodeInvocation())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -128,23 +126,18 @@ echo '{"type":"step_finish","sessionID":"ses_abc","part":{"type":"step-finish","
 // invocation outright, it must retry once with no --session at all.
 func TestOpenCodeExecuteRetriesOnSessionNotFound(t *testing.T) {
 	dir := t.TempDir()
-	script := `for arg in "$@"; do
-  if [ "$arg" = "--session" ]; then
-    echo "Error: Session not found"
-    exit 0
-  fi
-done
-echo '{"type":"text","sessionID":"ses_fresh","part":{"type":"text","text":"FRESH_OK"}}'
-echo '{"type":"step_finish","sessionID":"ses_fresh","part":{"type":"step-finish","reason":"stop"}}'
+	missingSessionOutput := "Error: Session not found\n"
+	freshSessionOutput := `{"type":"text","sessionID":"ses_fresh","part":{"type":"text","text":"FRESH_OK"}}
+{"type":"step_finish","sessionID":"ses_fresh","part":{"type":"step-finish","reason":"stop"}}
 `
-	executable := writeFakeOpenCode(t, dir, script)
 	config := Config{
-		Executable: executable, WorkDir: dir, RuntimeID: "runtime-1",
+		Executable: "unused", WorkDir: dir, RuntimeID: "runtime-1",
 		SessionID: "e22cbdad-7233-4d6d-8ecc-0c4bffd8c475", PermissionMode: "acceptEdits",
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	result, err := openCodeAdapter{}.Execute(ctx, config, testOpenCodeInvocation())
+	result, err := openCodeAdapterWithOutputs(missingSessionOutput, freshSessionOutput).
+		Execute(ctx, config, testOpenCodeInvocation())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

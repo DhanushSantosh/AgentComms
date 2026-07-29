@@ -19,8 +19,10 @@ import (
 	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
 	"github.com/DhanushSantosh/AgentComms/internal/daemonclient"
 	"github.com/DhanushSantosh/AgentComms/internal/draftstore"
+	"github.com/DhanushSantosh/AgentComms/internal/durablefs"
 	"github.com/DhanushSantosh/AgentComms/internal/identity"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
+	"github.com/DhanushSantosh/AgentComms/internal/runtimeinit"
 	"github.com/DhanushSantosh/AgentComms/internal/store"
 	"github.com/google/uuid"
 	_ "modernc.org/sqlite"
@@ -160,6 +162,13 @@ func Inspect(root, version, buildID string) (Plan, store.Config, error) {
 		plan.Actions = append(plan.Actions, Action{
 			Component: "toolkit", From: config.ToolkitVersion + "+" + config.ToolkitBuildID,
 			To: version + "+" + buildID, Operation: "record installed build", Automatic: true,
+		})
+	}
+	expectedDaemonEndpoint := runtimeinit.DaemonEndpoint(root, config.ProjectID)
+	if config.DaemonEndpoint != expectedDaemonEndpoint {
+		plan.Actions = append(plan.Actions, Action{
+			Component: "daemon_endpoint", From: config.DaemonEndpoint,
+			To: expectedDaemonEndpoint, Operation: "move local daemon control endpoint", Automatic: true,
 		})
 	}
 	databaseVersions, versionErr := inspectDatabases(root, config)
@@ -311,6 +320,7 @@ func Reconcile(ctx context.Context, options Options) (Result, error) {
 		config.ToolkitBuildID = options.BuildID
 		config.MinimumToolkit = options.Version
 		config.SchemaVersion = model.SchemaVersion
+		config.DaemonEndpoint = runtimeinit.DaemonEndpoint(plan.ProjectRoot, config.ProjectID)
 		config.ManagedFileHashes = store.ManagedHashes(config)
 		if err = publishManagedFiles(plan.ProjectRoot, config); err != nil {
 			return result, upgradeFailed("publish managed files", err)
@@ -953,12 +963,7 @@ func writeAtomic(path string, content []byte, mode os.FileMode) error {
 	if err = os.Rename(temporaryName, path); err != nil {
 		return err
 	}
-	directory, err := os.Open(filepath.Dir(path))
-	if err != nil {
-		return err
-	}
-	defer directory.Close()
-	return directory.Sync()
+	return durablefs.SyncDirectory(filepath.Dir(path))
 }
 
 func invalidateCache(root string, config store.Config, plan Plan) (bool, error) {
