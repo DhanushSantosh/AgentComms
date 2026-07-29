@@ -22,6 +22,59 @@ func TestSocketPathIsDeterministic(t *testing.T) {
 	}
 }
 
+func TestSocketPathIsIndependentOfProcessTempDirectory(t *testing.T) {
+	firstTempDirectory := t.TempDir()
+	secondTempDirectory := t.TempDir()
+	t.Setenv("TMPDIR", firstTempDirectory)
+	first := SocketPath("/projects/shared", "DAMON")
+	t.Setenv("TMPDIR", secondTempDirectory)
+	second := SocketPath("/projects/shared", "DAMON")
+	if first != second {
+		t.Fatalf("TMPDIR changed the shared socket path: %q vs %q", first, second)
+	}
+	if strings.HasPrefix(first, firstTempDirectory) || strings.HasPrefix(first, secondTempDirectory) {
+		t.Fatalf("shared socket path still depends on a process temp directory: %q", first)
+	}
+}
+
+func TestSocketPathConfinesUnsafeRuntimeIDToSharedDirectory(t *testing.T) {
+	path := SocketPath("/projects/shared", "../../another-user/socket")
+	if filepath.Dir(path) != socketRootDir() {
+		t.Fatalf("unsafe runtime ID escaped the socket directory: %q", path)
+	}
+	if strings.Contains(filepath.Base(path), "..") {
+		t.Fatalf("unsafe runtime ID remained in socket filename: %q", path)
+	}
+}
+
+func TestNotifyInvocationCrossesDifferentTempDirectoryEnvironments(t *testing.T) {
+	firstTempDirectory := t.TempDir()
+	secondTempDirectory := t.TempDir()
+	projectRoot := t.TempDir()
+	t.Setenv("TMPDIR", firstTempDirectory)
+	sockPath := SocketPath(projectRoot, "DAMON")
+	listener := listenTestSocket(t, sockPath)
+	socketDirectoryInfo, err := os.Stat(filepath.Dir(sockPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if permissions := socketDirectoryInfo.Mode().Perm(); permissions != 0o700 {
+		t.Fatalf("shared socket directory permissions=%#o, want 0700", permissions)
+	}
+	go serveOneRequest(t, listener, func(req Request) Response {
+		echoedAt := time.Now().UTC()
+		enterSentAt := echoedAt.Add(time.Millisecond)
+		return Response{OK: true, TextEchoedAt: &echoedAt, EnterSentAt: &enterSentAt}
+	})
+
+	t.Setenv("TMPDIR", secondTempDirectory)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := NotifyInvocation(ctx, projectRoot, "DAMON", "DAMON", "inv-cross-tmpdir", "PRICE"); err != nil {
+		t.Fatalf("delivery failed across different TMPDIR environments: %v", err)
+	}
+}
+
 func TestAliveReportsFalseForUnknownRuntime(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -347,7 +400,10 @@ func listenTestSocket(t *testing.T, sockPath string) net.Listener {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = listener.Close() })
+	t.Cleanup(func() {
+		_ = listener.Close()
+		_ = os.Remove(sockPath)
+	})
 	return listener
 }
 

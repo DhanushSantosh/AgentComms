@@ -818,6 +818,8 @@ func TestInvocationRequestDeliversDirectlyToLiveInteractiveSession(t *testing.T)
 	if _, err := exec.LookPath("bash"); err != nil {
 		t.Skip("bash not available")
 	}
+	interactiveTempDirectory := t.TempDir()
+	t.Setenv("TMPDIR", "/tmp")
 	project := t.TempDir()
 	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
 	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
@@ -855,6 +857,10 @@ func TestInvocationRequestDeliversDirectlyToLiveInteractiveSession(t *testing.T)
 	t.Cleanup(func() { _ = stdinW.Close() })
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
+	// Desktop providers commonly inherit a private TMPDIR while the daemon
+	// inherits /tmp. The control path must remain identical across that
+	// process boundary.
+	t.Setenv("TMPDIR", interactiveTempDirectory)
 	go func() {
 		_, _ = interactiveserve.Serve(ctx, interactiveserve.ServeOptions{
 			ProjectRoot: project, RuntimeID: "opencode-runtime",

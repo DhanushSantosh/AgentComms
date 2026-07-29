@@ -624,6 +624,11 @@ while the request itself still exits successfully. Use
 `agent-comms invocation redeliver --id <invocation-id> --runtime <runtime-id>`
 for an explicit retry of an open, unclaimed invocation.
 
+The control socket lives in a canonical per-user runtime directory and is
+independent of `TMPDIR`. Desktop applications, terminal sessions, and the
+daemon therefore derive the same path even when they inherit different
+temporary-directory environments.
+
 This intentionally does not extend to the instruction content itself: the
 delivered notification only ever says an invocation is pending and how to
 look it up. The target's own interactive session is expected to read the

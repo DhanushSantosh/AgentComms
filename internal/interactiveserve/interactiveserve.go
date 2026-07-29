@@ -32,7 +32,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -94,21 +93,45 @@ const maxUnixSocketPathLen = 100
 // projectRoot itself (unlike every other local-routing-metadata file in this
 // project, e.g. sessionbind's bindings file) — a unix domain socket path has
 // a hard OS length limit far shorter than an ordinary file path, so this
-// hashes projectRoot into a short, deterministic name under the OS temp
-// directory instead. The runtime ID is kept human-readable in the common
-// case; if it's unusually long enough to still risk the limit, it's hashed
-// too rather than truncated, to avoid two different long IDs silently
-// colliding on a shared prefix.
+// hashes projectRoot into a short, deterministic name under a shared
+// per-user runtime directory instead. That directory is deliberately
+// independent of TMPDIR because the daemon and an interactive provider may
+// inherit different process environments. The runtime ID is kept
+// human-readable only when it is a safe filename component; unsafe or long
+// values are hashed rather than truncated, avoiding traversal and prefix
+// collisions.
 func SocketPath(projectRoot, runtimeID string) string {
 	projectHash := sha256.Sum256([]byte(projectRoot))
-	name := fmt.Sprintf("%s-%s.sock", hex.EncodeToString(projectHash[:4]), runtimeID)
-	path := filepath.Join(os.TempDir(), "agent-comms-interactive", name)
+	runtimeComponent := safeRuntimeComponent(runtimeID)
+	name := fmt.Sprintf("%s-%s.sock", hex.EncodeToString(projectHash[:4]), runtimeComponent)
+	path := filepath.Join(socketRootDir(), name)
 	if len(path) <= maxUnixSocketPathLen {
 		return path
 	}
 	runtimeHash := sha256.Sum256([]byte(runtimeID))
 	name = fmt.Sprintf("%s-%s.sock", hex.EncodeToString(projectHash[:4]), hex.EncodeToString(runtimeHash[:8]))
-	return filepath.Join(os.TempDir(), "agent-comms-interactive", name)
+	return filepath.Join(socketRootDir(), name)
+}
+
+func safeRuntimeComponent(runtimeID string) string {
+	if runtimeID != "" && runtimeID != "." && runtimeID != ".." && len(runtimeID) <= 48 {
+		safe := true
+		for _, character := range runtimeID {
+			if character >= 'a' && character <= 'z' ||
+				character >= 'A' && character <= 'Z' ||
+				character >= '0' && character <= '9' ||
+				character == '-' || character == '_' || character == '.' {
+				continue
+			}
+			safe = false
+			break
+		}
+		if safe {
+			return runtimeID
+		}
+	}
+	runtimeHash := sha256.Sum256([]byte(runtimeID))
+	return hex.EncodeToString(runtimeHash[:8])
 }
 
 // Probe reports whether runtimeID currently has a live interactive-serve

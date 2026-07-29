@@ -109,6 +109,13 @@ runtime, validates an existing runtime's owner/kind/connector/host, heartbeats
 with its current endpoint, and records `runtime.offline` while removing the
 socket on clean exit.
 
+Every process for the same OS user derives interactive socket paths below an
+owner-only, UID-scoped shared Unix directory. On Linux this is
+`/tmp/agent-comms-<uid>/interactive`; the literal system path intentionally
+does not consult `TMPDIR`, so a desktop-launched provider and the daemon cannot
+silently choose different control sockets. Runtime IDs that are not safe
+filename components are hashed before use.
+
 Each installation has one random 128-bit host ID in the user configuration
 directory. It is created with owner-only permissions and is never derived from
 a hostname or machine identifier. PTY delivery is local-host only. Foreign-host

@@ -80,8 +80,12 @@ func call(ctx context.Context, socketPath string, req Request) (Response, error)
 // tag) rather than in serve.go so it stays testable on every platform even
 // though only the unix-only Serve ever actually calls it in production.
 func listenLocal(sockPath string) (net.Listener, error) {
-	if err := os.MkdirAll(filepath.Dir(sockPath), 0o700); err != nil {
+	socketDirectory := filepath.Dir(sockPath)
+	if err := os.MkdirAll(socketDirectory, 0o700); err != nil {
 		return nil, fmt.Errorf("interactiveserve: prepare socket directory: %w", err)
+	}
+	if err := os.Chmod(socketDirectory, 0o700); err != nil {
+		return nil, fmt.Errorf("interactiveserve: secure socket directory: %w", err)
 	}
 	if info, err := os.Lstat(sockPath); err == nil && info.Mode()&os.ModeSocket != 0 {
 		if conn, dialErr := net.Dial("unix", sockPath); dialErr == nil {
