@@ -122,7 +122,7 @@ func TestWorkerCreatesUnboundClaudeSession(t *testing.T) {
 	instance, root := workerService(t)
 	worker := newTestWorker(t, instance, root)
 	worker.config.SessionID = "b3e6e5e0-6b3b-4a6b-9f0b-6b6b6b6b6b6b"
-	t.Setenv("HOME", t.TempDir())
+	setTestUserHome(t, t.TempDir())
 	arguments := worker.arguments()
 	assertArgumentsContain(t, arguments, "--session-id", worker.config.SessionID)
 	assertArgumentsExclude(t, arguments, "--resume")
@@ -135,7 +135,7 @@ func TestWorkerCreatesUnboundClaudeSession(t *testing.T) {
 func writeFakeClaudeSession(t *testing.T, workDir, sessionID string) {
 	t.Helper()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestUserHome(t, home)
 	sessionPath, err := claudepath.SessionPath(filepath.Join(home, ".claude"), workDir, sessionID)
 	if err != nil {
 		t.Fatal(err)
@@ -147,6 +147,12 @@ func writeFakeClaudeSession(t *testing.T, workDir, sessionID string) {
 	if err := os.WriteFile(sessionPath, []byte("{}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func setTestUserHome(t *testing.T, home string) {
+	t.Helper()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 }
 
 func TestWorkerResumesBoundCodexSession(t *testing.T) {

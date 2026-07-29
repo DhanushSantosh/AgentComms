@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -867,6 +868,9 @@ func TestInvocationAndRuntimeCLIWorkflow(t *testing.T) {
 // agent-to-agent "invoke directly" behavior the user asked for in place of a
 // watcher script.
 func TestInvocationRequestDeliversDirectlyToLiveInteractiveSession(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("interactive PTY delivery is not supported on Windows")
+	}
 	if _, err := exec.LookPath("bash"); err != nil {
 		t.Skip("bash not available")
 	}
@@ -1072,6 +1076,9 @@ func TestInvocationRedeliverRejectsNonPendingInvocation(t *testing.T) {
 // request time) can be manually re-nudged once a live session comes up,
 // without creating a new invocation or event.
 func TestInvocationRedeliverReachesSessionMissedByRequest(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("interactive PTY delivery is not supported on Windows")
+	}
 	if _, err := exec.LookPath("bash"); err != nil {
 		t.Skip("bash not available")
 	}
