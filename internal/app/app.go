@@ -50,7 +50,12 @@ var Version = buildinfo.Version
 
 const APIVersion = "agent-comms/v1"
 
-const interactiveHeartbeatInterval = 15 * time.Second
+const (
+	interactiveHeartbeatInterval = 15 * time.Second
+	daemonReadyTimeout           = 10 * time.Second
+	daemonReadyPollInterval      = 100 * time.Millisecond
+	daemonHealthRequestTimeout   = 300 * time.Millisecond
+)
 
 type Envelope struct {
 	APIVersion string     `json:"api_version"`
@@ -2946,11 +2951,11 @@ func (c *cli) daemonCmd() *cobra.Command {
 }
 
 func ensureDaemon(projectRoot string, cfg store.Config) error {
-	client, err := daemonclient.New(cfg.DaemonEndpoint, 300*time.Millisecond)
+	client, err := daemonclient.New(cfg.DaemonEndpoint, daemonHealthRequestTimeout)
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), daemonHealthRequestTimeout)
 	health, err := client.Health(ctx)
 	cancel()
 	if err == nil {
@@ -3000,9 +3005,10 @@ func ensureDaemon(projectRoot string, cfg store.Config) error {
 		return fmt.Errorf("start local daemon: %w", startErr)
 	}
 	_ = logFile.Close()
-	for attempt := 0; attempt < 30; attempt++ {
-		time.Sleep(100 * time.Millisecond)
-		healthCtx, healthCancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	readyDeadline := time.Now().Add(daemonReadyTimeout)
+	for time.Now().Before(readyDeadline) {
+		time.Sleep(daemonReadyPollInterval)
+		healthCtx, healthCancel := context.WithTimeout(context.Background(), daemonHealthRequestTimeout)
 		healthErr := client.Healthy(healthCtx)
 		healthCancel()
 		if healthErr == nil {
