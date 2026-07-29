@@ -63,7 +63,7 @@ func Initialize(ctx context.Context, config Config) (Result, error) {
 	}
 	runtimePath := filepath.Join(config.ProjectRoot, store.Runtime)
 	if _, err := os.Stat(runtimePath); err == nil {
-		return Result{}, errors.New("Agent Comms runtime is already initialized")
+		return Result{}, errors.New("runtime is already initialized for Agent Comms")
 	} else if !os.IsNotExist(err) {
 		return Result{}, fmt.Errorf("inspect runtime: %w", err)
 	}

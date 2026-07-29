@@ -277,15 +277,15 @@ func TestListAndReplyPermission(t *testing.T) {
 
 func TestClassifyRoutesKnownAndUnknownCategories(t *testing.T) {
 	cases := map[string]Decision{
-		"read":       DecisionAutoApprove,
-		"glob":       DecisionAutoApprove,
-		"grep":       DecisionAutoApprove,
-		"list":       DecisionAutoApprove,
-		"lsp":        DecisionAutoApprove,
-		"edit":       DecisionModeGated,
-		"bash":       DecisionGoverned,
-		"webfetch":   DecisionGoverned,
-		"task":       DecisionGoverned,
+		"read":     DecisionAutoApprove,
+		"glob":     DecisionAutoApprove,
+		"grep":     DecisionAutoApprove,
+		"list":     DecisionAutoApprove,
+		"lsp":      DecisionAutoApprove,
+		"edit":     DecisionModeGated,
+		"bash":     DecisionGoverned,
+		"webfetch": DecisionGoverned,
+		"task":     DecisionGoverned,
 		"totally-new-category-from-a-future-opencode-release": DecisionGoverned,
 	}
 	for permission, want := range cases {

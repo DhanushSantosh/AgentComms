@@ -6,9 +6,27 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
+
+type synchronizedBuffer struct {
+	mu     sync.RWMutex
+	buffer bytes.Buffer
+}
+
+func (b *synchronizedBuffer) Write(data []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buffer.Write(data)
+}
+
+func (b *synchronizedBuffer) String() string {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.buffer.String()
+}
 
 func TestSessionPathMatchesRealClaudeCodeLayout(t *testing.T) {
 	got, err := SessionPath("/home/dhanush/.claude", "/home/dhanush/Projects/DeskCrafter", "a09c5424-1723-4ee9-8fb2-8d2625393561")
@@ -77,7 +95,7 @@ func TestTailReplaysExistingHistoryThenFollowsAppends(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	var out bytes.Buffer
+	var out synchronizedBuffer
 	done := make(chan error, 1)
 	go func() { done <- Tail(ctx, path, &out, true) }()
 

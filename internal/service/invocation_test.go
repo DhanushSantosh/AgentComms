@@ -9,6 +9,43 @@ import (
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 )
 
+const (
+	deliveryStatusWaitTimeout  = 5 * time.Second
+	deliveryStatusPollInterval = 10 * time.Millisecond
+)
+
+func waitForDeliveryStatus(
+	t *testing.T,
+	instance interface {
+		State() (model.State, error)
+	},
+	deliveryID string,
+	expectedStatus string,
+) model.State {
+	t.Helper()
+	deadline := time.Now().Add(deliveryStatusWaitTimeout)
+	var lastState model.State
+	for time.Now().Before(deadline) {
+		state, err := instance.State()
+		if err != nil {
+			t.Fatal(err)
+		}
+		lastState = state
+		if delivery, exists := state.InvocationDeliveries[deliveryID]; exists &&
+			delivery.Status == expectedStatus {
+			return state
+		}
+		time.Sleep(deliveryStatusPollInterval)
+	}
+	t.Fatalf(
+		"delivery %s did not reach %s before timeout; last state: %+v",
+		deliveryID,
+		expectedStatus,
+		lastState.InvocationDeliveries[deliveryID],
+	)
+	return model.State{}
+}
+
 func TestInvocationLifecycle(t *testing.T) {
 	instance := setupWithLocalConnector(t)
 	activate(t, instance, "builder", model.PrincipalAgent)
@@ -185,6 +222,7 @@ func TestFailedRedeliveryPreservesEarlierSuccessfulEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	waitForDeliveryStatus(t, instance, "delivery-success", "SUCCEEDED")
 	if err = os.WriteFile(os.Getenv("AGENT_COMMS_TEST_CONNECTOR_EXECUTABLE"),
 		[]byte("#!/bin/sh\nexit 1\n"), 0o700); err != nil {
 		t.Fatal(err)
@@ -194,10 +232,7 @@ func TestFailedRedeliveryPreservesEarlierSuccessfulEvidence(t *testing.T) {
 			DeliveryID: "delivery-failed", RuntimeID: "runtime-delivery",
 			Transport: "LOCAL_PROCESS", Manual: true,
 		})
-	state, err := instance.State()
-	if err != nil {
-		t.Fatal(err)
-	}
+	state := waitForDeliveryStatus(t, instance, "delivery-failed", "EXHAUSTED")
 	if state.Invocations["inv-preserve"].Status != "NOTIFIED" {
 		t.Fatalf("failed redelivery erased successful notification state: %+v",
 			state.Invocations["inv-preserve"])

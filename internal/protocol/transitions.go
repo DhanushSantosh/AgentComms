@@ -200,16 +200,6 @@ func automaticDeliveryAttempts(state model.State, invocationID string) int {
 	return count
 }
 
-func hasSuccessfulDelivery(state model.State, invocationID string) bool {
-	for _, delivery := range state.InvocationDeliveries {
-		if delivery.InvocationID == invocationID &&
-			(delivery.Status == "SUCCEEDED" || delivery.Status == "NOTIFIED") {
-			return true
-		}
-	}
-	return false
-}
-
 func runtimeInvocationLoad(state model.State, runtimeID string) int {
 	load := 0
 	for _, invocation := range state.Invocations {
