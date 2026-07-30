@@ -122,6 +122,10 @@ func (m *Model) activeRowList() *RowList {
 		return &m.invocationList
 	case "Runtimes":
 		return &m.runtimeList
+	case "Documents":
+		return &m.documentList
+	case "Contracts & decisions":
+		return &m.decisionList
 	}
 	return nil
 }
@@ -139,6 +143,10 @@ func (m Model) openCreateForm() (tea.Model, tea.Cmd) {
 		return m.openActionForm(invocationRequestForm, "invocation.request", "")
 	case "Runtimes":
 		return m.openActionForm(runtimeRegisterForm, "runtime.register", "")
+	case "Documents":
+		return m.openActionForm(documentCreateForm, "document.create", "")
+	case "Contracts & decisions":
+		return m.openActionForm(decisionCreateForm, "decision.create", "")
 	}
 	return m, nil
 }

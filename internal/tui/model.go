@@ -64,6 +64,8 @@ type Model struct {
 	agentList      RowList
 	invocationList RowList
 	runtimeList    RowList
+	documentList   RowList
+	decisionList   RowList
 	settingsFocus  bool
 	settingsCursor int
 	confirm        *confirmState
@@ -93,6 +95,7 @@ func New(s *service.Service, actor string) (Model, error) {
 		taskList: newRowList(taskRowSource{}), messageList: newRowList(messageRowSource{owner: owner}),
 		approvalList: newRowList(approvalRowSource{}), agentList: newRowList(agentRowSource{}),
 		invocationList: newRowList(invocationRowSource{}), runtimeList: newRowList(runtimeRowSource{root: s.Store.Root}),
+		documentList: newRowList(documentRowSource{}), decisionList: newRowList(decisionRowSource{}),
 		lifecycle: lifecycle, findings: findings,
 	}, e
 }
@@ -259,6 +262,12 @@ func (m *Model) focusCurrentView() {
 	case "Runtimes":
 		m.rowFocus = true
 		m.runtimeList.Refresh(m.state, m.actor)
+	case "Documents":
+		m.rowFocus = true
+		m.documentList.Refresh(m.state, m.actor)
+	case "Contracts & decisions":
+		m.rowFocus = true
+		m.decisionList.Refresh(m.state, m.actor)
 	case "Project settings":
 		m.settingsFocus = true
 	}
@@ -304,6 +313,8 @@ func (m *Model) refreshLists() {
 	m.agentList.Refresh(m.state, m.actor)
 	m.invocationList.Refresh(m.state, m.actor)
 	m.runtimeList.Refresh(m.state, m.actor)
+	m.documentList.Refresh(m.state, m.actor)
+	m.decisionList.Refresh(m.state, m.actor)
 }
 func (m *Model) applyPalette() {
 	q := strings.ToLower(strings.TrimSpace(m.query))
@@ -327,6 +338,12 @@ func (m *Model) applyPalette() {
 		}},
 		{names: []string{"new runtime", "create runtime"}, view: "Runtimes", open: func(value Model) (tea.Model, tea.Cmd) {
 			return value.openActionForm(runtimeRegisterForm, "runtime.register", "")
+		}},
+		{names: []string{"new document", "create document"}, view: "Documents", open: func(value Model) (tea.Model, tea.Cmd) {
+			return value.openActionForm(documentCreateForm, "document.create", "")
+		}},
+		{names: []string{"new decision", "create decision"}, view: "Contracts & decisions", open: func(value Model) (tea.Model, tea.Cmd) {
+			return value.openActionForm(decisionCreateForm, "decision.create", "")
 		}},
 	} {
 		for _, name := range command.names {
@@ -531,9 +548,12 @@ func (m Model) renderBody(p palette, w, h int) string {
 	case "Approvals":
 		bodyContent = m.approvalList.View(p, m.state, m.actor, contentW, contentH)
 	case "Documents":
-		bodyContent = wrap.Render(m.documents(p))
+		bodyContent = m.documentList.View(p, m.state, m.actor, contentW, contentH)
 	case "Contracts & decisions":
-		bodyContent = wrap.Render(m.decisions(p))
+		bodyContent = m.decisionList.View(p, m.state, m.actor, contentW, max(5, contentH-6))
+		if contracts := decisionMessages(m.state); contracts != "" {
+			bodyContent += "\n\n" + wrap.Render(contracts)
+		}
 	case "Project settings":
 		bodyContent = m.projectSettings(p, contentW, contentH)
 	case "Blockers":
@@ -759,34 +779,6 @@ func (m Model) attention(p palette) string {
 	return strings.Join(rows, "\n")
 }
 
-func (m Model) documents(p palette) string {
-	rows := []string{"STATUS    VERSION  DOCUMENT             AUTHOR        TAGS"}
-	for _, id := range service.SortedKeys(m.state.Documents) {
-		d := m.state.Documents[id]
-		rows = append(rows, fmt.Sprintf("%-9s %-7d %-20s %-13s %s", d.Status, d.Version, id, d.Author, strings.Join(d.Tags, ",")))
-	}
-	if len(rows) == 1 {
-		return "No living documents yet."
-	}
-	return strings.Join(rows, "\n")
-}
-func (m Model) decisions(p palette) string {
-	rows := []string{}
-	for _, id := range service.SortedKeys(m.state.Decisions) {
-		d := m.state.Decisions[id]
-		rows = append(rows, fmt.Sprintf("◆ %s  %s\n  %s", id, d.Title, d.Statement))
-	}
-	for _, id := range service.SortedKeys(m.state.Messages) {
-		x := m.state.Messages[id]
-		if x.Kind == "CONTRACT" {
-			rows = append(rows, fmt.Sprintf("◇ %s  %s · %s", id, x.Subject, x.Status))
-		}
-	}
-	if len(rows) == 0 {
-		return "No contracts or decisions recorded."
-	}
-	return strings.Join(rows, "\n\n")
-}
 func (m Model) blockers(p palette) string {
 	rows := []string{}
 	for _, id := range service.SortedKeys(m.state.Tasks) {
@@ -908,7 +900,7 @@ func (m Model) renderPalette(p palette, under string) string {
 
 func (m Model) paletteMatches() []string {
 	query := strings.ToLower(strings.TrimSpace(m.query))
-	commands := []string{"new task", "new agent", "new message", "new invocation", "new runtime"}
+	commands := []string{"new task", "new agent", "new message", "new invocation", "new runtime", "new document", "new decision"}
 	commands = append(commands, views...)
 	matches := make([]string, 0, 6)
 	for _, command := range commands {
