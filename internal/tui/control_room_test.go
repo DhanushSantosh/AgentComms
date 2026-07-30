@@ -49,6 +49,11 @@ func TestAuditHealthSurfacesDoctorFindings(t *testing.T) {
 		t.Fatal(err)
 	}
 	view.openView("Audit & health")
+	// Findings are computed lazily, on focus, not eagerly in New() -- see
+	// New()'s and refreshSilent's comments on why (doctor.Findings dials
+	// every ONLINE interactive runtime's PTY socket, too slow to pay on
+	// every TUI launch or background tick).
+	view.focusCurrentView()
 	rendered := view.View().Content
 	for _, expected := range []string{"Doctor findings", "TEST_LIKE_RUNTIME"} {
 		if !strings.Contains(rendered, expected) {

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"charm.land/bubbles/v2/table"
+	"charm.land/lipgloss/v2"
 	"github.com/DhanushSantosh/AgentComms/internal/daemon"
 	"github.com/DhanushSantosh/AgentComms/internal/identity"
 	"github.com/DhanushSantosh/AgentComms/internal/interactiveserve"
@@ -107,58 +108,84 @@ var (
 
 type runtimeRowSource struct{ root string }
 
+// Columns is deliberately just the essentials -- everything else (connector,
+// local PTY state, config health, load, provider/session binding, config
+// reference) used to be crammed into the same table as further columns,
+// unreadable outside a very wide terminal. It now lives in the detail pane
+// for the selected row (see Model.runtimeDetailPane), the same
+// list-plus-detail shape settings.go already uses for one row's full
+// picture (settingsControl/settingsImpact).
 func (runtimeRowSource) Columns(width int) []table.Column {
-	status, health, agent, kind, connector, pty, configHealth, load, provider, session := 11, 10, 14, 12, 14, 12, 14, 9, 9, 26
-	reference := max(12, width-status-health-agent-kind-connector-pty-configHealth-load-provider-session)
+	status, health, kind := 11, 10, 12
+	agent := max(12, width-status-health-kind)
 	return []table.Column{
 		{Title: "STATUS", Width: status}, {Title: "HEALTH", Width: health},
 		{Title: "AGENT", Width: agent}, {Title: "KIND", Width: kind},
-		{Title: "CONNECTOR", Width: connector}, {Title: "LOCAL PTY", Width: pty},
-		{Title: "CONFIG HEALTH", Width: configHealth},
-		{Title: "LOAD", Width: load}, {Title: "PROVIDER", Width: provider},
-		{Title: "SESSION / THREAD ID", Width: session}, {Title: "CONFIG", Width: reference},
 	}
 }
 
-func (r runtimeRowSource) Rows(state model.State, _ string, _ bool) []table.Row {
+func (runtimeRowSource) Rows(state model.State, _ string, _ bool) []table.Row {
 	ids := service.SortedKeys(state.AgentRuntimes)
 	rows := make([]table.Row, 0, len(ids))
-	localHostID, _ := identity.LoadOrCreateHostID()
-	configPath := strings.TrimSpace(os.Getenv("AGENT_COMMS_CONNECTOR_CONFIG"))
-	configs, configErr := daemon.LoadConnectorConfigs(configPath)
 	for _, id := range ids {
 		runtime := state.AgentRuntimes[id]
-		provider, session := r.sessionBinding(id)
 		kind := runtime.Kind
 		if kind == "" {
 			kind = model.RuntimeKindWorker
 		}
-		ptyState := "—"
-		if kind == model.RuntimeKindInteractive {
-			if runtime.HostID != localHostID {
-				ptyState = "foreign host"
-			} else {
-				ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-				alive, busy := interactiveserve.Probe(ctx, r.root, id)
-				cancel()
-				switch {
-				case alive && busy:
-					ptyState = "live · busy"
-				case alive:
-					ptyState = "live · idle"
-				default:
-					ptyState = "not dialable"
-				}
-			}
-		}
-		rows = append(rows, table.Row{
-			runtime.Status, runtime.Health, runtime.AgentID, string(kind), runtime.Connector, ptyState,
-			runtimeConfigurationHealth(runtime, configs, configPath, configErr),
-			strconv.Itoa(len(runtime.ActiveInvocations)) + "/" + strconv.Itoa(runtime.MaxConcurrent),
-			provider, session, runtime.ConfigReference,
-		})
+		rows = append(rows, table.Row{runtime.Status, runtime.Health, runtime.AgentID, string(kind)})
 	}
 	return rows
+}
+
+// runtimeDetail holds everything about one runtime beyond the compact table
+// columns -- computed only for the currently selected row (detailFor is
+// called once per render, not once per row), unlike the old design which
+// probed every interactive runtime's PTY socket on every table refresh.
+type runtimeDetail struct {
+	connector, ptyState, configHealth, load, provider, session, configReference string
+}
+
+func (r runtimeRowSource) detailFor(id string, state model.State) (runtimeDetail, bool) {
+	runtime, ok := state.AgentRuntimes[id]
+	if !ok {
+		return runtimeDetail{}, false
+	}
+	localHostID, _ := identity.LoadOrCreateHostID()
+	configPath := strings.TrimSpace(os.Getenv("AGENT_COMMS_CONNECTOR_CONFIG"))
+	configs, configErr := daemon.LoadConnectorConfigs(configPath)
+	kind := runtime.Kind
+	if kind == "" {
+		kind = model.RuntimeKindWorker
+	}
+	ptyState := "—"
+	if kind == model.RuntimeKindInteractive {
+		if runtime.HostID != localHostID {
+			ptyState = "foreign host"
+		} else {
+			ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+			alive, busy := interactiveserve.Probe(ctx, r.root, id)
+			cancel()
+			switch {
+			case alive && busy:
+				ptyState = "live · busy"
+			case alive:
+				ptyState = "live · idle"
+			default:
+				ptyState = "not dialable"
+			}
+		}
+	}
+	provider, session := r.sessionBinding(id)
+	return runtimeDetail{
+		connector:       runtime.Connector,
+		ptyState:        ptyState,
+		configHealth:    runtimeConfigurationHealth(runtime, configs, configPath, configErr),
+		load:            strconv.Itoa(len(runtime.ActiveInvocations)) + "/" + strconv.Itoa(runtime.MaxConcurrent),
+		provider:        provider,
+		session:         session,
+		configReference: runtime.ConfigReference,
+	}, true
 }
 
 func runtimeConfigurationHealth(
@@ -253,4 +280,31 @@ func (runtimeRowSource) Actions(id string, state model.State, actor string) []Ro
 		}
 		return actions
 	}
+}
+
+// runtimeDetailPane renders everything about the selected row that no
+// longer fits in the compact table (runtimeRowSource.Columns) -- connector,
+// local PTY dial state, config health, load, and session binding.
+func (m Model) runtimeDetailPane(p palette, width int) string {
+	id := m.runtimeList.SelectedID(m.state, m.actor)
+	if id == "" {
+		return lipgloss.NewStyle().Foreground(p.muted).Render("No runtime selected.")
+	}
+	detail, ok := runtimeRowSource{root: m.svc.Store.Root}.detailFor(id, m.state)
+	if !ok {
+		return ""
+	}
+	rows := []string{
+		lipgloss.NewStyle().Foreground(p.violet).Bold(true).Render("RUNTIME DETAIL / " + id),
+		settingLine("Connector", detail.connector),
+		settingLine("Local PTY", detail.ptyState),
+		settingLine("Config health", detail.configHealth),
+		settingLine("Load", detail.load),
+		settingLine("Provider", detail.provider),
+		settingLine("Session / thread ID", empty(detail.session, "unbound")),
+		settingLine("Config reference", empty(detail.configReference, "—")),
+	}
+	return lipgloss.NewStyle().Foreground(p.text).MaxWidth(width).
+		BorderLeft(true).BorderStyle(lipgloss.ThickBorder()).
+		BorderForeground(p.violet).PaddingLeft(1).Render(strings.Join(rows, "\n"))
 }

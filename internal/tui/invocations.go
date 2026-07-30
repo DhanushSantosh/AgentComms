@@ -251,6 +251,11 @@ func (invocationRowSource) Actions(id string, state model.State, actor string) [
 	return actions
 }
 
+// invocationDeliveryDetails renders RFC 0013's delivery pipeline
+// (request -> resolve runtime -> delivery-attempt -> transport ->
+// notify/failed) as a chip sequence per attempt rather than a raw evidence
+// log -- the pipeline is a state machine, this shows it as one. Relative
+// timestamps replace the old RFC3339Nano log lines.
 func (m Model) invocationDeliveryDetails(p palette, width int) string {
 	id := m.invocationList.SelectedID(m.state, m.actor)
 	if id == "" {
@@ -266,31 +271,103 @@ func (m Model) invocationDeliveryDetails(p palette, width int) string {
 	sort.Slice(deliveries, func(left, right int) bool {
 		return deliveries[left].Attempt < deliveries[right].Attempt
 	})
-	rows := []string{fmt.Sprintf(
-		"%s  consumer %s  runtime %s",
-		id, empty(string(invocation.ConsumerMode), string(model.ConsumerModeEither)),
+	rows := []string{lipgloss.NewStyle().Foreground(p.violet).Bold(true).Render("DELIVERY PIPELINE / " + id), fmt.Sprintf(
+		"consumer %s  runtime %s",
+		empty(string(invocation.ConsumerMode), string(model.ConsumerModeEither)),
 		empty(invocation.PreferredRuntimeID, "automatic"),
-	)}
-	if invocation.ClaimedAt != nil {
-		rows = append(rows, "Target acknowledged at "+invocation.ClaimedAt.Format(time.RFC3339))
-	}
+	), ""}
 	for _, delivery := range deliveries {
-		line := fmt.Sprintf(
-			"#%d %s via %s/%s", delivery.Attempt, delivery.Status,
-			empty(delivery.RuntimeID, "unknown"), empty(delivery.Transport, "legacy"),
-		)
+		rows = append(rows, fmt.Sprintf(
+			"Attempt #%d  %s  %s", delivery.Attempt,
+			deliveryPipelineChips(p, delivery), relativeTimeOrNow(delivery.AttemptedAt),
+		))
+		via := fmt.Sprintf("  via %s/%s", empty(delivery.RuntimeID, "unknown"), empty(delivery.Transport, "legacy"))
 		if delivery.Error != "" {
-			line += " · " + truncate(delivery.Error, max(20, width-45))
+			via += " · " + truncate(delivery.Error, max(20, width-len(via)-5))
 		}
-		rows = append(rows, line)
-		for _, evidence := range delivery.Evidence {
-			rows = append(rows, "  "+evidence.Stage+"  "+evidence.At.Format(time.RFC3339Nano))
-		}
+		rows = append(rows, lipgloss.NewStyle().Foreground(p.muted).Render(via))
 	}
 	if len(deliveries) == 0 {
-		rows = append(rows, "No delivery attempt recorded; the governed request remains pending.")
+		rows = append(rows, lipgloss.NewStyle().Foreground(p.muted).Render("No delivery attempt recorded; the governed request remains pending."))
 	}
-	return lipgloss.NewStyle().Foreground(p.muted).MaxWidth(width).
+	rows = append(rows, "")
+	if invocation.ClaimedAt != nil {
+		rows = append(rows, "Target acknowledged "+relativeTimeOrNow(invocation.ClaimedAt))
+	}
+	if invocation.CompletedAt != nil {
+		rows = append(rows, "Completed "+relativeTimeOrNow(invocation.CompletedAt))
+	}
+	return lipgloss.NewStyle().Foreground(p.text).MaxWidth(width).
 		BorderLeft(true).BorderStyle(lipgloss.ThickBorder()).
 		BorderForeground(p.violet).PaddingLeft(1).Render(strings.Join(rows, "\n"))
+}
+
+// deliveryPipelineChips renders one attempt's progress through RFC 0013's
+// five-step delivery state machine as status chips.
+func deliveryPipelineChips(p palette, d model.InvocationDelivery) string {
+	chips := []string{
+		stageChip(p, "request", stageDone),
+		stageChip(p, "resolve", stageFor(d.RuntimeID != "")),
+		stageChip(p, "attempt", stageDone),
+		stageChip(p, "transport", stageFor(len(d.Evidence) > 0)),
+	}
+	// A delivery's own Status is "SUCCEEDED" on notify -- "NOTIFIED" is the
+	// broader invocation's status, a different field entirely (see
+	// internal/projection/apply.go's InvocationNotified/
+	// InvocationDeliveryFailed cases).
+	switch d.Status {
+	case "SUCCEEDED":
+		chips = append(chips, stageChip(p, "notified", stageDone))
+	case "FAILED", "EXHAUSTED":
+		chips = append(chips, stageChip(p, "failed", stageFailed))
+	default:
+		chips = append(chips, stageChip(p, "notify", stagePending))
+	}
+	return strings.Join(chips, " ")
+}
+
+type stageState int
+
+const (
+	stagePending stageState = iota
+	stageDone
+	stageFailed
+)
+
+func stageFor(done bool) stageState {
+	if done {
+		return stageDone
+	}
+	return stagePending
+}
+
+func stageChip(p palette, label string, state stageState) string {
+	switch state {
+	case stageDone:
+		return lipgloss.NewStyle().Foreground(p.cyan).Render("✓" + label)
+	case stageFailed:
+		return lipgloss.NewStyle().Foreground(p.red).Render("✕" + label)
+	default:
+		return lipgloss.NewStyle().Foreground(p.muted).Render("○" + label)
+	}
+}
+
+// relativeTimeOrNow renders t as "Xm ago"-style relative time, or "just
+// now" for anything under a minute. Falls back to "unknown" for a nil
+// pointer so a caller can pass an *time.Time field straight through.
+func relativeTimeOrNow(t *time.Time) string {
+	if t == nil {
+		return "unknown"
+	}
+	d := time.Since(*t)
+	switch {
+	case d < time.Minute:
+		return "just now"
+	case d < time.Hour:
+		return fmt.Sprintf("%dm ago", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh ago", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
+	}
 }

@@ -92,7 +92,12 @@ func New(s *service.Service, actor string) (Model, error) {
 		hc = true
 	}
 	lifecycle, _, _ := projectlifecycle.Inspect(s.Store.Root, buildinfo.Version, buildinfo.ResolvedBuildID())
-	findings, _ := doctor.Findings(context.Background(), s)
+	// findings deliberately NOT computed here: doctor.Findings dials every
+	// ONLINE interactive runtime's local PTY socket, which against a real
+	// busy session can take seconds -- fine as a one-shot cost paid when
+	// Audit & health is actually opened (focusCurrentView), not acceptable
+	// as a blocking cost on every TUI launch. See refreshSilent's comment
+	// for the matching reason it's excluded from the background tick too.
 	drafts, _ := s.Drafts(50)
 	return Model{
 		svc: s, state: st, actor: actor, projectID: projectID, width: 100, height: 30, highContrast: hc,
@@ -101,7 +106,7 @@ func New(s *service.Service, actor string) (Model, error) {
 		invocationList: newRowList(invocationRowSource{}), runtimeList: newRowList(runtimeRowSource{root: s.Store.Root}),
 		documentList: newRowList(documentRowSource{}), decisionList: newRowList(decisionRowSource{}),
 		artifactList: newRowList(artifactRowSource{}), envList: newRowList(envRowSource{}),
-		lifecycle: lifecycle, findings: findings, drafts: drafts,
+		lifecycle: lifecycle, drafts: drafts,
 	}, e
 }
 func (m Model) Init() tea.Cmd {
@@ -281,6 +286,8 @@ func (m *Model) focusCurrentView() {
 		m.envList.Refresh(m.state, m.actor)
 	case "Drafts":
 		m.refreshDrafts()
+	case "Audit & health":
+		m.refreshFindings()
 	case "Project settings":
 		m.settingsFocus = true
 	}
@@ -298,7 +305,15 @@ func (m *Model) refresh() {
 // refreshSilent re-reads state without disturbing the current notice/error,
 // used by the background file-watch tick so it never stomps a just-shown
 // action result. Read errors are swallowed; the last-known-good state stays
-// displayed until the next successful read.
+// displayed until the next successful read. Deliberately does NOT call
+// refreshFindings: doctor.Findings dials every ONLINE interactive runtime's
+// local PTY socket to check it's alive, and against a real, busy session
+// that round-trip can take seconds, not milliseconds -- fine as a one-shot
+// cost (New, or an explicit 'r' refresh) but not something to repeat on
+// every background tick a file-watch event fires. Findings still refresh
+// on the next real refresh() call; the last-known-good findings stay
+// displayed in between, the same tradeoff refreshDrafts already makes for
+// the same reason.
 func (m *Model) refreshSilent() {
 	st, err := m.svc.State()
 	if err != nil {
@@ -306,7 +321,6 @@ func (m *Model) refreshSilent() {
 	}
 	m.state = st
 	m.refreshLists()
-	m.refreshFindings()
 }
 
 // refreshFindings recomputes doctor's health findings using the exact same
@@ -605,7 +619,8 @@ func (m Model) renderBody(p palette, w, h int) string {
 			m.invocationList.View(p, m.state, m.actor, contentW, max(5, contentH-10)) + "\n\n" +
 			m.invocationDeliveryDetails(p, contentW)
 	case "Runtimes":
-		bodyContent = m.runtimeList.View(p, m.state, m.actor, contentW, contentH)
+		bodyContent = m.runtimeList.View(p, m.state, m.actor, contentW, max(5, contentH-9)) + "\n\n" +
+			m.runtimeDetailPane(p, contentW)
 	case "Approvals":
 		bodyContent = m.approvalList.View(p, m.state, m.actor, contentW, contentH)
 	case "Documents":
