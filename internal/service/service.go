@@ -80,8 +80,13 @@ func (s *Service) State() (model.State, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), controlplane.DefaultRequestTimeout)
 	defer cancel()
-	state, metadata, err := s.remote.State(ctx, cfg.ProjectID)
-	if err != nil {
+	var state model.State
+	var metadata controlplane.ResultMetadata
+	if err := s.retryOnDaemonOffline(ctx, func() error {
+		var stateErr error
+		state, metadata, stateErr = s.remote.State(ctx, cfg.ProjectID)
+		return stateErr
+	}); err != nil {
 		return state, err
 	}
 	state.Integrity.Consistency = metadata.Consistency
@@ -90,6 +95,54 @@ func (s *Service) State() (model.State, error) {
 	state.Integrity.Connectivity = metadata.Connectivity
 	protocol.RefreshRuntimePresence(&state, time.Now().UTC())
 	return state, nil
+}
+
+// retryOnDaemonOffline runs op up to 3 times with the same backoff-and-
+// recover shape signed writes have always had (originally only in
+// executeRemoteWithCredential, now shared): on a retryable daemon error
+// (CodeOffline/CodeUnavailable/CodeRateLimited) it calls s.recoverRemote
+// (wired to ensureDaemon, internal/app/app.go) once per attempt before
+// backing off and trying again. A non-retryable error, or an error
+// recoverRemote itself can't fix, returns immediately.
+//
+// Extracted so plain reads (State) get the same resilience signed writes
+// already had -- without it, a single transient "local daemon is
+// unavailable" blip during `runtime interactive-serve`'s periodic
+// heartbeat (internal/app/app.go's heartbeatInteractiveRuntime, which calls
+// State() before Execute) tore down the entire live interactive session on
+// the very next tick, with nothing ever getting a chance to reconnect.
+func (s *Service) retryOnDaemonOffline(ctx context.Context, op func() error) error {
+	var err error
+	for attempt := 0; attempt < 3; attempt++ {
+		err = op()
+		if err == nil {
+			return nil
+		}
+		var controlErr *controlplane.Error
+		if !errors.As(err, &controlErr) ||
+			(controlErr.Code != controlplane.CodeOffline && controlErr.Code != controlplane.CodeUnavailable &&
+				controlErr.Code != controlplane.CodeRateLimited) {
+			return err
+		}
+		if s.recoverRemote != nil &&
+			(controlErr.Code == controlplane.CodeOffline || controlErr.Code == controlplane.CodeUnavailable) {
+			if recoveryErr := s.recoverRemote(); recoveryErr != nil {
+				return recoveryErr
+			}
+		}
+		delay := time.Duration(50*(1<<attempt)) * time.Millisecond
+		if controlErr.RetryAfter > delay {
+			delay = controlErr.RetryAfter
+		}
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
+	return err
 }
 
 func (s *Service) Verify(from, to uint64) error {
@@ -452,38 +505,11 @@ func (s *Service) executeRemoteWithCredential(
 	defer cancel()
 	var event controlplane.Event
 	var metadata controlplane.ResultMetadata
-	for attempt := 0; attempt < 3; attempt++ {
-		event, metadata, err = s.remote.Command(ctx, command)
-		if err == nil {
-			break
-		}
-		var controlErr *controlplane.Error
-		if !errors.As(err, &controlErr) ||
-			(controlErr.Code != controlplane.CodeOffline && controlErr.Code != controlplane.CodeUnavailable &&
-				controlErr.Code != controlplane.CodeRateLimited) {
-			break
-		}
-		if s.recoverRemote != nil &&
-			(controlErr.Code == controlplane.CodeOffline || controlErr.Code == controlplane.CodeUnavailable) {
-			if recoveryErr := s.recoverRemote(); recoveryErr != nil {
-				err = recoveryErr
-				break
-			}
-		}
-		delay := time.Duration(50*(1<<attempt)) * time.Millisecond
-		if controlErr.RetryAfter > delay {
-			delay = controlErr.RetryAfter
-		}
-		timer := time.NewTimer(delay)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			err = ctx.Err()
-			attempt = 3
-		case <-timer.C:
-		}
-	}
-	if err != nil {
+	if err := s.retryOnDaemonOffline(ctx, func() error {
+		var commandErr error
+		event, metadata, commandErr = s.remote.Command(ctx, command)
+		return commandErr
+	}); err != nil {
 		return model.Event{}, err
 	}
 	return model.Event{
