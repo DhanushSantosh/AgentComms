@@ -30,12 +30,12 @@ func TestAgentActionsForStates(t *testing.T) {
 		want  []string
 	}{
 		{"pending non-elevated sees nothing", model.Agent{Status: "PENDING"}, "builder", "watcher", model.RoleAgent, nil},
-		{"pending elevated sees activate and revoke", model.Agent{Status: "PENDING"}, "builder", "owner", model.RoleOwner, []string{"activate", "revoke"}},
-		{"active elevated sees suspend and revoke", model.Agent{Status: "ACTIVE"}, "builder", "owner", model.RoleOwner, []string{"suspend", "revoke"}},
+		{"pending elevated sees activate rename and revoke", model.Agent{Status: "PENDING"}, "builder", "owner", model.RoleOwner, []string{"activate", "rename", "revoke"}},
+		{"active elevated sees suspend rename and revoke", model.Agent{Status: "ACTIVE"}, "builder", "owner", model.RoleOwner, []string{"suspend", "rename", "revoke"}},
 		{"active non-elevated sees nothing", model.Agent{Status: "ACTIVE"}, "builder", "watcher", model.RoleAgent, nil},
-		{"suspended elevated sees only revoke", model.Agent{Status: "SUSPENDED"}, "builder", "owner", model.RoleOwner, []string{"revoke"}},
-		{"revoked is terminal, nothing offered", model.Agent{Status: "REVOKED"}, "builder", "owner", model.RoleOwner, nil},
-		{"own row elevated adds rotate key", model.Agent{Status: "ACTIVE"}, "owner", "owner", model.RoleOwner, []string{"suspend", "revoke", "rotate key"}},
+		{"suspended elevated sees rename and revoke", model.Agent{Status: "SUSPENDED"}, "builder", "owner", model.RoleOwner, []string{"rename", "revoke"}},
+		{"revoked offers only delete", model.Agent{Status: "REVOKED"}, "builder", "owner", model.RoleOwner, []string{"delete"}},
+		{"own row elevated adds rotate key", model.Agent{Status: "ACTIVE"}, "owner", "owner", model.RoleOwner, []string{"suspend", "rename", "revoke", "rotate key"}},
 		{"own row non-elevated has no rotate key", model.Agent{Status: "ACTIVE"}, "watcher", "watcher", model.RoleAgent, nil},
 	}
 	for _, c := range cases {
@@ -197,6 +197,86 @@ func TestRotateKeyOnlyOnOwnRow(t *testing.T) {
 	m = pressKey(t, m, keyText("z"))
 	if m.err != nil {
 		t.Fatalf("rotate key failed: %v", m.err)
+	}
+}
+
+func TestRenameAgent(t *testing.T) {
+	s := newTestService(t)
+	registerAgent(t, s, "builder", model.RoleAgent, "src")
+
+	m, e := New(s, "owner")
+	if e != nil {
+		t.Fatal(e)
+	}
+	m = enterAgentsView(t, m)
+	if id := m.agentList.SelectedID(m.state, m.actor); id != "builder" {
+		t.Fatalf("selected id = %q, want builder", id)
+	}
+	m = pressKey(t, m, keyText("e"))
+	if m.form != "agent.rename" {
+		t.Fatalf("expected agent.rename form, got %q", m.form)
+	}
+	m.inputs[0].SetValue("Builder Bot")
+	m.formFocus = len(m.inputs) - 1
+	m = pressKey(t, m, keyEnter())
+	if m.err != nil {
+		t.Fatalf("rename failed: %v", m.err)
+	}
+	st, e := s.State()
+	if e != nil {
+		t.Fatal(e)
+	}
+	if st.Agents["builder"].DisplayName != "Builder Bot" {
+		t.Fatalf("display name = %q, want Builder Bot", st.Agents["builder"].DisplayName)
+	}
+}
+
+func TestDeleteRequiresRevokedStatusAndReason(t *testing.T) {
+	s := newTestService(t)
+	registerAgent(t, s, "builder", model.RoleAgent, "src")
+
+	m, e := New(s, "owner")
+	if e != nil {
+		t.Fatal(e)
+	}
+	m = enterAgentsView(t, m)
+	if id := m.agentList.SelectedID(m.state, m.actor); id != "builder" {
+		t.Fatalf("selected id = %q, want builder", id)
+	}
+	for _, a := range m.agentList.Actions("builder", m.state, m.actor) {
+		if a.Label == "delete" {
+			t.Fatal("delete should not be offered before the agent is revoked")
+		}
+	}
+	m = pressKey(t, m, keyText("x"))
+	m = pressKey(t, m, keyText("y"))
+	if m.err != nil {
+		t.Fatalf("revoke failed: %v", m.err)
+	}
+
+	m.rowFocus = true
+	if id := m.agentList.SelectedID(m.state, m.actor); id != "builder" {
+		t.Fatalf("selected id = %q, want builder", id)
+	}
+	m = pressKey(t, m, keyText("d"))
+	if m.form != "agent.delete" {
+		t.Fatalf("expected agent.delete form, got %q", m.form)
+	}
+	// Confirm empty reason is rejected before ever reaching Execute.
+	m.formFocus = len(m.inputs) - 1
+	m = pressKey(t, m, keyEnter())
+	if m.form != "agent.delete" {
+		t.Fatalf("empty reason should not have submitted the form, form=%q notice=%q", m.form, m.notice)
+	}
+	m.inputs[0].SetValue("decommissioned")
+	m.formFocus = len(m.inputs) - 1
+	m = pressKey(t, m, keyEnter())
+	if m.confirm == nil {
+		t.Fatal("delete should require confirmation before signing")
+	}
+	m = pressKey(t, m, keyText("y"))
+	if m.err != nil {
+		t.Fatalf("delete failed: %v", m.err)
 	}
 }
 

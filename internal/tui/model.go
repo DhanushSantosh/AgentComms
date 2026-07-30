@@ -24,8 +24,8 @@ import (
 
 var views = []string{
 	"Overview", "My work", "Tasks", "Inbox", "Agents", "Approvals", "Invocations",
-	"Runtimes", "Project settings", "Documents", "Contracts & decisions",
-	"Blockers", "Audit & health", "Activity", "Archive search",
+	"Runtimes", "Project settings", "Documents", "Contracts & decisions", "Artifacts", "Drafts",
+	"Blockers", "Audit & health", "Activity", "Archive search", "Environment",
 }
 
 type navigationHub struct {
@@ -35,10 +35,10 @@ type navigationHub struct {
 
 var navigationHubs = []navigationHub{
 	{Name: "Command", Views: []string{"Overview", "My work", "Blockers", "Approvals"}},
-	{Name: "Work", Views: []string{"Tasks", "Documents", "Contracts & decisions", "Archive search"}},
+	{Name: "Work", Views: []string{"Tasks", "Documents", "Contracts & decisions", "Artifacts", "Drafts", "Archive search"}},
 	{Name: "Team", Views: []string{"Agents", "Runtimes"}},
 	{Name: "Relay", Views: []string{"Inbox", "Invocations", "Activity"}},
-	{Name: "Project", Views: []string{"Project settings", "Audit & health"}},
+	{Name: "Project", Views: []string{"Project settings", "Environment", "Audit & health"}},
 }
 
 type Model struct {
@@ -66,6 +66,9 @@ type Model struct {
 	runtimeList    RowList
 	documentList   RowList
 	decisionList   RowList
+	artifactList   RowList
+	envList        RowList
+	drafts         []controlplane.Draft
 	settingsFocus  bool
 	settingsCursor int
 	confirm        *confirmState
@@ -90,13 +93,15 @@ func New(s *service.Service, actor string) (Model, error) {
 	}
 	lifecycle, _, _ := projectlifecycle.Inspect(s.Store.Root, buildinfo.Version, buildinfo.ResolvedBuildID())
 	findings, _ := doctor.Findings(context.Background(), s)
+	drafts, _ := s.Drafts(50)
 	return Model{
 		svc: s, state: st, actor: actor, projectID: projectID, width: 100, height: 30, highContrast: hc,
 		taskList: newRowList(taskRowSource{}), messageList: newRowList(messageRowSource{owner: owner}),
 		approvalList: newRowList(approvalRowSource{}), agentList: newRowList(agentRowSource{}),
 		invocationList: newRowList(invocationRowSource{}), runtimeList: newRowList(runtimeRowSource{root: s.Store.Root}),
 		documentList: newRowList(documentRowSource{}), decisionList: newRowList(decisionRowSource{}),
-		lifecycle: lifecycle, findings: findings,
+		artifactList: newRowList(artifactRowSource{}), envList: newRowList(envRowSource{}),
+		lifecycle: lifecycle, findings: findings, drafts: drafts,
 	}, e
 }
 func (m Model) Init() tea.Cmd {
@@ -268,6 +273,14 @@ func (m *Model) focusCurrentView() {
 	case "Contracts & decisions":
 		m.rowFocus = true
 		m.decisionList.Refresh(m.state, m.actor)
+	case "Artifacts":
+		m.rowFocus = true
+		m.artifactList.Refresh(m.state, m.actor)
+	case "Environment":
+		m.rowFocus = true
+		m.envList.Refresh(m.state, m.actor)
+	case "Drafts":
+		m.refreshDrafts()
 	case "Project settings":
 		m.settingsFocus = true
 	}
@@ -278,6 +291,7 @@ func (m *Model) refresh() {
 		m.notice = "State refreshed at " + time.Now().Format("15:04:05")
 		m.refreshLists()
 		m.refreshFindings()
+		m.refreshDrafts()
 	}
 }
 
@@ -315,6 +329,8 @@ func (m *Model) refreshLists() {
 	m.runtimeList.Refresh(m.state, m.actor)
 	m.documentList.Refresh(m.state, m.actor)
 	m.decisionList.Refresh(m.state, m.actor)
+	m.artifactList.Refresh(m.state, m.actor)
+	m.envList.Refresh(m.state, m.actor)
 }
 func (m *Model) applyPalette() {
 	q := strings.ToLower(strings.TrimSpace(m.query))
@@ -344,6 +360,15 @@ func (m *Model) applyPalette() {
 		}},
 		{names: []string{"new decision", "create decision"}, view: "Contracts & decisions", open: func(value Model) (tea.Model, tea.Cmd) {
 			return value.openActionForm(decisionCreateForm, "decision.create", "")
+		}},
+		{names: []string{"new artifact", "add artifact"}, view: "Artifacts", open: func(value Model) (tea.Model, tea.Cmd) {
+			return value.openActionForm(artifactAddForm, "artifact.add", "")
+		}},
+		{names: []string{"new draft", "save draft"}, view: "Drafts", open: func(value Model) (tea.Model, tea.Cmd) {
+			return value.openActionForm(draftSaveForm, "draft.save", "")
+		}},
+		{names: []string{"new environment key", "set environment key"}, view: "Environment", open: func(value Model) (tea.Model, tea.Cmd) {
+			return value.openActionForm(envSetForm, "env.set", "")
 		}},
 	} {
 		for _, name := range command.names {
@@ -554,6 +579,12 @@ func (m Model) renderBody(p palette, w, h int) string {
 		if contracts := decisionMessages(m.state); contracts != "" {
 			bodyContent += "\n\n" + wrap.Render(contracts)
 		}
+	case "Artifacts":
+		bodyContent = m.artifactList.View(p, m.state, m.actor, contentW, contentH)
+	case "Drafts":
+		bodyContent = m.draftsView(p)
+	case "Environment":
+		bodyContent = m.envList.View(p, m.state, m.actor, contentW, contentH)
 	case "Project settings":
 		bodyContent = m.projectSettings(p, contentW, contentH)
 	case "Blockers":
@@ -900,7 +931,7 @@ func (m Model) renderPalette(p palette, under string) string {
 
 func (m Model) paletteMatches() []string {
 	query := strings.ToLower(strings.TrimSpace(m.query))
-	commands := []string{"new task", "new agent", "new message", "new invocation", "new runtime", "new document", "new decision"}
+	commands := []string{"new task", "new agent", "new message", "new invocation", "new runtime", "new document", "new decision", "new artifact", "new draft", "new environment key"}
 	commands = append(commands, views...)
 	matches := make([]string, 0, 6)
 	for _, command := range commands {

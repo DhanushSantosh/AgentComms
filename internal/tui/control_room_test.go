@@ -88,9 +88,12 @@ func TestAgentControlsAreVisibleBeforeEnteringManageMode(t *testing.T) {
 	for _, expected := range []string{
 		"NAVIGATION · Enter to manage selected agent",
 		"Selected: owner",
-		"[n] register agent",
-		"[s] suspend",
-		"[z] rotate key",
+		// agentControlBar joins "[key] label" with non-breaking spaces
+		// ( ) so a width-driven wrap can't split one action's own text
+		// across lines -- these assertions must match that literally.
+		"[n] register agent",
+		"[s] suspend",
+		"[z] rotate key",
 	} {
 		if !strings.Contains(rendered, expected) {
 			t.Errorf("agent workspace missing %q", expected)

@@ -126,6 +126,10 @@ func (m *Model) activeRowList() *RowList {
 		return &m.documentList
 	case "Contracts & decisions":
 		return &m.decisionList
+	case "Artifacts":
+		return &m.artifactList
+	case "Environment":
+		return &m.envList
 	}
 	return nil
 }
@@ -147,6 +151,12 @@ func (m Model) openCreateForm() (tea.Model, tea.Cmd) {
 		return m.openActionForm(documentCreateForm, "document.create", "")
 	case "Contracts & decisions":
 		return m.openActionForm(decisionCreateForm, "decision.create", "")
+	case "Artifacts":
+		return m.openActionForm(artifactAddForm, "artifact.add", "")
+	case "Drafts":
+		return m.openActionForm(draftSaveForm, "draft.save", "")
+	case "Environment":
+		return m.openActionForm(envSetForm, "env.set", "")
 	}
 	return m, nil
 }
