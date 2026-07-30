@@ -398,6 +398,16 @@ func (m Model) openTaskForm() (tea.Model, tea.Cmd) {
 
 func (m Model) updateForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if key, ok := msg.(tea.KeyPressMsg); ok {
+		if m.formSpec != nil && m.formFocus < len(m.formSpec.Fields) {
+			if options := m.formSpec.Fields[m.formFocus].Options; len(options) > 0 {
+				switch key.String() {
+				case "left", "right", " ":
+					current := cyclePickerOption(options, m.inputs[m.formFocus].Value(), key.String() == "left")
+					m.inputs[m.formFocus].SetValue(current)
+					return m, nil
+				}
+			}
+		}
 		switch key.String() {
 		case "esc":
 			m.form, m.inputs, m.err, m.formSpec = "", nil, nil, nil
@@ -459,9 +469,35 @@ func (m Model) updateForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	commands := make([]tea.Cmd, len(m.inputs))
 	for i := range m.inputs {
+		if m.formSpec != nil && i < len(m.formSpec.Fields) && len(m.formSpec.Fields[i].Options) > 0 {
+			// Picker fields only ever change via left/right cycling above;
+			// typed characters are silently dropped rather than mutating a
+			// value that must always be one of Options.
+			continue
+		}
 		m.inputs[i], commands[i] = m.inputs[i].Update(msg)
 	}
 	return m, tea.Batch(commands...)
+}
+
+// cyclePickerOption returns the next (or, if backward, previous) value in
+// options relative to current, wrapping around at either end. Falls back to
+// options[0] if current doesn't match anything in the list (e.g. the field
+// was just opened).
+func cyclePickerOption(options []string, current string, backward bool) string {
+	idx := 0
+	for i, o := range options {
+		if o == current {
+			idx = i
+			break
+		}
+	}
+	if backward {
+		idx = (idx - 1 + len(options)) % len(options)
+	} else {
+		idx = (idx + 1) % len(options)
+	}
+	return options[idx]
 }
 
 func splitCSV(value string) []string {
@@ -643,17 +679,34 @@ func (m Model) renderForm(p palette) string {
 		lipgloss.NewStyle().Foreground(p.muted).Render(hint),
 		"",
 	}
+	focusedIsPicker := false
 	for i, input := range m.inputs {
 		marker := "  "
 		style := lipgloss.NewStyle().Foreground(p.text)
-		if i == m.formFocus {
+		focused := i == m.formFocus
+		if focused {
 			marker = "▌ "
 			style = style.Foreground(p.cyan).Bold(true)
 		}
+		var options []string
+		if m.formSpec != nil && i < len(m.formSpec.Fields) {
+			options = m.formSpec.Fields[i].Options
+		}
+		if len(options) > 0 {
+			if focused {
+				focusedIsPicker = true
+			}
+			rows = append(rows, style.Render(marker)+renderPickerField(style, input.Prompt, input.Value(), focused), "")
+			continue
+		}
 		rows = append(rows, style.Render(marker)+input.View(), "")
 	}
+	navHint := "Tab / Shift+Tab moves between fields"
+	if focusedIsPicker {
+		navHint = "←/→ cycles this field's value · " + navHint
+	}
 	rows = append(rows,
-		lipgloss.NewStyle().Foreground(p.muted).Render("Tab / Shift+Tab moves between fields"),
+		lipgloss.NewStyle().Foreground(p.muted).Render(navHint),
 		lipgloss.NewStyle().Foreground(p.amber).Render("Enter continues · final Enter reviews changes · Esc cancels"),
 	)
 	if m.notice != "" {
@@ -666,6 +719,16 @@ func (m Model) renderForm(p palette) string {
 		BorderForeground(p.cyan).PaddingLeft(2).MaxWidth(max(40, m.width-m.sidebarWidth()-10)).
 		Render(strings.Join(rows, "\n"))
 }
+// renderPickerField renders a picker field as "Label: ‹ value ›" instead of
+// a raw textinput.Model.View() (which would show a blinking text cursor
+// that's misleading here -- the value never accepts typed characters).
+func renderPickerField(style lipgloss.Style, prompt, value string, focused bool) string {
+	if !focused {
+		return style.Render(prompt + value)
+	}
+	return style.Render(prompt) + style.Render("‹ "+value+" ›")
+}
+
 func (m Model) overview(p palette) string {
 	contentWidth := max(28, m.width-m.sidebarWidth()-7)
 	open, running := 0, 0

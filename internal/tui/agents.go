@@ -19,7 +19,7 @@ var agentRegisterForm = &ActionForm{
 	Fields: []FormField{
 		{Label: "Principal ID", Placeholder: "builder", Required: true},
 		{Label: "Display name", Placeholder: ""},
-		{Label: "Principal type (HUMAN/AGENT)", Placeholder: "AGENT"},
+		{Label: "Principal type", Options: []string{"AGENT", "HUMAN"}},
 	},
 	Dispatch: func(m Model, v []string) (tea.Model, tea.Cmd) {
 		id := strings.TrimSpace(v[0])
@@ -42,7 +42,7 @@ var activateForm = &ActionForm{
 	Title: "Activate agent",
 	Hint:  "Assign a role, capabilities, and write scopes before this principal can act.",
 	Fields: []FormField{
-		{Label: "Role (OWNER/ORCHESTRATOR/AGENT/OBSERVER)", Placeholder: "AGENT", Required: true},
+		{Label: "Role", Options: []string{"AGENT", "OBSERVER", "ORCHESTRATOR", "OWNER"}, Required: true},
 		{Label: "Capabilities (comma-separated)", Placeholder: "go,test"},
 		{Label: "Scopes (comma-separated)", Placeholder: "src"},
 	},
@@ -55,11 +55,11 @@ var invocationPolicyForm = &ActionForm{
 	Title: "Invocation policy",
 	Hint:  "Controls which agents may wake this target. Sensitive work can remain human-gated.",
 	Fields: []FormField{
-		{Label: "Mode (MANUAL/TRUSTED/AUTOMATIC/DISABLED)", Placeholder: "MANUAL", Required: true},
+		{Label: "Mode", Options: []string{"MANUAL", "TRUSTED", "AUTOMATIC", "DISABLED"}, Required: true},
 		{Label: "Trusted actors (comma-separated)", Placeholder: ""},
 		{Label: "Allowed scopes (comma-separated)", Placeholder: "src"},
-		{Label: "Require human for sensitive (yes/no)", Placeholder: "yes", Required: true},
-		{Label: "Default consumer", Placeholder: "EITHER", Required: true},
+		{Label: "Require human for sensitive", Options: []string{"yes", "no"}, Required: true},
+		{Label: "Default consumer", Options: []string{"EITHER", "INTERACTIVE_ONLY", "WORKER_ONLY"}, Required: true},
 		{Label: "Allowed consumers (comma-separated)", Placeholder: "INTERACTIVE_ONLY,WORKER_ONLY,EITHER"},
 		{Label: "Preferred interactive runtime", Placeholder: ""},
 	},

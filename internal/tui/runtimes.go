@@ -22,8 +22,8 @@ var runtimeRegisterForm = &ActionForm{
 	Fields: []FormField{
 		{Label: "Runtime ID", Placeholder: "builder-local", Required: true},
 		{Label: "Agent ID", Placeholder: "builder", Required: true},
-		{Label: "Kind (WORKER/INTERACTIVE)", Placeholder: "WORKER", Required: true},
-		{Label: "Connector", Placeholder: "MCP", Required: true},
+		{Label: "Kind", Options: []string{"WORKER", "INTERACTIVE"}, Required: true},
+		{Label: "Connector", Options: []string{"MCP", "MANUAL", "LOCAL_PROCESS", "WEBHOOK", "QUEUE", "INTERACTIVE"}, Required: true},
 		{Label: "Config reference", Placeholder: "builder-local"},
 		{Label: "Max concurrent", Placeholder: "1", Required: true},
 		{Label: "Scopes (comma-separated)", Placeholder: "src"},
@@ -55,8 +55,8 @@ var runtimeConfigureForm = &ActionForm{
 	Title: "Configure runtime",
 	Hint:  "The runtime must be offline or draining with no active invocation.",
 	Fields: []FormField{
-		{Label: "Kind (WORKER/INTERACTIVE)", Placeholder: "WORKER", Required: true},
-		{Label: "Connector", Placeholder: "MANUAL", Required: true},
+		{Label: "Kind", Options: []string{"WORKER", "INTERACTIVE"}, Required: true},
+		{Label: "Connector", Options: []string{"MANUAL", "MCP", "LOCAL_PROCESS", "WEBHOOK", "QUEUE", "INTERACTIVE"}, Required: true},
 		{Label: "Config reference", Placeholder: ""},
 		{Label: "Max concurrent", Placeholder: "1", Required: true},
 		{Label: "Scopes (comma-separated)", Placeholder: "src"},

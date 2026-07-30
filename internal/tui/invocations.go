@@ -14,6 +14,13 @@ import (
 	"github.com/google/uuid"
 )
 
+// consumerAutomatic is the picker sentinel for an empty ConsumerMode --
+// leaving the field blank was always valid (it means "use the target's
+// invocation policy default"), but a picker field always has some value, so
+// this stands in for blank and is translated back to "" before building the
+// payload.
+const consumerAutomatic = "AUTOMATIC (policy default)"
+
 var invocationRequestForm = &ActionForm{
 	Title: "Invoke an agent",
 	Hint:  "Creates a durable request. Target policy decides whether approval is required.",
@@ -22,11 +29,11 @@ var invocationRequestForm = &ActionForm{
 		{Label: "Target agent", Placeholder: "reviewer", Required: true},
 		{Label: "Instruction", Placeholder: "Review the current implementation", Required: true},
 		{Label: "Expected result", Placeholder: "Post a concise review"},
-		{Label: "Priority (LOW/NORMAL/HIGH/URGENT)", Placeholder: "NORMAL"},
+		{Label: "Priority", Options: []string{"NORMAL", "LOW", "HIGH", "URGENT"}},
 		{Label: "Related task ID", Placeholder: ""},
 		{Label: "Related message ID", Placeholder: ""},
 		{Label: "Scopes (comma-separated)", Placeholder: "src"},
-		{Label: "Consumer (INTERACTIVE_ONLY/WORKER_ONLY/EITHER)", Placeholder: ""},
+		{Label: "Consumer", Options: []string{consumerAutomatic, "INTERACTIVE_ONLY", "WORKER_ONLY", "EITHER"}},
 		{Label: "Preferred runtime ID", Placeholder: ""},
 	},
 	Build: func(values []string) (any, error) {
@@ -34,10 +41,14 @@ var invocationRequestForm = &ActionForm{
 		if priority == "" {
 			priority = "NORMAL"
 		}
+		consumer := values[8]
+		if consumer == consumerAutomatic {
+			consumer = ""
+		}
 		return model.InvocationRequested{
 			Target: values[1], Instruction: values[2], ExpectedResult: values[3],
 			Priority: priority, TaskID: values[5], MessageID: values[6], Scopes: splitCSV(values[7]),
-			ConsumerMode:       model.ConsumerMode(strings.ToUpper(values[8])),
+			ConsumerMode:       model.ConsumerMode(strings.ToUpper(consumer)),
 			PreferredRuntimeID: values[9],
 		}, nil
 	},
