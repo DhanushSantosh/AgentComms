@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"image/color"
 	"io"
@@ -13,6 +14,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/DhanushSantosh/AgentComms/internal/buildinfo"
 	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
+	"github.com/DhanushSantosh/AgentComms/internal/doctor"
 	"github.com/DhanushSantosh/AgentComms/internal/identity"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 	"github.com/DhanushSantosh/AgentComms/internal/projectlifecycle"
@@ -67,25 +69,31 @@ type Model struct {
 	confirm        *confirmState
 	watcher        *fsnotify.Watcher
 	lifecycle      projectlifecycle.Plan
+	findings       []doctor.Finding
 }
 
 func New(s *service.Service, actor string) (Model, error) {
 	st, e := s.State()
 	projectID := "local project"
-	if config, err := s.Store.Config(); err == nil && config.ProjectID != "" {
-		projectID = config.ProjectID
+	owner := ""
+	if config, err := s.Store.Config(); err == nil {
+		if config.ProjectID != "" {
+			projectID = config.ProjectID
+		}
+		owner = config.Owner
 	}
 	hc := false
 	if uc, err := identity.LoadUserConfig(); err == nil && uc.Theme == "high-contrast" {
 		hc = true
 	}
 	lifecycle, _, _ := projectlifecycle.Inspect(s.Store.Root, buildinfo.Version, buildinfo.ResolvedBuildID())
+	findings, _ := doctor.Findings(context.Background(), s)
 	return Model{
 		svc: s, state: st, actor: actor, projectID: projectID, width: 100, height: 30, highContrast: hc,
-		taskList: newRowList(taskRowSource{}), messageList: newRowList(messageRowSource{}),
+		taskList: newRowList(taskRowSource{}), messageList: newRowList(messageRowSource{owner: owner}),
 		approvalList: newRowList(approvalRowSource{}), agentList: newRowList(agentRowSource{}),
 		invocationList: newRowList(invocationRowSource{}), runtimeList: newRowList(runtimeRowSource{root: s.Store.Root}),
-		lifecycle: lifecycle,
+		lifecycle: lifecycle, findings: findings,
 	}, e
 }
 func (m Model) Init() tea.Cmd {
@@ -260,6 +268,7 @@ func (m *Model) refresh() {
 	if m.err == nil {
 		m.notice = "State refreshed at " + time.Now().Format("15:04:05")
 		m.refreshLists()
+		m.refreshFindings()
 	}
 }
 
@@ -274,6 +283,19 @@ func (m *Model) refreshSilent() {
 	}
 	m.state = st
 	m.refreshLists()
+	m.refreshFindings()
+}
+
+// refreshFindings recomputes doctor's health findings using the exact same
+// logic `agent-comms doctor` runs (internal/doctor.Findings) so Audit &
+// health can never silently drift from the CLI's own picture of project
+// health. Errors are swallowed the same way refreshSilent swallows state
+// read errors -- the last-known-good findings stay displayed rather than
+// disappearing.
+func (m *Model) refreshFindings() {
+	if findings, err := doctor.Findings(context.Background(), m.svc); err == nil {
+		m.findings = findings
+	}
 }
 func (m *Model) refreshLists() {
 	m.taskList.Refresh(m.state, m.actor)
@@ -787,11 +809,35 @@ func (m Model) integrity(p palette) string {
 	if len(m.lifecycle.Actions) > 0 {
 		compatibility = fmt.Sprintf("%d UPGRADE ACTION(S)", len(m.lifecycle.Actions))
 	}
-	return fmt.Sprintf("%s Chain verified: %t\n  Signed events: %d\n  Head: %s\n  Consistency: %s\n  Connectivity: %s\n  Server sequence: %d\n  Cache sequence: %d\n\nProject lifecycle\n  Compatibility: %s\n  Installed build: %s\n  Project build: %s\n  Interrupted upgrade: %t\n\nRun `agent-comms verify` before incident recovery.",
+	summary := fmt.Sprintf("%s Chain verified: %t\n  Signed events: %d\n  Head: %s\n  Consistency: %s\n  Connectivity: %s\n  Server sequence: %d\n  Cache sequence: %d\n\nProject lifecycle\n  Compatibility: %s\n  Installed build: %s\n  Project build: %s\n  Interrupted upgrade: %t",
 		mark, m.state.Integrity.Verified, m.state.Integrity.EventCount, m.state.Integrity.Head,
 		empty(m.state.Integrity.Consistency, "UNKNOWN"), empty(m.state.Integrity.Connectivity, "UNKNOWN"),
 		m.state.Integrity.ServerSequence, m.state.Integrity.CacheSequence, compatibility,
 		buildinfo.ResolvedBuildID(), empty(m.lifecycle.CurrentBuildID, "unrecorded"), m.lifecycle.Interrupted)
+	return summary + "\n\n" + m.findingsSummary(p) + "\n\nRun `agent-comms verify` before incident recovery."
+}
+
+// findingsSummary renders the same doctor findings `agent-comms doctor`
+// reports (internal/doctor.Findings) so a human never has to leave the TUI
+// to see what's wrong with the project -- this is the one place that data
+// previously had zero TUI presence at all.
+func (m Model) findingsSummary(p palette) string {
+	heading := lipgloss.NewStyle().Foreground(p.text).Bold(true).Render("Doctor findings")
+	if len(m.findings) == 0 {
+		return heading + "\n  " + lipgloss.NewStyle().Foreground(p.cyan).Render("✓ No findings.")
+	}
+	rows := []string{heading}
+	for _, f := range m.findings {
+		color := p.amber
+		if f.Severity == "ERROR" {
+			color = p.red
+		}
+		rows = append(rows, "  "+lipgloss.NewStyle().Foreground(color).Bold(true).Render(f.Severity+" "+f.Code)+"  "+f.Message)
+		if f.Guidance != "" {
+			rows = append(rows, lipgloss.NewStyle().Foreground(p.muted).Render("    "+f.Guidance))
+		}
+	}
+	return strings.Join(rows, "\n")
 }
 func (m Model) chain(p palette) string {
 	after := max(0, m.state.Integrity.EventCount-7)

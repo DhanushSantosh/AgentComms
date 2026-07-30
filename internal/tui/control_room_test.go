@@ -34,6 +34,29 @@ func TestControlRoomRendersWorkforceAndOperationalViews(t *testing.T) {
 	}
 }
 
+// TestAuditHealthSurfacesDoctorFindings confirms Audit & health shows
+// exactly what `agent-comms doctor` would report -- previously this panel
+// only rendered chain integrity and lifecycle, never doctor's findings, so
+// diagnosing a project required leaving the TUI entirely.
+func TestAuditHealthSurfacesDoctorFindings(t *testing.T) {
+	instance := newTestService(t)
+	// "builder" is one of doctor's own TEST_LIKE_RUNTIME triggers
+	// (internal/doctor.Findings), so this is a real, already-present finding
+	// rather than fabricated state.
+	registerAgent(t, instance, "builder", model.RoleAgent, "src")
+	view, err := New(instance, "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	view.openView("Audit & health")
+	rendered := view.View().Content
+	for _, expected := range []string{"Doctor findings", "TEST_LIKE_RUNTIME"} {
+		if !strings.Contains(rendered, expected) {
+			t.Errorf("Audit & health missing %q:\n%s", expected, rendered)
+		}
+	}
+}
+
 func TestArrowNavigationMovesBetweenHubsAndTabs(t *testing.T) {
 	instance := newTestService(t)
 	view, err := New(instance, "owner")

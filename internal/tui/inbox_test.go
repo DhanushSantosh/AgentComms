@@ -85,6 +85,30 @@ func TestAckThenResolveBlocker(t *testing.T) {
 	}
 }
 
+// TestOwnerSeesEveryMessageByRealOwnerID is a regression test for a bug
+// where messageRowSource compared the viewing actor against the literal
+// string "owner" instead of the project's real owner ID. Every other test
+// in this package happens to use "owner" as the owner's actual ID (see
+// testsupport.StartPersonalProject), which is exactly what let the bug
+// hide — this test deliberately uses a different owner ID.
+func TestOwnerSeesEveryMessageByRealOwnerID(t *testing.T) {
+	state := model.State{
+		Messages: map[string]model.Message{
+			"msg-1": {Kind: "ACTION", From: "builder", Subject: "narrow", To: []string{"builder"}},
+		},
+	}
+	source := messageRowSource{owner: "Dhanush"}
+	if ids := source.filteredIDs(state, "Dhanush"); len(ids) != 1 {
+		t.Fatalf("real owner should see every message regardless of To; got %v", ids)
+	}
+	if ids := source.filteredIDs(state, "owner"); len(ids) != 0 {
+		t.Fatalf("an unrelated actor literally named %q should not get blanket visibility; got %v", "owner", ids)
+	}
+	if ids := source.filteredIDs(state, "someone-else"); len(ids) != 0 {
+		t.Fatalf("a non-recipient, non-owner actor should see nothing; got %v", ids)
+	}
+}
+
 func TestContractPostRequiresConfirm(t *testing.T) {
 	s := newTestService(t)
 	registerAgent(t, s, "builder", model.RoleAgent, "src")
