@@ -52,6 +52,7 @@ jobs:
           awk -v ver="$version" '
             $0 ~ "^## \\[" ver "\\]" { found=1; next }
             found && /^## \[/ { exit }
+            found && /^### / { exit }
             found && /^\[/ { exit }
             found { print }
           ' CHANGELOG.md > dist/release-notes.md
