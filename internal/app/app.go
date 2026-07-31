@@ -61,11 +61,17 @@ const (
 	// goroutine (its TestMain replaces the real subprocess spawn with one,
 	// see app_test.go) intermittently didn't get scheduled in time to bind
 	// and answer even one health check within 10s, on a clean re-run of
-	// the exact same commit with no code changes. 20s gives real headroom
-	// without meaningfully changing production behavior -- a real
-	// subprocess normally becomes healthy in milliseconds, so this ceiling
-	// is rarely reached at all outside exactly this kind of contention.
-	daemonReadyTimeout         = 20 * time.Second
+	// the exact same commit with no code changes. Widened again from 20s
+	// to 40s: even at 20s this test kept hitting the ceiling specifically
+	// on GitHub's macOS-latest runners (confirmed on three separate,
+	// unrelated PRs in one session, always resolved by a bare rerun of the
+	// identical commit) -- macOS Actions runners are known to be
+	// meaningfully slower/more contended than the Linux/Windows ones for
+	// CPU-bound work like this. 40s gives real headroom there too without
+	// meaningfully changing production behavior -- a real subprocess
+	// normally becomes healthy in milliseconds, so this ceiling is rarely
+	// reached at all outside exactly this kind of CI contention.
+	daemonReadyTimeout         = 40 * time.Second
 	daemonReadyPollInterval    = 100 * time.Millisecond
 	daemonHealthRequestTimeout = 300 * time.Millisecond
 	// daemonShutdownWaitAttempts/daemonShutdownWaitSleep bound how long
