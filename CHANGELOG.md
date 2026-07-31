@@ -7,24 +7,32 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 
 ## [0.2.0] - 2026-07-31 — “Chain of Custody”
 
+*A managed-lifecycle and security-hardening release: safer credential
+handling, a distinct human-approval gate on orchestrator grants, and a
+truthful interactive-delivery model.*
+
+**Added**
 - One-command project upgrades reconcile schema, binary, and daemon state
   automatically, with automatic backups and full post-upgrade verification
   (RFC 0011).
-- Orchestrator grants now require a separate, explicitly-approved human
-  decision — closes a self-escalation gap an unregistered agent could
-  previously walk through unassisted.
-- A new passphrase-protected elevated signing key gates the most sensitive
-  actions, backed by a real interactive-terminal check that can't be
-  satisfied by an agent's own tool calls.
-- Agent identities can now be deleted and reused safely, and every signed
-  event carries the exact key fingerprint that produced it (RFC 0012).
-- Interactive delivery is now a real, auditable state machine — request,
-  resolve, attempt, transport, evidence — so a connector can no longer
-  falsely report a message as delivered (RFC 0013).
-- The TUI is a full control center now: write actions on every panel,
-  new Artifacts/Drafts/Environment views, typo-proof picker fields, and a
-  redesigned Runtimes/delivery view.
-- Assorted authorization, reliability, and Postgres bug fixes.
+- **Breaking:** orchestrator grants now require a separate, explicitly
+  human-approved decision — closes a self-escalation gap.
+- A passphrase-protected elevated signing key now gates the most sensitive
+  actions.
+- Agent identities can be deleted and safely reused; every signed event
+  carries its signer's key fingerprint (RFC 0012).
+- Interactive delivery is now a real, auditable state machine — no connector
+  can falsely report a message as delivered (RFC 0013).
+- The TUI is a full control center: write actions everywhere, new panels,
+  typo-proof pickers, redesigned views.
+
+**Fixed**
+- A duplicate `agent register` call could silently destroy an existing
+  agent's credential with no recovery path — now rejected before any
+  credential is generated.
+- MCP's `agent_register` tool could register or squat an unrelated agent
+  identity — now enforces its documented self-registration invariant.
+- Assorted authorization and Postgres reliability fixes.
 
 Full technical detail is below and in [CHANGELOG.md](https://github.com/DhanushSantosh/AgentComms/blob/main/CHANGELOG.md).
 

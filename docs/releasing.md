@@ -27,17 +27,39 @@ TUI, agent controls, command palette, and resilient local control plane.
 
 1. Open a release pull request from `dev` to `main`.
 2. Confirm full platform, race, vulnerability, contamination, installer, and end-to-end checks.
-3. Curate `CHANGELOG.md`, release notes, compatibility statements,
+3. Curate `CHANGELOG.md`'s new version entry in two parts, in this order:
+   - A short highlights block, directly under the version heading, before
+     the first `###` category: an italicized one- or two-sentence summary,
+     then the changes grouped under the same category labels used below
+     (`**Added**`, `**Fixed**`, `**Security**`, ...) as terse, one-line
+     bullets — prefix any breaking or upgrade-relevant item with
+     `**Breaking:**` and list it first in its group. This is what
+     `release.yml` extracts (everything up to the first `###`) as the
+     GitHub Release title/body, so keep it genuinely short: a handful of
+     bullets per group, not a restatement of the detail below.
+   - The full technical detail, exactly as before, under `###` category
+     headings (Added/Changed/Fixed/Security/...) per Keep a Changelog.
+   A first release (no prior tag) may use a single prose paragraph instead
+   of grouped bullets for the highlights block — there's nothing yet to
+   contrast against. Also record release notes, compatibility statements,
    and known limitations — including any new optional runtime dependency a
    worker adapter now requires (for example, Node.js/npm for the `claude-acp`
    and `codex-acp` ACP adapters, or the `opencode` binary for `opencode-acp`).
 4. Obtain core-maintainer review and merge using a merge commit.
 5. A release/security maintainer chooses a unique change-reflective episode
    nickname, records it in the changelog, and creates the protected annotated
-   SemVer tag on the resulting `main` commit.
+   SemVer tag on the resulting `main` commit — the tag's own annotation
+   message (`v<version> — "<Episode Title>"`) becomes the GitHub Release
+   title via `release.yml`, so it must exist (`git tag -a`, not a
+   lightweight tag).
 6. Approve the protected GitHub `release` environment.
 7. Automation builds and publishes binaries, checksums, SBOMs, provenance, and keyless Cosign bundles.
 8. Verify a clean install and signature from the published assets.
+9. Merge `main`'s new tip back into `dev` (a fast-forward or simple merge
+   commit, not a rebase). Skipping this leaves `dev` missing the commit
+   GitHub created when merging the release PR, which makes the *next*
+   release PR show as behind its base and can fail its own DCO signoff
+   check once that unsigned merge commit falls inside its diff range.
 
 The tag is the version source of truth. Never rebuild, replace, or silently edit assets for an existing version; publish a new version instead. Humans approve releases but do not upload local binaries.
 
