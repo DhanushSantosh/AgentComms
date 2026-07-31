@@ -16,7 +16,7 @@
 
 <br>
 
-Run more than one coding agent on the same project and you already know the failure mode: two of them touch the same file, one grants itself a permission nobody signed off on, and afterward there's no real account of what happened or why. Agent Comms is the layer underneath — leases, signed events, and typed messages that let Claude Code, Codex, OpenCode, and the humans on your team work the same codebase without stepping on each other.
+Run more than one coding agent on the same project and you already know the failure mode: two of them touch the same file, one grants itself a permission nobody signed off on, and afterward there's no real account of what happened or why. Agent Comms is the layer underneath — leases, signed events, and typed messages that let every agent and every human on your team work the same codebase without stepping on each other. Any agent that can run a shell command or speak MCP joins at the protocol level; Claude Code, Codex, and OpenCode additionally ship a fully autonomous integration out of the box — spawned, prompted, and reported on for you, no wiring required.
 
 > [!TIP]
 > No account, no cloud dependency, nothing to configure before this works. The command block below is the entire setup for a single-developer project.
@@ -64,7 +64,7 @@ Waking an agent isn't a fire-and-forget message drop. For a live interactive ses
 
 |  | Agent Comms | Claude Agent Teams | AutoGen / CrewAI / LangGraph | Jira + Rovo / Monday.com |
 |---|---|---|---|---|
-| Works across agent vendors | Claude, Codex, OpenCode | Claude Code only | Depends on your own app | Any, via integrations |
+| Works across agent vendors | Any CLI or MCP agent — Claude, Codex, OpenCode ship fully autonomous | Claude Code only | Depends on your own app | Any, via integrations |
 | Signed, tamper-evident history | Yes | Not documented | Not documented | Enterprise logs, not agent-signed |
 | Approval gates enforced by the system | Yes | Not documented | Bolt-on, custom code | Human task approvals, not agent-action gates |
 | Verified live delivery | Cryptographically confirmed | Internal mailbox | In-process message passing | N/A |
