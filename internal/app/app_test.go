@@ -198,6 +198,14 @@ func TestEnsureDaemonReplacesIncompatibleDaemon(t *testing.T) {
 		t.Fatal(err)
 	}
 	var staleHealth daemonclient.Health
+	// 200 attempts, not the original 50: this fixture's stale daemon is a
+	// goroutine started moments earlier, and this loop's per-attempt cost
+	// is small (a failed dial returns near-instantly, it doesn't wait out
+	// the 300ms context timeout), so 50 attempts was really only ~1-2s of
+	// real budget -- confirmed too tight on a real Windows CI runner
+	// (named-pipe dial, not a Unix socket) on a clean re-run of the exact
+	// same commit, distinct from the SQLITE_BUSY race daemonShutdownWaitAttempts
+	// fixes elsewhere in this file.
 	for attempt := 0; ; attempt++ {
 		ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 		staleHealth, err = client.Health(ctx)
@@ -205,7 +213,7 @@ func TestEnsureDaemonReplacesIncompatibleDaemon(t *testing.T) {
 		if err == nil {
 			break
 		}
-		if attempt >= 50 {
+		if attempt >= 200 {
 			t.Fatalf("fixture stale daemon never became healthy: %v", err)
 		}
 		time.Sleep(20 * time.Millisecond)

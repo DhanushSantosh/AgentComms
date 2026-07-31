@@ -73,7 +73,9 @@ func StartPersonalProject(t testing.TB) (*service.Service, string) {
 		case <-daemonStopped:
 		case <-time.After(personalDaemonStopTimeout):
 			t.Errorf("personal daemon did not stop before test cleanup")
+			return
 		}
+		waitForFileHandleRelease(runtimeinit.ProjectionPath(root))
 	})
 	client, err := daemonclient.New(config.DaemonEndpoint, time.Second)
 	if err != nil {
@@ -88,4 +90,40 @@ func StartPersonalProject(t testing.TB) (*service.Service, string) {
 	}
 	t.Fatal("personal daemon did not become ready")
 	return nil, ""
+}
+
+// waitForFileHandleRelease gives Windows a brief window to actually release
+// the SQLite cache file's handles after Cache.Close() returns. db.Close()
+// is synchronous, but the cache runs in WAL mode (PRAGMA journal_mode=WAL,
+// internal/localcache/cache.go), which keeps "-wal"/"-shm" sidecar files
+// alongside the main db file -- on Windows the OS can lag a moment behind
+// the driver-level close before those handles are actually free, which
+// intermittently failed t.TempDir()'s own RemoveAll cleanup (registered
+// before this one, so it runs after) with "The process cannot access the
+// file because it is being used by another process" on
+// personal-projection.db (confirmed live in CI:
+// TestGrantingOrchestratorRoleRequiresHumanPrincipal, windows-latest). This
+// is a no-op on POSIX, where the handle is already gone by the time
+// Close() returns.
+func waitForFileHandleRelease(path string) {
+	candidates := []string{path, path + "-wal", path + "-shm"}
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		released := true
+		for _, p := range candidates {
+			f, err := os.OpenFile(p, os.O_RDWR, 0)
+			if err != nil {
+				if os.IsNotExist(err) {
+					continue
+				}
+				released = false
+				break
+			}
+			f.Close()
+		}
+		if released {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
