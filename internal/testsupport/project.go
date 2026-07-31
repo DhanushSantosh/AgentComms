@@ -18,6 +18,20 @@ import (
 const (
 	personalDaemonReadyTimeout = 5 * time.Second
 	personalDaemonPollInterval = 10 * time.Millisecond
+	// personalDaemonStopTimeout bounds how long test cleanup waits for the
+	// daemon goroutine to exit after cancel() is called. This must
+	// comfortably exceed the graceful-shutdown allowance daemon.Run itself
+	// grants server.Shutdown (internal/daemon/run.go's
+	// daemonShutdownTimeout, 10s) -- a daemon legitimately using its full
+	// shutdown budget hasn't closed daemonStopped yet at 5s, which failed
+	// this cleanup intermittently under real scheduling jitter (confirmed
+	// live in CI: TestInvocationClaimIsExclusive failing with "personal
+	// daemon did not stop before test cleanup" on a clean re-run of the
+	// exact same commit). Separate from personalDaemonReadyTimeout (the
+	// startup wait) since a fresh daemon binding a socket and a daemon
+	// gracefully draining an in-flight request are different operations
+	// with different natural timeouts.
+	personalDaemonStopTimeout = 15 * time.Second
 )
 
 func StartPersonalProject(t testing.TB) (*service.Service, string) {
@@ -57,7 +71,7 @@ func StartPersonalProject(t testing.TB) (*service.Service, string) {
 		cancel()
 		select {
 		case <-daemonStopped:
-		case <-time.After(personalDaemonReadyTimeout):
+		case <-time.After(personalDaemonStopTimeout):
 			t.Errorf("personal daemon did not stop before test cleanup")
 		}
 	})

@@ -23,7 +23,6 @@ const schema = `
 PRAGMA journal_mode=WAL;
 PRAGMA synchronous=NORMAL;
 PRAGMA foreign_keys=ON;
-PRAGMA busy_timeout=5000;
 
 CREATE TABLE IF NOT EXISTS projects (
     project_id TEXT PRIMARY KEY,
@@ -75,6 +74,21 @@ func Open(path, serverPublicKey string) (*Cache, error) {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
+	// busy_timeout must be set before any other query against this file,
+	// not as part of the schema DDL below -- another process (e.g. a
+	// daemon this one is replacing) can still legitimately hold the
+	// SQLite lock for a moment after it stops answering health checks, and
+	// without this, the very first query (the schema-version read right
+	// below) gets SQLITE_BUSY immediately with no retry at all, since
+	// SQLite's default busy_timeout is 0. Confirmed live: this raced
+	// ensureDaemon's daemon-replacement path and failed
+	// TestEnsureDaemonReplacesIncompatibleDaemon intermittently under real
+	// scheduling jitter, with the new daemon's Cache.Open failing outright
+	// rather than waiting the moment it needed to.
+	if _, err = db.Exec(`PRAGMA busy_timeout=5000`); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("set local cache busy timeout: %w", err)
+	}
 	var currentVersion int
 	if err = db.QueryRow(`PRAGMA user_version`).Scan(&currentVersion); err != nil {
 		_ = db.Close()

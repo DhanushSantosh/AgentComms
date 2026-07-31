@@ -53,9 +53,37 @@ const APIVersion = "agent-comms/v1"
 
 const (
 	interactiveHeartbeatInterval = 15 * time.Second
-	daemonReadyTimeout           = 10 * time.Second
-	daemonReadyPollInterval      = 100 * time.Millisecond
-	daemonHealthRequestTimeout   = 300 * time.Millisecond
+	// daemonReadyTimeout bounds how long ensureDaemon waits for a newly
+	// spawned daemon to answer a health check before giving up. Widened
+	// from the original 10s: under `-race` (which adds real per-goroutine
+	// scheduling overhead) combined with genuine CI/system contention,
+	// TestEnsureDaemonReplacesIncompatibleDaemon's in-process daemon
+	// goroutine (its TestMain replaces the real subprocess spawn with one,
+	// see app_test.go) intermittently didn't get scheduled in time to bind
+	// and answer even one health check within 10s, on a clean re-run of
+	// the exact same commit with no code changes. 20s gives real headroom
+	// without meaningfully changing production behavior -- a real
+	// subprocess normally becomes healthy in milliseconds, so this ceiling
+	// is rarely reached at all outside exactly this kind of contention.
+	daemonReadyTimeout         = 20 * time.Second
+	daemonReadyPollInterval    = 100 * time.Millisecond
+	daemonHealthRequestTimeout = 300 * time.Millisecond
+	// daemonShutdownWaitAttempts/daemonShutdownWaitSleep bound how long
+	// ensureDaemon waits for an incompatible daemon to actually stop
+	// responding before spawning its replacement. This must comfortably
+	// exceed the graceful-shutdown allowance daemon.Run itself grants
+	// (internal/daemon/run.go's daemonShutdownTimeout, 10s) -- otherwise a
+	// daemon that legitimately uses its full shutdown budget (e.g.
+	// draining an in-flight request) hasn't released its socket yet when
+	// the replacement tries to bind. That bind then fails silently
+	// (ListenLocal sees a still-live socket and returns os.ErrExist), and
+	// ensureDaemon burns its entire daemonReadyTimeout waiting for a
+	// daemon that never actually started. The previous ~3s budget
+	// (20 attempts * 150ms) intermittently lost this race under real
+	// scheduling jitter. 100 attempts * (health-check timeout + sleep) =
+	// 15s comfortably exceeds the 10s the old daemon is allowed to take.
+	daemonShutdownWaitAttempts = 100
+	daemonShutdownWaitSleep    = 50 * time.Millisecond
 )
 
 type Envelope struct {
@@ -2831,14 +2859,14 @@ func ensureDaemon(projectRoot string, cfg store.Config) error {
 		if shutdownErr != nil {
 			return fmt.Errorf("replace incompatible daemon for %s project %s: %w", health.RuntimeMode, health.ProjectID, shutdownErr)
 		}
-		for attempt := 0; attempt < 20; attempt++ {
+		for attempt := 0; attempt < daemonShutdownWaitAttempts; attempt++ {
 			waitCtx, waitCancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 			_, waitErr := client.Health(waitCtx)
 			waitCancel()
 			if waitErr != nil {
 				break
 			}
-			time.Sleep(50 * time.Millisecond)
+			time.Sleep(daemonShutdownWaitSleep)
 		}
 	}
 	executable, executableErr := os.Executable()
