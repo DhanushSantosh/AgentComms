@@ -14,6 +14,9 @@
 
 Run more than one coding agent on the same project and you already know the failure mode: two of them touch the same file, one grants itself a permission nobody signed off on, and afterward there's no real account of what happened or why. Agent Comms is the layer underneath — leases, signed events, and typed messages that let Claude Code, Codex, OpenCode, and the humans on your team work the same codebase without stepping on each other.
 
+> [!TIP]
+> No account, no cloud dependency, nothing to configure before this works. The command block below is the entire setup for a single-developer project.
+
 ```sh
 curl -fsSL https://raw.githubusercontent.com/DhanushSantosh/AgentComms/main/install.sh | sh
 
@@ -65,7 +68,8 @@ Waking an agent isn't a fire-and-forget message drop. For a live interactive ses
 
 Academic work on the wire protocols agents actually speak — MCP, A2A, ACP — has found they're explicitly not designed to express authorization, audit, or approval workflows. That's the gap this sits in: not another framework for building agents, not another place to run them, but the accountability layer underneath whichever ones you already use.
 
-This is a read of publicly documented behavior as of mid-2026, not hands-on testing of every product listed.
+> [!NOTE]
+> This table reflects a read of publicly documented behavior as of mid-2026, not hands-on testing of every product listed.
 
 </details>
 
@@ -108,5 +112,8 @@ go vet ./...
 <br>
 
 <div align="center">
-<sub>Worker runtimes speak the open <a href="https://agentclientprotocol.com">Agent Client Protocol</a>, originally published by <a href="https://zed.dev">Zed Industries</a> — see <a href="CREDITS.md">CREDITS.md</a>.<br>Licensed under <a href="LICENSE">Apache-2.0</a>.</sub>
+
+Worker runtimes speak the open [Agent Client Protocol](https://agentclientprotocol.com), originally published by [Zed Industries](https://zed.dev) — see [CREDITS.md](CREDITS.md).
+
+Licensed under [Apache-2.0](LICENSE).
 </div>
