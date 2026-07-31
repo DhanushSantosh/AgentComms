@@ -1,90 +1,99 @@
+<div align="center">
+
 # Agent Comms
 
-[![Release](https://img.shields.io/github/v/release/DhanushSantosh/AgentComms)](https://github.com/DhanushSantosh/AgentComms/releases)
-[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
+**A shared source of truth for everyone working on your code — human or agent.**
 
-**Let your AI agents work as a real team — not a pile of scripts hoping not to collide.**
+[![Release](https://img.shields.io/github/v/release/DhanushSantosh/AgentComms?label=release&color=0969da)](https://github.com/DhanushSantosh/AgentComms/releases)
+[![License](https://img.shields.io/badge/license-Apache--2.0-0969da)](LICENSE)
+[![Go](https://img.shields.io/badge/go-1.26-0969da)](go.mod)
 
-The moment you run more than one coding agent on the same project — Claude Code and Codex, two Claude sessions, an agent and you — you hit the same wall: nobody knows what anyone else is doing. Files get silently overwritten. An agent quietly grants itself more permission than it should have. When something breaks, there's no real record of who did what, or why.
+</div>
 
-Agent Comms is the coordination and governance layer that fixes this. It gives every human and every agent in your project a signed identity, a shared task list, a real conversation channel, and a cryptographically verifiable record of every action — so you can actually trust a team of agents with real work, not just watch them nervously.
+<br>
 
-## Why it's different
-
-Most tools solve half of this problem. Agent Comms is built around three things nothing else in the space combines:
-
-- **Cross-vendor, not walled-in.** Claude Code, Codex, and OpenCode talk to each other and to you as equal, signed participants. Compare that to Claude Code's own Agent Teams, where every teammate has to be another Claude Code session — you can't bring in a different agent, and its internal mailbox isn't documented as producing a cryptographically signed record the way Agent Comms' events are.
-- **Governance the underlying protocols don't provide.** Academic research on MCP, A2A, and ACP — the wire protocols agents actually speak — has found they're explicitly *not* designed to express authorization, audit, or approval workflows. Agent Comms sits on top of that gap: every mutation is signed, and destructive, irreversible, or credential-touching actions require an explicit human approval before they happen — enforced by the system, not by hoping the agent's instructions were followed.
-- **Delivery you can actually trust.** When Agent Comms wakes up an agent, it doesn't just drop a message in a queue and hope. For a live interactive session, it types the message directly into that session and cryptographically confirms it was received before doing anything else — a real proof-of-receipt, not fire-and-forget.
-
-## What you get
-
-- **No more silent collisions** — work leases mean two agents (or an agent and you) can never touch the same code path without knowing about it first.
-- **A trail you can actually audit** — every task, message, and decision is a signed event with the exact key that produced it. When something goes wrong, you know exactly what happened.
-- **Nothing risky happens unsupervised** — deleting an agent, escalating to orchestrator, touching credentials or production data: all of it requires a human, by default, not by convention.
-- **Real conversations, not just task queues** — typed messages (FYI, ACTION, CONTRACT, BLOCKER, DECISION) carry real per-recipient obligations, and a full terminal control room to see it all happen live.
-- **Zero setup to start, room to grow** — one command gets a solo project running locally with no server. Add a shared PostgreSQL authority only when you actually have a team.
-- **No lock-in, no telemetry** — works with the agent tools you already run; nothing phones home.
-
-## Install
+Run more than one coding agent on the same project and you already know the failure mode: two of them touch the same file, one grants itself a permission nobody signed off on, and afterward there's no real account of what happened or why. Agent Comms is the layer underneath — leases, signed events, and typed messages that let Claude Code, Codex, OpenCode, and the humans on your team work the same codebase without stepping on each other.
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/DhanushSantosh/AgentComms/main/install.sh | sh   # Linux / macOS
+curl -fsSL https://raw.githubusercontent.com/DhanushSantosh/AgentComms/main/install.sh | sh
+
+agent-comms init
+agent-comms tui
 ```
 
-```powershell
-irm https://raw.githubusercontent.com/DhanushSantosh/AgentComms/main/install.ps1 | iex        # Windows
-```
+That's a working project. No server, no config file, no account — a per-project daemon and a local SQLite database start on the first command.
 
-Releases are signed and verified with SHA-256 and Sigstore. See [release verification](docs/release-verification.md) for how to check that yourself, and [source-build instructions](docs/development-workflow.md) if you'd rather build from source.
+<br>
 
-## Try it in two minutes
+---
 
-```sh
-agent-comms init      # no target Git repo needed — sets up a local project right where you are
-agent-comms tui        # open the control room
-```
+<br>
 
-From there, `agent-comms agent register` brings an agent into the project, and `agent-comms task create` / `message post` get real work moving between humans and agents. The full walkthrough — including wiring up an actual Claude Code, Codex, or OpenCode agent as a live participant — is in [getting started](docs/agent-onboarding.md).
+### Every action is a signed event, not a log line
 
-## How it compares
+Every task claim, message, and approval is cryptographically signed by the actor that produced it — human or agent — and chained into an append-only history. Not a log that can be edited after the fact: a record you can hand to someone else and they can verify it themselves.
+
+### Work leases, not hope
+
+An agent claiming `src/api` locks it for the duration of the work, with a real progress-bearing renewal required to keep it — a heartbeat alone doesn't count. Two agents can't silently overwrite the same code path; the second one finds out before it happens, not after.
+
+### The dangerous stuff needs a human
+
+Deleting an identity, granting orchestrator authority, touching credentials or production data — each of these requires an explicit human approval, gated behind a second passphrase-protected signing key that no agent process can reach on its own. This is enforced at the protocol level, not left to a system prompt.
+
+### Delivery you can prove
+
+Waking an agent isn't a fire-and-forget message drop. For a live interactive session, Agent Comms types the request directly into that session and confirms the exact text was echoed back before it ever sends Enter — a real, evidenced receipt, not an assumption.
+
+<br>
+
+---
+
+<br>
+
+<details>
+<summary><b>How this compares to what you're probably already using</b></summary>
+<br>
 
 |  | Agent Comms | Claude Agent Teams | AutoGen / CrewAI / LangGraph | Jira + Rovo / Monday.com |
 |---|---|---|---|---|
-| Works across different agent vendors | Claude, Codex, OpenCode | Claude Code only | Depends on your own app | Any, via integrations |
-| Signed, tamper-evident audit trail | Yes | Not documented | Not documented | Enterprise logs, not agent-signed |
-| Human approval enforced by the system | Yes, built in | Not documented | Bolt-on, custom code | Human task approvals, not agent-action gates |
-| Verified live delivery into a running session | Yes, cryptographically confirmed | Internal mailbox | In-process message passing | N/A |
+| Works across agent vendors | Claude, Codex, OpenCode | Claude Code only | Depends on your own app | Any, via integrations |
+| Signed, tamper-evident history | Yes | Not documented | Not documented | Enterprise logs, not agent-signed |
+| Approval gates enforced by the system | Yes | Not documented | Bolt-on, custom code | Human task approvals, not agent-action gates |
+| Verified live delivery | Cryptographically confirmed | Internal mailbox | In-process message passing | N/A |
 | Setup | One command, local, free | Requires Claude Code | Self-hosted framework | Paid cloud SaaS |
 
-*(This is our honest read of publicly documented behavior as of mid-2026, not hands-on testing of every competitor — see [CREDITS.md](CREDITS.md) for the protocols and prior work we build on.)*
+Academic work on the wire protocols agents actually speak — MCP, A2A, ACP — has found they're explicitly not designed to express authorization, audit, or approval workflows. That's the gap this sits in: not another framework for building agents, not another place to run them, but the accountability layer underneath whichever ones you already use.
 
-## Runtime modes
+This is a read of publicly documented behavior as of mid-2026, not hands-on testing of every product listed.
 
-**Personal mode** is the default: one user, one machine, zero setup. A per-project daemon owns an authoritative SQLite database and starts automatically on the first command — no PostgreSQL, no Docker, nothing to configure.
+</details>
 
-**Team mode** adds a shared PostgreSQL authority for multi-host coordination: mutations are serialized and receipt-signed centrally, while each user still keeps a fast local cache. See the [team service deployment guide](docs/service-deployment.md).
+<br>
 
-## Governed by default
+---
 
-- Leases last four hours and require real, progress-bearing renewal — a heartbeat alone never keeps ownership.
+<br>
+
+**Personal mode**, the default, is one user and one machine: zero setup, no PostgreSQL, no Docker. **Team mode** adds a shared PostgreSQL authority when you actually need multi-host coordination — see the [service deployment guide](docs/service-deployment.md).
+
+<details>
+<summary><b>Everything else governed by default</b></summary>
+<br>
+
+- Leases last four hours and require real, progress-bearing renewal.
 - Shared writes, takeovers, and scope changes require orchestrator-level governance; granting orchestrator itself requires a separate, explicitly human-approved decision.
-- Destructive, irreversible, external, production-data, and credential actions require a human approver — gated behind a second, passphrase-protected signing key for exactly those transitions.
 - Completed work stays active for seven days, then archives without deleting history.
 - No telemetry, ever. Update checks are explicit and opt-in.
+- `agent-comms tui` for the full terminal control room, `agent-comms mcp` for a stdio MCP server, `--json` on any command for scriptable automation, `agent-comms doctor` for a health check that names exactly what's wrong.
 
-## Interfaces
+</details>
 
-- `agent-comms tui` — the full terminal control room.
-- `agent-comms mcp` — a stdio MCP server for editors/agents that speak MCP.
-- `--json` on any command — a versioned, scriptable envelope for automation.
-- `agent-comms doctor` — a health check that explains exactly what's wrong and how to fix it.
+<br>
 
-## Learn more
+Releases are signed and verified with SHA-256 and Sigstore — see [release verification](docs/release-verification.md). For the full walkthrough, including wiring up a real Claude Code, Codex, or OpenCode agent as a live participant, start at [getting started](docs/agent-onboarding.md).
 
 [Getting started](docs/agent-onboarding.md) · [Agent invocation protocol](docs/agent-invocations.md) · [Architecture](docs/architecture.md) · [Governance](docs/governance.md) · [Threat model](docs/threat-model.md) · [Development workflow](docs/development-workflow.md) · [Contributing](CONTRIBUTING.md) · [Release process](docs/releasing.md) · [Changelog](CHANGELOG.md)
-
-## Development
 
 ```sh
 go test ./...
@@ -92,6 +101,12 @@ go test -race ./...
 go vet ./...
 ```
 
-Worker runtimes speak the open [Agent Client Protocol](https://agentclientprotocol.com), originally published by [Zed Industries](https://zed.dev) — see [CREDITS.md](CREDITS.md).
+<br>
 
-Licensed under [Apache-2.0](LICENSE).
+---
+
+<br>
+
+<div align="center">
+<sub>Worker runtimes speak the open <a href="https://agentclientprotocol.com">Agent Client Protocol</a>, originally published by <a href="https://zed.dev">Zed Industries</a> — see <a href="CREDITS.md">CREDITS.md</a>.<br>Licensed under <a href="LICENSE">Apache-2.0</a>.</sub>
+</div>
