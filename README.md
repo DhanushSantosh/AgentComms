@@ -1,140 +1,88 @@
 # Agent Comms
 
-Agent Comms is a terminal-native coordination system for humans and automated agents working in one shared repository. It provides protected work leases, typed durable messages, governed approvals, actor-bound signatures, an immutable audit trail, a deterministic JSON CLI, and a rich terminal control room.
+[![Release](https://img.shields.io/github/v/release/DhanushSantosh/AgentComms)](https://github.com/DhanushSantosh/AgentComms/releases)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
-> v0.1 is a preview. Projects use the current personal or service authority
-> directly; obsolete filesystem runtimes are not supported.
+**Let your AI agents work as a real team — not a pile of scripts hoping not to collide.**
+
+The moment you run more than one coding agent on the same project — Claude Code and Codex, two Claude sessions, an agent and you — you hit the same wall: nobody knows what anyone else is doing. Files get silently overwritten. An agent quietly grants itself more permission than it should have. When something breaks, there's no real record of who did what, or why.
+
+Agent Comms is the coordination and governance layer that fixes this. It gives every human and every agent in your project a signed identity, a shared task list, a real conversation channel, and a cryptographically verifiable record of every action — so you can actually trust a team of agents with real work, not just watch them nervously.
+
+## Why it's different
+
+Most tools solve half of this problem. Agent Comms is built around three things nothing else in the space combines:
+
+- **Cross-vendor, not walled-in.** Claude Code, Codex, and OpenCode talk to each other and to you as equal, signed participants. Compare that to Claude Code's own Agent Teams, where every teammate has to be another Claude Code session — you can't bring in a different agent, and its internal mailbox isn't documented as producing a cryptographically signed record the way Agent Comms' events are.
+- **Governance the underlying protocols don't provide.** Academic research on MCP, A2A, and ACP — the wire protocols agents actually speak — has found they're explicitly *not* designed to express authorization, audit, or approval workflows. Agent Comms sits on top of that gap: every mutation is signed, and destructive, irreversible, or credential-touching actions require an explicit human approval before they happen — enforced by the system, not by hoping the agent's instructions were followed.
+- **Delivery you can actually trust.** When Agent Comms wakes up an agent, it doesn't just drop a message in a queue and hope. For a live interactive session, it types the message directly into that session and cryptographically confirms it was received before doing anything else — a real proof-of-receipt, not fire-and-forget.
+
+## What you get
+
+- **No more silent collisions** — work leases mean two agents (or an agent and you) can never touch the same code path without knowing about it first.
+- **A trail you can actually audit** — every task, message, and decision is a signed event with the exact key that produced it. When something goes wrong, you know exactly what happened.
+- **Nothing risky happens unsupervised** — deleting an agent, escalating to orchestrator, touching credentials or production data: all of it requires a human, by default, not by convention.
+- **Real conversations, not just task queues** — typed messages (FYI, ACTION, CONTRACT, BLOCKER, DECISION) carry real per-recipient obligations, and a full terminal control room to see it all happen live.
+- **Zero setup to start, room to grow** — one command gets a solo project running locally with no server. Add a shared PostgreSQL authority only when you actually have a team.
+- **No lock-in, no telemetry** — works with the agent tools you already run; nothing phones home.
 
 ## Install
 
-Official releases are verified with SHA-256 and Sigstore. The preview currently requires `cosign`; native Windows Authenticode and macOS notarization are planned after v0.1.
-
-Windows PowerShell:
+```sh
+curl -fsSL https://raw.githubusercontent.com/DhanushSantosh/AgentComms/main/install.sh | sh   # Linux / macOS
+```
 
 ```powershell
-irm https://raw.githubusercontent.com/DhanushSantosh/AgentComms/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/DhanushSantosh/AgentComms/main/install.ps1 | iex        # Windows
 ```
 
-Linux and macOS:
+Releases are signed and verified with SHA-256 and Sigstore. See [release verification](docs/release-verification.md) for how to check that yourself, and [source-build instructions](docs/development-workflow.md) if you'd rather build from source.
+
+## Try it in two minutes
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/DhanushSantosh/AgentComms/main/install.sh | sh
+agent-comms init      # no target Git repo needed — sets up a local project right where you are
+agent-comms tui        # open the control room
 ```
 
-Source build:
+From there, `agent-comms agent register` brings an agent into the project, and `agent-comms task create` / `message post` get real work moving between humans and agents. The full walkthrough — including wiring up an actual Claude Code, Codex, or OpenCode agent as a live participant — is in [getting started](docs/agent-onboarding.md).
 
-```sh
-go install github.com/DhanushSantosh/AgentComms/cmd/agent-comms@latest
-go install github.com/DhanushSantosh/AgentComms/cmd/agent-comms-server@latest
-```
+## How it compares
 
-## Start a project
+|  | Agent Comms | Claude Agent Teams | AutoGen / CrewAI / LangGraph | Jira + Rovo / Monday.com |
+|---|---|---|---|---|
+| Works across different agent vendors | Claude, Codex, OpenCode | Claude Code only | Depends on your own app | Any, via integrations |
+| Signed, tamper-evident audit trail | Yes | Not documented | Not documented | Enterprise logs, not agent-signed |
+| Human approval enforced by the system | Yes, built in | Not documented | Bolt-on, custom code | Human task approvals, not agent-action gates |
+| Verified live delivery into a running session | Yes, cryptographically confirmed | Internal mailbox | In-process message passing | N/A |
+| Setup | One command, local, free | Requires Claude Code | Self-hosted framework | Paid cloud SaaS |
 
-Initialise anywhere — no target Git repo needed. New projects use zero-setup
-personal mode: a per-project daemon owns an authoritative SQLite WAL database,
-and starts automatically on the first command. PostgreSQL and Docker are not
-required for agents running on one machine.
-
-```sh
-agent-comms init
-agent-comms tui
-```
-
-If the project already contains a `.agents` file, initialization refuses to
-overwrite it. Remove or rename that file only after verifying it is not an
-active Agent Comms bootstrap.
-
-Interactive setup previews the `.agents` bootstrap and isolated `.agent-comms` runtime before writing them. Automation uses explicit, non-interactive flags:
-
-```sh
-agent-comms init --owner owner --non-interactive --yes --json
-```
-
-The hidden runtime contains local configuration, cache data, artifacts, and
-generated agent instructions. PostgreSQL or SQLite—not Git—is authoritative.
-
-## Daily workflow
-
-```sh
-agent-comms agent register --id reviewer --principal-type AGENT
-agent-comms agent activate --id reviewer --role AGENT --scope src --capability go
-
-agent-comms task create --id review-task-1 --title "Implement API" \
-  --repository local --branch feature/api --resource src/api
-agent-comms task offer --id review-task-1 --to reviewer
-agent-comms task claim --id review-task-1 --actor reviewer
-agent-comms task start --id review-task-1 --actor reviewer
-agent-comms task renew --id review-task-1 --actor reviewer --progress "Handlers complete"
-
-agent-comms message post --id action-001 --kind ACTION --to reviewer \
-  --subject "Run integration tests" --body "Attach the result as evidence."
-
-agent-comms message resolve --id blocker-001  # auto-closes linked BLOCKED task
-
-agent-comms env set --key CI_BRANCH --value main
-agent-comms env get --key CI_BRANCH
-
-agent-comms control overview
-agent-comms invocation request --to reviewer \
-  --instruction "Review the current change" --scope src \
-  --consumer WORKER_ONLY
-agent-comms invocation next --actor reviewer --runtime reviewer-runtime
-
-agent-comms verify --json
-agent-comms export markdown --output audit.md
-```
-
-Private actor keys are stored in Windows Credential Manager, macOS Keychain, or Linux Secret Service. Headless environments may explicitly configure `AGENT_COMMS_CREDENTIAL_DIR` outside project history or inject `AGENT_COMMS_CREDENTIAL`.
-
-## Interfaces
-
-- `agent-comms tui` opens the Project Control interface.
-- `--json` produces a versioned `agent-comms/v1` envelope and stable error class.
-- `agent-comms mcp` runs a stdio MCP server using the same authorization service.
-- `agent-comms completion <shell>` generates PowerShell, Bash, Zsh, or Fish completion.
-- `agent-comms doctor --explain-config` shows resolved configuration and provenance.
-- `agent-comms env set/get/delete/list` manages a typed per-project environment registry.
-- `agent-comms update check --channel stable|preview` performs an explicit, telemetry-free release check.
-- `agent-comms update apply` atomically installs the verified binary and reconciles every initialized project recorded in the user profile registry through the newly installed build.
-- `agent-comms project upgrade` is the single explicit inspect, backup, migrate, resume, restart, and verify operation; compatible projects reconcile automatically on their next normal command.
-- `agent-comms project upgrade status|plan` are optional read-only diagnostics, and `--all-known` targets distinct project roots recorded in identity profiles without scanning the filesystem.
-
-The user-level reconciliation marker is keyed by binary build and profile-registry hash. An externally installed build therefore upgrades all registered projects once on first use, while ordinary commands avoid repeatedly walking every project. Use `agent-comms update apply --current-project-only` only when deliberately limiting maintenance to the active project.
+*(This is our honest read of publicly documented behavior as of mid-2026, not hands-on testing of every competitor — see [CREDITS.md](CREDITS.md) for the protocols and prior work we build on.)*
 
 ## Runtime modes
 
-Personal mode is the default for one user account and one machine. CLI, TUI,
-MCP, and local agent runtimes share one daemon and authoritative SQLite
-database. Commands remain actor-signed, transactional, idempotent, sequenced,
-receipt-signed, and locally streamable.
+**Personal mode** is the default: one user, one machine, zero setup. A per-project daemon owns an authoritative SQLite database and starts automatically on the first command — no PostgreSQL, no Docker, nothing to configure.
 
-Invocation commitment, wake-up delivery, target claim, and completion are
-reported as separate facts. Requests can isolate consumption to a supervised
-interactive runtime or a worker runtime, while existing projects retain
-`EITHER` routing until their policy is tightened.
+**Team mode** adds a shared PostgreSQL authority for multi-host coordination: mutations are serialized and receipt-signed centrally, while each user still keeps a fast local cache. See the [team service deployment guide](docs/service-deployment.md).
 
-For multi-host team coordination, the PostgreSQL authority serializes mutations
-and returns service-signed receipts while a per-user daemon maintains a
-rebuildable SQLite WAL cache. Governed mutations fail closed while offline;
-explicit document, message, and artifact-metadata drafts remain local until
-submitted.
+## Governed by default
 
-See the [team service deployment guide](docs/service-deployment.md).
-See [getting started](docs/agent-onboarding.md) for the sequential
-human/agent walkthrough, and the [agent invocation protocol](docs/agent-invocations.md)
-for the deep reference on runtime registration, wakeups, delivery
-guarantees, and invocation policy.
+- Leases last four hours and require real, progress-bearing renewal — a heartbeat alone never keeps ownership.
+- Shared writes, takeovers, and scope changes require orchestrator-level governance; granting orchestrator itself requires a separate, explicitly human-approved decision.
+- Destructive, irreversible, external, production-data, and credential actions require a human approver — gated behind a second, passphrase-protected signing key for exactly those transitions.
+- Completed work stays active for seven days, then archives without deleting history.
+- No telemetry, ever. Update checks are explicit and opt-in.
 
-## Governance defaults
+## Interfaces
 
-- Principals are immutable `HUMAN` or `AGENT` identities with Owner, Orchestrator, Agent, or Observer roles.
-- Leases last four hours and require explicit progress-bearing renewal. Heartbeats never renew ownership.
-- FYI, ACTION, CONTRACT, BLOCKER, and DECISION messages have typed per-recipient obligations.
-- Shared writes, takeovers, contracts, and scope changes require orchestrator governance.
-- Destructive, irreversible, external, production-data, credential, and force-push actions require a HUMAN approver.
-- Completed work remains active for seven days and then archives without deleting history.
-- Evidence is SHA-256 addressed and constrained by the configured artifact limit.
-- No telemetry is collected. Update checks are explicit unless the user opts in.
+- `agent-comms tui` — the full terminal control room.
+- `agent-comms mcp` — a stdio MCP server for editors/agents that speak MCP.
+- `--json` on any command — a versioned, scriptable envelope for automation.
+- `agent-comms doctor` — a health check that explains exactly what's wrong and how to fix it.
+
+## Learn more
+
+[Getting started](docs/agent-onboarding.md) · [Agent invocation protocol](docs/agent-invocations.md) · [Architecture](docs/architecture.md) · [Governance](docs/governance.md) · [Threat model](docs/threat-model.md) · [Development workflow](docs/development-workflow.md) · [Contributing](CONTRIBUTING.md) · [Release process](docs/releasing.md) · [Changelog](CHANGELOG.md)
 
 ## Development
 
@@ -143,8 +91,6 @@ go test ./...
 go test -race ./...
 go vet ./...
 ```
-
-See [stabilization priorities](docs/stabilization.md), [development workflow](docs/development-workflow.md), [contributing](CONTRIBUTING.md), [architecture](docs/architecture.md), [governance](docs/governance.md), [threat model](docs/threat-model.md), [release process](docs/releasing.md), and [release verification](docs/release-verification.md).
 
 Worker runtimes speak the open [Agent Client Protocol](https://agentclientprotocol.com), originally published by [Zed Industries](https://zed.dev) — see [CREDITS.md](CREDITS.md).
 
