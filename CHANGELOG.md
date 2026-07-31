@@ -7,6 +7,121 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 
 ### Added
 
+- Managed project lifecycle and one-step upgrades (RFC 0011):
+  `agent-comms project upgrade`, plus automatic reconciliation of every
+  project recorded in the user's profile registry the first time a newly
+  installed binary touches it — each reconciled independently so one
+  broken project can never block the rest. Covers inspecting every
+  component's version, disruptive-vs-automatic migration classification
+  with a post-lock confirmation re-check, an ordered and resumable
+  migration plan, a durable reconciliation journal (resumable after a hard
+  crash), an automatic backup before mutating anything, transactional
+  database migrations, atomic managed-file/manifest publication,
+  disposable projection-cache rebuild, daemon restart, and full
+  post-upgrade verification — storage, managed files, daemon health, and
+  signed history, including confirming imported/attested history survives
+  a cache rebuild, not only freshly signed events. Backed by a four-pass
+  review that found and fixed 21 correctness/safety findings, plus real
+  fault-injection coverage: a genuine `kill -9` mid-upgrade against a live
+  project caught a backup-resume bug the exhaustive unit-test suite itself
+  had missed.
+- Orchestrator grants now require a distinct, separately-approved human
+  decision, closing a gap the RFC 0011 fix pass surfaced live: granting
+  the ORCHESTRATOR role previously required only that the signing
+  credential be cryptographically HUMAN, which an unregistered agent
+  operating over the ambient owner-fallback identity satisfies trivially —
+  letting an autonomous agent self-grant orchestrator with no human ever
+  actually deciding in the moment. `agent.activate` granting ORCHESTRATOR
+  now additionally requires a pre-existing, separately-approved,
+  HUMAN-tier approval record for that exact grant: an agent may apply
+  (`approval request --tier HUMAN --action agent.activate:<id>`), but only
+  a human can approve it, in a distinct later action.
+- A second, passphrase-protected "elevated" signing key
+  (`agent-comms agent elevate-key`), closing a gap the two-step
+  orchestrator-grant approval above still left open: it's purely
+  credential-based, so whoever holds an actor's stored primary key can
+  complete both steps — including a locally-running agent with OS-level
+  access to that credential. Live testing proved this directly: an agent
+  completed the whole flow itself using the owner's stored key,
+  indistinguishably from the owner acting directly. The elevated key
+  (Argon2id + AES-256-GCM, one per HUMAN principal) is required instead of
+  the everyday primary key for exactly those two transitions — granting
+  ORCHESTRATOR and approving a HUMAN-tier approval — enforced identically
+  by both authority backends. Decrypting it demands an interactive
+  terminal passphrase prompt that refuses outright when stdin isn't a real
+  TTY, confirmed live to be a real barrier against an agent's own
+  non-interactive tool-call subprocess, not a theoretical one; the exact
+  attack sequence that worked before now fails cleanly at both steps.
+  Routine signing (tasks, messages, ordinary activations) is unaffected —
+  scoped narrowly, not a blanket passphrase-on-every-write policy.
+  `agent-comms init` now offers to set this up immediately after project
+  creation (interactive mode, defaults to yes, degrades gracefully rather
+  than failing the whole command if no terminal is attached to answer the
+  prompt); `doctor` carries a persistent `NO_ELEVATED_KEY` warning if the
+  offer is declined or can't be answered, so the gap can never stay
+  silently invisible.
+- `agent-comms agent delete` and per-event actor-key fingerprinting
+  (RFC 0012): permanently releases a `REVOKED` principal's ID for reuse by
+  an unrelated future principal — previously the only workaround was a
+  numbered-suffix ID. Requires a HUMAN principal unconditionally (stricter
+  than revoke, which only requires HUMAN for orchestrator/human targets)
+  and the elevated key once one is registered; CLI-only, no MCP tool,
+  matching `agent elevate-key`'s precedent. Every newly committed event now
+  attests the exact verified signing key's fingerprint, so a reused ID's
+  old and new occupants stay cryptographically distinguishable in history
+  forever, not just by ID string; `agent-comms history`/`search` gained
+  `--key-fingerprint` and `--actor` filters to isolate them directly.
+  Adding this field to the event hash risked invalidating every
+  already-committed event's hash — it's `omitempty` on both the event and
+  its canonical hash struct, so every pre-existing event without a
+  fingerprint marshals and verifies exactly as before, independently
+  confirmed against the pre-change code, not only by trusting the new
+  test.
+- Truthful, isolated interactive delivery (RFC 0013): separates four facts
+  that invocation delivery previously blurred together — that a request
+  was durably committed, that a transport actually attempted delivery,
+  that the target acknowledged it, and that the target completed it.
+  Runtimes now declare a `kind` (`WORKER` or `INTERACTIVE`); invocations
+  declare a consumer mode (`INTERACTIVE_ONLY`, `WORKER_ONLY`, or `EITHER`,
+  the race-permitted compatibility default). Delivery is now a real,
+  auditable state machine — request, then resolve one policy-compatible
+  runtime, then reserve a delivery attempt, then execute the transport,
+  then commit real evidence or a failure — instead of a side effect of the
+  request itself; `MANUAL`/`MCP`/`QUEUE` connectors can no longer produce a
+  false delivery-success record. Interactive socket paths moved to an
+  owner-only, UID-scoped directory that deliberately ignores `$TMPDIR`, so
+  a desktop-launched provider and the daemon can never silently disagree
+  about which control socket to use. Each installation now has one
+  random, never-hostname-derived host ID, so PTY delivery is provably
+  local-host-only — a foreign-host interactive runtime stays visible but
+  unreachable rather than silently attempted. `doctor` gained findings for
+  unresolved connector references, malformed interactive runtimes,
+  foreign-host sessions, ambiguous automatic routing, dead sockets, and
+  stale delivery attempts. Storage: event/model schema `2.1.0`, PostgreSQL
+  schema `3`, projection cache `3`, local daemon protocol `4` — upgraded
+  automatically through the managed project-lifecycle upgrade path above.
+- The TUI is closer to a full control center now, not a thin dashboard,
+  across five phases:
+  - **Documents** and **Contracts & decisions** gained real write actions
+    (create/update/supersede) — previously read-only, even though the
+    equivalent CLI commands always existed.
+  - New **Artifacts**, **Drafts**, and **Environment** panels, plus
+    `agent.delete`/`agent.rename` row actions on Agents — CLI surfaces
+    that previously had zero TUI presence at all.
+  - Every enum-shaped form field (Role, Kind, Connector, Priority,
+    Consumer, Tier, Principal type, invocation Mode) is now a
+    left/right-cycling picker instead of free text a typo could silently
+    corrupt.
+  - **Runtimes** redesigned from an 11-column table (unreadable outside a
+    very wide terminal) into a compact table plus a detail pane for the
+    selected row; **Invocations**' delivery evidence redesigned from a raw
+    timestamped log into RFC 0013's actual five-stage delivery pipeline
+    shown as status chips with relative timestamps.
+  - **Audit & health** now surfaces `doctor`'s findings directly
+    (previously it showed only chain integrity and lifecycle status),
+    computed lazily — only when the panel is actually opened — since it
+    dials every online interactive runtime's local PTY socket, and that
+    can take real time against a genuinely busy live session.
 - `agent revoke` / `agent_revoke` (CLI and MCP) / a `revoke` row action in
   the TUI: a terminal, irreversible removal option for agent principals,
   mirroring the existing `runtime.revoke` pattern rather than inventing
@@ -136,6 +251,59 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 
 ### Fixed
 
+- Several authorization gaps in `internal/protocol/transitions.go`, all
+  found the same way the orchestrator-grant gap above was: `agent.suspend`
+  had no protection against targeting the OWNER (a suspended principal
+  fails every subsequent action, including reactivating itself — a full,
+  potentially unrecoverable lockout); `agent.revoke` of an ORCHESTRATOR or
+  HUMAN principal never got the elevated-key requirement extended to it;
+  `agent.rotate-key` targeting a different principal had no consent check
+  at all (a full identity-hijack primitive, removed outright — a key can
+  only ever be rotated for the caller's own actor now);
+  `project.settings.update` could be changed by any orchestrator-role
+  AGENT principal, including disabling the project-wide review requirement
+  (now requires a HUMAN principal); `env.set`/`env.delete` had no role
+  gate whatsoever, not even for an OBSERVER principal (now requires
+  ordinary owner-or-orchestrator elevation).
+- `agent.rename` was completely broken in the Postgres/service authority
+  backend — missing from its `decodePayload` switch since the commit that
+  introduced it, silently masked because personal mode's decoder is
+  generic. A new regression test cross-checks every registered event type
+  against every backend-specific decoder so this class of bug can't ship
+  silently again.
+- `Service.PassphrasePrompt` could hang rather than fail cleanly if
+  invoked from the TUI (which already owns raw stdin for its own
+  key-event loop) or an MCP host that allocates a pty for the subprocess.
+  Both now refuse the prompt outright and unconditionally instead of
+  attempting a terminal read that could race another consumer of the same
+  file descriptor.
+- `runtime interactive-serve` now propagates the actor resolved for the
+  wrapper (`--actor`/profile/host-label) into the wrapped provider's own
+  environment as `AGENT_COMMS_ACTOR`. Previously the wrapped
+  `claude`/`codex`/`opencode` process just inherited whatever the
+  wrapper's shell happened to have set, so every `agent-comms` call it
+  made on its own resolved its actor however ambient fallback landed,
+  independent of which identity was actually resolved for the session.
+- The TUI's Inbox compared the viewing actor against the literal string
+  `"owner"` instead of the project's real owner ID, so the intended "the
+  owner sees every message" behavior silently never fired on any real
+  project — every test happened to use `"owner"` as the literal owner ID,
+  which is exactly what let this hide.
+- `Service.State()` made exactly one remote call to the local daemon with
+  no retry and no recovery, unlike the write path. A single transient
+  "local daemon is unavailable" blip — e.g. its socket file briefly
+  missing — silently killed long-running `runtime interactive-serve`
+  sessions on the very next 15-second heartbeat tick, with nothing ever
+  getting a chance to reconnect. Reads now share the same
+  backoff-and-recover logic writes already had. Confirmed live: deleting a
+  real daemon's socket file mid-session no longer ends the wrapped
+  session.
+- `agent-comms profile list`/`use` now work correctly outside an
+  initialized project, instead of requiring one to already exist.
+- `agent-comms init`'s elevated-key setup now starts the local daemon
+  first if needed — previously it always failed with "daemon unavailable"
+  even when the passphrase was answered correctly, since `init` never goes
+  through the same startup path every other command does.
 - The MCP `initialize` response now reports the same release-injected
   version as `agent-comms version` instead of a stale independent
   `0.2.0-preview.2` literal.

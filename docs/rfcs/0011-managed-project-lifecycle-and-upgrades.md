@@ -1,6 +1,6 @@
 # RFC 0011: Managed project lifecycle and one-step upgrades
 
-- Status: Accepted
+- Status: Implemented
 - Owners: Agent Comms maintainers
 
 ## Problem and desired outcome
