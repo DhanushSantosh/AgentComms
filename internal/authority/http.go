@@ -12,12 +12,12 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/DhanushSantosh/AgentComms/internal/buildinfo"
 	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
 )
 
 const (
 	maxHTTPBodyBytes     = controlplane.MaxCommandBytes + 16*1024
-	maxImportBodyBytes   = 32 * 1024 * 1024
 	defaultAdmission     = 256
 	defaultRatePerSecond = 100
 	defaultRateBurst     = 200
@@ -28,20 +28,18 @@ const (
 )
 
 type HTTPConfig struct {
-	MaxInFlight    int
-	RatePerSecond  float64
-	RateBurst      float64
-	MigrationToken string
-	Logger         *slog.Logger
+	MaxInFlight   int
+	RatePerSecond float64
+	RateBurst     float64
+	Logger        *slog.Logger
 }
 
 type HTTPServer struct {
-	engine         *Engine
-	logger         *slog.Logger
-	admission      chan struct{}
-	rates          *rateRegistry
-	migrationToken string
-	metrics        serverMetrics
+	engine    *Engine
+	logger    *slog.Logger
+	admission chan struct{}
+	rates     *rateRegistry
+	metrics   serverMetrics
 }
 
 type serverMetrics struct {
@@ -73,7 +71,7 @@ func NewHTTPServer(engine *Engine, cfg HTTPConfig) *HTTPServer {
 	}
 	return &HTTPServer{
 		engine: engine, logger: logger, admission: make(chan struct{}, maxInFlight),
-		rates: newRateRegistry(rate, burst), migrationToken: cfg.MigrationToken,
+		rates: newRateRegistry(rate, burst),
 	}
 }
 
@@ -81,6 +79,7 @@ func (s *HTTPServer) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health/live", s.live)
 	mux.HandleFunc("GET /health/ready", s.ready)
+	mux.HandleFunc("GET /v1/capabilities", s.capabilities)
 	mux.HandleFunc("GET /metrics", s.serveMetrics)
 	mux.HandleFunc("POST /v1/projects", s.createProject)
 	mux.HandleFunc("POST /v1/projects/{project}/commands", s.command)
@@ -88,150 +87,7 @@ func (s *HTTPServer) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/projects/{project}/events", s.events)
 	mux.HandleFunc("GET /v1/projects/{project}/stream", s.stream)
 	mux.HandleFunc("POST /v1/projects/{project}/verify", s.verify)
-	mux.HandleFunc("POST /v1/projects/{project}/imports/legacy", s.beginLegacyImport)
-	mux.HandleFunc("POST /v1/projects/{project}/imports/legacy/batches", s.importLegacyBatch)
-	mux.HandleFunc("POST /v1/projects/{project}/imports/legacy/finalize", s.finalizeLegacyImport)
-	mux.HandleFunc("GET /v1/projects/{project}/imports/legacy", s.legacyImportStatus)
-	mux.HandleFunc("POST /v1/projects/{project}/imports/attested", s.beginAttestedImport)
-	mux.HandleFunc("POST /v1/projects/{project}/imports/attested/batches", s.importAttestedBatch)
-	mux.HandleFunc("POST /v1/projects/{project}/imports/attested/finalize", s.finalizeAttestedImport)
 	return s.middleware(mux)
-}
-
-func (s *HTTPServer) beginAttestedImport(w http.ResponseWriter, r *http.Request) {
-	if !s.authorizeMigration(w, r) {
-		return
-	}
-	var request controlplane.AttestedImportStart
-	if !decodeJSON(w, r, &request) {
-		return
-	}
-	if request.ProjectID != r.PathValue("project") {
-		writeError(w, http.StatusBadRequest, &controlplane.Error{Code: controlplane.CodeValidation, Message: "path and import project IDs differ"})
-		return
-	}
-	status, err := s.engine.BeginAttestedImport(r.Context(), request)
-	if err != nil {
-		writeControlError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusCreated, status)
-}
-
-func (s *HTTPServer) importAttestedBatch(w http.ResponseWriter, r *http.Request) {
-	if !s.authorizeMigration(w, r) {
-		return
-	}
-	var batch controlplane.AttestedImportBatch
-	if !decodeJSONLimit(w, r, &batch, maxImportBodyBytes) {
-		return
-	}
-	status, err := s.engine.ImportAttestedBatch(r.Context(), r.PathValue("project"), batch)
-	if err != nil {
-		writeControlError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, status)
-}
-
-func (s *HTTPServer) finalizeAttestedImport(w http.ResponseWriter, r *http.Request) {
-	if !s.authorizeMigration(w, r) {
-		return
-	}
-	var request struct {
-		ProjectionHash string `json:"projection_hash"`
-	}
-	if !decodeJSON(w, r, &request) {
-		return
-	}
-	status, err := s.engine.FinalizeAttestedImport(r.Context(), r.PathValue("project"), request.ProjectionHash)
-	if err != nil {
-		writeControlError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, status)
-}
-
-func (s *HTTPServer) authorizeMigration(w http.ResponseWriter, r *http.Request) bool {
-	if s.migrationToken == "" {
-		writeError(w, http.StatusServiceUnavailable, &controlplane.Error{
-			Code: controlplane.CodeUnavailable, Message: "legacy import endpoint is disabled",
-		})
-		return false
-	}
-	if r.Header.Get("Authorization") != "Bearer "+s.migrationToken {
-		writeError(w, http.StatusForbidden, &controlplane.Error{
-			Code: controlplane.CodeAuthorization, Message: "migration authorization is required",
-		})
-		return false
-	}
-	return true
-}
-
-func (s *HTTPServer) beginLegacyImport(w http.ResponseWriter, r *http.Request) {
-	if !s.authorizeMigration(w, r) {
-		return
-	}
-	var request LegacyImportStart
-	if !decodeJSON(w, r, &request) {
-		return
-	}
-	if request.ProjectID != r.PathValue("project") {
-		writeError(w, http.StatusBadRequest, &controlplane.Error{Code: controlplane.CodeValidation, Message: "path and import project IDs differ"})
-		return
-	}
-	status, err := s.engine.BeginLegacyImport(r.Context(), request)
-	if err != nil {
-		writeControlError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusCreated, status)
-}
-
-func (s *HTTPServer) importLegacyBatch(w http.ResponseWriter, r *http.Request) {
-	if !s.authorizeMigration(w, r) {
-		return
-	}
-	var batch LegacyImportBatch
-	if !decodeJSONLimit(w, r, &batch, maxImportBodyBytes) {
-		return
-	}
-	status, err := s.engine.ImportLegacyBatch(r.Context(), r.PathValue("project"), batch)
-	if err != nil {
-		writeControlError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, status)
-}
-
-func (s *HTTPServer) finalizeLegacyImport(w http.ResponseWriter, r *http.Request) {
-	if !s.authorizeMigration(w, r) {
-		return
-	}
-	var request struct {
-		ProjectionHash string `json:"projection_hash"`
-	}
-	if !decodeJSON(w, r, &request) {
-		return
-	}
-	status, err := s.engine.FinalizeLegacyImport(r.Context(), r.PathValue("project"), request.ProjectionHash)
-	if err != nil {
-		writeControlError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, status)
-}
-
-func (s *HTTPServer) legacyImportStatus(w http.ResponseWriter, r *http.Request) {
-	if !s.authorizeMigration(w, r) {
-		return
-	}
-	status, err := s.engine.LegacyImportStatus(r.Context(), r.PathValue("project"))
-	if err != nil {
-		writeControlError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, status)
 }
 
 func (s *HTTPServer) middleware(next http.Handler) http.Handler {
@@ -267,7 +123,17 @@ func (s *HTTPServer) ready(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, &controlplane.Error{Code: controlplane.CodeUnavailable, Message: "database is unavailable"})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"status": "ready"})
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ready", "schema_version": CurrentSchemaVersion})
+}
+
+func (s *HTTPServer) capabilities(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{
+		"product_version":               buildinfo.Version,
+		"build_id":                      buildinfo.ResolvedBuildID(),
+		"authority_api_version":         1,
+		"minimum_authority_api_version": 1,
+		"schema_version":                CurrentSchemaVersion,
+	})
 }
 
 func (s *HTTPServer) createProject(w http.ResponseWriter, r *http.Request) {

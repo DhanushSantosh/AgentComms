@@ -1,37 +1,40 @@
 package tui
 
 import (
-	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/DhanushSantosh/AgentComms/internal/identity"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
+	"github.com/DhanushSantosh/AgentComms/internal/protocol"
 	"github.com/DhanushSantosh/AgentComms/internal/service"
+	"github.com/DhanushSantosh/AgentComms/internal/testsupport"
 )
 
 func newTestService(t *testing.T) *service.Service {
 	t.Helper()
-	d := t.TempDir()
-	cmd := exec.Command("git", "init")
-	cmd.Dir = d
-	if b, e := cmd.CombinedOutput(); e != nil {
-		t.Fatal(string(b))
-	}
-	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(d, "user"))
-	s := service.New(d)
-	s.Store.SetCredentialStore(identity.NewMemoryStore())
-	if e := s.Store.Init("owner"); e != nil {
-		t.Fatal(e)
-	}
+	s, _ := testsupport.StartPersonalProject(t)
 	return s
 }
 func registerAgent(t *testing.T, s *service.Service, id string, role model.Role, scopes ...string) {
 	t.Helper()
 	if _, e := s.Register(id, id, model.PrincipalAgent); e != nil {
 		t.Fatal(e)
+	}
+	if role == model.RoleOrchestrator {
+		// ORCHESTRATOR grants now require a separately-approved, HUMAN-tier
+		// approval on top of the ordinary elevation/human-principal checks
+		// (internal/protocol/transitions.go) — apply and approve it here so
+		// existing fixtures asking for an orchestrator still get one.
+		approvalID := id + "-orchestrator-approval"
+		if _, e := s.Execute("owner", "approval.request", approvalID, model.ApprovalRequested{
+			Tier: "HUMAN", Action: protocol.OrchestratorGrantApprovalAction(id), Reason: "test fixture",
+		}); e != nil {
+			t.Fatal(e)
+		}
+		if _, e := s.Execute("owner", "approval.approve", approvalID, model.ApprovalResponse{}); e != nil {
+			t.Fatal(e)
+		}
 	}
 	if _, e := s.Execute("owner", "agent.activate", id, model.AgentActivated{Role: role, Capabilities: []string{"*"}, Scopes: scopes}); e != nil {
 		t.Fatal(e)

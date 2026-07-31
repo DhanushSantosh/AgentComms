@@ -12,7 +12,7 @@ jobs:
     timeout-minutes: 45
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
         with: {fetch-depth: 0}
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with: {go-version: '1.26.5', cache: true}
@@ -33,7 +33,7 @@ jobs:
             GOOS=${target%/*}; GOARCH=${target#*/}; ext=""; [ "$GOOS" = windows ] && ext=.exe
             for command in agent-comms agent-comms-daemon agent-comms-server; do
               name="${command}-${GOOS}-${GOARCH}${ext}"
-              CGO_ENABLED=0 GOOS=$GOOS GOARCH=$GOARCH go build -trimpath -ldflags="-s -w -X github.com/DhanushSantosh/AgentComms/internal/app.Version=${GITHUB_REF_NAME#v}" -o "dist/$name" "./cmd/$command"
+              CGO_ENABLED=0 GOOS=$GOOS GOARCH=$GOARCH go build -trimpath -ldflags="-s -w -X github.com/DhanushSantosh/AgentComms/internal/app.Version=${GITHUB_REF_NAME#v} -X github.com/DhanushSantosh/AgentComms/internal/buildinfo.Version=${GITHUB_REF_NAME#v} -X github.com/DhanushSantosh/AgentComms/internal/buildinfo.BuildID=${GITHUB_SHA}" -o "dist/$name" "./cmd/$command"
             done
           done
           cd dist
@@ -41,9 +41,9 @@ jobs:
           for asset in agent-comms-*; do cosign sign-blob --yes --bundle "${asset}.bundle" "$asset"; done
       - uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
         with: {path: dist, format: spdx-json, output-file: dist/sbom.spdx.json}
-      - uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+      - uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
         with: {subject-path: 'dist/agent-comms-*'}
-      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+      - uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
           prerelease: ${{ contains(github.ref_name, 'preview') || contains(github.ref_name, 'rc') }}
           generate_release_notes: true

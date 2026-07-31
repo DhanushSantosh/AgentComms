@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -15,6 +16,8 @@ import (
 
 	"github.com/DhanushSantosh/AgentComms/internal/authority"
 	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/stdlib"
 )
 
 const (
@@ -35,6 +38,9 @@ func main() {
 
 func run() error {
 	databaseURL := os.Getenv("AGENT_COMMS_DATABASE_URL")
+	if len(os.Args) > 1 && os.Args[1] == "migrate" {
+		return runMigrationCommand(databaseURL, os.Args[2:])
+	}
 	production := strings.EqualFold(os.Getenv("AGENT_COMMS_ENV"), "production")
 	signer, ephemeral, err := loadSigner(production)
 	if err != nil {
@@ -66,9 +72,8 @@ func run() error {
 	}
 	server := &http.Server{
 		Addr: address, Handler: authority.NewHTTPServer(engine, authority.HTTPConfig{
-			MaxInFlight:    envInt("AGENT_COMMS_MAX_IN_FLIGHT", 256),
-			MigrationToken: strings.TrimSpace(os.Getenv("AGENT_COMMS_MIGRATION_TOKEN")),
-			Logger:         logger,
+			MaxInFlight: envInt("AGENT_COMMS_MAX_IN_FLIGHT", 256),
+			Logger:      logger,
 		}).Handler(),
 		ReadHeaderTimeout: serverReadTimeout, ReadTimeout: serverReadTimeout,
 		WriteTimeout: serverWriteTimeout, IdleTimeout: serverIdleTimeout,
@@ -109,6 +114,71 @@ func run() error {
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), serverShutdownTimeout)
 	defer shutdownCancel()
 	return server.Shutdown(shutdownCtx)
+}
+
+// parseMigrationCommand validates the migrate subcommand's arguments and
+// flags with no I/O, so this gating logic (arg arity, and --yes plus
+// --allow-disruptive both being required for apply) is unit-testable
+// without a live Postgres instance. It returns the resolved subcommand
+// ("plan" or "apply") on success.
+func parseMigrationCommand(databaseURL string, args []string) (string, error) {
+	if strings.TrimSpace(databaseURL) == "" {
+		return "", errors.New("AGENT_COMMS_DATABASE_URL is required")
+	}
+	if len(args) != 1 && !(len(args) == 3 && args[0] == "apply") {
+		return "", errors.New("usage: agent-comms-server migrate plan | migrate apply --yes --allow-disruptive")
+	}
+	switch args[0] {
+	case "plan":
+		return "plan", nil
+	case "apply":
+		flags := map[string]bool{}
+		for _, flag := range args[1:] {
+			flags[flag] = true
+		}
+		if !flags["--yes"] || !flags["--allow-disruptive"] {
+			return "", errors.New("migrate apply requires --yes and --allow-disruptive")
+		}
+		return "apply", nil
+	default:
+		return "", errors.New("migration command must be plan or apply")
+	}
+}
+
+func runMigrationCommand(databaseURL string, args []string) error {
+	command, err := parseMigrationCommand(databaseURL, args)
+	if err != nil {
+		return err
+	}
+	connectionConfig, err := pgx.ParseConfig(databaseURL)
+	if err != nil {
+		return fmt.Errorf("parse PostgreSQL configuration: %w", err)
+	}
+	db := stdlib.OpenDB(*connectionConfig)
+	defer db.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err = db.PingContext(ctx); err != nil {
+		return err
+	}
+	switch command {
+	case "plan":
+		plan, planErr := authority.SchemaPlan(ctx, db)
+		if planErr != nil {
+			return planErr
+		}
+		return json.NewEncoder(os.Stdout).Encode(map[string]any{
+			"schema_version": authority.CurrentSchemaVersion, "migrations": plan,
+		})
+	case "apply":
+		if err = authority.ApplySchema(ctx, db, true); err != nil {
+			return err
+		}
+		return json.NewEncoder(os.Stdout).Encode(map[string]any{
+			"schema_version": authority.CurrentSchemaVersion, "applied": true,
+		})
+	}
+	return nil
 }
 
 func loadSigner(production bool) (*controlplane.Signer, bool, error) {

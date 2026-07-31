@@ -1,16 +1,53 @@
-package service
+package service_test
 
 import (
+	"os"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 )
 
+const (
+	deliveryStatusWaitTimeout  = 5 * time.Second
+	deliveryStatusPollInterval = 10 * time.Millisecond
+)
+
+func waitForDeliveryStatus(
+	t *testing.T,
+	instance interface {
+		State() (model.State, error)
+	},
+	deliveryID string,
+	expectedStatus string,
+) model.State {
+	t.Helper()
+	deadline := time.Now().Add(deliveryStatusWaitTimeout)
+	var lastState model.State
+	for time.Now().Before(deadline) {
+		state, err := instance.State()
+		if err != nil {
+			t.Fatal(err)
+		}
+		lastState = state
+		if delivery, exists := state.InvocationDeliveries[deliveryID]; exists &&
+			delivery.Status == expectedStatus {
+			return state
+		}
+		time.Sleep(deliveryStatusPollInterval)
+	}
+	t.Fatalf(
+		"delivery %s did not reach %s before timeout; last state: %+v",
+		deliveryID,
+		expectedStatus,
+		lastState.InvocationDeliveries[deliveryID],
+	)
+	return model.State{}
+}
+
 func TestInvocationLifecycle(t *testing.T) {
-	instance := setup(t)
+	instance := setupWithLocalConnector(t)
 	activate(t, instance, "builder", model.PrincipalAgent)
 	deadline := time.Now().UTC().Add(time.Hour)
 
@@ -18,9 +55,14 @@ func TestInvocationLifecycle(t *testing.T) {
 		Target: "builder", Instruction: "Review the current task state",
 		ExpectedResult: "Post a concise review", Priority: "high", Deadline: &deadline,
 	})
-	must(t, instance, "owner", "invocation.notify", "inv-1", model.InvocationNotified{
-		DeliveryID: "delivery-1", RuntimeID: "runtime-1", Attempt: 1,
-	})
+	registerOnlineDeliverableWorker(t, instance, "builder", "runtime-1")
+	_, err := instance.Execute("owner", "invocation.delivery-attempt", "inv-1",
+		model.InvocationDeliveryAttempted{
+			DeliveryID: "delivery-1", RuntimeID: "runtime-1", Transport: "LOCAL_PROCESS",
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
 	must(t, instance, "builder", "invocation.claim", "inv-1", model.InvocationClaimed{
 		RuntimeID: "runtime-1",
 	})
@@ -48,17 +90,19 @@ func TestInvocationLifecycle(t *testing.T) {
 		t.Fatalf("unexpected invocation projection: %+v", invocation)
 	}
 	delivery := state.InvocationDeliveries["delivery-1"]
-	if delivery.Status != "NOTIFIED" || delivery.InvocationID != "inv-1" {
+	if delivery.Status != "SUCCEEDED" || delivery.InvocationID != "inv-1" {
 		t.Fatalf("unexpected delivery projection: %+v", delivery)
 	}
-	if err = instance.Store.Verify(); err != nil {
+	if err = instance.Verify(0, 0); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func TestInvocationClaimIsExclusive(t *testing.T) {
-	instance := setup(t)
+	instance := setupWithLocalConnector(t)
 	activate(t, instance, "builder", model.PrincipalAgent)
+	registerOnlineWorker(t, instance, "builder", "runtime-a", 1)
+	registerOnlineWorker(t, instance, "builder", "runtime-b", 1)
 	must(t, instance, "owner", "invocation.request", "inv-exclusive", model.InvocationRequested{
 		Target: "builder", Instruction: "Perform one exclusive action",
 	})
@@ -100,11 +144,12 @@ func TestInvocationClaimIsExclusive(t *testing.T) {
 }
 
 func TestInvocationNotificationReservationIsExclusive(t *testing.T) {
-	instance := setup(t)
+	instance := setupWithLocalConnector(t)
 	activate(t, instance, "builder", model.PrincipalAgent)
 	must(t, instance, "owner", "invocation.request", "inv-notify", model.InvocationRequested{
 		Target: "builder", Instruction: "Wake one runtime",
 	})
+	registerOnlineDeliverableWorker(t, instance, "builder", "runtime-notify")
 	start := make(chan struct{})
 	results := make(chan error, 2)
 	var wait sync.WaitGroup
@@ -113,8 +158,11 @@ func TestInvocationNotificationReservationIsExclusive(t *testing.T) {
 		go func(deliveryID string) {
 			defer wait.Done()
 			<-start
-			_, err := instance.Execute("owner", "invocation.notify", "inv-notify",
-				model.InvocationNotified{DeliveryID: deliveryID, Attempt: 1})
+			_, err := instance.Execute("owner", "invocation.delivery-attempt", "inv-notify",
+				model.InvocationDeliveryAttempted{
+					DeliveryID: deliveryID, RuntimeID: "runtime-notify",
+					Transport: "LOCAL_PROCESS",
+				})
 			results <- err
 		}(deliveryID)
 	}
@@ -132,32 +180,71 @@ func TestInvocationNotificationReservationIsExclusive(t *testing.T) {
 	}
 }
 
-func TestInvocationDeliveryDeadLettersOnlyAtAttemptLimit(t *testing.T) {
-	instance := setup(t)
+func TestInvocationDeliveryFailureDoesNotTerminateObligation(t *testing.T) {
+	instance := setupWithLocalConnector(t)
 	activate(t, instance, "builder", model.PrincipalAgent)
 	must(t, instance, "owner", "invocation.request", "inv-dead", model.InvocationRequested{
 		Target: "builder", Instruction: "Wake the builder",
 	})
-
-	_, err := instance.Execute("owner", "invocation.delivery-failed", "inv-dead", model.InvocationDeliveryFailed{
-		DeliveryID: "delivery-early", Attempt: 1, Error: "runtime unavailable", Final: true,
-	})
-	if err == nil {
-		t.Fatal("delivery dead-lettered before the maximum attempt")
+	registerOnlineDeliverableWorker(t, instance, "builder", "runtime-dead")
+	if err := os.WriteFile(os.Getenv("AGENT_COMMS_TEST_CONNECTOR_OUTCOME"),
+		[]byte("failure"), 0o600); err != nil {
+		t.Fatal(err)
 	}
-	must(t, instance, "owner", "invocation.notify", "inv-dead", model.InvocationNotified{
-		DeliveryID: "delivery-final", Attempt: controlplane.MaxDeliveryAttempts,
-	})
-	must(t, instance, "owner", "invocation.delivery-failed", "inv-dead", model.InvocationDeliveryFailed{
-		DeliveryID: "delivery-final", Attempt: controlplane.MaxDeliveryAttempts,
-		Error: "runtime unavailable", Final: true,
+	must(t, instance, "owner", "invocation.delivery-attempt", "inv-dead", model.InvocationDeliveryAttempted{
+		DeliveryID: "delivery-final", RuntimeID: "runtime-dead",
+		Transport: "LOCAL_PROCESS", Manual: true,
 	})
 	state, stateErr := instance.State()
 	if stateErr != nil {
 		t.Fatal(stateErr)
 	}
-	if state.Invocations["inv-dead"].Status != "DEAD_LETTER" {
-		t.Fatalf("invocation did not dead-letter: %+v", state.Invocations["inv-dead"])
+	if state.Invocations["inv-dead"].Status != "PENDING" {
+		t.Fatalf("delivery failure terminated the invocation: %+v", state.Invocations["inv-dead"])
+	}
+	if state.InvocationDeliveries["delivery-final"].Status != "EXHAUSTED" {
+		t.Fatalf("delivery attempt was not closed: %+v", state.InvocationDeliveries["delivery-final"])
+	}
+}
+
+func TestFailedRedeliveryPreservesEarlierSuccessfulEvidence(t *testing.T) {
+	instance := setupWithLocalConnector(t)
+	activate(t, instance, "builder", model.PrincipalAgent)
+	must(t, instance, "owner", "invocation.request", "inv-preserve", model.InvocationRequested{
+		Target: "builder", Instruction: "Wake the builder",
+	})
+	registerOnlineDeliverableWorker(t, instance, "builder", "runtime-delivery")
+	_, err := instance.Execute("owner", "invocation.delivery-attempt", "inv-preserve",
+		model.InvocationDeliveryAttempted{
+			DeliveryID: "delivery-success", RuntimeID: "runtime-delivery",
+			Transport: "LOCAL_PROCESS",
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitForDeliveryStatus(t, instance, "delivery-success", "SUCCEEDED")
+	if err = os.WriteFile(os.Getenv("AGENT_COMMS_TEST_CONNECTOR_OUTCOME"),
+		[]byte("failure"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	must(t, instance, "owner", "invocation.delivery-attempt", "inv-preserve",
+		model.InvocationDeliveryAttempted{
+			DeliveryID: "delivery-failed", RuntimeID: "runtime-delivery",
+			Transport: "LOCAL_PROCESS", Manual: true,
+		})
+	state := waitForDeliveryStatus(t, instance, "delivery-failed", "EXHAUSTED")
+	if state.Invocations["inv-preserve"].Status != "NOTIFIED" {
+		t.Fatalf("failed redelivery erased successful notification state: %+v",
+			state.Invocations["inv-preserve"])
+	}
+	if state.InvocationDeliveries["delivery-success"].Status != "SUCCEEDED" ||
+		len(state.InvocationDeliveries["delivery-success"].Evidence) != 1 {
+		t.Fatalf("successful evidence was not preserved: %+v",
+			state.InvocationDeliveries["delivery-success"])
+	}
+	if state.InvocationDeliveries["delivery-failed"].Status != "EXHAUSTED" {
+		t.Fatalf("failed redelivery was not independently closed: %+v",
+			state.InvocationDeliveries["delivery-failed"])
 	}
 }
 

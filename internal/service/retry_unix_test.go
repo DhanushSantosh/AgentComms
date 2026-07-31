@@ -14,18 +14,20 @@ import (
 
 	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
 	"github.com/DhanushSantosh/AgentComms/internal/daemonclient"
-	"github.com/DhanushSantosh/AgentComms/internal/identity"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
+	"github.com/DhanushSantosh/AgentComms/internal/runtimeinit"
 )
 
 func TestRemoteMutationReplaysSameCommandAfterLostResponse(t *testing.T) {
 	root := t.TempDir()
-	instance := New(root)
-	credentials := identity.NewMemoryStore()
-	instance.Store.SetCredentialStore(credentials)
-	if err := instance.Store.Init("owner"); err != nil {
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(root, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(root, "credentials"))
+	if _, err := runtimeinit.Initialize(t.Context(), runtimeinit.Config{
+		ProjectRoot: root, Owner: "owner", Mode: "personal",
+	}); err != nil {
 		t.Fatal(err)
 	}
+	instance := New(root)
 	config, err := instance.Store.Config()
 	if err != nil {
 		t.Fatal(err)
@@ -122,5 +124,74 @@ func TestRemoteMutationReplaysSameCommandAfterLostResponse(t *testing.T) {
 	}
 	if config.ProjectID != goodCommand.ProjectID {
 		t.Fatalf("retry project=%s, want %s", goodCommand.ProjectID, config.ProjectID)
+	}
+}
+
+// TestStateRecoversFromMissingDaemonSocket is a regression test for a real
+// bug: State() used to make exactly one remote call with no retry and no
+// recovery, unlike executeRemoteWithCredential -- so a single transient
+// "local daemon is unavailable: dial unix ... no such file or directory"
+// (e.g. the daemon's socket briefly gone, matching the reported symptom of
+// runtime interactive-serve's heartbeat loop tearing down an entire live
+// session on the very next tick) permanently failed the call instead of
+// recovering. State() and Command() now share retryOnDaemonOffline, so this
+// exercises the read path the same way
+// TestRemoteMutationReplaysSameCommandAfterLostResponse already exercises
+// the write path: point at a socket that doesn't exist yet (simulating the
+// exact "no such file or directory" symptom), and confirm recoverRemote
+// creating it mid-retry is enough for State() to succeed.
+func TestStateRecoversFromMissingDaemonSocket(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(root, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(root, "credentials"))
+	if _, err := runtimeinit.Initialize(t.Context(), runtimeinit.Config{
+		ProjectRoot: root, Owner: "owner", Mode: "personal",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	instance := New(root)
+	socketDir, err := os.MkdirTemp("/tmp", "ac-retry-state-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(socketDir) })
+	// Deliberately does not exist yet -- dialing it produces the exact
+	// "no such file or directory" symptom from the bug report, not a
+	// connection refusal.
+	endpoint := filepath.Join(socketDir, "daemon.sock")
+	client, err := daemonclient.New(endpoint, 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	instance.remote = client
+	var server *http.Server
+	recovered := false
+	instance.SetRemoteRecovery(func() error {
+		recovered = true
+		listener, listenErr := net.Listen("unix", endpoint)
+		if listenErr != nil {
+			return listenErr
+		}
+		server = &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"state": model.State{},
+				"metadata": controlplane.ResultMetadata{
+					Consistency: "PERSONAL_AUTHORITATIVE", Connectivity: "LOCAL",
+				},
+			})
+		})}
+		go func() { _ = server.Serve(listener) }()
+		return nil
+	})
+	t.Cleanup(func() {
+		if server != nil {
+			_ = server.Close()
+		}
+	})
+	if _, err := instance.State(); err != nil {
+		t.Fatalf("State() should have recovered after the socket appeared, got: %v", err)
+	}
+	if !recovered {
+		t.Fatal("expected recoverRemote to be called")
 	}
 }

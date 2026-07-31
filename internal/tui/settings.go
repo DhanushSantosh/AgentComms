@@ -19,6 +19,7 @@ var settingsSections = []struct {
 	{"Agents & access", "PEOPLE", "Principals, roles, scopes, and invocation trust."},
 	{"Agent runtimes", "RUNTIME", "Connectors, capacity, health, drain, and revocation."},
 	{"Authority & data", "SYSTEM", "Authority mode, consistency, cache, and internal storage."},
+	{"Environment", "ENV", "Project-scoped key/value configuration."},
 	{"Interface", "LOCAL", "Per-user display preferences; never written to project history."},
 }
 
@@ -53,6 +54,10 @@ func (m Model) updateSettings(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.settingsFocus, m.rowFocus = false, true
 			m.runtimeList.Refresh(m.state, m.actor)
 		case 4:
+			m.openView("Environment")
+			m.settingsFocus, m.rowFocus = false, true
+			m.envList.Refresh(m.state, m.actor)
+		case 5:
 			m.toggleTheme()
 		}
 	case "g":
@@ -225,7 +230,7 @@ func (m Model) settingsControl(p palette, width int) string {
 		)
 	case 3:
 		rows = append(rows,
-			settingLine("Consistency", empty(m.state.Integrity.Consistency, "LEGACY_LOCAL")),
+			settingLine("Consistency", empty(m.state.Integrity.Consistency, "UNKNOWN")),
 			settingLine("Connectivity", empty(m.state.Integrity.Connectivity, "LOCAL")),
 			settingLine("Server sequence", strconv.FormatUint(m.state.Integrity.ServerSequence, 10)),
 			settingLine("Cache sequence", strconv.FormatUint(m.state.Integrity.CacheSequence, 10)),
@@ -233,6 +238,12 @@ func (m Model) settingsControl(p palette, width int) string {
 			"", "Internal runtime storage is hidden by default. Use Audit & health for diagnostics.",
 		)
 	case 4:
+		rows = append(rows,
+			settingLine("Keys set", strconv.Itoa(len(m.state.Env))),
+			"Plain-text, project-scoped configuration values -- never store secrets here.",
+			"", lipgloss.NewStyle().Foreground(p.amber).Render("[e] open environment administration"),
+		)
+	case 5:
 		theme := "automatic"
 		if m.highContrast {
 			theme = "high contrast"
@@ -249,7 +260,7 @@ func (m Model) settingsControl(p palette, width int) string {
 
 func (m Model) settingsImpact(p palette, width int) string {
 	role := m.actorAuthority()
-	shared := m.settingsCursor != 4
+	shared := m.settingsCursor != 5
 	scope, boundary := "LOCAL PREFERENCE", "Saved only for this user."
 	color := p.cyan
 	if shared {

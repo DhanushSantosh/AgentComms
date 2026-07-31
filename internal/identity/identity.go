@@ -1,6 +1,8 @@
 package identity
 
 import (
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
@@ -12,19 +14,127 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
+	"strings"
 	"sync"
 
 	keyring "github.com/zalando/go-keyring"
+	"golang.org/x/crypto/argon2"
 )
 
 const Service = "agent-comms"
+
+const (
+	hostIDFileName = "host-id"
+	hostIDBytes    = 16
+)
 
 type Credential struct {
 	ProjectID  string `json:"project_id"`
 	Actor      string `json:"actor"`
 	PublicKey  string `json:"public_key"`
 	PrivateKey string `json:"private_key"`
+	// Encrypted, Salt, and Nonce are set only for a passphrase-protected
+	// elevated credential (see GenerateEncrypted/Decrypted). When Encrypted
+	// is true, PrivateKey holds AES-256-GCM ciphertext, not a usable key.
+	Encrypted bool   `json:"encrypted,omitempty"`
+	Salt      string `json:"salt,omitempty"`
+	Nonce     string `json:"nonce,omitempty"`
 }
+
+// ElevatedActor is the credential-store account name for actor's elevated
+// key, distinct from its everyday primary credential (stored under actor
+// itself). Store.Get/Put/Delete take this as the actor parameter directly —
+// no Store interface changes needed.
+func ElevatedActor(actor string) string { return actor + ":elevated" }
+
+const (
+	argon2Time      = 3
+	argon2MemoryKiB = 64 * 1024
+	argon2Threads   = 4
+	argon2KeyLen    = 32
+	saltSize        = 16
+)
+
+func deriveKey(passphrase string, salt []byte) []byte {
+	return argon2.IDKey([]byte(passphrase), salt, argon2Time, argon2MemoryKiB, argon2Threads, argon2KeyLen)
+}
+
+// GenerateEncrypted creates a fresh Ed25519 keypair whose private key is
+// encrypted at rest with passphrase (Argon2id key derivation + AES-256-GCM).
+// Recovering the raw key requires calling Decrypted with the same
+// passphrase; there is no other recovery path — this is the point.
+func GenerateEncrypted(projectID, actor, passphrase string) (Credential, error) {
+	pub, priv, e := ed25519.GenerateKey(rand.Reader)
+	if e != nil {
+		return Credential{}, e
+	}
+	c := Credential{ProjectID: projectID, Actor: actor, PublicKey: base64.StdEncoding.EncodeToString(pub)}
+	return c.encrypt(priv, passphrase)
+}
+
+func (c Credential) encrypt(rawPrivateKey ed25519.PrivateKey, passphrase string) (Credential, error) {
+	salt := make([]byte, saltSize)
+	if _, e := rand.Read(salt); e != nil {
+		return Credential{}, e
+	}
+	gcm, e := newGCM(deriveKey(passphrase, salt))
+	if e != nil {
+		return Credential{}, e
+	}
+	nonce := make([]byte, gcm.NonceSize())
+	if _, e := rand.Read(nonce); e != nil {
+		return Credential{}, e
+	}
+	c.Encrypted = true
+	c.Salt = base64.StdEncoding.EncodeToString(salt)
+	c.Nonce = base64.StdEncoding.EncodeToString(nonce)
+	c.PrivateKey = base64.StdEncoding.EncodeToString(gcm.Seal(nil, nonce, rawPrivateKey, nil))
+	return c, nil
+}
+
+// Decrypted returns a copy of c with PrivateKey replaced by the decrypted
+// raw Ed25519 private key (base64), ready for Sign/command.Sign. A no-op
+// (returns c unchanged) if c isn't Encrypted. A wrong passphrase fails via
+// AES-GCM's built-in authentication check, not a plausible-looking garbage
+// key.
+func (c Credential) Decrypted(passphrase string) (Credential, error) {
+	if !c.Encrypted {
+		return c, nil
+	}
+	salt, e := base64.StdEncoding.DecodeString(c.Salt)
+	if e != nil {
+		return Credential{}, fmt.Errorf("invalid salt: %w", e)
+	}
+	nonce, e := base64.StdEncoding.DecodeString(c.Nonce)
+	if e != nil {
+		return Credential{}, fmt.Errorf("invalid nonce: %w", e)
+	}
+	ciphertext, e := base64.StdEncoding.DecodeString(c.PrivateKey)
+	if e != nil {
+		return Credential{}, fmt.Errorf("invalid ciphertext: %w", e)
+	}
+	gcm, e := newGCM(deriveKey(passphrase, salt))
+	if e != nil {
+		return Credential{}, e
+	}
+	raw, e := gcm.Open(nil, nonce, ciphertext, nil)
+	if e != nil {
+		return Credential{}, errors.New("incorrect passphrase")
+	}
+	c.PrivateKey = base64.StdEncoding.EncodeToString(raw)
+	c.Encrypted, c.Salt, c.Nonce = false, "", ""
+	return c, nil
+}
+
+func newGCM(key []byte) (cipher.AEAD, error) {
+	block, e := aes.NewCipher(key)
+	if e != nil {
+		return nil, e
+	}
+	return cipher.NewGCM(block)
+}
+
 type Store interface {
 	Put(Credential) error
 	Get(projectID, actor string) (Credential, error)
@@ -146,7 +256,117 @@ type Profile struct {
 	ProjectID   string `json:"project_id"`
 	Actor       string `json:"actor"`
 	ProjectRoot string `json:"project_root"`
+	HostLabel   string `json:"host_label,omitempty"`
 }
+
+const (
+	ActorSourceFlag          = "actor_flag"
+	ActorSourceProfileFlag   = "profile_flag"
+	ActorSourceEnvironment   = "actor_environment"
+	ActorSourceHostBinding   = "host_binding"
+	ActorSourceActiveProfile = "active_profile"
+	ActorSourceProjectOwner  = "project_owner"
+)
+
+type ActorResolutionRequest struct {
+	ProjectID        string
+	ProjectOwner     string
+	ExplicitActor    string
+	ExplicitProfile  string
+	EnvironmentActor string
+	HostLabel        string
+	UserConfig       UserConfig
+}
+
+type ActorResolution struct {
+	Actor     string `json:"actor"`
+	Source    string `json:"source"`
+	Profile   string `json:"profile,omitempty"`
+	HostLabel string `json:"host_label,omitempty"`
+	ProjectID string `json:"project_id"`
+}
+
+func ResolveActor(request ActorResolutionRequest) (ActorResolution, error) {
+	request.ExplicitActor = strings.TrimSpace(request.ExplicitActor)
+	request.ExplicitProfile = strings.TrimSpace(request.ExplicitProfile)
+	request.EnvironmentActor = strings.TrimSpace(request.EnvironmentActor)
+	request.HostLabel = strings.TrimSpace(request.HostLabel)
+	if request.ProjectID == "" || request.ProjectOwner == "" {
+		return ActorResolution{}, errors.New("project ID and owner are required for actor resolution")
+	}
+	result := ActorResolution{ProjectID: request.ProjectID, HostLabel: request.HostLabel}
+	if request.ExplicitActor != "" {
+		result.Actor, result.Source = request.ExplicitActor, ActorSourceFlag
+		return result, nil
+	}
+	if request.ExplicitProfile != "" {
+		profile, found := request.UserConfig.Profiles[request.ExplicitProfile]
+		if !found {
+			return ActorResolution{}, fmt.Errorf("profile %q not found", request.ExplicitProfile)
+		}
+		if profile.ProjectID != request.ProjectID {
+			return ActorResolution{}, fmt.Errorf(
+				"profile %q belongs to project %s, not %s",
+				request.ExplicitProfile, profile.ProjectID, request.ProjectID,
+			)
+		}
+		result.Actor, result.Source, result.Profile = profile.Actor, ActorSourceProfileFlag, request.ExplicitProfile
+		return result, nil
+	}
+	if request.EnvironmentActor != "" {
+		result.Actor, result.Source = request.EnvironmentActor, ActorSourceEnvironment
+		return result, nil
+	}
+	if request.HostLabel != "" {
+		matches := ProfilesByProjectAndHost(request.UserConfig.Profiles, request.ProjectID, request.HostLabel)
+		if len(matches) > 1 {
+			return ActorResolution{}, fmt.Errorf(
+				"host label %q is bound to multiple actors in project %s; use --actor or --profile",
+				request.HostLabel, request.ProjectID,
+			)
+		}
+		if len(matches) == 1 {
+			result.Actor, result.Source, result.Profile = matches[0].Actor, ActorSourceHostBinding, matches[0].Name
+			return result, nil
+		}
+		result.Actor, result.Source = request.ProjectOwner, ActorSourceProjectOwner
+		return result, nil
+	}
+	if request.UserConfig.ActiveProfile != "" {
+		profile, found := request.UserConfig.Profiles[request.UserConfig.ActiveProfile]
+		if found && profile.ProjectID == request.ProjectID {
+			result.Actor, result.Source, result.Profile = profile.Actor, ActorSourceActiveProfile, request.UserConfig.ActiveProfile
+			return result, nil
+		}
+	}
+	result.Actor, result.Source = request.ProjectOwner, ActorSourceProjectOwner
+	return result, nil
+}
+
+func ProfilesByProjectAndHost(profiles map[string]Profile, projectID, hostLabel string) []Profile {
+	matches := make([]Profile, 0)
+	for _, profile := range profiles {
+		if profile.ProjectID == projectID && profile.HostLabel == hostLabel {
+			matches = append(matches, profile)
+		}
+	}
+	sort.Slice(matches, func(left, right int) bool {
+		return matches[left].Name < matches[right].Name
+	})
+	return matches
+}
+
+// FindProfileByProjectAndHost returns the actor from the single profile
+// matching both projectID and hostLabel. If zero or more than one profile
+// matches, it returns ok=false rather than guessing which one to use.
+func FindProfileByProjectAndHost(profiles map[string]Profile, projectID, hostLabel string) (string, bool) {
+	matches := ProfilesByProjectAndHost(profiles, projectID, hostLabel)
+	if len(matches) != 1 {
+		return "", false
+	}
+	return matches[0].Actor, true
+}
+
 type UserConfig struct {
 	ActiveProfile string             `json:"active_profile,omitempty"`
 	UpdateChannel string             `json:"update_channel"`
@@ -165,6 +385,73 @@ func ConfigDir() (string, error) {
 	}
 	return filepath.Join(d, "agent-comms"), nil
 }
+
+func LoadOrCreateHostID() (string, error) {
+	directory, err := ConfigDir()
+	if err != nil {
+		return "", err
+	}
+	if err = os.MkdirAll(directory, 0o700); err != nil {
+		return "", err
+	}
+	path := filepath.Join(directory, hostIDFileName)
+	read := func() (string, error) { return readHostID(path, true) }
+	if value, readErr := read(); readErr == nil {
+		return value, nil
+	} else if !os.IsNotExist(readErr) {
+		return "", readErr
+	}
+	random := make([]byte, hostIDBytes)
+	if _, err = rand.Read(random); err != nil {
+		return "", err
+	}
+	value := hex.EncodeToString(random)
+	file, createErr := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if createErr != nil {
+		if os.IsExist(createErr) {
+			return read()
+		}
+		return "", createErr
+	}
+	if _, err = file.WriteString(value + "\n"); err == nil {
+		err = file.Sync()
+	}
+	closeErr := file.Close()
+	if err != nil {
+		return "", err
+	}
+	if closeErr != nil {
+		return "", closeErr
+	}
+	return value, nil
+}
+
+func LoadHostID() (string, error) {
+	directory, err := ConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return readHostID(filepath.Join(directory, hostIDFileName), false)
+}
+
+func readHostID(path string, securePermissions bool) (string, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	value := strings.TrimSpace(string(raw))
+	decoded, err := hex.DecodeString(value)
+	if err != nil || len(decoded) != hostIDBytes {
+		return "", errors.New("agent-comms host ID is malformed")
+	}
+	if securePermissions {
+		if err = os.Chmod(path, 0o600); err != nil {
+			return "", err
+		}
+	}
+	return value, nil
+}
+
 func LoadUserConfig() (UserConfig, error) {
 	d, e := ConfigDir()
 	if e != nil {

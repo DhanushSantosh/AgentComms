@@ -13,7 +13,8 @@ import (
 	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
 	"github.com/DhanushSantosh/AgentComms/internal/identity"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
-	"github.com/DhanushSantosh/AgentComms/internal/service"
+	"github.com/DhanushSantosh/AgentComms/internal/projection"
+	"github.com/DhanushSantosh/AgentComms/internal/protocol"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
 )
@@ -77,7 +78,7 @@ func Open(ctx context.Context, cfg Config, signer *controlplane.Signer) (*Engine
 		_ = db.Close()
 		return nil, fmt.Errorf("connect PostgreSQL: %w", err)
 	}
-	if err = ApplySchema(ctx, db); err != nil {
+	if err = ApplySchema(ctx, db, false); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("apply authority schema: %w", err)
 	}
@@ -111,7 +112,7 @@ func (e *Engine) State(ctx context.Context, projectID string) (model.State, cont
 		Verified: true, EventCount: int(sequence), Head: head,
 		SyncState: "authoritative",
 	}
-	service.RefreshRuntimePresence(&state, e.now())
+	protocol.RefreshRuntimePresence(&state, e.now())
 	if err = tx.Commit(); err != nil {
 		return model.State{}, controlplane.ResultMetadata{}, unavailable(err)
 	}
@@ -129,7 +130,7 @@ func (e *Engine) Events(ctx context.Context, projectID string, page controlplane
 	if err != nil {
 		return controlplane.EventPage{}, err
 	}
-	rows, err := e.db.QueryContext(ctx, `SELECT project_id,sequence,event_id,event_time,actor_id,event_type,
+	rows, err := e.db.QueryContext(ctx, `SELECT project_id,sequence,event_id,event_time,actor_id,actor_key_fingerprint,event_type,
 		entity_id,payload,previous_hash,event_hash,actor_intent_hash,idempotency_key,
 		receipt FROM events WHERE project_id=$1 AND sequence>$2 ORDER BY sequence LIMIT $3`,
 		projectID, after, limit+1)
@@ -141,7 +142,7 @@ func (e *Engine) Events(ctx context.Context, projectID string, page controlplane
 	for rows.Next() {
 		var event controlplane.Event
 		var receiptJSON []byte
-		if err = rows.Scan(&event.ProjectID, &event.Sequence, &event.ID, &event.Time, &event.Actor,
+		if err = rows.Scan(&event.ProjectID, &event.Sequence, &event.ID, &event.Time, &event.Actor, &event.ActorKeyFingerprint,
 			&event.Type, &event.EntityID, &event.Payload, &event.PreviousHash, &event.Hash,
 			&event.ActorIntentHash, &event.IdempotencyKey, &receiptJSON); err != nil {
 			return controlplane.EventPage{}, unavailable(err)
@@ -179,7 +180,7 @@ func (e *Engine) VerifyRange(ctx context.Context, projectID string, from, to uin
 	if to != 0 && to < from {
 		return &controlplane.Error{Code: controlplane.CodeValidation, Message: "invalid verification range"}
 	}
-	query := `SELECT sequence,event_id,event_time,actor_id,event_type,entity_id,payload,previous_hash,
+	query := `SELECT sequence,event_id,event_time,actor_id,actor_key_fingerprint,event_type,entity_id,payload,previous_hash,
 		event_hash,actor_intent_hash,idempotency_key,receipt
 		FROM events WHERE project_id=$1 AND sequence >= $2`
 	args := []any{projectID, from}
@@ -205,7 +206,7 @@ func (e *Engine) VerifyRange(ctx context.Context, projectID string, from, to uin
 		var event controlplane.Event
 		var receiptJSON []byte
 		event.ProjectID = projectID
-		if err = rows.Scan(&event.Sequence, &event.ID, &event.Time, &event.Actor, &event.Type,
+		if err = rows.Scan(&event.Sequence, &event.ID, &event.Time, &event.Actor, &event.ActorKeyFingerprint, &event.Type,
 			&event.EntityID, &event.Payload, &event.PreviousHash, &event.Hash,
 			&event.ActorIntentHash, &event.IdempotencyKey, &receiptJSON); err != nil {
 			return unavailable(err)
@@ -213,8 +214,7 @@ func (e *Engine) VerifyRange(ctx context.Context, projectID string, from, to uin
 		if event.Sequence != expectedSequence || event.PreviousHash != previousHash {
 			return &controlplane.Error{Code: controlplane.CodeIntegrity, Message: fmt.Sprintf("chain discontinuity at %s", event.ID)}
 		}
-		hash, hashErr := controlplane.HashEvent(event)
-		if hashErr != nil || hash != event.Hash {
+		if !controlplane.VerifyEventHash(event) {
 			return &controlplane.Error{Code: controlplane.CodeIntegrity, Message: fmt.Sprintf("event hash mismatch at %s", event.ID)}
 		}
 		var receipt controlplane.Receipt
@@ -272,13 +272,25 @@ func (e *Engine) Mutate(ctx context.Context, command controlplane.Command) (cont
 	if err = command.Validate(now); err != nil {
 		return controlplane.Event{}, controlplane.Receipt{}, err
 	}
-	publicKey, err := commandPublicKey(ctx, tx, command)
+	// Payload is decoded here, ahead of the full loadState below, so
+	// commandPublicKey can classify the transitions governed by
+	// protocol.RequiresElevatedKey without
+	// paying loadState's cost on every signature check -- it uses its own
+	// small, targeted queries instead (kept cheap deliberately: signature
+	// verification runs before an attacker's invalid-signature command gets
+	// to touch the full project state).
+	payload, err := decodePayload(command.Type, command.Payload)
+	if err != nil {
+		return controlplane.Event{}, controlplane.Receipt{}, &controlplane.Error{Code: controlplane.CodeValidation, Message: err.Error()}
+	}
+	publicKey, err := commandPublicKey(ctx, tx, command, payload)
 	if err != nil {
 		return controlplane.Event{}, controlplane.Receipt{}, err
 	}
 	if !command.Verify(publicKey) {
 		return controlplane.Event{}, controlplane.Receipt{}, &controlplane.Error{Code: controlplane.CodeIntegrity, Message: "actor command signature is invalid"}
 	}
+	actorKeyFingerprint := identity.Fingerprint(publicKey)
 	if command.ExpectedSequence != 0 && command.ExpectedSequence != headSequence {
 		return controlplane.Event{}, controlplane.Receipt{}, &controlplane.Error{
 			Code:    controlplane.CodeStalePrecondition,
@@ -289,10 +301,6 @@ func (e *Engine) Mutate(ctx context.Context, command controlplane.Command) (cont
 	state, err := loadState(ctx, tx, command.ProjectID)
 	if err != nil {
 		return controlplane.Event{}, controlplane.Receipt{}, err
-	}
-	payload, err := decodePayload(command.Type, command.Payload)
-	if err != nil {
-		return controlplane.Event{}, controlplane.Receipt{}, &controlplane.Error{Code: controlplane.CodeValidation, Message: err.Error()}
 	}
 	if command.Type == "agent.register" {
 		registration := payload.(model.AgentRegistered)
@@ -308,9 +316,9 @@ func (e *Engine) Mutate(ctx context.Context, command controlplane.Command) (cont
 			return controlplane.Event{}, controlplane.Receipt{}, &controlplane.Error{Code: controlplane.CodeAuthorization, Message: "initial owner activation must assign OWNER"}
 		}
 	} else {
-		payload, err = service.ValidateTransition(state, command.Actor, command.Type, command.EntityID, payload, now)
+		payload, err = protocol.ValidateTransition(state, command.Actor, command.Type, command.EntityID, payload, now)
 		if err != nil {
-			return controlplane.Event{}, controlplane.Receipt{}, classify(err)
+			return controlplane.Event{}, controlplane.Receipt{}, controlplane.ClassifyValidationError(err)
 		}
 	}
 	normalizedPayload, err := model.EncodePayload(command.Type, payload)
@@ -322,7 +330,8 @@ func (e *Engine) Mutate(ctx context.Context, command controlplane.Command) (cont
 	event := controlplane.Event{
 		ProjectID: command.ProjectID, Sequence: sequence,
 		ID: fmt.Sprintf("evt-%020d", sequence), Time: now, Actor: command.Actor,
-		Type: command.Type, EntityID: command.EntityID, Payload: normalizedPayload,
+		ActorKeyFingerprint: actorKeyFingerprint,
+		Type:                command.Type, EntityID: command.EntityID, Payload: normalizedPayload,
 		PreviousHash: previousHash, ActorIntentHash: intentHash, IdempotencyKey: command.IdempotencyKey,
 	}
 	event.Hash, err = controlplane.HashEvent(event)
@@ -338,7 +347,7 @@ func (e *Engine) Mutate(ctx context.Context, command controlplane.Command) (cont
 	}
 
 	next := cloneState(state)
-	if err = service.ApplyEvent(&next, model.Event{
+	if err = projection.ApplyEvent(&next, model.Event{
 		SchemaVersion: model.SchemaVersion, PayloadVersion: 1, ID: event.ID,
 		Sequence: event.Sequence, Time: event.Time, Actor: event.Actor, Type: event.Type,
 		EntityID: event.EntityID, Data: event.Payload, PreviousHash: event.PreviousHash, Hash: event.Hash,
@@ -351,11 +360,11 @@ func (e *Engine) Mutate(ctx context.Context, command controlplane.Command) (cont
 	eventJSON, _ := json.Marshal(event)
 	receiptJSON, _ := json.Marshal(receipt)
 	if _, err = tx.ExecContext(ctx, `INSERT INTO events
-		(project_id, sequence, event_id, event_time, actor_id, event_type, entity_id,
+		(project_id, sequence, event_id, event_time, actor_id, actor_key_fingerprint, event_type, entity_id,
 		 payload, previous_hash, event_hash, actor_intent_hash, actor_signature,
 		 idempotency_key, receipt)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
-		event.ProjectID, event.Sequence, event.ID, event.Time, event.Actor, event.Type,
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+		event.ProjectID, event.Sequence, event.ID, event.Time, event.Actor, event.ActorKeyFingerprint, event.Type,
 		event.EntityID, event.Payload, event.PreviousHash, event.Hash, intentHash,
 		command.Signature, command.IdempotencyKey, receiptJSON); err != nil {
 		return controlplane.Event{}, controlplane.Receipt{}, conflictOrUnavailable(err)
@@ -378,10 +387,10 @@ func replay(ctx context.Context, tx *sql.Tx, projectID, key, intentHash string) 
 	var event controlplane.Event
 	var receiptJSON []byte
 	var storedIntent string
-	err := tx.QueryRowContext(ctx, `SELECT project_id,sequence,event_id,event_time,actor_id,event_type,
+	err := tx.QueryRowContext(ctx, `SELECT project_id,sequence,event_id,event_time,actor_id,actor_key_fingerprint,event_type,
 		entity_id,payload,previous_hash,event_hash,actor_intent_hash,idempotency_key,receipt
 		FROM events WHERE project_id=$1 AND idempotency_key=$2`, projectID, key).
-		Scan(&event.ProjectID, &event.Sequence, &event.ID, &event.Time, &event.Actor, &event.Type,
+		Scan(&event.ProjectID, &event.Sequence, &event.ID, &event.Time, &event.Actor, &event.ActorKeyFingerprint, &event.Type,
 			&event.EntityID, &event.Payload, &event.PreviousHash, &event.Hash, &storedIntent,
 			&event.IdempotencyKey, &receiptJSON)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -402,7 +411,7 @@ func replay(ctx context.Context, tx *sql.Tx, projectID, key, intentHash string) 
 	return event, receipt, true, nil
 }
 
-func commandPublicKey(ctx context.Context, tx *sql.Tx, command controlplane.Command) (string, error) {
+func commandPublicKey(ctx context.Context, tx *sql.Tx, command controlplane.Command, payload any) (string, error) {
 	if command.Type == "agent.register" {
 		if command.Actor != command.EntityID || command.PublicKey == "" {
 			return "", &controlplane.Error{Code: controlplane.CodeAuthorization, Message: "registration must be self-signed with a public key"}
@@ -422,7 +431,65 @@ func commandPublicKey(ctx context.Context, tx *sql.Tx, command controlplane.Comm
 	if err = json.Unmarshal(stateJSON, &agent); err != nil {
 		return "", err
 	}
+	if agent.ElevatedPublicKey == "" {
+		return agent.PublicKey, nil
+	}
+	scopedState, err := scopedElevationState(ctx, tx, command)
+	if err != nil {
+		return "", err
+	}
+	if protocol.RequiresElevatedKey(scopedState, command.Actor, command.Type, command.EntityID, payload) {
+		return agent.ElevatedPublicKey, nil
+	}
 	return agent.PublicKey, nil
+}
+
+// scopedElevationState builds the minimal model.State protocol.RequiresElevatedKey
+// actually reads for each transition type it classifies -- st.Approvals[id]
+// for approval.approve, st.Agents[id] (the TARGET being revoked or deleted,
+// distinct from the actor's own row already fetched above) -- via a
+// single targeted row lookup, instead of the full loadState. Keeps
+// signature verification cheap regardless of which transition type it's
+// classifying: an attacker spamming invalid-signature commands never gets
+// to force a full project state load. If RequiresElevatedKey ever needs to
+// read a different field for a new transition type, this function needs a
+// matching case or the two will silently drift -- see the comment on
+// RequiresElevatedKey itself.
+func scopedElevationState(ctx context.Context, tx *sql.Tx, command controlplane.Command) (model.State, error) {
+	switch command.Type {
+	case "approval.approve":
+		var stateJSON []byte
+		err := tx.QueryRowContext(ctx, `SELECT state FROM approvals WHERE project_id=$1 AND approval_id=$2`,
+			command.ProjectID, command.EntityID).Scan(&stateJSON)
+		if errors.Is(err, sql.ErrNoRows) {
+			return model.State{}, nil
+		}
+		if err != nil {
+			return model.State{}, unavailable(err)
+		}
+		var approval model.Approval
+		if err = json.Unmarshal(stateJSON, &approval); err != nil {
+			return model.State{}, err
+		}
+		return model.State{Approvals: map[string]model.Approval{command.EntityID: approval}}, nil
+	case "agent.revoke", "agent.delete":
+		var stateJSON []byte
+		err := tx.QueryRowContext(ctx, `SELECT state FROM agents WHERE project_id=$1 AND agent_id=$2`,
+			command.ProjectID, command.EntityID).Scan(&stateJSON)
+		if errors.Is(err, sql.ErrNoRows) {
+			return model.State{}, nil
+		}
+		if err != nil {
+			return model.State{}, unavailable(err)
+		}
+		var target model.Agent
+		if err = json.Unmarshal(stateJSON, &target); err != nil {
+			return model.State{}, err
+		}
+		return model.State{Agents: map[string]model.Agent{command.EntityID: target}}, nil
+	default:
+		return model.State{}, nil
+	}
 }
 
 func decodePayload(eventType string, raw json.RawMessage) (any, error) {
@@ -436,6 +503,12 @@ func decodePayload(eventType string, raw json.RawMessage) (any, error) {
 	case *model.AgentActivated:
 		return *value, nil
 	case *model.AgentKeyRotated:
+		return *value, nil
+	case *model.AgentElevatedKeyRegistered:
+		return *value, nil
+	case *model.AgentRenamed:
+		return *value, nil
+	case *model.AgentDeleted:
 		return *value, nil
 	case *model.TaskCreated:
 		return *value, nil
@@ -455,6 +528,8 @@ func decodePayload(eventType string, raw json.RawMessage) (any, error) {
 		return *value, nil
 	case *model.InvocationRequested:
 		return *value, nil
+	case *model.InvocationDeliveryAttempted:
+		return *value, nil
 	case *model.InvocationNotified:
 		return *value, nil
 	case *model.InvocationClaimed:
@@ -470,6 +545,8 @@ func decodePayload(eventType string, raw json.RawMessage) (any, error) {
 	case *model.InvocationDeliveryFailed:
 		return *value, nil
 	case *model.RuntimeRegistered:
+		return *value, nil
+	case *model.RuntimeConfigured:
 		return *value, nil
 	case *model.RuntimeHeartbeat:
 		return *value, nil
@@ -500,19 +577,6 @@ func decodePayload(eventType string, raw json.RawMessage) (any, error) {
 	default:
 		return nil, fmt.Errorf("unsupported payload for %s", eventType)
 	}
-}
-
-func classify(err error) error {
-	message := err.Error()
-	lower := strings.ToLower(message)
-	if strings.Contains(lower, "required") && (strings.Contains(lower, "role") || strings.Contains(lower, "principal") ||
-		strings.Contains(lower, "owner") || strings.Contains(lower, "scope")) {
-		return &controlplane.Error{Code: controlplane.CodeAuthorization, Message: message}
-	}
-	if strings.Contains(lower, "overlap") || strings.Contains(lower, "already leased") {
-		return &controlplane.Error{Code: controlplane.CodeConflict, Message: message}
-	}
-	return &controlplane.Error{Code: controlplane.CodeValidation, Message: message}
 }
 
 func conflictOrUnavailable(err error) error {
@@ -745,6 +809,14 @@ func persistProjectionChanges(ctx context.Context, tx *sql.Tx, projectID string,
 			return err
 		}
 	}
+	for id := range before.Agents {
+		if _, exists := after.Agents[id]; exists {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM agents WHERE project_id=$1 AND agent_id=$2`, projectID, id); err != nil {
+			return err
+		}
+	}
 	for id, value := range after.Tasks {
 		if reflect.DeepEqual(before.Tasks[id], value) {
 			continue
@@ -796,13 +868,14 @@ func persistRuntimeChanges(ctx context.Context, tx *sql.Tx, projectID string, se
 			return err
 		}
 		if _, err = tx.ExecContext(ctx, `INSERT INTO agent_runtimes
-			(project_id,runtime_id,agent_id,connector,status,health,last_seen_at,state,updated_sequence)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+			(project_id,runtime_id,agent_id,runtime_kind,connector,host_id,status,health,last_seen_at,state,updated_sequence)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
 			ON CONFLICT (project_id,runtime_id) DO UPDATE SET agent_id=EXCLUDED.agent_id,
-			connector=EXCLUDED.connector,status=EXCLUDED.status,health=EXCLUDED.health,
+			runtime_kind=EXCLUDED.runtime_kind,connector=EXCLUDED.connector,host_id=EXCLUDED.host_id,
+			status=EXCLUDED.status,health=EXCLUDED.health,
 			last_seen_at=EXCLUDED.last_seen_at,state=EXCLUDED.state,updated_sequence=EXCLUDED.updated_sequence`,
-			projectID, id, runtime.AgentID, runtime.Connector, runtime.Status, runtime.Health,
-			nullableTime(runtime.LastSeenAt), raw, sequence); err != nil {
+			projectID, id, runtime.AgentID, runtime.Kind, runtime.Connector, runtime.HostID,
+			runtime.Status, runtime.Health, nullableTime(runtime.LastSeenAt), raw, sequence); err != nil {
 			return err
 		}
 	}
@@ -839,13 +912,16 @@ func persistInvocationChanges(ctx context.Context, tx *sql.Tx, projectID string,
 			return err
 		}
 		if _, err = tx.ExecContext(ctx, `INSERT INTO invocations
-			(project_id,invocation_id,target_id,requested_by,status,deadline,claim_until,state,updated_sequence)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+			(project_id,invocation_id,target_id,requested_by,consumer_mode,preferred_runtime_id,status,deadline,claim_until,state,updated_sequence)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
 			ON CONFLICT (project_id,invocation_id) DO UPDATE SET target_id=EXCLUDED.target_id,
-			requested_by=EXCLUDED.requested_by,status=EXCLUDED.status,deadline=EXCLUDED.deadline,
-			claim_until=EXCLUDED.claim_until,state=EXCLUDED.state,updated_sequence=EXCLUDED.updated_sequence`,
-			projectID, id, invocation.Target, invocation.RequestedBy, invocation.Status,
-			invocation.Deadline, invocation.ClaimUntil, raw, sequence); err != nil {
+			requested_by=EXCLUDED.requested_by,consumer_mode=EXCLUDED.consumer_mode,
+			preferred_runtime_id=EXCLUDED.preferred_runtime_id,status=EXCLUDED.status,
+			deadline=EXCLUDED.deadline,claim_until=EXCLUDED.claim_until,
+			state=EXCLUDED.state,updated_sequence=EXCLUDED.updated_sequence`,
+			projectID, id, invocation.Target, invocation.RequestedBy, invocation.ConsumerMode,
+			invocation.PreferredRuntimeID, invocation.Status, invocation.Deadline,
+			invocation.ClaimUntil, raw, sequence); err != nil {
 			return err
 		}
 	}
@@ -862,13 +938,14 @@ func persistInvocationDeliveryChanges(ctx context.Context, tx *sql.Tx, projectID
 			return err
 		}
 		if _, err = tx.ExecContext(ctx, `INSERT INTO invocation_deliveries
-			(project_id,delivery_id,invocation_id,runtime_id,attempt,status,next_retry_at,state,updated_sequence)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+			(project_id,delivery_id,invocation_id,runtime_id,transport,attempt,status,next_retry_at,state,updated_sequence)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
 			ON CONFLICT (project_id,delivery_id) DO UPDATE SET invocation_id=EXCLUDED.invocation_id,
-			runtime_id=EXCLUDED.runtime_id,attempt=EXCLUDED.attempt,status=EXCLUDED.status,
+			runtime_id=EXCLUDED.runtime_id,transport=EXCLUDED.transport,
+			attempt=EXCLUDED.attempt,status=EXCLUDED.status,
 			next_retry_at=EXCLUDED.next_retry_at,state=EXCLUDED.state,updated_sequence=EXCLUDED.updated_sequence`,
-			projectID, id, delivery.InvocationID, delivery.RuntimeID, delivery.Attempt,
-			delivery.Status, delivery.NextRetryAt, raw, sequence); err != nil {
+			projectID, id, delivery.InvocationID, delivery.RuntimeID, delivery.Transport,
+			delivery.Attempt, delivery.Status, delivery.NextRetryAt, raw, sequence); err != nil {
 			return err
 		}
 	}

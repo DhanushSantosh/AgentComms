@@ -1,4 +1,4 @@
-package service
+package service_test
 
 import (
 	"testing"
@@ -6,6 +6,7 @@ import (
 
 	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
+	"github.com/DhanushSantosh/AgentComms/internal/service"
 )
 
 func TestRuntimeRegistrationPresenceAndLifecycle(t *testing.T) {
@@ -101,6 +102,9 @@ func TestNextInvocationPrioritizesUrgencyThenAgeAndHonorsCapacity(t *testing.T) 
 	must(t, instance, "owner", "runtime.register", "runtime-queue", model.RuntimeRegistered{
 		AgentID: "builder", Connector: "MCP", MaxConcurrent: 1,
 	})
+	must(t, instance, "builder", "runtime.heartbeat", "runtime-queue", model.RuntimeHeartbeat{
+		Health: "HEALTHY",
+	})
 	must(t, instance, "owner", "invocation.request", "normal", model.InvocationRequested{
 		Target: "builder", Instruction: "Normal work", Priority: "NORMAL",
 	})
@@ -117,9 +121,6 @@ func TestNextInvocationPrioritizesUrgencyThenAgeAndHonorsCapacity(t *testing.T) 
 	}
 
 	must(t, instance, "builder", "invocation.claim", "urgent", model.InvocationClaimed{RuntimeID: "runtime-queue"})
-	must(t, instance, "builder", "runtime.heartbeat", "runtime-queue", model.RuntimeHeartbeat{
-		Health: "HEALTHY", ActiveInvocations: []string{"urgent"},
-	})
 	if _, found, err = instance.NextInvocation("builder", "runtime-queue"); err != nil || found {
 		t.Fatalf("capacity-bound runtime returned work: found=%t err=%v", found, err)
 	}
@@ -130,6 +131,9 @@ func TestListenInvocationReceivesNewWorkWithoutPolling(t *testing.T) {
 	activate(t, instance, "builder", model.PrincipalAgent)
 	must(t, instance, "owner", "runtime.register", "runtime-listener", model.RuntimeRegistered{
 		AgentID: "builder", Connector: "MCP", MaxConcurrent: 1,
+	})
+	must(t, instance, "builder", "runtime.heartbeat", "runtime-listener", model.RuntimeHeartbeat{
+		Health: "HEALTHY",
 	})
 	type result struct {
 		invocation model.Invocation
@@ -204,7 +208,7 @@ func TestRuntimePresenceExpiresWithoutHeartbeat(t *testing.T) {
 			Health: "HEALTHY", LastSeenAt: now.Add(-controlplane.RuntimeOfflineAfter * 2),
 		},
 	}}
-	RefreshRuntimePresence(&state, now)
+	service.RefreshRuntimePresence(&state, now)
 	if state.AgentRuntimes["fresh"].Status != "ONLINE" {
 		t.Fatal("fresh runtime was marked offline")
 	}
@@ -214,5 +218,64 @@ func TestRuntimePresenceExpiresWithoutHeartbeat(t *testing.T) {
 	}
 	if state.AgentRuntimes["draining"].Status != "DRAINING" {
 		t.Fatal("draining runtime status was overwritten")
+	}
+}
+
+func TestSummarizeInvocationDeliveryUsesOneTruthAcrossAdapters(t *testing.T) {
+	state := model.State{
+		Invocations: map[string]model.Invocation{
+			"interactive": {
+				ID: "interactive", Target: "builder",
+				ConsumerMode: model.ConsumerModeInteractiveOnly,
+			},
+			"either": {
+				ID: "either", Target: "builder",
+				ConsumerMode: model.ConsumerModeEither,
+			},
+			"delivered": {
+				ID: "delivered", Target: "builder",
+				ConsumerMode: model.ConsumerModeInteractiveOnly,
+			},
+		},
+		AgentRuntimes: map[string]model.AgentRuntime{
+			"interactive-a": {
+				ID: "interactive-a", AgentID: "builder",
+				Kind: model.RuntimeKindInteractive, Connector: "INTERACTIVE",
+				HostID: "local-host", Status: "ONLINE",
+			},
+			"interactive-b": {
+				ID: "interactive-b", AgentID: "builder",
+				Kind: model.RuntimeKindInteractive, Connector: "INTERACTIVE",
+				HostID: "local-host", Status: "ONLINE",
+			},
+		},
+		InvocationDeliveries: map[string]model.InvocationDelivery{
+			"delivery-1": {
+				ID: "delivery-1", InvocationID: "delivered",
+				RuntimeID: "interactive-a", Transport: "INTERACTIVE",
+				Attempt: 1, Status: "SUCCEEDED",
+				Evidence: []model.DeliveryEvidence{
+					{Stage: "PTY_TEXT_ECHOED"},
+					{Stage: "PTY_ENTER_SENT"},
+				},
+			},
+		},
+	}
+
+	ambiguous, found := service.SummarizeInvocationDelivery(state, "interactive", "", "local-host")
+	if !found || ambiguous.Outcome != "AMBIGUOUS" {
+		t.Fatalf("ambiguous summary=%+v found=%t", ambiguous, found)
+	}
+	pending, found := service.SummarizeInvocationDelivery(state, "either", "", "local-host")
+	if !found || pending.Outcome != "PENDING_CONSUMER" {
+		t.Fatalf("pending summary=%+v found=%t", pending, found)
+	}
+	delivered, found := service.SummarizeInvocationDelivery(state, "delivered", "", "local-host")
+	if !found || delivered.Outcome != "SUCCEEDED" ||
+		delivered.DeliveryID != "delivery-1" || len(delivered.Evidence) != 2 {
+		t.Fatalf("delivered summary=%+v found=%t", delivered, found)
+	}
+	if _, found = service.SummarizeInvocationDelivery(state, "missing", "", "local-host"); found {
+		t.Fatal("missing invocation was reported as present")
 	}
 }

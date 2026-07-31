@@ -13,7 +13,7 @@ var approvalRequestForm = &ActionForm{
 	Hint:  "Destructive, irreversible, external, production-data, credential, and force-push actions require an approver.",
 	Fields: []FormField{
 		{Label: "Approval ID", Placeholder: "approval-001", Required: true},
-		{Label: "Tier (ORCHESTRATOR/HUMAN)", Placeholder: "ORCHESTRATOR"},
+		{Label: "Tier", Options: []string{"ORCHESTRATOR", "HUMAN"}},
 		{Label: "Action", Placeholder: "task.takeover:task-001", Required: true},
 		{Label: "Reason", Placeholder: ""},
 		{Label: "Affected (comma-separated)", Placeholder: ""},

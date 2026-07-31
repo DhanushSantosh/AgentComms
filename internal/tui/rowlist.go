@@ -16,6 +16,13 @@ type FormField struct {
 	Label       string
 	Placeholder string
 	Required    bool
+	// Options, when set, turns this field into a left/right-cycling
+	// single-select instead of free text -- for enum-shaped values (role,
+	// kind, connector, tier, ...) where a typo used to silently produce the
+	// wrong value with no feedback until the signed Execute call rejected
+	// it. The field's value defaults to Options[0] and can only ever be one
+	// of these strings; typed characters are ignored while it's focused.
+	Options []string
 }
 type ActionForm struct {
 	Title, Hint string
@@ -122,6 +129,14 @@ func (m *Model) activeRowList() *RowList {
 		return &m.invocationList
 	case "Runtimes":
 		return &m.runtimeList
+	case "Documents":
+		return &m.documentList
+	case "Contracts & decisions":
+		return &m.decisionList
+	case "Artifacts":
+		return &m.artifactList
+	case "Environment":
+		return &m.envList
 	}
 	return nil
 }
@@ -139,6 +154,16 @@ func (m Model) openCreateForm() (tea.Model, tea.Cmd) {
 		return m.openActionForm(invocationRequestForm, "invocation.request", "")
 	case "Runtimes":
 		return m.openActionForm(runtimeRegisterForm, "runtime.register", "")
+	case "Documents":
+		return m.openActionForm(documentCreateForm, "document.create", "")
+	case "Contracts & decisions":
+		return m.openActionForm(decisionCreateForm, "decision.create", "")
+	case "Artifacts":
+		return m.openActionForm(artifactAddForm, "artifact.add", "")
+	case "Drafts":
+		return m.openActionForm(draftSaveForm, "draft.save", "")
+	case "Environment":
+		return m.openActionForm(envSetForm, "env.set", "")
 	}
 	return m, nil
 }
@@ -261,8 +286,12 @@ func (m Model) openActionForm(spec *ActionForm, typ, id string) (tea.Model, tea.
 	for i, f := range spec.Fields {
 		input := textinput.New()
 		input.Prompt = f.Label + ": "
-		input.Placeholder = f.Placeholder
 		input.CharLimit = 1200
+		if len(f.Options) > 0 {
+			input.SetValue(f.Options[0])
+		} else {
+			input.Placeholder = f.Placeholder
+		}
 		m.inputs[i] = input
 	}
 	var cmd tea.Cmd

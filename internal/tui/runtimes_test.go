@@ -36,11 +36,46 @@ func TestRuntimeSessionBindingReflectsCapturedProviderAndID(t *testing.T) {
 	}
 }
 
-func TestRuntimeRowsIncludeProviderAndSessionColumns(t *testing.T) {
+// TestRuntimesViewRendersDetailPaneForSelectedRow confirms the full panel
+// (compact table + detail pane) renders together and shows the selected
+// row's full picture -- the actual UX outcome of the master-detail
+// redesign, not just the underlying data functions in isolation.
+func TestRuntimesViewRendersDetailPaneForSelectedRow(t *testing.T) {
 	instance := newTestService(t)
-	registerAgent(t, instance, "axiom", model.RoleAgent, "src")
-	if _, err := instance.Execute("axiom", "runtime.register", "axiom-runtime-1",
-		model.RuntimeRegistered{AgentID: "axiom", Connector: "MANUAL", MaxConcurrent: 1}); err != nil {
+	registerAgent(t, instance, "AXIOM", model.RoleAgent, "src")
+	if _, err := instance.Execute("AXIOM", "runtime.register", "axiom-runtime-1",
+		model.RuntimeRegistered{AgentID: "AXIOM", Connector: "MANUAL", MaxConcurrent: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := sessionbind.Save(instance.Store.Root, "axiom-runtime-1", "e22cbdad-7233-4d6d-8ecc-0c4bffd8c475", "claude"); err != nil {
+		t.Fatal(err)
+	}
+	view, err := New(instance, "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	view.openView("Runtimes")
+	view.rowFocus = true
+	view.runtimeList.Refresh(view.state, view.actor)
+	rendered := view.View().Content
+	for _, expected := range []string{"AXIOM", "RUNTIME DETAIL", "Claude", "e22cbdad-7233-4d6d-8ecc-0c4bffd8c475"} {
+		if !strings.Contains(rendered, expected) {
+			t.Errorf("runtimes view missing %q:\n%s", expected, rendered)
+		}
+	}
+}
+
+// TestRuntimeDetailIncludesProviderAndSession is the successor to what was
+// TestRuntimeRowsIncludeProviderAndSessionColumns: provider/session binding
+// moved out of the table (runtimeRowSource.Columns is now just the
+// essentials -- see the doc comment on it) and into the per-row detail pane
+// computed by detailFor, so this now asserts against detailFor's result
+// instead of a table row.
+func TestRuntimeDetailIncludesProviderAndSession(t *testing.T) {
+	instance := newTestService(t)
+	registerAgent(t, instance, "AXIOM", model.RoleAgent, "src")
+	if _, err := instance.Execute("AXIOM", "runtime.register", "axiom-runtime-1",
+		model.RuntimeRegistered{AgentID: "AXIOM", Connector: "MANUAL", MaxConcurrent: 1}); err != nil {
 		t.Fatal(err)
 	}
 	if err := sessionbind.Save(instance.Store.Root, "axiom-runtime-1", "e22cbdad-7233-4d6d-8ecc-0c4bffd8c475", "claude"); err != nil {
@@ -51,24 +86,27 @@ func TestRuntimeRowsIncludeProviderAndSessionColumns(t *testing.T) {
 		t.Fatal(err)
 	}
 	source := runtimeRowSource{root: instance.Store.Root}
-	rows := source.Rows(state, "owner", false)
-	if len(rows) != 1 {
-		t.Fatalf("expected one runtime row, got %d", len(rows))
+	detail, ok := source.detailFor("axiom-runtime-1", state)
+	if !ok {
+		t.Fatal("expected detailFor to find axiom-runtime-1")
 	}
-	row := strings.Join(rows[0], "|")
-	if !strings.Contains(row, "Claude") || !strings.Contains(row, "e22cbdad-7233-4d6d-8ecc-0c4bffd8c475") {
-		t.Fatalf("expected the provider and full session ID in the row, got: %q", row)
+	if detail.provider != "Claude" || detail.session != "e22cbdad-7233-4d6d-8ecc-0c4bffd8c475" {
+		t.Fatalf("expected Claude provider and full session ID, got provider=%q session=%q", detail.provider, detail.session)
 	}
 }
 
-func TestRuntimeColumnsIncludeProviderAndSessionHeaders(t *testing.T) {
+// TestRuntimeColumnsAreCompact confirms the table itself stays to the
+// essentials now that everything else lives in the detail pane -- a wide
+// terminal used to be required just to read the table at all.
+func TestRuntimeColumnsAreCompact(t *testing.T) {
 	columns := runtimeRowSource{}.Columns(160)
 	var titles []string
 	for _, column := range columns {
 		titles = append(titles, column.Title)
 	}
-	joined := strings.Join(titles, "|")
-	if !strings.Contains(joined, "PROVIDER") || !strings.Contains(joined, "SESSION") {
-		t.Fatalf("expected PROVIDER and SESSION columns, got: %q", joined)
+	got := strings.Join(titles, "|")
+	want := "STATUS|HEALTH|AGENT|KIND"
+	if got != want {
+		t.Fatalf("columns = %q, want %q", got, want)
 	}
 }

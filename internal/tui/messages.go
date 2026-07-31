@@ -83,7 +83,12 @@ func messageActionsFor(m model.Message, actor string) []RowAction {
 	return nil
 }
 
-type messageRowSource struct{}
+// messageRowSource.owner is the real project owner's principal ID
+// (store.Config().Owner), never the literal string "owner" -- a project's
+// owner can be registered under any ID (e.g. "Dhanush"), and comparing the
+// viewing actor against a hardcoded "owner" would silently never grant the
+// owner visibility into every message on a real project.
+type messageRowSource struct{ owner string }
 
 func (messageRowSource) Columns(width int) []table.Column {
 	kind, from, state := 10, 13, 12
@@ -98,11 +103,11 @@ func (messageRowSource) Columns(width int) []table.Column {
 		{Title: "STATE", Width: state},
 	}
 }
-func (messageRowSource) filteredIDs(st model.State, actor string) []string {
+func (s messageRowSource) filteredIDs(st model.State, actor string) []string {
 	ids := make([]string, 0, len(st.Messages))
 	for _, id := range service.SortedKeys(st.Messages) {
 		m := st.Messages[id]
-		addressed := actor == "owner"
+		addressed := s.owner != "" && actor == s.owner
 		for _, to := range m.To {
 			if to == actor {
 				addressed = true

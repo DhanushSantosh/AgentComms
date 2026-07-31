@@ -34,6 +34,34 @@ func TestControlRoomRendersWorkforceAndOperationalViews(t *testing.T) {
 	}
 }
 
+// TestAuditHealthSurfacesDoctorFindings confirms Audit & health shows
+// exactly what `agent-comms doctor` would report -- previously this panel
+// only rendered chain integrity and lifecycle, never doctor's findings, so
+// diagnosing a project required leaving the TUI entirely.
+func TestAuditHealthSurfacesDoctorFindings(t *testing.T) {
+	instance := newTestService(t)
+	// "builder" is one of doctor's own TEST_LIKE_RUNTIME triggers
+	// (internal/doctor.Findings), so this is a real, already-present finding
+	// rather than fabricated state.
+	registerAgent(t, instance, "builder", model.RoleAgent, "src")
+	view, err := New(instance, "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	view.openView("Audit & health")
+	// Findings are computed lazily, on focus, not eagerly in New() -- see
+	// New()'s and refreshSilent's comments on why (doctor.Findings dials
+	// every ONLINE interactive runtime's PTY socket, too slow to pay on
+	// every TUI launch or background tick).
+	view.focusCurrentView()
+	rendered := view.View().Content
+	for _, expected := range []string{"Doctor findings", "TEST_LIKE_RUNTIME"} {
+		if !strings.Contains(rendered, expected) {
+			t.Errorf("Audit & health missing %q:\n%s", expected, rendered)
+		}
+	}
+}
+
 func TestArrowNavigationMovesBetweenHubsAndTabs(t *testing.T) {
 	instance := newTestService(t)
 	view, err := New(instance, "owner")
@@ -65,9 +93,12 @@ func TestAgentControlsAreVisibleBeforeEnteringManageMode(t *testing.T) {
 	for _, expected := range []string{
 		"NAVIGATION · Enter to manage selected agent",
 		"Selected: owner",
-		"[n] register agent",
-		"[s] suspend",
-		"[z] rotate key",
+		// agentControlBar joins "[key] label" with non-breaking spaces
+		// ( ) so a width-driven wrap can't split one action's own text
+		// across lines -- these assertions must match that literally.
+		"[n] register agent",
+		"[s] suspend",
+		"[z] rotate key",
 	} {
 		if !strings.Contains(rendered, expected) {
 			t.Errorf("agent workspace missing %q", expected)
@@ -101,11 +132,11 @@ func TestInvocationRowActionsFollowStateAndAuthority(t *testing.T) {
 		actor  string
 		want   []string
 	}{
-		{"PENDING", "builder", []string{"claim", "reject"}},
+		{"PENDING", "builder", []string{"claim", "reject", "redeliver"}},
 		{"CLAIMED", "builder", []string{"start", "reject"}},
 		{"RUNNING", "builder", []string{"wait", "complete"}},
 		{"WAITING", "builder", []string{"resume", "complete"}},
-		{"PENDING", "owner", []string{"cancel"}},
+		{"PENDING", "owner", []string{"redeliver", "cancel"}},
 		{"COMPLETED", "owner", nil},
 	}
 	for _, testCase := range cases {
@@ -147,7 +178,7 @@ func TestRuntimeRowActionsExposeDrainResumeAndRevoke(t *testing.T) {
 	runtime.Status = "DRAINING"
 	state.AgentRuntimes["runtime"] = runtime
 	actions = runtimeRowSource{}.Actions("runtime", state, "builder")
-	if len(actions) != 1 || actions[0].Label != "resume" {
+	if len(actions) != 2 || actions[0].Label != "resume" || actions[1].Label != "configure" {
 		t.Fatalf("draining runtime actions=%v", actions)
 	}
 }

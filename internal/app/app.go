@@ -2,6 +2,7 @@ package app
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -15,35 +16,88 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
 
+	"github.com/DhanushSantosh/AgentComms/internal/buildinfo"
+	"github.com/DhanushSantosh/AgentComms/internal/claudeserve"
+	"github.com/DhanushSantosh/AgentComms/internal/claudetail"
+	"github.com/DhanushSantosh/AgentComms/internal/codexserve"
 	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
 	"github.com/DhanushSantosh/AgentComms/internal/daemon"
 	"github.com/DhanushSantosh/AgentComms/internal/daemonclient"
-	"github.com/DhanushSantosh/AgentComms/internal/hybridmigration"
+	"github.com/DhanushSantosh/AgentComms/internal/doctor"
+	"github.com/DhanushSantosh/AgentComms/internal/durablefs"
+	"github.com/DhanushSantosh/AgentComms/internal/failure"
 	"github.com/DhanushSantosh/AgentComms/internal/identity"
+	"github.com/DhanushSantosh/AgentComms/internal/interactiveserve"
 	"github.com/DhanushSantosh/AgentComms/internal/mcp"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
-	"github.com/DhanushSantosh/AgentComms/internal/personalmigration"
+	"github.com/DhanushSantosh/AgentComms/internal/onboarding"
+	"github.com/DhanushSantosh/AgentComms/internal/projectlifecycle"
+	"github.com/DhanushSantosh/AgentComms/internal/runtimeinit"
 	"github.com/DhanushSantosh/AgentComms/internal/service"
 	"github.com/DhanushSantosh/AgentComms/internal/sessionbind"
 	"github.com/DhanushSantosh/AgentComms/internal/store"
 	tuiterm "github.com/DhanushSantosh/AgentComms/internal/tui"
 	runtimeworker "github.com/DhanushSantosh/AgentComms/internal/worker"
+	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 )
 
-var Version = "0.1.0"
+var Version = buildinfo.Version
 
 const APIVersion = "agent-comms/v1"
+
+const (
+	interactiveHeartbeatInterval = 15 * time.Second
+	// daemonReadyTimeout bounds how long ensureDaemon waits for a newly
+	// spawned daemon to answer a health check before giving up. Widened
+	// from the original 10s: under `-race` (which adds real per-goroutine
+	// scheduling overhead) combined with genuine CI/system contention,
+	// TestEnsureDaemonReplacesIncompatibleDaemon's in-process daemon
+	// goroutine (its TestMain replaces the real subprocess spawn with one,
+	// see app_test.go) intermittently didn't get scheduled in time to bind
+	// and answer even one health check within 10s, on a clean re-run of
+	// the exact same commit with no code changes. Widened again from 20s
+	// to 40s: even at 20s this test kept hitting the ceiling specifically
+	// on GitHub's macOS-latest runners (confirmed on three separate,
+	// unrelated PRs in one session, always resolved by a bare rerun of the
+	// identical commit) -- macOS Actions runners are known to be
+	// meaningfully slower/more contended than the Linux/Windows ones for
+	// CPU-bound work like this. 40s gives real headroom there too without
+	// meaningfully changing production behavior -- a real subprocess
+	// normally becomes healthy in milliseconds, so this ceiling is rarely
+	// reached at all outside exactly this kind of CI contention.
+	daemonReadyTimeout         = 40 * time.Second
+	daemonReadyPollInterval    = 100 * time.Millisecond
+	daemonHealthRequestTimeout = 300 * time.Millisecond
+	// daemonShutdownWaitAttempts/daemonShutdownWaitSleep bound how long
+	// ensureDaemon waits for an incompatible daemon to actually stop
+	// responding before spawning its replacement. This must comfortably
+	// exceed the graceful-shutdown allowance daemon.Run itself grants
+	// (internal/daemon/run.go's daemonShutdownTimeout, 10s) -- otherwise a
+	// daemon that legitimately uses its full shutdown budget (e.g.
+	// draining an in-flight request) hasn't released its socket yet when
+	// the replacement tries to bind. That bind then fails silently
+	// (ListenLocal sees a still-live socket and returns os.ErrExist), and
+	// ensureDaemon burns its entire daemonReadyTimeout waiting for a
+	// daemon that never actually started. The previous ~3s budget
+	// (20 attempts * 150ms) intermittently lost this race under real
+	// scheduling jitter. 100 attempts * (health-check timeout + sleep) =
+	// 15s comfortably exceeds the 10s the old daemon is allowed to take.
+	daemonShutdownWaitAttempts = 100
+	daemonShutdownWaitSleep    = 50 * time.Millisecond
+)
 
 type Envelope struct {
 	APIVersion string     `json:"api_version"`
 	OK         bool       `json:"ok"`
 	Command    string     `json:"command"`
 	Result     any        `json:"result,omitempty"`
+	Delivery   any        `json:"delivery,omitempty"`
 	Error      *ErrorBody `json:"error,omitempty"`
 	Warnings   []string   `json:"warnings,omitempty"`
 }
@@ -67,10 +121,50 @@ type cli struct {
 	timeout                              time.Duration
 	svc                                  *service.Service
 	cmd                                  string
+	actorResolution                      identity.ActorResolution
+	pendingWarnings                      []string
+	processExitCode                      int
+	handoffRunner                        commandRunner
+}
+
+type commandRunner func(
+	context.Context,
+	string,
+	[]string,
+	io.Reader,
+	io.Writer,
+	io.Writer,
+) error
+
+func runCommand(
+	ctx context.Context,
+	executable string,
+	arguments []string,
+	stdin io.Reader,
+	stdout io.Writer,
+	stderr io.Writer,
+) error {
+	process := exec.CommandContext(ctx, executable, arguments...)
+	process.Stdin = stdin
+	process.Stdout = stdout
+	process.Stderr = stderr
+	return process.Run()
+}
+
+var launchDaemonProcess = func(executable, projectRoot string, output io.Writer) error {
+	process := exec.Command(executable, "daemon", "serve", "--project", projectRoot)
+	process.Stdout = output
+	process.Stderr = output
+	if err := process.Start(); err != nil {
+		return err
+	}
+	return process.Process.Release()
 }
 
 func Run(args []string, stdout, stderr io.Writer) error {
+	buildinfo.Version = Version
 	store.RuntimeVersion = Version
+	store.RuntimeBuildID = buildinfo.ResolvedBuildID()
 	c := &cli{out: stdout, err: stderr, timeout: 10 * time.Second}
 	root := c.root()
 	root.SetArgs(args)
@@ -86,13 +180,30 @@ func Run(args []string, stdout, stderr io.Writer) error {
 		}
 		return &ExitError{Code: exitCode(e), Kind: errorCode(e), Err: e}
 	}
+	if c.processExitCode != 0 {
+		err := fmt.Errorf("wrapped process exited with status %d", c.processExitCode)
+		return &ExitError{Code: c.processExitCode, Kind: "PROCESS_EXIT", Err: err}
+	}
 	return nil
 }
 func (c *cli) root() *cobra.Command {
 	r := &cobra.Command{Use: "agent-comms", Short: "Governed coordination for concurrent agents", Version: Version, PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		c.cmd = cmd.CommandPath()
-		if cmd.Name() == "version" || cmd.Name() == "init" || cmd.Name() == "completion" || (cmd.Name() == "update" && cmd.Parent() == cmd.Root()) || cmd.Name() == "agent-instructions" || cmd.CommandPath() == "agent-comms daemon serve" {
+		if cmd.Name() == "version" || cmd.Name() == "init" || cmd.Name() == "completion" ||
+			(cmd.Name() == "update" && cmd.Parent() == cmd.Root()) ||
+			strings.HasPrefix(cmd.CommandPath(), "agent-comms project upgrade") ||
+			cmd.CommandPath() == "agent-comms daemon serve" ||
+			cmd.CommandPath() == "agent-comms claude serve" ||
+			cmd.CommandPath() == "agent-comms claude attach" ||
+			cmd.CommandPath() == "agent-comms codex serve" ||
+			cmd.CommandPath() == "agent-comms codex attach" {
 			return nil
+		}
+		if cmd.CommandPath() == "agent-comms profile list" ||
+			cmd.CommandPath() == "agent-comms profile use" {
+			warnings, e := c.reconcileUserInstallation(cmd.Context(), "")
+			c.pendingWarnings = append(c.pendingWarnings, warnings...)
+			return e
 		}
 		root := c.project
 		if root == "" {
@@ -102,10 +213,32 @@ func (c *cli) root() *cobra.Command {
 				return e
 			}
 		}
-		c.svc = service.New(root)
-		if cmd.CommandPath() == "agent-comms migrate adopt" {
-			c.svc.Store.LockTimeout = c.timeout
-			return nil
+		applyLifecycle := cmd.Name() != "doctor"
+		if applyLifecycle {
+			warnings, e := c.reconcileUserInstallation(cmd.Context(), root)
+			c.pendingWarnings = append(c.pendingWarnings, warnings...)
+			if e != nil {
+				return e
+			}
+		}
+		if _, e := projectlifecycle.Reconcile(cmd.Context(), projectlifecycle.Options{
+			Root: root, Version: Version, BuildID: buildinfo.ResolvedBuildID(),
+			Apply: applyLifecycle, Timeout: c.timeout, StopDaemon: applyLifecycle,
+		}); e != nil {
+			return e
+		}
+		if cmd.Name() == "doctor" {
+			c.svc = service.NewTolerant(root)
+		} else {
+			c.svc = service.New(root)
+		}
+		switch cmd.Name() {
+		case "mcp":
+			c.svc.PassphrasePrompt = nonInteractivePassphrasePrompt("an MCP connection")
+		case "tui":
+			c.svc.PassphrasePrompt = nonInteractivePassphrasePrompt("the TUI")
+		default:
+			c.svc.PassphrasePrompt = promptPassphrase
 		}
 		cfg, e := c.svc.Store.Config()
 		if e != nil {
@@ -116,36 +249,30 @@ func (c *cli) root() *cobra.Command {
 		}
 		c.svc.Store.LockTimeout = c.timeout
 		c.svc.SetRemoteRecovery(func() error { return ensureDaemon(root, cfg) })
-		needsDaemon := cmd.CommandPath() != "agent-comms migrate service" &&
-			cmd.CommandPath() != "agent-comms migrate personal"
-		if needsDaemon && (cfg.RuntimeMode == "service" || cfg.RuntimeMode == "personal") {
+		if cmd.Name() != "doctor" && (cfg.RuntimeMode == "service" || cfg.RuntimeMode == "personal") {
 			if e = ensureDaemon(root, cfg); e != nil {
 				return e
 			}
 		}
-		if c.actor == "" {
-			c.actor = os.Getenv("AGENT_COMMS_ACTOR")
-		}
-		if c.actor == "" {
-			uc, _ := identity.LoadUserConfig()
-			pname := c.profile
-			if pname == "" {
-				pname = uc.ActiveProfile
-			}
-			if p, ok := uc.Profiles[pname]; ok && p.ProjectID == cfg.ProjectID {
-				c.actor = p.Actor
-			} else {
-				c.actor = cfg.Owner
+		environmentActor := os.Getenv("AGENT_COMMS_ACTOR")
+		userConfig := identity.UserConfig{Profiles: map[string]identity.Profile{}}
+		needsUserConfig := c.actor == "" && (c.profile != "" || environmentActor == "")
+		if needsUserConfig {
+			userConfig, e = identity.LoadUserConfig()
+			if e != nil {
+				return fmt.Errorf("load identity profiles: %w", e)
 			}
 		}
-		if incomplete, state := c.svc.Store.CutoverIncomplete(); incomplete && !cutoverCommandAllowed(cmd.CommandPath()) {
-			return fmt.Errorf("migration cutover is incomplete (%s); normal work is blocked until explicit activation", state)
-		} else if !incomplete && state == store.CutoverActivated && !c.svc.Store.ManagedBootstrapValid() && !cutoverCommandAllowed(cmd.CommandPath()) {
-			return errors.New("split-brain cutover detected: ACTIVATED runtime does not match root .agents; normal work is blocked")
+		c.actorResolution, e = identity.ResolveActor(identity.ActorResolutionRequest{
+			ProjectID: cfg.ProjectID, ProjectOwner: cfg.Owner,
+			ExplicitActor: c.actor, ExplicitProfile: c.profile,
+			EnvironmentActor: environmentActor, HostLabel: os.Getenv("AGENT_COMMS_HOST_LABEL"),
+			UserConfig: userConfig,
+		})
+		if e != nil {
+			return e
 		}
-		if incomplete, status := c.svc.Store.MigrationIncomplete(); incomplete && !cutoverCommandAllowed(cmd.CommandPath()) {
-			return fmt.Errorf("runtime migration is incomplete (%s); normal work is blocked", status)
-		}
+		c.actor = c.actorResolution.Actor
 		return nil
 	}}
 	f := r.PersistentFlags()
@@ -157,27 +284,22 @@ func (c *cli) root() *cobra.Command {
 	f.DurationVar(&c.timeout, "timeout", 10*time.Second, "transaction lock timeout")
 	f.BoolVar(&c.noColor, "no-color", false, "disable ANSI color")
 	f.BoolVarP(&c.quiet, "quiet", "q", false, "suppress non-essential output")
-	r.AddCommand(c.versionCmd(), c.initCmd(), c.doctorCmd(), c.verifyCmd(), c.statusCmd(), c.controlCmd(), c.historyCmd(), c.searchCmd(), c.agentCmd(), c.runtimeCmd(), c.invocationCmd(), c.sessionCmd(), c.taskCmd(), c.messageCmd(), c.decisionCmd(), c.approvalCmd(), c.artifactCmd(), c.documentCmd(), c.envCmd(), c.draftCmd(), c.archiveCmd(), c.exportCmd(), c.syncCmd(), c.profileCmd(), c.configCmd(), c.themeCmd(), c.updateCmd(), c.completionCmd(r), c.agentInstructionsCmd(), c.mcpCmd(), c.watchCmd(), c.tuiCmd(), c.migrateCmd(), c.daemonCmd())
+	r.AddCommand(c.versionCmd(), c.initCmd(), c.projectCmd(), c.doctorCmd(), c.verifyCmd(), c.statusCmd(), c.controlCmd(), c.historyCmd(), c.searchCmd(), c.agentCmd(), c.runtimeCmd(), c.invocationCmd(), c.sessionCmd(), c.taskCmd(), c.messageCmd(), c.decisionCmd(), c.approvalCmd(), c.artifactCmd(), c.documentCmd(), c.envCmd(), c.draftCmd(), c.archiveCmd(), c.exportCmd(), c.profileCmd(), c.configCmd(), c.themeCmd(), c.updateCmd(), c.completionCmd(r), c.agentInstructionsCmd(), c.mcpCmd(), c.watchCmd(), c.tuiCmd(), c.daemonCmd(), c.claudeCmd(), c.codexCmd())
 	return r
 }
-
-func cutoverCommandAllowed(path string) bool {
-	for _, prefix := range []string{
-		"agent-comms migrate", "agent-comms doctor", "agent-comms verify", "agent-comms status", "agent-comms history", "agent-comms search",
-		"agent-comms agent register", "agent-comms agent activate", "agent-comms agent list",
-		"agent-comms task create", "agent-comms task claim", "agent-comms task start", "agent-comms task block",
-		"agent-comms decision create", "agent-comms message post",
-		"agent-comms document create", "agent-comms document update", "agent-comms document list", "agent-comms document show",
-	} {
-		if strings.HasPrefix(path, prefix) {
-			return true
-		}
-	}
-	return false
+func (c *cli) emit(command string, v any, warnings ...string) error {
+	return c.emitWithDelivery(command, v, nil, warnings...)
 }
-func (c *cli) emit(command string, v any) error {
+
+func (c *cli) emitWithDelivery(command string, v, delivery any, warnings ...string) error {
+	if len(c.pendingWarnings) > 0 {
+		warnings = append(append([]string{}, c.pendingWarnings...), warnings...)
+	}
 	if c.json {
-		return json.NewEncoder(c.out).Encode(Envelope{APIVersion: APIVersion, OK: true, Command: command, Result: v})
+		return json.NewEncoder(c.out).Encode(Envelope{
+			APIVersion: APIVersion, OK: true, Command: command,
+			Result: v, Delivery: delivery, Warnings: warnings,
+		})
 	}
 	if c.quiet {
 		return nil
@@ -186,8 +308,39 @@ func (c *cli) emit(command string, v any) error {
 	if e != nil {
 		return e
 	}
-	_, e = fmt.Fprintln(c.out, string(b))
-	return e
+	if _, e = fmt.Fprintln(c.out, string(b)); e != nil {
+		return e
+	}
+	if delivery != nil {
+		deliveryBody, marshalErr := json.MarshalIndent(delivery, "", "  ")
+		if marshalErr != nil {
+			return marshalErr
+		}
+		if _, e = fmt.Fprintln(c.out, "delivery:", string(deliveryBody)); e != nil {
+			return e
+		}
+	}
+	for _, w := range warnings {
+		if _, e = fmt.Fprintln(c.err, "warning:", w); e != nil {
+			return e
+		}
+	}
+	return nil
+}
+
+type invocationDeliveryResult = service.InvocationDeliveryResult
+
+func (c *cli) invocationDeliveryOutcome(invocationID, deliveryID string) (invocationDeliveryResult, error) {
+	state, err := c.svc.State()
+	if err != nil {
+		return invocationDeliveryResult{}, err
+	}
+	localHostID, _ := identity.LoadHostID()
+	result, exists := service.SummarizeInvocationDelivery(state, invocationID, deliveryID, localHostID)
+	if !exists {
+		return invocationDeliveryResult{}, errors.New("invocation not found after commit")
+	}
+	return result, nil
 }
 
 // captureRuntimeSession opportunistically binds a freshly registered runtime
@@ -206,62 +359,168 @@ func (c *cli) captureRuntimeSession(runtimeID string) {
 	}
 }
 
+// errorCode/exitCode delegate entirely to internal/failure's shared
+// classifier -- the same one MCP's rpcFail uses -- so
+// *projectlifecycle.Error and every other classified error type is
+// unwrapped in exactly one place, not duplicated per interface.
 func errorCode(e error) string {
-	var controlErr *controlplane.Error
-	if errors.As(e, &controlErr) {
-		return string(controlErr.Code)
-	}
-	var b *store.BusyError
-	if errors.As(e, &b) {
-		return "BUSY"
-	}
-	s := strings.ToLower(e.Error())
-	switch {
-	case strings.Contains(s, "credential") || strings.Contains(s, "active principal") || strings.Contains(s, "role required") || strings.Contains(s, "human principal"):
-		return "AUTHORIZATION"
-	case strings.Contains(s, "signature") || strings.Contains(s, "hash") || strings.Contains(s, "chain"):
-		return "INTEGRITY"
-	case strings.Contains(s, "remote") || strings.Contains(s, "git "):
-		return "EXTERNAL"
-	case strings.Contains(s, "schema") || strings.Contains(s, "migration"):
-		return "MIGRATION"
-	default:
-		return "VALIDATION"
-	}
+	return failure.Code(e)
 }
 func exitCode(e error) int {
-	switch errorCode(e) {
-	case "VALIDATION":
-		return 2
-	case "AUTHORIZATION":
-		return 3
-	case "BUSY":
-		return 4
-	case "INTEGRITY":
-		return 5
-	case "MIGRATION":
-		return 6
-	case "EXTERNAL":
-		return 7
-	case "OFFLINE", "UNAVAILABLE":
-		return 8
-	case "CONFLICT", "STALE_PRECONDITION":
-		return 9
-	case "RATE_LIMITED":
-		return 10
-	}
-	return 1
+	return failure.ExitStatus(e)
 }
 func (c *cli) versionCmd() *cobra.Command {
 	return &cobra.Command{Use: "version", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
-		return c.emit("version", map[string]any{"version": Version, "schema_version": model.SchemaVersion, "go": runtime.Version(), "os": runtime.GOOS, "arch": runtime.GOARCH})
+		return c.emit("version", map[string]any{"version": Version, "build_id": buildinfo.ResolvedBuildID(), "schema_version": model.SchemaVersion, "project_format_version": store.ProjectFormatVersion, "go": runtime.Version(), "os": runtime.GOOS, "arch": runtime.GOARCH})
 	}}
+}
+
+func (c *cli) projectCmd() *cobra.Command {
+	root := &cobra.Command{Use: "project", Short: "Inspect and maintain the initialized project"}
+	upgrade := c.projectUpgradeCmd()
+	root.AddCommand(upgrade)
+	return root
+}
+
+func (c *cli) projectUpgradeCmd() *cobra.Command {
+	var yes, allKnown bool
+	upgrade := &cobra.Command{
+		Use:   "upgrade",
+		Short: "Inspect, back up, reconcile, restart, and verify a project",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			roots, err := c.upgradeRoots(allKnown)
+			if err != nil {
+				return err
+			}
+			results := make([]projectlifecycle.Result, 0, len(roots))
+			for _, root := range roots {
+				plan, _, inspectErr := projectlifecycle.Inspect(root, Version, buildinfo.ResolvedBuildID())
+				if inspectErr != nil {
+					return inspectErr
+				}
+				approved := yes
+				if plan.RequiresConfirmation && !approved {
+					if c.nonInteractive {
+						return &projectlifecycle.Error{Code: projectlifecycle.CodeUpgradeRequired, Message: "project upgrade requires --yes in non-interactive mode"}
+					}
+					fmt.Fprintf(c.out, "Upgrade %s with %d action(s)? [y/N] ", root, len(plan.Actions))
+					scanner := bufio.NewScanner(os.Stdin)
+					if !scanner.Scan() || !strings.EqualFold(strings.TrimSpace(scanner.Text()), "y") {
+						return errors.New("project upgrade cancelled")
+					}
+					approved = true
+				}
+				result, reconcileErr := projectlifecycle.Reconcile(cmd.Context(), projectlifecycle.Options{
+					Root: root, Version: Version, BuildID: buildinfo.ResolvedBuildID(),
+					Apply: true, Approved: approved, Timeout: c.timeout, StopDaemon: true,
+				})
+				if reconcileErr != nil {
+					return reconcileErr
+				}
+				projectService := service.New(root)
+				config, configErr := projectService.Store.Config()
+				if configErr != nil {
+					return configErr
+				}
+				if config.RuntimeMode == "personal" || config.RuntimeMode == "service" {
+					if daemonErr := ensureDaemon(root, config); daemonErr != nil {
+						return daemonErr
+					}
+				}
+				if verifyErr := projectService.Verify(0, 0); verifyErr != nil {
+					return &projectlifecycle.Error{Code: projectlifecycle.CodeUpgradeFailed, Message: "post-upgrade audit verification: " + verifyErr.Error()}
+				}
+				result.Verified = true
+				results = append(results, result)
+			}
+			if allKnown {
+				if err = markUserInstallationCurrent(""); err != nil {
+					return err
+				}
+			}
+			return c.emit("project.upgrade", map[string]any{
+				"projects": results, "upgraded": countChangedProjects(results), "verified": true,
+			})
+		},
+	}
+	upgrade.Flags().BoolVarP(&yes, "yes", "y", false, "approve confirmation-required migrations")
+	upgrade.Flags().BoolVar(&allKnown, "all-known", false, "upgrade distinct projects recorded in identity profiles")
+
+	for _, operation := range []string{"status", "plan"} {
+		operation := operation
+		var operationAllKnown bool
+		command := &cobra.Command{Use: operation, Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+			roots, err := c.upgradeRoots(operationAllKnown)
+			if err != nil {
+				return err
+			}
+			plans := make([]projectlifecycle.Plan, 0, len(roots))
+			for _, root := range roots {
+				plan, _, inspectErr := projectlifecycle.Inspect(root, Version, buildinfo.ResolvedBuildID())
+				if inspectErr != nil {
+					return inspectErr
+				}
+				plans = append(plans, plan)
+			}
+			return c.emit("project.upgrade."+operation, map[string]any{"projects": plans})
+		}}
+		command.Flags().BoolVar(&operationAllKnown, "all-known", false, "inspect distinct projects recorded in identity profiles")
+		upgrade.AddCommand(command)
+	}
+	return upgrade
+}
+
+func (c *cli) upgradeRoots(allKnown bool) ([]string, error) {
+	root := c.project
+	if root == "" {
+		var err error
+		root, err = os.Getwd()
+		if err != nil {
+			return nil, err
+		}
+	}
+	if !allKnown {
+		return []string{root}, nil
+	}
+	// Fold in the current project root even if it isn't registered in
+	// identity profiles, matching reconcileUserInstallation and update
+	// apply's handoff -- otherwise "--all-known" could silently exclude
+	// the very project the user is standing in (e.g. a moved directory
+	// whose stored profile.ProjectRoot no longer matches, or a profile
+	// write that failed to save).
+	roots, err := c.knownProjectRoots(root)
+	if err != nil {
+		return nil, err
+	}
+	initialized := roots[:0]
+	for _, root := range roots {
+		if initializedProject(root) {
+			initialized = append(initialized, root)
+		}
+	}
+	roots = initialized
+	if len(roots) == 0 {
+		return nil, errors.New("no initialized projects are recorded in identity profiles")
+	}
+	return roots, nil
+}
+
+func countChangedProjects(results []projectlifecycle.Result) int {
+	count := 0
+	for _, result := range results {
+		if result.Changed {
+			count++
+		}
+	}
+	return count
 }
 func (c *cli) initCmd() *cobra.Command {
 	var owner string
 	var mode string
 	var yes bool
-	cmd := &cobra.Command{Use: "init", Short: "Initialize Agent Comms in a Git project", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+	var authorityURL, servicePublicKey, daemonEndpoint string
+	cmd := &cobra.Command{Use: "init", Short: "Initialize an Agent Comms project", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		root := c.project
 		if root == "" {
 			root, _ = os.Getwd()
@@ -279,8 +538,8 @@ func (c *cli) initCmd() *cobra.Command {
 		if owner == "" {
 			return errors.New("--owner is required in non-interactive mode")
 		}
-		if mode != "personal" && mode != "legacy" {
-			return errors.New("--mode must be personal or legacy")
+		if mode != "personal" && mode != "service" {
+			return errors.New("--mode must be personal or service")
 		}
 		if !yes && !c.nonInteractive {
 			fmt.Fprintf(c.out, "\nCreate .agents and isolated .agent-comms runtime in %s? [y/N] ", root)
@@ -289,31 +548,79 @@ func (c *cli) initCmd() *cobra.Command {
 				return errors.New("initialization cancelled")
 			}
 		}
-		s := service.New(root)
-		if e := s.Store.Init(owner); e != nil {
+		initialized, e := runtimeinit.Initialize(cmd.Context(), runtimeinit.Config{
+			ProjectRoot: root, Owner: owner, Mode: mode, AuthorityURL: authorityURL,
+			ServicePublicKey: servicePublicKey, DaemonEndpoint: daemonEndpoint,
+		})
+		if e != nil {
 			return e
 		}
 		result := map[string]any{
 			"project": root, "runtime": filepath.Join(root, store.Runtime), "owner": owner,
-			"next": []string{"agent-comms tui", "agent-comms agent register --id builder --principal-type AGENT"},
+			"next":         []string{"agent-comms tui", "agent-comms agent register --id reviewer --principal-type AGENT"},
+			"runtime_mode": initialized.RuntimeMode, "daemon_endpoint": initialized.DaemonEndpoint,
 		}
-		switch mode {
-		case "personal":
-			migrationResult, e := personalmigration.Migrate(cmd.Context(), s.Store)
-			if e != nil {
-				return fmt.Errorf("initialize personal authority: %w", e)
+		if initialized.Database != "" {
+			result["database"] = initialized.Database
+		}
+		if initialized.AuthorityURL != "" {
+			result["authority_url"] = initialized.AuthorityURL
+		}
+		// Offered here, not left for the owner to discover later, so it's
+		// never silently invisible: this project can only be used after
+		// init, so init is the one moment guaranteed to reach every human
+		// owner. Skipped in --non-interactive mode (scripts, CI, tests) --
+		// `doctor`'s NO_ELEVATED_KEY finding (see below) is what resurfaces
+		// this for a project that declined or couldn't answer here.
+		if !c.nonInteractive {
+			fmt.Fprint(c.out, "\nSet up a passphrase-protected elevated key now? It's required to grant ORCHESTRATOR "+
+				"and approve HUMAN-tier approvals -- without it those stay protected only by ordinary credential "+
+				"possession. [Y/n] ")
+			scan := bufio.NewScanner(os.Stdin)
+			answer := ""
+			if scan.Scan() {
+				answer = strings.TrimSpace(scan.Text())
 			}
-			result["runtime_mode"] = "personal"
-			result["database"] = personalmigration.DatabasePath(root)
-			result["imported_events"] = migrationResult.ImportedEvents
-		case "legacy":
-			result["runtime_mode"] = "legacy"
-			result["remote"] = "local-only"
+			if answer == "" || strings.EqualFold(answer, "y") {
+				svc := service.New(root)
+				svc.PassphrasePrompt = promptPassphrase
+				// init never goes through PersistentPreRunE (it's exempted --
+				// the project doesn't exist yet when that runs), so unlike
+				// every other command nothing has started the daemon this
+				// runtime needs for ElevateKey's signed command. Wire the
+				// same on-demand recovery PersistentPreRunE sets up for
+				// ordinary commands rather than requiring one to already be
+				// running.
+				if svcCfg, cfgErr := svc.Store.Config(); cfgErr == nil {
+					svc.SetRemoteRecovery(func() error { return ensureDaemon(root, svcCfg) })
+				}
+				passphrase, e := promptNewPassphrase(owner)
+				if e == nil {
+					_, e = svc.ElevateKey(owner, passphrase)
+				}
+				if e != nil {
+					// Non-fatal: the project itself is already created and
+					// fully usable, so failing the whole `init` command here
+					// would misrepresent what happened. `doctor`'s
+					// NO_ELEVATED_KEY finding is the real safety net for
+					// this path -- it nags on every future command until
+					// `agent-comms agent elevate-key` is run.
+					fmt.Fprintf(c.out, "elevated-key setup failed (%v); run `agent-comms agent elevate-key` to finish this later\n", e)
+					result["elevated_key"] = "skipped: " + e.Error()
+				} else {
+					result["elevated_key"] = "registered"
+				}
+			} else {
+				result["elevated_key"] = "skipped"
+			}
 		}
 		return c.emit("init", result)
 	}}
 	cmd.Flags().StringVar(&owner, "owner", "", "owner principal ID")
-	cmd.Flags().StringVar(&mode, "mode", "personal", "runtime mode: personal or legacy")
+	cmd.Flags().StringVar(&mode, "mode", "personal", "runtime mode: personal or service")
+	cmd.Flags().StringVar(&authorityURL, "authority-url", "", "service authority URL")
+	cmd.Flags().StringVar(&servicePublicKey, "service-public-key", "", "base64 Ed25519 service public key")
+	cmd.Flags().StringVar(&daemonEndpoint, "daemon-endpoint", "", "local daemon socket or named pipe")
 	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "confirm initialization")
 	return cmd
 }
@@ -325,72 +632,29 @@ func (c *cli) doctorCmd() *cobra.Command {
 		if e != nil {
 			return e
 		}
-		type finding struct {
-			Severity string `json:"severity"`
-			Code     string `json:"code"`
-			Message  string `json:"message"`
-			Guidance string `json:"guidance"`
+		findings, e := doctor.Findings(cmd.Context(), c.svc)
+		if e != nil {
+			return e
 		}
-		findings := []finding{}
 		add := func(severity, code, message, guidance string) {
-			findings = append(findings, finding{severity, code, message, guidance})
+			findings = append(findings, doctor.Finding{Severity: severity, Code: code, Message: message, Guidance: guidance})
 		}
-		if cfg.SchemaVersion != model.SchemaVersion {
-			add("ERROR", "RUNTIME_SCHEMA_MISMATCH", fmt.Sprintf("binary expects schema %s but runtime is %s", model.SchemaVersion, cfg.SchemaVersion), "Run `agent-comms migrate status`; use the dedicated adoption flow when legacy .agents exists.")
+		lifecycle, _, lifecycleErr := projectlifecycle.Inspect(c.svc.Store.Root, Version, buildinfo.ResolvedBuildID())
+		if lifecycleErr != nil {
+			add("ERROR", "PROJECT_LIFECYCLE_INVALID", lifecycleErr.Error(), "Run `agent-comms project upgrade status` and repair the reported compatibility problem.")
+		} else if len(lifecycle.Actions) > 0 || lifecycle.Interrupted {
+			add("WARNING", "PROJECT_UPGRADE_AVAILABLE",
+				fmt.Sprintf("project has %d lifecycle action(s); interrupted=%t", len(lifecycle.Actions), lifecycle.Interrupted),
+				"Run `agent-comms project upgrade`; it plans, backs up, resumes, and verifies the project in one operation.")
 		}
-		if incompleteMigration, status := c.svc.Store.MigrationIncomplete(); incompleteMigration {
-			add("ERROR", "RUNTIME_MIGRATION_INCOMPLETE", "runtime migration journal is "+status, "Resume `agent-comms migrate apply --owner <verified-owner>` before normal work.")
-		}
-		if cfg.ToolkitVersion == "" {
-			add("WARNING", "RUNTIME_VERSION_UNKNOWN", "runtime does not record the toolkit version that created it", "Run doctor with the intended binary and migrate safely before normal work.")
-		} else if cfg.ToolkitVersion != Version {
-			add("WARNING", "BINARY_RUNTIME_VERSION_MISMATCH", fmt.Sprintf("installed binary is %s but runtime was prepared by %s", Version, cfg.ToolkitVersion), "Install the intended release, then run doctor and migration status; project data is never upgraded automatically.")
-		}
-		incomplete, cutoverState := c.svc.Store.CutoverIncomplete()
-		if incomplete {
-			add("ERROR", "CUTOVER_INCOMPLETE", "legacy cutover state is "+cutoverState, "Complete explicit seeding and acknowledgements, preview activation, then run `migrate activate --yes`.")
-		}
-		if !c.svc.Store.ManagedBootstrapValid() {
-			code := "MANAGED_BOOTSTRAP_MISSING"
-			if cutoverState == store.CutoverActivated {
-				code = "SPLIT_BRAIN_BOOTSTRAP"
-			}
-			add("ERROR", code, "project root .agents does not match the managed bootstrap", "Do not work in this project; inspect `migrate status` and use recovery or governed activation.")
-		}
-		if !c.svc.Store.InstructionsPresent() {
-			add("ERROR", "AGENT_INSTRUCTIONS_MISSING", ".agent-comms/AGENT_INSTRUCTIONS.md is missing or empty", "Repair through migration/adoption; do not invent instructions manually during cutover.")
-		}
-		if cfg.SchemaVersion == model.SchemaVersion {
-			if st, x := c.svc.State(); x == nil {
-				now := time.Now().UTC()
-				for id, task := range st.Tasks {
-					if !task.LeaseUntil.IsZero() && now.After(task.LeaseUntil) && task.Status != "COMPLETED" && task.Status != "CANCELLED" {
-						add("WARNING", "STALE_LEASE", fmt.Sprintf("task %s lease expired at %s", id, task.LeaseUntil.Format(time.RFC3339)), "An orchestrator must review it; stale work is never reassigned automatically.")
-					}
-				}
-				for id := range st.Agents {
-					if strings.EqualFold(id, "builder") || strings.Contains(strings.ToLower(id), "test") || strings.Contains(strings.ToLower(id), "smoke") {
-						add("WARNING", "TEST_LIKE_RUNTIME", "runtime contains test-like agent identity "+id, "Verify every identity explicitly before activation; legacy prose is never authoritative.")
-						break
-					}
-				}
-				for id := range st.Tasks {
-					if strings.EqualFold(id, "task-001") || strings.Contains(strings.ToLower(id), "test") || strings.Contains(strings.ToLower(id), "smoke") {
-						add("WARNING", "TEST_LIKE_RUNTIME", "runtime contains test-like task "+id, "Verify or remove synthetic state through governed migration before activation.")
-						break
-					}
-				}
-			}
-		}
-		r := map[string]any{"integrity": verify == nil, "schema_version": cfg.SchemaVersion, "binary_version": Version, "runtime_toolkit_version": cfg.ToolkitVersion, "runtime": filepath.Join(c.svc.Store.Root, store.Runtime), "git_head": c.svc.Store.Head(), "remote": c.svc.Store.Remote(), "telemetry": false, "healthy": len(findings) == 0, "findings": findings}
+		r := map[string]any{"integrity": verify == nil, "schema_version": cfg.SchemaVersion, "binary_version": Version, "binary_build_id": buildinfo.ResolvedBuildID(), "runtime_toolkit_version": cfg.ToolkitVersion, "runtime_toolkit_build_id": cfg.ToolkitBuildID, "project_format_version": cfg.ProjectFormatVersion, "managed_files_version": cfg.ManagedFilesVersion, "runtime": filepath.Join(c.svc.Store.Root, store.Runtime), "telemetry": false, "healthy": len(findings) == 0, "findings": findings, "project_lifecycle": lifecycle}
 		if cfg.RuntimeMode == "service" || cfg.RuntimeMode == "personal" {
 			r["runtime_mode"] = cfg.RuntimeMode
 			if cfg.RuntimeMode == "service" {
 				r["authority_url"] = cfg.AuthorityURL
 			} else {
-				r["database"] = personalmigration.DatabasePath(c.svc.Store.Root)
+				r["database"] = runtimeinit.DatabasePath(c.svc.Store.Root)
 			}
-			r["legacy_read_only"] = cfg.LegacyReadOnly
 		}
 		if verify != nil {
 			r["integrity_error"] = verify.Error()
@@ -478,7 +742,7 @@ func (c *cli) controlCmd() *cobra.Command {
 		blockedTasks := map[string]model.Task{}
 		pendingApprovals := map[string]model.Approval{}
 		waitingInvocations := map[string]model.Invocation{}
-		failedDeliveries := map[string]model.Invocation{}
+		failedDeliveries := map[string]model.InvocationDelivery{}
 		degradedRuntimes := map[string]model.AgentRuntime{}
 		for id, task := range state.Tasks {
 			if task.Status == "BLOCKED" {
@@ -494,8 +758,10 @@ func (c *cli) controlCmd() *cobra.Command {
 			if invocation.Status == "WAITING" {
 				waitingInvocations[id] = invocation
 			}
-			if invocation.Status == "DEAD_LETTER" {
-				failedDeliveries[id] = invocation
+		}
+		for id, delivery := range state.InvocationDeliveries {
+			if delivery.Status == "FAILED" || delivery.Status == "EXHAUSTED" {
+				failedDeliveries[id] = delivery
 			}
 		}
 		for id, runtime := range state.AgentRuntimes {
@@ -535,20 +801,38 @@ func (c *cli) controlCmd() *cobra.Command {
 func (c *cli) historyCmd() *cobra.Command {
 	var cursor string
 	var limit int
+	var actor string
+	var keyFingerprint string
 	cmd := &cobra.Command{Use: "history", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		v, e := c.svc.History(controlplane.PageRequest{Cursor: cursor, Limit: limit})
 		if e != nil {
 			return e
 		}
+		if actor != "" || keyFingerprint != "" {
+			filtered := make([]controlplane.EventRecord, 0, len(v.Items))
+			for _, record := range v.Items {
+				if actor != "" && record.Event.Actor != actor {
+					continue
+				}
+				if keyFingerprint != "" && record.Event.ActorKeyFingerprint != keyFingerprint {
+					continue
+				}
+				filtered = append(filtered, record)
+			}
+			v.Items = filtered
+		}
 		return c.emit("history", v)
 	}}
 	cmd.Flags().StringVar(&cursor, "cursor", "", "opaque pagination cursor")
 	cmd.Flags().IntVar(&limit, "limit", controlplane.DefaultPageSize, "events per page")
+	cmd.Flags().StringVar(&actor, "actor", "", "only events signed by this actor in the current page")
+	cmd.Flags().StringVar(&keyFingerprint, "key-fingerprint", "", "only events signed by this key fingerprint in the current page")
 	return cmd
 }
 func (c *cli) searchCmd() *cobra.Command {
 	var cursor string
 	var limit int
+	var keyFingerprint string
 	cmd := &cobra.Command{Use: "search <query>", Args: cobra.MinimumNArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		q := strings.ToLower(strings.Join(args, " "))
 		page, e := c.svc.History(controlplane.PageRequest{Cursor: cursor, Limit: limit})
@@ -557,22 +841,22 @@ func (c *cli) searchCmd() *cobra.Command {
 		}
 		out := []controlplane.EventRecord{}
 		for _, v := range page.Items {
+			if keyFingerprint != "" && v.Event.ActorKeyFingerprint != keyFingerprint {
+				continue
+			}
 			b, _ := json.Marshal(v)
 			if strings.Contains(strings.ToLower(string(b)), q) {
 				out = append(out, v)
 			}
 		}
-		legacy, e := c.svc.Store.SearchLegacy(q)
-		if e != nil {
-			return e
-		}
 		return c.emit("search", map[string]any{
-			"current_events": out, "legacy_evidence": legacy,
-			"next_cursor": page.NextCursor, "metadata": page.Metadata,
+			"current_events": out,
+			"next_cursor":    page.NextCursor, "metadata": page.Metadata,
 		})
 	}}
 	cmd.Flags().StringVar(&cursor, "cursor", "", "opaque pagination cursor")
 	cmd.Flags().IntVar(&limit, "limit", controlplane.DefaultPageSize, "events scanned per page")
+	cmd.Flags().StringVar(&keyFingerprint, "key-fingerprint", "", "only events signed by this key fingerprint in the current page")
 	return cmd
 }
 func (c *cli) agentCmd() *cobra.Command {
@@ -580,6 +864,15 @@ func (c *cli) agentCmd() *cobra.Command {
 	var display, ptype string
 	reg := &cobra.Command{Use: "register", RunE: func(cmd *cobra.Command, args []string) error {
 		id, _ := cmd.Flags().GetString("id")
+		if id != c.actor {
+			can, e := c.svc.CanSponsorRegistration(c.actor)
+			if e != nil {
+				return e
+			}
+			if !can {
+				return fmt.Errorf("agent register: registering a different id requires an active orchestrator or human principal (actor: %s)", c.actor)
+			}
+		}
 		v, e := c.svc.Register(id, display, model.PrincipalType(strings.ToUpper(ptype)))
 		if e != nil {
 			return e
@@ -606,6 +899,17 @@ func (c *cli) agentCmd() *cobra.Command {
 	act.Flags().StringSliceVar(&caps, "capability", nil, "capability (repeatable or comma-separated)")
 	act.Flags().StringSliceVar(&scopes, "scope", nil, "scope (repeatable or comma-separated)")
 	suspend := simpleStatus(c, "agent", "suspend")
+	var revokeReason string
+	revoke := payloadStatus(c, "agent", "revoke", func(string) any {
+		return model.RuntimeStatusChanged{Reason: revokeReason}
+	})
+	revoke.Flags().StringVar(&revokeReason, "reason", "", "revocation reason")
+	var deleteReason string
+	deleteAgent := payloadStatus(c, "agent", "delete", func(string) any {
+		return model.AgentDeleted{Reason: deleteReason}
+	})
+	deleteAgent.Flags().StringVar(&deleteReason, "reason", "", "auditable deletion reason")
+	_ = deleteAgent.MarkFlagRequired("reason")
 	rotate := &cobra.Command{Use: "rotate-key", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		v, e := c.svc.RotateKey(c.actor)
 		if e != nil {
@@ -613,6 +917,36 @@ func (c *cli) agentCmd() *cobra.Command {
 		}
 		return c.emit("agent.rotate-key", v)
 	}}
+	// elevate-key is deliberately CLI-only: it exists to prove a human typed
+	// a passphrase into a real terminal, which is meaningless to expose over
+	// MCP (an agent connection has no interactive terminal to answer the
+	// prompt with in the first place). See docs/governance.md for what this
+	// closes: a locally-running agent can otherwise sign anything with the
+	// primary key exactly as if it were the human, indistinguishably.
+	elevate := &cobra.Command{Use: "elevate-key", Args: cobra.NoArgs, Short: "Register a passphrase-protected key for sensitive identity and HUMAN-approval actions", RunE: func(cmd *cobra.Command, args []string) error {
+		passphrase, e := promptNewPassphrase(c.actor)
+		if e != nil {
+			return e
+		}
+		v, e := c.svc.ElevateKey(c.actor, passphrase)
+		if e != nil {
+			return e
+		}
+		return c.emit("agent.elevate-key", v)
+	}}
+	var newDisplayName string
+	rename := &cobra.Command{Use: "rename", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		id, _ := cmd.Flags().GetString("id")
+		v, e := c.svc.Execute(c.actor, "agent.rename", id, model.AgentRenamed{DisplayName: newDisplayName})
+		if e != nil {
+			return e
+		}
+		return c.emit("agent.rename", v)
+	}}
+	rename.Flags().String("id", "", "principal ID")
+	_ = rename.MarkFlagRequired("id")
+	rename.Flags().StringVar(&newDisplayName, "display-name", "", "new display name")
+	_ = rename.MarkFlagRequired("display-name")
 	list := &cobra.Command{Use: "list", RunE: func(cmd *cobra.Command, args []string) error {
 		st, e := c.svc.State()
 		if e != nil {
@@ -620,18 +954,28 @@ func (c *cli) agentCmd() *cobra.Command {
 		}
 		return c.emit("agent.list", st.Agents)
 	}}
-	root.AddCommand(reg, act, suspend, rotate, list)
+	root.AddCommand(reg, act, suspend, rotate, elevate, rename, revoke, deleteAgent, list)
 	return root
 }
 func (c *cli) runtimeCmd() *cobra.Command {
 	root := &cobra.Command{Use: "runtime", Short: "Manage agent runtime connectors and presence"}
-	var agentID, connector, configReference string
+	var agentID, runtimeKind, connector, configReference string
 	var maxConcurrent int
 	var scopes, capabilities []string
 	register := &cobra.Command{Use: "register", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		id, _ := cmd.Flags().GetString("id")
+		hostID := ""
+		if strings.EqualFold(runtimeKind, string(model.RuntimeKindInteractive)) ||
+			strings.EqualFold(connector, "INTERACTIVE") {
+			var hostErr error
+			hostID, hostErr = identity.LoadOrCreateHostID()
+			if hostErr != nil {
+				return hostErr
+			}
+		}
 		value, err := c.svc.Execute(c.actor, "runtime.register", id, model.RuntimeRegistered{
-			AgentID: agentID, Connector: connector, ConfigReference: configReference,
+			AgentID: agentID, Kind: model.RuntimeKind(strings.ToUpper(runtimeKind)),
+			Connector: connector, ConfigReference: configReference, HostID: hostID,
 			MaxConcurrent: maxConcurrent, Scopes: scopes, Capabilities: capabilities,
 		})
 		if err != nil {
@@ -644,18 +988,49 @@ func (c *cli) runtimeCmd() *cobra.Command {
 	_ = register.MarkFlagRequired("id")
 	register.Flags().StringVar(&agentID, "agent", "", "agent that owns the runtime")
 	_ = register.MarkFlagRequired("agent")
-	register.Flags().StringVar(&connector, "connector", "MANUAL", "MANUAL, MCP, LOCAL_PROCESS, WEBHOOK, or QUEUE")
+	register.Flags().StringVar(&runtimeKind, "kind", "WORKER", "WORKER or INTERACTIVE")
+	register.Flags().StringVar(&connector, "connector", "MANUAL", "MANUAL, MCP, LOCAL_PROCESS, WEBHOOK, QUEUE, or INTERACTIVE")
 	register.Flags().StringVar(&configReference, "config-reference", "", "non-secret local connector configuration reference")
 	register.Flags().IntVar(&maxConcurrent, "max-concurrent", 1, "maximum concurrent invocations")
 	register.Flags().StringSliceVar(&scopes, "scope", nil, "runtime scope")
 	register.Flags().StringSliceVar(&capabilities, "capability", nil, "runtime capability")
 
-	var health string
+	configure := &cobra.Command{Use: "configure", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		id, _ := cmd.Flags().GetString("id")
+		hostID := ""
+		if strings.EqualFold(runtimeKind, string(model.RuntimeKindInteractive)) ||
+			strings.EqualFold(connector, "INTERACTIVE") {
+			var hostErr error
+			hostID, hostErr = identity.LoadOrCreateHostID()
+			if hostErr != nil {
+				return hostErr
+			}
+		}
+		value, err := c.svc.Execute(c.actor, "runtime.configure", id, model.RuntimeConfigured{
+			Kind: model.RuntimeKind(strings.ToUpper(runtimeKind)), Connector: connector,
+			ConfigReference: configReference, HostID: hostID, MaxConcurrent: maxConcurrent,
+			Scopes: scopes, Capabilities: capabilities,
+		})
+		if err != nil {
+			return err
+		}
+		return c.emit("runtime.configure", value)
+	}}
+	configure.Flags().String("id", "", "runtime ID")
+	_ = configure.MarkFlagRequired("id")
+	configure.Flags().StringVar(&runtimeKind, "kind", "WORKER", "WORKER or INTERACTIVE")
+	configure.Flags().StringVar(&connector, "connector", "MANUAL", "MANUAL, MCP, LOCAL_PROCESS, WEBHOOK, QUEUE, or INTERACTIVE")
+	configure.Flags().StringVar(&configReference, "config-reference", "", "non-secret local connector configuration reference")
+	configure.Flags().IntVar(&maxConcurrent, "max-concurrent", 1, "maximum concurrent invocations")
+	configure.Flags().StringSliceVar(&scopes, "scope", nil, "runtime scope")
+	configure.Flags().StringSliceVar(&capabilities, "capability", nil, "runtime capability")
+
+	var health, endpointID string
 	var activeInvocations []string
 	heartbeat := &cobra.Command{Use: "heartbeat", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		id, _ := cmd.Flags().GetString("id")
 		value, err := c.svc.Execute(c.actor, "runtime.heartbeat", id, model.RuntimeHeartbeat{
-			Health: health, ActiveInvocations: activeInvocations,
+			Health: health, ActiveInvocations: activeInvocations, EndpointID: endpointID,
 		})
 		if err != nil {
 			return err
@@ -665,6 +1040,7 @@ func (c *cli) runtimeCmd() *cobra.Command {
 	heartbeat.Flags().String("id", "", "runtime ID")
 	_ = heartbeat.MarkFlagRequired("id")
 	heartbeat.Flags().StringVar(&health, "health", "HEALTHY", "HEALTHY or DEGRADED")
+	heartbeat.Flags().StringVar(&endpointID, "endpoint-id", "", "opaque interactive endpoint ID")
 	heartbeat.Flags().StringSliceVar(&activeInvocations, "active-invocation", nil, "active invocation ID")
 
 	for _, operation := range []string{"drain", "resume", "revoke"} {
@@ -688,6 +1064,24 @@ func (c *cli) runtimeCmd() *cobra.Command {
 		if err != nil {
 			return err
 		}
+		localHostID, _ := identity.LoadHostID()
+		for id, runtimeState := range state.AgentRuntimes {
+			kind := runtimeState.Kind
+			if kind == "" {
+				kind = model.RuntimeKindWorker
+				runtimeState.Kind = kind
+			}
+			if kind == model.RuntimeKindInteractive {
+				local := localHostID != "" && runtimeState.HostID == localHostID
+				session := &model.InteractiveSessionState{Local: local}
+				if local {
+					session.Alive, session.Busy = interactiveserve.Probe(cmd.Context(), c.svc.Store.Root, id)
+					session.SocketPath = interactiveserve.SocketPath(c.svc.Store.Root, id)
+				}
+				runtimeState.InteractiveSession = session
+			}
+			state.AgentRuntimes[id] = runtimeState
+		}
 		return c.emit("runtime.list", state.AgentRuntimes)
 	}}
 	var workerAdapter, workerExecutable, workerModel, workerSessionID, permissionMode, sandbox string
@@ -710,7 +1104,7 @@ func (c *cli) runtimeCmd() *cobra.Command {
 				}
 			}
 			executable := workerExecutable
-			if executable == "" {
+			if executable == "" && runtimeworker.RequiresExecutable(workerAdapter) {
 				var lookupErr error
 				executable, lookupErr = exec.LookPath(workerAdapter)
 				if lookupErr != nil {
@@ -752,7 +1146,7 @@ func (c *cli) runtimeCmd() *cobra.Command {
 	}
 	workerCommand.Flags().String("id", "", "registered runtime ID")
 	_ = workerCommand.MarkFlagRequired("id")
-	workerCommand.Flags().StringVar(&workerAdapter, "adapter", "claude", "claude or codex")
+	workerCommand.Flags().StringVar(&workerAdapter, "adapter", "claude", "claude, codex, opencode, claude-live, codex-live, opencode-live, claude-acp, opencode-acp, or codex-acp")
 	workerCommand.Flags().StringVar(&workerExecutable, "executable", "", "absolute agent executable path")
 	workerCommand.Flags().StringVar(&workerModel, "model", "", "agent model override")
 	workerCommand.Flags().StringVar(&workerSessionID, "session-id", "", "existing Claude or Codex conversation UUID to resume")
@@ -762,7 +1156,7 @@ func (c *cli) runtimeCmd() *cobra.Command {
 	workerCommand.Flags().BoolVar(&codexIgnoreUserConfig, "codex-ignore-user-config", false, "isolate autonomous runs from user MCP and tool configuration")
 	workerCommand.Flags().DurationVar(&executionTimeout, "execution-timeout", 30*time.Minute, "per-invocation execution timeout")
 	workerCommand.Flags().DurationVar(&listenWait, "listen-wait", controlplane.MaxInvocationListen, "bounded invocation listen duration")
-	workerCommand.Flags().Float64Var(&claudeBudget, "claude-max-budget-usd", 1, "maximum Claude spend per invocation")
+	workerCommand.Flags().Float64Var(&claudeBudget, "claude-max-budget-usd", 1, "Claude spend ceiling (per invocation for claude; per process for claude-live)")
 	workerCommand.Flags().BoolVar(&allowAgentComms, "claude-allow-agent-comms", false, "allow only this Agent Comms executable as an unattended Claude Bash command")
 	workerCommand.Flags().BoolVar(&once, "once", false, "process at most one invocation and exit")
 
@@ -809,13 +1203,203 @@ func (c *cli) runtimeCmd() *cobra.Command {
 	sessionShow.Flags().StringVar(&sessionRuntimeID, "id", "", "runtime ID")
 	_ = sessionShow.MarkFlagRequired("id")
 
-	root.AddCommand(register, heartbeat, list, workerCommand, bindSession, sessionShow)
+	var interactiveServeID string
+	var interactiveClaudeAllowAgentComms bool
+	interactiveServe := &cobra.Command{
+		Use:   "interactive-serve --id <runtimeID> -- <command> [args...]",
+		Short: "Own a real pty running <command>, dialable by other runtimes for direct invocation delivery",
+		Args:  cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if cmd.Flags().ArgsLenAtDash() == -1 {
+				return errors.New(`interactive-serve requires "--" before the wrapped command, e.g. "agent-comms runtime interactive-serve --id codex-runner -- codex"`)
+			}
+			if interactiveClaudeAllowAgentComms {
+				var err error
+				args, err = withClaudeAllowAgentComms(args, os.Executable)
+				if err != nil {
+					return err
+				}
+			}
+			return c.runInteractiveServe(cmd.Context(), interactiveServeID, args)
+		},
+	}
+	interactiveServe.Flags().StringVar(&interactiveServeID, "id", "", "runtime ID")
+	_ = interactiveServe.MarkFlagRequired("id")
+	interactiveServe.Flags().BoolVar(&interactiveClaudeAllowAgentComms, "claude-allow-agent-comms", false, "wrapped command must be claude; scopes unattended Bash permission to this Agent Comms executable only")
+
+	var interactiveShowID string
+	interactiveShow := &cobra.Command{
+		Use:   "interactive-session",
+		Short: "Show whether a runtime has a live interactive-serve session",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			alive := interactiveserve.Alive(cmd.Context(), c.svc.Store.Root, interactiveShowID)
+			return c.emit("runtime.interactive-session", map[string]any{"runtime_id": interactiveShowID, "alive": alive})
+		},
+	}
+	interactiveShow.Flags().StringVar(&interactiveShowID, "id", "", "runtime ID")
+	_ = interactiveShow.MarkFlagRequired("id")
+
+	root.AddCommand(register, configure, heartbeat, list, workerCommand, bindSession, sessionShow,
+		interactiveServe, interactiveShow)
 	return root
+}
+
+func (c *cli) runInteractiveServe(ctx context.Context, runtimeID string, command []string) (runErr error) {
+	hostID, err := identity.LoadOrCreateHostID()
+	if err != nil {
+		return fmt.Errorf("load local host identity: %w", err)
+	}
+	state, err := c.svc.State()
+	if err != nil {
+		return err
+	}
+	runtimeState, exists := state.AgentRuntimes[runtimeID]
+	if !exists {
+		if _, err = c.svc.Execute(c.actor, "runtime.register", runtimeID, model.RuntimeRegistered{
+			AgentID: c.actor, Kind: model.RuntimeKindInteractive,
+			Connector: "INTERACTIVE", HostID: hostID, MaxConcurrent: 1,
+		}); err != nil {
+			return fmt.Errorf("register interactive runtime: %w", err)
+		}
+	} else {
+		kind := runtimeState.Kind
+		if kind == "" {
+			kind = model.RuntimeKindWorker
+		}
+		if runtimeState.AgentID != c.actor || kind != model.RuntimeKindInteractive ||
+			runtimeState.Connector != "INTERACTIVE" || runtimeState.HostID != hostID {
+			return fmt.Errorf(
+				"runtime %s is not this actor's local INTERACTIVE runtime; repair it while offline with `agent-comms --actor %s runtime configure --id %s --kind INTERACTIVE --connector INTERACTIVE --max-concurrent 1`",
+				runtimeID, c.actor, runtimeID,
+			)
+		}
+		if runtimeState.Status == "DRAINING" {
+			return fmt.Errorf("runtime %s is draining; run `agent-comms --actor %s runtime resume --id %s` before starting it", runtimeID, c.actor, runtimeID)
+		}
+		if runtimeState.Status == "REVOKED" {
+			return fmt.Errorf("runtime %s is revoked and cannot start", runtimeID)
+		}
+		if interactiveserve.Alive(ctx, c.svc.Store.Root, runtimeID) {
+			return fmt.Errorf("runtime %s already has a live interactive session", runtimeID)
+		}
+		if runtimeState.Status == "ONLINE" {
+			if _, err = c.svc.Execute(c.actor, "runtime.offline", runtimeID,
+				model.RuntimeStatusChanged{
+					Reason: "replacing a stale interactive session", EndpointID: runtimeState.EndpointID,
+				}); err != nil {
+				return fmt.Errorf("clear stale interactive runtime presence: %w", err)
+			}
+		}
+	}
+	endpointID := uuid.NewString()
+	if err = c.heartbeatInteractiveRuntime(runtimeID, endpointID); err != nil {
+		return fmt.Errorf("start interactive runtime heartbeat: %w", err)
+	}
+	serveCtx, cancel := context.WithCancel(ctx)
+	heartbeatDone := make(chan error, 1)
+	go func() {
+		ticker := time.NewTicker(interactiveHeartbeatInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-serveCtx.Done():
+				heartbeatDone <- nil
+				return
+			case <-ticker.C:
+				if heartbeatErr := c.heartbeatInteractiveRuntime(runtimeID, endpointID); heartbeatErr != nil {
+					heartbeatDone <- heartbeatErr
+					cancel()
+					return
+				}
+			}
+		}
+	}()
+	defer func() {
+		cancel()
+		heartbeatErr := <-heartbeatDone
+		_, offlineErr := c.svc.Execute(c.actor, "runtime.offline", runtimeID,
+			model.RuntimeStatusChanged{Reason: "interactive session exited", EndpointID: endpointID})
+		if runErr == nil && heartbeatErr != nil {
+			runErr = fmt.Errorf("interactive runtime heartbeat: %w", heartbeatErr)
+		}
+		if runErr == nil && offlineErr != nil {
+			runErr = fmt.Errorf("mark interactive runtime offline: %w", offlineErr)
+		}
+	}()
+	code, err := interactiveserve.Serve(serveCtx, interactiveserve.ServeOptions{
+		ProjectRoot: c.svc.Store.Root, RuntimeID: runtimeID, Command: command, Actor: c.actor,
+	})
+	if err != nil {
+		return err
+	}
+	c.processExitCode = code
+	return nil
+}
+
+func (c *cli) heartbeatInteractiveRuntime(runtimeID, endpointID string) error {
+	state, err := c.svc.State()
+	if err != nil {
+		return err
+	}
+	activeInvocations := make([]string, 0)
+	for _, invocation := range state.Invocations {
+		if invocation.RuntimeID == runtimeID &&
+			(invocation.Status == "CLAIMED" || invocation.Status == "RUNNING" ||
+				invocation.Status == "WAITING") {
+			activeInvocations = append(activeInvocations, invocation.ID)
+		}
+	}
+	sort.Strings(activeInvocations)
+	_, err = c.svc.Execute(c.actor, "runtime.heartbeat", runtimeID, model.RuntimeHeartbeat{
+		Health: "HEALTHY", EndpointID: endpointID,
+		ActiveInvocations: activeInvocations,
+	})
+	return err
+}
+
+// withClaudeAllowAgentComms validates that args wraps claude (by basename)
+// and, if so, appends --allowedTools rules scoped to agent-comms so a claude
+// runtime under interactive-serve can drive `agent-comms invocation *`
+// unattended without gaining Bash access to anything else.
+//
+// Two rules are appended, not one: the resolved absolute path (the same
+// scoping runtimeCmd's `worker --claude-allow-agent-comms` flag already
+// uses), and the bare basename. Confirmed live this only works with both —
+// the notification `interactiveserve.NotifyInvocation` delivers (and Claude's
+// own follow-up `invocation claim/start/complete` calls) all invoke the bare
+// "agent-comms" name, relying on PATH, never the resolved absolute path, so
+// an absolute-path-only rule silently never matches anything and every call
+// still prompts for approval — this was built once, assumed to work by
+// analogy with the worker-mode flag, and only caught by an actual live
+// 3-way test. The basename rule is what makes approval friction actually go
+// away; the absolute-path rule is kept alongside it as defense in depth for
+// the case where something does invoke the resolved path directly.
+// executablePath is injected (rather than calling os.Executable directly)
+// so tests can exercise this without depending on the actual test binary's
+// path.
+func withClaudeAllowAgentComms(args []string, executablePath func() (string, error)) ([]string, error) {
+	if len(args) == 0 || filepath.Base(args[0]) != "claude" {
+		return nil, errors.New("--claude-allow-agent-comms only applies when the wrapped command is claude")
+	}
+	agentCommsPath, err := executablePath()
+	if err != nil {
+		return nil, fmt.Errorf("locate Agent Comms executable: %w", err)
+	}
+	agentCommsPath, err = filepath.EvalSymlinks(agentCommsPath)
+	if err != nil {
+		return nil, fmt.Errorf("resolve Agent Comms executable: %w", err)
+	}
+	out := append([]string{}, args...)
+	out = append(out, "--allowedTools", "Bash("+agentCommsPath+" *)")
+	out = append(out, "--allowedTools", "Bash("+filepath.Base(agentCommsPath)+" *)")
+	return out, nil
 }
 
 func (c *cli) invocationCmd() *cobra.Command {
 	root := &cobra.Command{Use: "invocation", Short: "Request and process agent invocations"}
 	var target, messageID, taskID, instruction, expectedResult, priority string
+	var consumerMode, preferredRuntimeID string
 	var invocationScopes []string
 	var expiresIn time.Duration
 	request := &cobra.Command{Use: "request", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
@@ -830,12 +1414,21 @@ func (c *cli) invocationCmd() *cobra.Command {
 		}
 		event, err := c.svc.Execute(c.actor, "invocation.request", id, model.InvocationRequested{
 			Target: target, MessageID: messageID, TaskID: taskID, Instruction: instruction,
-			ExpectedResult: expectedResult, Scopes: invocationScopes, Priority: priority, Deadline: deadline,
+			ExpectedResult: expectedResult, Scopes: invocationScopes, Priority: priority,
+			ConsumerMode:       model.ConsumerMode(strings.ToUpper(consumerMode)),
+			PreferredRuntimeID: preferredRuntimeID, Deadline: deadline,
 		})
 		if err != nil {
 			return err
 		}
-		return c.emit("invocation.request", event)
+		outcome, outcomeErr := c.invocationDeliveryOutcome(id, "")
+		warnings := []string{}
+		if outcomeErr != nil {
+			warnings = append(warnings, "invocation was recorded, but delivery state could not be read: "+outcomeErr.Error())
+		} else if outcome.Outcome == "UNAVAILABLE" || outcome.Outcome == "AMBIGUOUS" {
+			warnings = append(warnings, "invocation was recorded, but no compatible delivery transport completed")
+		}
+		return c.emitWithDelivery("invocation.request", event, outcome, warnings...)
 	}}
 	request.Flags().String("id", "", "invocation ID (auto-generated if omitted)")
 	request.Flags().StringVar(&target, "to", "", "target agent")
@@ -847,6 +1440,8 @@ func (c *cli) invocationCmd() *cobra.Command {
 	request.Flags().StringVar(&expectedResult, "expected-result", "", "expected result")
 	request.Flags().StringSliceVar(&invocationScopes, "scope", nil, "scope required by the invocation")
 	request.Flags().StringVar(&priority, "priority", "NORMAL", "LOW, NORMAL, HIGH, or URGENT")
+	request.Flags().StringVar(&consumerMode, "consumer", "", "INTERACTIVE_ONLY, WORKER_ONLY, or EITHER (target policy default when omitted)")
+	request.Flags().StringVar(&preferredRuntimeID, "runtime", "", "specific target runtime")
 	request.Flags().DurationVar(&expiresIn, "expires-in", 0, "deadline relative to now")
 
 	list := &cobra.Command{Use: "list", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
@@ -871,6 +1466,33 @@ func (c *cli) invocationCmd() *cobra.Command {
 	list.Flags().String("status", "", "filter by status")
 	list.Flags().String("to", "", "filter by target agent")
 
+	inspect := &cobra.Command{Use: "inspect", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		id, _ := cmd.Flags().GetString("id")
+		state, err := c.svc.State()
+		if err != nil {
+			return err
+		}
+		invocation, exists := state.Invocations[id]
+		if !exists {
+			return fmt.Errorf("invocation %s not found", id)
+		}
+		deliveries := make([]model.InvocationDelivery, 0)
+		for _, delivery := range state.InvocationDeliveries {
+			if delivery.InvocationID == id {
+				deliveries = append(deliveries, delivery)
+			}
+		}
+		sort.Slice(deliveries, func(left, right int) bool {
+			return deliveries[left].Attempt < deliveries[right].Attempt
+		})
+		return c.emit("invocation.inspect", map[string]any{
+			"invocation": deliveriesAcknowledged(invocation),
+			"deliveries": deliveries,
+		})
+	}}
+	inspect.Flags().String("id", "", "invocation ID")
+	_ = inspect.MarkFlagRequired("id")
+
 	next := &cobra.Command{Use: "next", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		runtimeID, _ := cmd.Flags().GetString("runtime")
 		invocation, found, err := c.svc.NextInvocation(c.actor, runtimeID)
@@ -880,6 +1502,50 @@ func (c *cli) invocationCmd() *cobra.Command {
 		return c.emit("invocation.next", map[string]any{"found": found, "invocation": invocation})
 	}}
 	next.Flags().String("runtime", "", "runtime ID used for capacity filtering")
+
+	var redeliveryRuntimeID string
+	redeliver := &cobra.Command{Use: "redeliver", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		id, _ := cmd.Flags().GetString("id")
+		state, err := c.svc.State()
+		if err != nil {
+			return err
+		}
+		invocation, ok := state.Invocations[id]
+		if !ok {
+			return fmt.Errorf("invocation %s not found", id)
+		}
+		if invocation.Status != "PENDING" && invocation.Status != "NOTIFIED" {
+			return fmt.Errorf("invocation %s is %s, not open for redelivery", id, invocation.Status)
+		}
+		runtimeState, runtimeExists := state.AgentRuntimes[redeliveryRuntimeID]
+		if !runtimeExists || runtimeState.AgentID != invocation.Target {
+			return errors.New("redelivery runtime must be registered to the invocation target")
+		}
+		deliveryID := uuid.NewString()
+		event, executeErr := c.svc.Execute(c.actor, "invocation.delivery-attempt", id,
+			model.InvocationDeliveryAttempted{
+				DeliveryID: deliveryID, RuntimeID: redeliveryRuntimeID,
+				Transport: runtimeState.Connector, HostID: runtimeState.HostID, Manual: true,
+			})
+		if executeErr != nil {
+			return executeErr
+		}
+		outcome, outcomeErr := c.invocationDeliveryOutcome(id, deliveryID)
+		if outcomeErr != nil {
+			return outcomeErr
+		}
+		if outcome.Outcome != "SUCCEEDED" {
+			return &controlplane.Error{
+				Code:    controlplane.CodeUnavailable,
+				Message: "redelivery did not complete: " + outcome.Error,
+			}
+		}
+		return c.emitWithDelivery("invocation.redeliver", event, outcome)
+	}}
+	redeliver.Flags().String("id", "", "open invocation ID to redeliver")
+	_ = redeliver.MarkFlagRequired("id")
+	redeliver.Flags().StringVar(&redeliveryRuntimeID, "runtime", "", "specific eligible target runtime")
+	_ = redeliver.MarkFlagRequired("runtime")
 
 	var runtimeID string
 	var listenDuration time.Duration
@@ -948,20 +1614,33 @@ func (c *cli) invocationCmd() *cobra.Command {
 	_ = cancelInvocation.MarkFlagRequired("reason")
 
 	policy := c.invocationPolicyCmd()
-	root.AddCommand(request, list, next, listen, claim, start, waitCommand, resume, complete, reject, expire, cancelInvocation, policy)
+	root.AddCommand(request, list, inspect, next, redeliver, listen, claim, start, waitCommand, resume, complete, reject, expire, cancelInvocation, policy)
 	return root
+}
+
+func deliveriesAcknowledged(invocation model.Invocation) map[string]any {
+	return map[string]any{
+		"state":               invocation,
+		"target_acknowledged": invocation.ClaimedAt != nil,
+		"acknowledged_at":     invocation.ClaimedAt,
+	}
 }
 
 func (c *cli) invocationPolicyCmd() *cobra.Command {
 	root := &cobra.Command{Use: "policy", Short: "Manage per-agent invocation policy"}
 	var mode string
 	var trustedActors, allowedScopes []string
+	var defaultConsumer, preferredInteractiveRuntime string
+	var allowedConsumers []string
 	var requireHuman bool
 	set := &cobra.Command{Use: "set", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		agentID, _ := cmd.Flags().GetString("agent")
 		event, err := c.svc.Execute(c.actor, "invocation.policy.update", agentID, model.InvocationPolicyUpdated{
 			Mode: mode, TrustedActors: trustedActors, AllowedScopes: allowedScopes,
-			RequireHumanForSensitive: requireHuman,
+			DefaultConsumerMode:           model.ConsumerMode(strings.ToUpper(defaultConsumer)),
+			AllowedConsumerModes:          consumerModes(allowedConsumers),
+			PreferredInteractiveRuntimeID: preferredInteractiveRuntime,
+			RequireHumanForSensitive:      requireHuman,
 		})
 		if err != nil {
 			return err
@@ -973,6 +1652,9 @@ func (c *cli) invocationPolicyCmd() *cobra.Command {
 	set.Flags().StringVar(&mode, "mode", "MANUAL", "MANUAL, TRUSTED, AUTOMATIC, or DISABLED")
 	set.Flags().StringSliceVar(&trustedActors, "trusted-actor", nil, "actor allowed by TRUSTED mode")
 	set.Flags().StringSliceVar(&allowedScopes, "scope", nil, "allowed invocation scope")
+	set.Flags().StringVar(&defaultConsumer, "default-consumer", "EITHER", "INTERACTIVE_ONLY, WORKER_ONLY, or EITHER")
+	set.Flags().StringSliceVar(&allowedConsumers, "allow-consumer", nil, "allowed consumer mode (repeatable; defaults to all)")
+	set.Flags().StringVar(&preferredInteractiveRuntime, "interactive-runtime", "", "preferred interactive runtime ID")
 	set.Flags().BoolVar(&requireHuman, "require-human-for-sensitive", true, "require human approval for sensitive work")
 	show := &cobra.Command{Use: "show", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		agentID, _ := cmd.Flags().GetString("agent")
@@ -986,6 +1668,14 @@ func (c *cli) invocationPolicyCmd() *cobra.Command {
 	_ = show.MarkFlagRequired("agent")
 	root.AddCommand(set, show)
 	return root
+}
+
+func consumerModes(values []string) []model.ConsumerMode {
+	result := make([]model.ConsumerMode, 0, len(values))
+	for _, value := range values {
+		result = append(result, model.ConsumerMode(strings.ToUpper(strings.TrimSpace(value))))
+	}
+	return result
 }
 
 func (c *cli) sessionCmd() *cobra.Command {
@@ -1539,79 +2229,11 @@ func (c *cli) exportCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&out, "output", "o", "", "output file")
 	return cmd
 }
-func (c *cli) syncCmd() *cobra.Command {
-	root := &cobra.Command{Use: "sync"}
-	var url string
-	setup := &cobra.Command{Use: "setup", RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, e := c.svc.Store.Config()
-		if e != nil {
-			return e
-		}
-		if cfg.RuntimeMode == "service" || cfg.RuntimeMode == "personal" {
-			return errors.New("authoritative modes do not use Git checkpoints")
-		}
-		if e := c.svc.Store.SetupRemote(url); e != nil {
-			return e
-		}
-		return c.emit("sync.setup", map[string]string{"remote": url})
-	}}
-	setup.Flags().StringVar(&url, "url", "", "checkpoint Git URL")
-	status := &cobra.Command{Use: "status", RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, e := c.svc.Store.Config()
-		if e != nil {
-			return e
-		}
-		if cfg.RuntimeMode == "service" || cfg.RuntimeMode == "personal" {
-			state, stateErr := c.svc.State()
-			if stateErr != nil {
-				return stateErr
-			}
-			return c.emit("sync.status", map[string]any{
-				"state": state.Integrity.Connectivity, "authority": cfg.AuthorityURL,
-				"server_sequence": state.Integrity.ServerSequence, "cache_sequence": state.Integrity.CacheSequence,
-			})
-		}
-		return c.emit("sync.status", map[string]string{"remote": c.svc.Store.Remote(), "state": map[bool]string{true: "configured", false: "local-only"}[c.svc.Store.Remote() != ""]})
-	}}
-	push := &cobra.Command{Use: "push", RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, e := c.svc.Store.Config()
-		if e != nil {
-			return e
-		}
-		if cfg.RuntimeMode == "service" || cfg.RuntimeMode == "personal" {
-			metadata, syncErr := c.svc.Sync()
-			if syncErr != nil {
-				return syncErr
-			}
-			return c.emit("sync.push", map[string]any{"synced": true, "metadata": metadata})
-		}
-		if e := c.svc.Store.Checkpoint(); e != nil {
-			return e
-		}
-		return c.emit("sync.push", map[string]bool{"pushed": true})
-	}}
-	pull := &cobra.Command{Use: "pull", RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, e := c.svc.Store.Config()
-		if e != nil {
-			return e
-		}
-		if cfg.RuntimeMode == "service" || cfg.RuntimeMode == "personal" {
-			metadata, syncErr := c.svc.Sync()
-			if syncErr != nil {
-				return syncErr
-			}
-			return c.emit("sync.pull", map[string]any{"synced": true, "metadata": metadata})
-		}
-		if e := c.svc.Store.SyncPull(); e != nil {
-			return e
-		}
-		return c.emit("sync.pull", map[string]bool{"fast_forwarded": true})
-	}}
-	root.AddCommand(setup, status, push, pull)
-	return root
-}
 func (c *cli) profileCmd() *cobra.Command {
 	root := &cobra.Command{Use: "profile"}
+	current := &cobra.Command{Use: "current", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		return c.emit("profile.current", c.actorResolution)
+	}}
 	list := &cobra.Command{Use: "list", RunE: func(cmd *cobra.Command, args []string) error {
 		u, e := identity.LoadUserConfig()
 		if e != nil {
@@ -1635,7 +2257,7 @@ func (c *cli) profileCmd() *cobra.Command {
 		return c.emit("profile.use", map[string]string{"active": name})
 	}}
 	use.Flags().StringVar(&name, "name", "", "profile name")
-	root.AddCommand(list, use)
+	root.AddCommand(current, list, use)
 	return root
 }
 func (c *cli) configCmd() *cobra.Command {
@@ -1685,6 +2307,8 @@ func (c *cli) updateCmd() *cobra.Command {
 	}}
 	check.Flags().StringVar(&channel, "channel", "stable", "stable or preview")
 	var version string
+	var yes, currentProjectOnly, skipProjectUpgrade bool
+	allKnown := true
 	apply := &cobra.Command{Use: "apply", RunE: func(cmd *cobra.Command, args []string) error {
 		if _, err := exec.LookPath("cosign"); err != nil {
 			return errors.New("verified self-update requires cosign on PATH; use the signed installer until bundled verification is available")
@@ -1699,12 +2323,117 @@ func (c *cli) updateCmd() *cobra.Command {
 		if err != nil {
 			return err
 		}
+		result["binary_updated"] = true
+		if skipProjectUpgrade {
+			result["project_upgrade"] = map[string]any{"skipped": true, "reason": "requested by --skip-project-upgrade"}
+			return c.emit("update.apply", result)
+		}
+		projectRoot, projectFound := currentInitializedProject(c.project)
+		if currentProjectOnly {
+			allKnown = false
+		}
+		knownRoots, rootsErr := c.knownProjectRoots(projectRoot)
+		if rootsErr != nil {
+			return rootsErr
+		}
+		if allKnown && len(knownRoots) == 0 {
+			result["project_upgrade"] = map[string]any{"skipped": true, "reason": "no initialized projects are registered"}
+		} else if allKnown || projectFound {
+			upgradeResult, upgradeErr := c.handoffProjectUpgrade(ctx, result["installed"].(string), projectRoot, yes, allKnown)
+			if upgradeErr != nil {
+				// Preserve the handed-off binary's own classified error
+				// (e.g. UPGRADE_REQUIRED is a normal, expected outcome, not
+				// a failure) rather than collapsing every kind of error
+				// into a generic UPGRADE_FAILED.
+				var lifecycleErr *projectlifecycle.Error
+				if errors.As(upgradeErr, &lifecycleErr) {
+					return lifecycleErr
+				}
+				return &projectlifecycle.Error{
+					Code:    projectlifecycle.CodeUpgradeFailed,
+					Message: "binary updated successfully but project reconciliation failed: " + upgradeErr.Error(),
+				}
+			}
+			result["project_upgrade"] = upgradeResult
+		} else {
+			result["project_upgrade"] = map[string]any{"skipped": true, "reason": "current directory is not an initialized project"}
+		}
 		return c.emit("update.apply", result)
 	}}
 	apply.Flags().StringVar(&channel, "channel", "stable", "stable or preview")
 	apply.Flags().StringVar(&version, "version", "", "exact release tag")
+	apply.Flags().BoolVarP(&yes, "yes", "y", false, "approve confirmation-required project migrations")
+	apply.Flags().BoolVar(&allKnown, "all-known", true, "reconcile projects recorded in identity profiles")
+	apply.Flags().BoolVar(&currentProjectOnly, "current-project-only", false, "reconcile only the current initialized project")
+	apply.Flags().BoolVar(&skipProjectUpgrade, "skip-project-upgrade", false, "install the binary without reconciling projects")
 	root.AddCommand(check, apply)
 	return root
+}
+
+func currentInitializedProject(explicit string) (string, bool) {
+	root := explicit
+	if root == "" {
+		root, _ = os.Getwd()
+	}
+	if root == "" {
+		return "", false
+	}
+	absolute, err := filepath.Abs(root)
+	if err != nil {
+		return "", false
+	}
+	info, err := os.Lstat(filepath.Join(absolute, store.Runtime))
+	return absolute, err == nil && info.IsDir() && info.Mode()&os.ModeSymlink == 0
+}
+
+func (c *cli) handoffProjectUpgrade(ctx context.Context, executable, projectRoot string, yes, allKnown bool) (any, error) {
+	arguments := []string{"project", "upgrade"}
+	if projectRoot != "" {
+		arguments = append(arguments, "--project", projectRoot)
+	}
+	if yes {
+		arguments = append(arguments, "--yes")
+	}
+	if allKnown {
+		arguments = append(arguments, "--all-known")
+	}
+	runner := c.handoffRunner
+	if runner == nil {
+		runner = runCommand
+	}
+	if c.json {
+		arguments = append(arguments, "--json", "--non-interactive")
+		var stdout, stderr bytes.Buffer
+		if err := runner(ctx, executable, arguments, os.Stdin, &stdout, &stderr); err != nil {
+			// The child's --json error envelope goes to its stderr (see
+			// Run(), which encodes failures to the stderr writer), not
+			// stdout. Parse it so the child's real classified error code
+			// (e.g. UPGRADE_REQUIRED for a completely normal, expected
+			// "needs confirmation" outcome) survives the handoff instead
+			// of every failure collapsing into a generic UPGRADE_FAILED.
+			var childEnvelope Envelope
+			if decodeErr := json.Unmarshal(stderr.Bytes(), &childEnvelope); decodeErr == nil && childEnvelope.Error != nil {
+				return nil, &projectlifecycle.Error{
+					Code:    projectlifecycle.ErrorCode(childEnvelope.Error.Code),
+					Message: childEnvelope.Error.Message,
+				}
+			}
+			return nil, fmt.Errorf("%w: %s", err, strings.TrimSpace(stderr.String()))
+		}
+		var envelope Envelope
+		if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+			return nil, fmt.Errorf("decode upgraded binary response: %w", err)
+		}
+		if !envelope.OK {
+			return nil, errors.New("upgraded binary did not verify the project")
+		}
+		return envelope.Result, nil
+	}
+	arguments = append(arguments, "--quiet")
+	if err := runner(ctx, executable, arguments, os.Stdin, c.out, c.err); err != nil {
+		return nil, err
+	}
+	return map[string]any{"verified": true, "all_known": allKnown}, nil
 }
 
 type releaseAsset struct {
@@ -1806,11 +2535,33 @@ func installRelease(ctx context.Context, r githubRelease) (map[string]any, error
 	}
 	backup := exe + ".previous"
 	_ = os.Remove(backup)
+	temporary, e := os.CreateTemp(filepath.Dir(exe), "."+filepath.Base(exe)+".update-*")
+	if e != nil {
+		return nil, e
+	}
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+	if e = temporary.Chmod(0o755); e == nil {
+		_, e = temporary.Write(b)
+	}
+	if e == nil {
+		e = temporary.Sync()
+	}
+	closeErr := temporary.Close()
+	if e == nil {
+		e = closeErr
+	}
+	if e != nil {
+		return nil, e
+	}
 	if e = os.Rename(exe, backup); e != nil {
 		return nil, e
 	}
-	if e = os.WriteFile(exe, b, 0755); e != nil {
+	if e = os.Rename(temporaryPath, exe); e != nil {
 		_ = os.Rename(backup, exe)
+		return nil, e
+	}
+	if e = durablefs.SyncDirectory(filepath.Dir(exe)); e != nil {
 		return nil, e
 	}
 	return map[string]any{"version": r.Tag, "installed": exe, "previous": backup, "verified": true}, nil
@@ -1857,30 +2608,134 @@ func (c *cli) completionCmd(root *cobra.Command) *cobra.Command {
 func (c *cli) agentInstructionsCmd() *cobra.Command {
 	return &cobra.Command{Use: "agent-instructions", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		exe, _ := os.Executable()
-		instructions := fmt.Sprintf(`# Agent Comms agent bootstrap
-binary: %s
-commands:
-  status:   %[1]s status --json
-  verify:   %[1]s verify --json
-  register: %[1]s agent register --id <agent-id> --principal-type AGENT
-  activate: %[1]s agent activate --id <agent-id> --role AGENT --scope <scope>
-  task_create:  %[1]s task create --id <id> --title <title> --repository local --branch <branch> --resource <path>
-  task_claim:   %[1]s task claim --id <id>
-  task_start:   %[1]s task start --id <id>
-  task_renew:   %[1]s task renew --id <id> --progress <summary>
-  message_post: %[1]s message post --id <id> --kind ACTION --to <actor> --subject <subject> --body <body>  (or --body-file <path> for multi-line)
+		var registered, active bool
+		var role string
+		if state, e := c.svc.State(); e == nil {
+			registered, active, role = onboarding.LookupAgentState(state, c.actor)
+		}
+		guide, e := onboarding.Render(onboarding.FromActorResolution(c.actorResolution, exe, registered, active, role))
+		if e != nil {
+			return e
+		}
+		instructions := guide + fmt.Sprintf(`
+## Additional commands
+
   document_create: %[1]s document create --id <id> --title <title> --body <body> --tag <tag>
-  decision_create: %[1]s decision create --id <id> --title <title> --statement <statement>
-contracts: Use "message post --kind CONTRACT" for binding agreements
-documents: Use "document create" for living reference documents
-decisions: Use "decision create" for design decisions
-sync:      Configure a remote with "sync setup --url <git-url>" for multi-agent coordination
+  decision_create:  %[1]s decision create --id <id> --title <title> --statement <statement>
+  message_post:     %[1]s message post --id <id> --kind ACTION --to <actor> --subject <subject> --body <body>  (or --body-file <path> for multi-line)
+
+Use "message post --kind CONTRACT" for binding agreements. Personal mode
+coordinates one machine through SQLite; use service mode with PostgreSQL for
+multi-host coordination. Git is not an authority.
 `, exe)
-		return c.emit("agent-instructions", map[string]any{"instructions": instructions, "binary": exe})
+		return c.emit("agent-instructions", map[string]any{"instructions": instructions, "binary": exe, "actor_resolution": c.actorResolution})
 	}}
 }
 func (c *cli) mcpCmd() *cobra.Command {
-	return &cobra.Command{Use: "mcp", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error { return mcp.Serve(c.svc, c.actor, os.Stdin, c.out) }}
+	return &cobra.Command{Use: "mcp", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		return mcp.Serve(c.svc, c.actorResolution, Version, os.Stdin, c.out)
+	}}
+}
+func (c *cli) claudeCmd() *cobra.Command {
+	root := &cobra.Command{Use: "claude", Short: "Serve, attach to, or tail Claude Code sessions"}
+	var sessionID, projectDir string
+	var noReplay bool
+	tail := &cobra.Command{Use: "tail", Args: cobra.NoArgs, Short: "Stream a Claude Code session transcript live", RunE: func(cmd *cobra.Command, args []string) error {
+		if strings.TrimSpace(sessionID) == "" {
+			return errors.New("--session is required")
+		}
+		dir := projectDir
+		if dir == "" {
+			dir = c.svc.Store.Root
+		}
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("resolve home directory: %w", err)
+		}
+		path, err := claudetail.SessionPath(filepath.Join(home, ".claude"), dir, sessionID)
+		if err != nil {
+			return err
+		}
+		if _, err := os.Stat(path); err != nil {
+			return fmt.Errorf("no Claude session found at %s: %w", path, err)
+		}
+		return claudetail.Tail(cmd.Context(), path, c.out, !noReplay)
+	}}
+	tail.Flags().StringVar(&sessionID, "session", "", "Claude session ID to watch")
+	_ = tail.MarkFlagRequired("session")
+	tail.Flags().StringVar(&projectDir, "project-dir", "", "Claude Code working directory for this session (defaults to the current AgentComms project root)")
+	tail.Flags().BoolVar(&noReplay, "no-replay", false, "skip replaying existing history, only show new turns")
+
+	var listenAddress string
+	serve := &cobra.Command{Use: "serve", Args: cobra.NoArgs, Short: "Run the local Claude live broker", RunE: func(cmd *cobra.Command, args []string) error {
+		ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+		defer cancel()
+		if !c.quiet {
+			_, _ = fmt.Fprintf(c.err, "Claude live broker listening on http://%s\n", listenAddress)
+		}
+		return claudeserve.Serve(ctx, listenAddress)
+	}}
+	serve.Flags().StringVar(&listenAddress, "listen", claudeserve.DefaultServeAddress, "loopback listen address")
+
+	var runtimeID, serverURL string
+	attach := &cobra.Command{Use: "attach", Args: cobra.NoArgs, Short: "Watch a Claude live runtime's event stream", RunE: func(cmd *cobra.Command, args []string) error {
+		client := claudeserve.New(serverURL)
+		events, err := client.Subscribe(cmd.Context(), runtimeID)
+		if err != nil {
+			return err
+		}
+		for event := range events {
+			if rendered, ok := claudetail.Format(event); ok {
+				if _, err := fmt.Fprint(c.out, rendered); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}}
+	attach.Flags().StringVar(&runtimeID, "runtime", "", "registered Agent Comms runtime ID")
+	_ = attach.MarkFlagRequired("runtime")
+	attach.Flags().StringVar(&serverURL, "server", claudeserve.DefaultServeBaseURL(), "Claude live broker base URL")
+
+	root.AddCommand(tail, serve, attach)
+	return root
+}
+func (c *cli) codexCmd() *cobra.Command {
+	root := &cobra.Command{Use: "codex", Short: "Serve or attach to Codex live sessions"}
+
+	var listenAddress string
+	serve := &cobra.Command{Use: "serve", Args: cobra.NoArgs, Short: "Run the local Codex live broker", RunE: func(cmd *cobra.Command, args []string) error {
+		ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+		defer cancel()
+		if !c.quiet {
+			_, _ = fmt.Fprintf(c.err, "Codex live broker listening on http://%s\n", listenAddress)
+		}
+		return codexserve.Serve(ctx, listenAddress)
+	}}
+	serve.Flags().StringVar(&listenAddress, "listen", codexserve.DefaultServeAddress, "loopback listen address")
+
+	var runtimeID, serverURL string
+	attach := &cobra.Command{Use: "attach", Args: cobra.NoArgs, Short: "Watch a Codex live runtime's event stream", RunE: func(cmd *cobra.Command, args []string) error {
+		client := codexserve.New(serverURL)
+		events, err := client.Subscribe(cmd.Context(), runtimeID)
+		if err != nil {
+			return err
+		}
+		for event := range events {
+			if rendered, ok := codexserve.Format(event); ok {
+				if _, err := fmt.Fprint(c.out, rendered); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}}
+	attach.Flags().StringVar(&runtimeID, "runtime", "", "registered Agent Comms runtime ID")
+	_ = attach.MarkFlagRequired("runtime")
+	attach.Flags().StringVar(&serverURL, "server", codexserve.DefaultServeBaseURL(), "Codex live broker base URL")
+
+	root.AddCommand(serve, attach)
+	return root
 }
 func (c *cli) watchCmd() *cobra.Command {
 	var interval time.Duration
@@ -1946,7 +2801,7 @@ func (c *cli) daemonCmd() *cobra.Command {
 		if cfg.RuntimeMode != "service" && cfg.RuntimeMode != "personal" {
 			return errors.New("daemon requires an activated personal- or service-mode project")
 		}
-		cachePath := personalmigration.ProjectionPath(projectRoot)
+		cachePath := runtimeinit.ProjectionPath(projectRoot)
 		if cfg.RuntimeMode == "service" {
 			configDir, configErr := identity.ConfigDir()
 			if configErr != nil {
@@ -1959,7 +2814,7 @@ func (c *cli) daemonCmd() *cobra.Command {
 		}
 		servicePrivateKey := ""
 		if cfg.RuntimeMode == "personal" {
-			credential, credentialErr := identity.ResolveCredential(projectStore.Credentials, cfg.ProjectID, personalmigration.AuthorityActor)
+			credential, credentialErr := identity.ResolveCredential(projectStore.Credentials, cfg.ProjectID, "__personal_authority__")
 			if credentialErr != nil {
 				return fmt.Errorf("resolve personal authority signing key: %w", credentialErr)
 			}
@@ -1971,8 +2826,14 @@ func (c *cli) daemonCmd() *cobra.Command {
 			AuthorityURL: cfg.AuthorityURL, ServicePublicKey: cfg.ServicePublicKey,
 			CachePath: cachePath, Endpoint: cfg.DaemonEndpoint,
 			ConnectorConfigPath: strings.TrimSpace(os.Getenv("AGENT_COMMS_CONNECTOR_CONFIG")),
-			RuntimeMode:         cfg.RuntimeMode, PersonalDatabase: personalmigration.DatabasePath(projectRoot),
+			RuntimeMode:         cfg.RuntimeMode, PersonalDatabase: runtimeinit.DatabasePath(projectRoot),
 			ServicePrivateKey: servicePrivateKey, ProjectID: cfg.ProjectID,
+			ProductVersion: Version, BuildID: buildinfo.ResolvedBuildID(),
+			ProjectFormatVersion: store.ProjectFormatVersion,
+			CacheSchemaVersion:   projectlifecycle.ProjectionCacheSchemaVersion,
+			DraftSchemaVersion:   projectlifecycle.DraftStoreSchemaVersion,
+			DraftPath:            runtimeinit.DraftPath(projectRoot),
+			ProjectRoot:          projectRoot,
 		})
 	}}
 	root.AddCommand(serve)
@@ -1980,17 +2841,22 @@ func (c *cli) daemonCmd() *cobra.Command {
 }
 
 func ensureDaemon(projectRoot string, cfg store.Config) error {
-	client, err := daemonclient.New(cfg.DaemonEndpoint, 300*time.Millisecond)
+	client, err := daemonclient.New(cfg.DaemonEndpoint, daemonHealthRequestTimeout)
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), daemonHealthRequestTimeout)
 	health, err := client.Health(ctx)
 	cancel()
 	if err == nil {
 		if health.RuntimeMode == cfg.RuntimeMode &&
 			(health.ProjectID == cfg.ProjectID || (cfg.RuntimeMode == "service" && health.ProjectID == "*")) &&
-			health.ProtocolVersion == controlplane.LocalDaemonProtocolVersion {
+			health.ProtocolVersion == controlplane.LocalDaemonProtocolVersion &&
+			health.ProductVersion == Version &&
+			health.BuildID == buildinfo.ResolvedBuildID() &&
+			health.ProjectFormatVersion == store.ProjectFormatVersion &&
+			health.CacheSchemaVersion == projectlifecycle.ProjectionCacheSchemaVersion &&
+			health.DraftSchemaVersion == projectlifecycle.DraftStoreSchemaVersion {
 			return nil
 		}
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), time.Second)
@@ -1999,14 +2865,14 @@ func ensureDaemon(projectRoot string, cfg store.Config) error {
 		if shutdownErr != nil {
 			return fmt.Errorf("replace incompatible daemon for %s project %s: %w", health.RuntimeMode, health.ProjectID, shutdownErr)
 		}
-		for attempt := 0; attempt < 20; attempt++ {
+		for attempt := 0; attempt < daemonShutdownWaitAttempts; attempt++ {
 			waitCtx, waitCancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 			_, waitErr := client.Health(waitCtx)
 			waitCancel()
 			if waitErr != nil {
 				break
 			}
-			time.Sleep(50 * time.Millisecond)
+			time.Sleep(daemonShutdownWaitSleep)
 		}
 	}
 	executable, executableErr := os.Executable()
@@ -2024,18 +2890,15 @@ func ensureDaemon(projectRoot string, cfg store.Config) error {
 	if logErr != nil {
 		return logErr
 	}
-	process := exec.Command(executable, "daemon", "serve", "--project", projectRoot)
-	process.Stdout = logFile
-	process.Stderr = logFile
-	if startErr := process.Start(); startErr != nil {
+	if startErr := launchDaemonProcess(executable, projectRoot, logFile); startErr != nil {
 		_ = logFile.Close()
 		return fmt.Errorf("start local daemon: %w", startErr)
 	}
-	_ = process.Process.Release()
 	_ = logFile.Close()
-	for attempt := 0; attempt < 30; attempt++ {
-		time.Sleep(100 * time.Millisecond)
-		healthCtx, healthCancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	readyDeadline := time.Now().Add(daemonReadyTimeout)
+	for time.Now().Before(readyDeadline) {
+		time.Sleep(daemonReadyPollInterval)
+		healthCtx, healthCancel := context.WithTimeout(context.Background(), daemonHealthRequestTimeout)
 		healthErr := client.Healthy(healthCtx)
 		healthCancel()
 		if healthErr == nil {
@@ -2046,180 +2909,4 @@ func ensureDaemon(projectRoot string, cfg store.Config) error {
 		Code:    controlplane.CodeUnavailable,
 		Message: "local daemon did not become ready; inspect " + filepath.Join(configDir, "daemon.log"),
 	}
-}
-
-func (c *cli) migrateCmd() *cobra.Command {
-	root := &cobra.Command{Use: "migrate"}
-	status := &cobra.Command{Use: "status", RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, e := c.svc.Store.Config()
-		if e != nil {
-			return e
-		}
-		r := map[string]any{"current": cfg.SchemaVersion, "target": model.SchemaVersion, "required": cfg.SchemaVersion != model.SchemaVersion, "runtime_mode": cfg.RuntimeMode, "legacy_read_only": cfg.LegacyReadOnly}
-		if cutover, x := c.svc.Store.Cutover(); x == nil {
-			r["cutover"] = cutover
-			if manifest, mx := c.svc.Store.LegacyManifest(); mx == nil {
-				r["legacy_manifest"] = manifest
-			}
-		}
-		return c.emit("migrate.status", r)
-	}}
-	var owner string
-	apply := &cobra.Command{Use: "apply", RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, e := c.svc.Store.Config()
-		if e != nil {
-			return e
-		}
-		if cfg.SchemaVersion == model.SchemaVersion {
-			return c.emit("migrate.apply", map[string]bool{"changed": false})
-		}
-		if owner == "" {
-			return errors.New("--owner is required; automatic identity invention is refused")
-		}
-		if e = c.svc.Store.MigrateV1(owner); e != nil {
-			return e
-		}
-		return c.emit("migrate.apply", map[string]any{"changed": true, "source": cfg.SchemaVersion, "target": model.SchemaVersion, "owner": owner})
-	}}
-	apply.Flags().StringVar(&owner, "owner", "", "v1 owner identity mapping")
-	var adoptOwner string
-	adopt := &cobra.Command{Use: "adopt", Short: "Preserve a legacy .agents and prepare governed cutover", RunE: func(cmd *cobra.Command, args []string) error {
-		if adoptOwner == "" {
-			return errors.New("--owner is required; identities are never inferred from legacy prose")
-		}
-		preview, e := c.svc.Store.PrepareLegacyAdoption(adoptOwner)
-		if e != nil {
-			return e
-		}
-		return c.emit("migrate.adopt", preview)
-	}}
-	adopt.Flags().StringVar(&adoptOwner, "owner", "", "explicit owner identity")
-	var confirmSeed bool
-	seed := &cobra.Command{Use: "seed-complete", Short: "Confirm explicit seeding of legacy current state", RunE: func(cmd *cobra.Command, args []string) error {
-		if !confirmSeed {
-			return errors.New("--confirm is required after explicitly reviewing owner, orchestrators, agents, tasks, decisions, blockers, and contracts")
-		}
-		v, e := c.svc.Store.ConfirmLegacySeeding(c.actor)
-		if e != nil {
-			return e
-		}
-		return c.emit("migrate.seed-complete", v)
-	}}
-	seed.Flags().BoolVar(&confirmSeed, "confirm", false, "confirm all legacy current-state categories were explicitly reviewed and seeded")
-	var required []string
-	requireAcks := &cobra.Command{Use: "require-acks", RunE: func(cmd *cobra.Command, args []string) error {
-		st, e := c.svc.State()
-		if e != nil {
-			return e
-		}
-		for _, id := range required {
-			a, ok := st.Agents[id]
-			if !ok || a.Status != "ACTIVE" {
-				return fmt.Errorf("required acknowledging agent %s must be explicitly registered and ACTIVE", id)
-			}
-		}
-		v, e := c.svc.Store.SetCutoverAcknowledgements(required)
-		if e != nil {
-			return e
-		}
-		return c.emit("migrate.require-acks", v)
-	}}
-	requireAcks.Flags().StringSliceVar(&required, "agent", nil, "required active agent acknowledgement")
-	ack := &cobra.Command{Use: "ack", RunE: func(cmd *cobra.Command, args []string) error {
-		st, e := c.svc.State()
-		if e != nil {
-			return e
-		}
-		if a, ok := st.Agents[c.actor]; !ok || a.Status != "ACTIVE" {
-			return errors.New("only an explicitly activated agent may acknowledge cutover")
-		}
-		v, e := c.svc.Store.AcknowledgeCutover(c.actor)
-		if e != nil {
-			return e
-		}
-		return c.emit("migrate.ack", v)
-	}}
-	var activateYes bool
-	activate := &cobra.Command{Use: "activate", RunE: func(cmd *cobra.Command, args []string) error {
-		cutover, e := c.svc.Store.Cutover()
-		if e != nil {
-			return e
-		}
-		manifest, e := c.svc.Store.LegacyManifest()
-		if e != nil {
-			return e
-		}
-		preview := map[string]any{"state": cutover.State, "bootstrap": cutover.Bootstrap, "manifest": manifest, "will_replace": filepath.Join(c.svc.Store.Root, ".agents"), "recovery_command": "agent-comms migrate recover"}
-		if !activateYes {
-			return c.emit("migrate.activate.preview", preview)
-		}
-		v, e := c.svc.Store.ActivateCutover()
-		if e != nil {
-			return e
-		}
-		return c.emit("migrate.activate", map[string]any{"cutover": v, "recovery_command": "agent-comms migrate recover"})
-	}}
-	activate.Flags().BoolVarP(&activateYes, "yes", "y", false, "explicitly activate the previewed cutover")
-	rollback := &cobra.Command{Use: "rollback", RunE: func(cmd *cobra.Command, args []string) error {
-		if e := c.svc.Store.RollbackCutover(); e != nil {
-			return e
-		}
-		return c.emit("migrate.rollback", map[string]bool{"rolled_back": true})
-	}}
-	recoverCmd := &cobra.Command{Use: "recover", RunE: func(cmd *cobra.Command, args []string) error {
-		if e := c.svc.Store.RecoverLegacy(); e != nil {
-			return e
-		}
-		return c.emit("migrate.recover", map[string]any{"recovered": true, "path": filepath.Join(c.svc.Store.Root, ".agents")})
-	}}
-	extractCmd := &cobra.Command{Use: "extract-context", Short: "Preview unverified legacy context candidates", RunE: func(cmd *cobra.Command, args []string) error {
-		out, e := c.svc.Store.ExtractLegacyContext()
-		if e != nil {
-			return e
-		}
-		return c.emit("migrate.extract-context", out)
-	}}
-	var personalYes bool
-	personalCmd := &cobra.Command{Use: "personal", Short: "Migrate verified legacy history to the local SQLite authority", RunE: func(cmd *cobra.Command, args []string) error {
-		if !personalYes {
-			return errors.New("--yes is required to make the verified legacy runtime read-only after import")
-		}
-		result, e := personalmigration.Migrate(cmd.Context(), c.svc.Store)
-		if e != nil {
-			return e
-		}
-		return c.emit("migrate.personal", result)
-	}}
-	personalCmd.Flags().BoolVarP(&personalYes, "yes", "y", false, "activate personal mode after verified import")
-	var authorityURL, servicePublicKey, daemonEndpoint, migrationToken string
-	var serviceYes bool
-	var batchSize int
-	serviceCmd := &cobra.Command{Use: "service", Short: "Migrate verified v2 history to the authoritative service", RunE: func(cmd *cobra.Command, args []string) error {
-		if !serviceYes {
-			return errors.New("--yes is required to make the verified legacy runtime read-only after import")
-		}
-		if migrationToken == "" {
-			migrationToken = os.Getenv("AGENT_COMMS_MIGRATION_TOKEN")
-		}
-		result, e := hybridmigration.Migrate(cmd.Context(), hybridmigration.Config{
-			ProjectRoot: c.svc.Store.Root, AuthorityURL: authorityURL,
-			ServicePublicKey: servicePublicKey, DaemonEndpoint: daemonEndpoint,
-			MigrationToken: migrationToken, BatchSize: batchSize,
-		})
-		if e != nil {
-			return e
-		}
-		return c.emit("migrate.service", result)
-	}}
-	serviceCmd.Flags().StringVar(&authorityURL, "authority-url", "", "authoritative service URL")
-	serviceCmd.Flags().StringVar(&servicePublicKey, "service-public-key", "", "base64 Ed25519 service public key")
-	serviceCmd.Flags().StringVar(&daemonEndpoint, "daemon-endpoint", "", "local daemon socket or named pipe")
-	serviceCmd.Flags().StringVar(&migrationToken, "migration-token", "", "migration bearer token (or AGENT_COMMS_MIGRATION_TOKEN)")
-	serviceCmd.Flags().IntVar(&batchSize, "batch-size", 100, "idempotent import batch size")
-	serviceCmd.Flags().BoolVarP(&serviceYes, "yes", "y", false, "activate service mode after verified import")
-	_ = serviceCmd.MarkFlagRequired("authority-url")
-	_ = serviceCmd.MarkFlagRequired("service-public-key")
-	_ = serviceCmd.MarkFlagRequired("daemon-endpoint")
-	root.AddCommand(status, apply, adopt, seed, requireAcks, ack, activate, rollback, recoverCmd, extractCmd, personalCmd, serviceCmd)
-	return root
 }

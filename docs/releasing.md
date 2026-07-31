@@ -26,8 +26,11 @@ TUI, agent controls, command palette, and resilient local control plane.
 ## Promotion
 
 1. Open a release pull request from `dev` to `main`.
-2. Confirm full platform, race, vulnerability, contamination, installer, migration, and end-to-end checks.
-3. Curate `CHANGELOG.md`, release notes, migrations, compatibility statements, and known limitations.
+2. Confirm full platform, race, vulnerability, contamination, installer, and end-to-end checks.
+3. Curate `CHANGELOG.md`, release notes, compatibility statements,
+   and known limitations — including any new optional runtime dependency a
+   worker adapter now requires (for example, Node.js/npm for the `claude-acp`
+   and `codex-acp` ACP adapters, or the `opencode` binary for `opencode-acp`).
 4. Obtain core-maintainer review and merge using a merge commit.
 5. A release/security maintainer chooses a unique change-reflective episode
    nickname, records it in the changelog, and creates the protected annotated

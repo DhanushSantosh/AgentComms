@@ -13,15 +13,16 @@ import (
 
 	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
-	"github.com/DhanushSantosh/AgentComms/internal/service"
+	"github.com/DhanushSantosh/AgentComms/internal/projection"
 	_ "modernc.org/sqlite"
 )
+
+const SchemaVersion = 3
 
 const schema = `
 PRAGMA journal_mode=WAL;
 PRAGMA synchronous=NORMAL;
 PRAGMA foreign_keys=ON;
-PRAGMA busy_timeout=5000;
 
 CREATE TABLE IF NOT EXISTS projects (
     project_id TEXT PRIMARY KEY,
@@ -73,9 +74,49 @@ func Open(path, serverPublicKey string) (*Cache, error) {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
+	// busy_timeout must be set before any other query against this file,
+	// not as part of the schema DDL below -- another process (e.g. a
+	// daemon this one is replacing) can still legitimately hold the
+	// SQLite lock for a moment after it stops answering health checks, and
+	// without this, the very first query (the schema-version read right
+	// below) gets SQLITE_BUSY immediately with no retry at all, since
+	// SQLite's default busy_timeout is 0. Confirmed live: this raced
+	// ensureDaemon's daemon-replacement path and failed
+	// TestEnsureDaemonReplacesIncompatibleDaemon intermittently under real
+	// scheduling jitter, with the new daemon's Cache.Open failing outright
+	// rather than waiting the moment it needed to.
+	if _, err = db.Exec(`PRAGMA busy_timeout=5000`); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("set local cache busy timeout: %w", err)
+	}
+	var currentVersion int
+	if err = db.QueryRow(`PRAGMA user_version`).Scan(&currentVersion); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("read local cache schema version: %w", err)
+	}
+	// Fail closed rather than blindly stamping: CREATE TABLE IF NOT EXISTS
+	// is a no-op against an existing table with a different shape, so
+	// silently running the current schema's DDL and re-stamping
+	// user_version over a database at some OTHER version could paper over
+	// a schema that was never actually migrated. 0 means a genuinely fresh
+	// database (DDL creates everything from scratch); already-current
+	// means the normal, expected case. This is a distinct check from
+	// projectlifecycle's own reconciliation -- it protects any direct
+	// Open call (e.g. `daemon serve` invoked outside the usual
+	// Reconcile-then-ensureDaemon sequence) from the same risk.
+	if currentVersion != 0 && currentVersion != SchemaVersion {
+		_ = db.Close()
+		return nil, fmt.Errorf(
+			"local cache schema is version %d, this binary expects %d; run `agent-comms project upgrade` before opening it directly",
+			currentVersion, SchemaVersion)
+	}
 	if _, err = db.Exec(schema); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("initialize local cache: %w", err)
+	}
+	if _, err = db.Exec(fmt.Sprintf("PRAGMA user_version=%d", SchemaVersion)); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("stamp local cache schema version: %w", err)
 	}
 	for _, databaseFile := range []string{path, path + "-wal", path + "-shm"} {
 		if chmodErr := os.Chmod(databaseFile, 0o600); chmodErr != nil && !os.IsNotExist(chmodErr) {
@@ -97,8 +138,7 @@ func (c *Cache) Apply(ctx context.Context, event controlplane.Event, receipt con
 	if !controlplane.VerifyReceipt(receipt, c.serverPublicKey) {
 		return &controlplane.Error{Code: controlplane.CodeIntegrity, Message: "server receipt signature is invalid"}
 	}
-	hash, err := controlplane.HashEvent(event)
-	if err != nil || hash != event.Hash {
+	if !controlplane.VerifyEventHash(event) {
 		return &controlplane.Error{Code: controlplane.CodeIntegrity, Message: "event hash is invalid"}
 	}
 	tx, err := c.db.BeginTx(ctx, nil)
@@ -136,7 +176,7 @@ func (c *Cache) Apply(ctx context.Context, event controlplane.Event, receipt con
 		Sequence: event.Sequence, Time: event.Time, Actor: event.Actor, Type: event.Type,
 		EntityID: event.EntityID, Data: event.Payload, PreviousHash: event.PreviousHash, Hash: event.Hash,
 	}
-	if err = service.ApplyEvent(&state, modelEvent); err != nil {
+	if err = projection.ApplyEvent(&state, modelEvent); err != nil {
 		return err
 	}
 	eventJSON, _ := json.Marshal(event)
@@ -328,8 +368,7 @@ func (c *Cache) VerifyRange(ctx context.Context, projectID string, from, to uint
 		if event.Sequence != expected || event.PreviousHash != previousHash {
 			return &controlplane.Error{Code: controlplane.CodeIntegrity, Message: fmt.Sprintf("cache chain discontinuity at %s", event.ID)}
 		}
-		hash, hashErr := controlplane.HashEvent(event)
-		if hashErr != nil || hash != event.Hash {
+		if !controlplane.VerifyEventHash(event) {
 			return &controlplane.Error{Code: controlplane.CodeIntegrity, Message: fmt.Sprintf("cache hash mismatch at %s", event.ID)}
 		}
 		if !controlplane.VerifyReceipt(receipt, c.serverPublicKey) {

@@ -3,31 +3,65 @@ package daemon
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
+	"path/filepath"
 	"sync"
 	"time"
 
+	"github.com/DhanushSantosh/AgentComms/internal/buildinfo"
 	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
+	"github.com/DhanushSantosh/AgentComms/internal/draftstore"
+	"github.com/DhanushSantosh/AgentComms/internal/identity"
 	"github.com/DhanushSantosh/AgentComms/internal/localcache"
 	"github.com/DhanushSantosh/AgentComms/internal/personalauthority"
 	"github.com/DhanushSantosh/AgentComms/internal/remote"
+	"github.com/DhanushSantosh/AgentComms/internal/store"
 )
 
-const daemonShutdownTimeout = 10 * time.Second
+const (
+	daemonShutdownTimeout       = 10 * time.Second
+	deliveryCoordinatorInterval = 500 * time.Millisecond
+)
 
 type RunConfig struct {
-	AuthorityURL        string
-	ServicePublicKey    string
-	CachePath           string
-	Endpoint            string
-	ConnectorConfigPath string
-	RuntimeMode         string
-	PersonalDatabase    string
-	ServicePrivateKey   string
-	ProjectID           string
+	AuthorityURL         string
+	ServicePublicKey     string
+	CachePath            string
+	Endpoint             string
+	ConnectorConfigPath  string
+	RuntimeMode          string
+	PersonalDatabase     string
+	ServicePrivateKey    string
+	ProjectID            string
+	ProductVersion       string
+	BuildID              string
+	ProjectFormatVersion int
+	CacheSchemaVersion   int
+	DraftSchemaVersion   int
+	DraftPath            string
+	ProjectRoot          string
 }
 
 func Run(ctx context.Context, cfg RunConfig) error {
+	if cfg.ProductVersion == "" {
+		cfg.ProductVersion = buildinfo.Version
+	}
+	if cfg.BuildID == "" {
+		cfg.BuildID = buildinfo.ResolvedBuildID()
+	}
+	if cfg.ProjectFormatVersion == 0 {
+		cfg.ProjectFormatVersion = store.ProjectFormatVersion
+	}
+	if cfg.CacheSchemaVersion == 0 {
+		cfg.CacheSchemaVersion = 1
+	}
+	if cfg.DraftSchemaVersion == 0 {
+		cfg.DraftSchemaVersion = draftstore.SchemaVersion
+	}
+	if cfg.DraftPath == "" {
+		cfg.DraftPath = filepath.Join(filepath.Dir(filepath.Dir(cfg.CachePath)), "data", "drafts.db")
+	}
 	cache, err := localcache.Open(cfg.CachePath, cfg.ServicePublicKey)
 	if err != nil {
 		return err
@@ -59,6 +93,13 @@ func Run(ctx context.Context, cfg RunConfig) error {
 	}
 	instance.SetPersonalMode(cfg.RuntimeMode == "personal")
 	instance.SetIdentity(cfg.RuntimeMode, cfg.ProjectID)
+	instance.SetCompatibility(cfg.ProductVersion, cfg.BuildID, cfg.ProjectFormatVersion, cfg.CacheSchemaVersion, cfg.DraftSchemaVersion)
+	drafts, err := draftstore.Open(cfg.DraftPath)
+	if err != nil {
+		return err
+	}
+	defer drafts.Close()
+	instance.SetDraftStore(drafts)
 	shutdownRequested := make(chan struct{})
 	var shutdownOnce sync.Once
 	instance.SetShutdown(func() {
@@ -72,6 +113,16 @@ func Run(ctx context.Context, cfg RunConfig) error {
 	if err != nil {
 		return err
 	}
+	dispatcher.SetConfigSource(cfg.ConnectorConfigPath)
+	hostID, err := identity.LoadOrCreateHostID()
+	if err != nil {
+		return fmt.Errorf("load local host identity: %w", err)
+	}
+	projectRoot := cfg.ProjectRoot
+	if projectRoot == "" {
+		projectRoot = filepath.Dir(filepath.Dir(cfg.CachePath))
+	}
+	dispatcher.SetLocalInteractive(projectRoot, hostID)
 	instance.SetDispatcher(dispatcher)
 	listener, err := ListenLocal(cfg.Endpoint)
 	if err != nil {
@@ -81,6 +132,16 @@ func Run(ctx context.Context, cfg RunConfig) error {
 	server := &http.Server{
 		Handler: instance.Handler(), ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second,
+	}
+	coordinatorContext, stopCoordinator := context.WithCancel(ctx)
+	defer stopCoordinator()
+	if cfg.ProjectID != "" {
+		go runDeliveryCoordinator(
+			coordinatorContext,
+			cfg.ProjectID,
+			deliveryCoordinatorInterval,
+			instance.Sync,
+		)
 	}
 	failures := make(chan error, 1)
 	go func() { failures <- server.Serve(listener) }()
@@ -95,8 +156,29 @@ func Run(ctx context.Context, cfg RunConfig) error {
 		defer cancel()
 		return server.Shutdown(shutdownCtx)
 	case <-shutdownRequested:
+		stopCoordinator()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), daemonShutdownTimeout)
 		defer cancel()
 		return server.Shutdown(shutdownCtx)
+	}
+}
+
+func runDeliveryCoordinator(
+	ctx context.Context,
+	projectID string,
+	interval time.Duration,
+	syncProject func(context.Context, string) error,
+) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			syncContext, cancel := context.WithTimeout(ctx, controlplane.DefaultRequestTimeout)
+			_ = syncProject(syncContext, projectID)
+			cancel()
+		}
 	}
 }

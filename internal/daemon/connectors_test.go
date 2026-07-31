@@ -24,7 +24,7 @@ type submittedCommand struct {
 
 func TestDispatcherReservesThenLaunchesOnce(t *testing.T) {
 	var submitted []submittedCommand
-	dispatcher, err := NewDispatcher(nil, func(_ context.Context, _ string, actor, eventType, entityID string, payload any) error {
+	dispatcher, err := NewDispatcher(dispatcherConfigs(t), func(_ context.Context, _ string, actor, eventType, entityID string, payload any) error {
 		submitted = append(submitted, submittedCommand{Actor: actor, EventType: eventType, EntityID: entityID, Payload: payload})
 		return nil
 	})
@@ -34,7 +34,7 @@ func TestDispatcherReservesThenLaunchesOnce(t *testing.T) {
 	launches := 0
 	dispatcher.launch = func(_ context.Context, config ConnectorConfig, envelope InvocationEnvelope) error {
 		launches++
-		if config.Type != "MANUAL" || envelope.Invocation.ID != "inv-1" {
+		if config.Type != "LOCAL_PROCESS" || envelope.Invocation.ID != "inv-1" {
 			t.Fatalf("unexpected connector launch: config=%+v envelope=%+v", config, envelope)
 		}
 		return nil
@@ -43,14 +43,16 @@ func TestDispatcherReservesThenLaunchesOnce(t *testing.T) {
 	if err = dispatcher.Dispatch(context.Background(), "project", state); err != nil {
 		t.Fatal(err)
 	}
-	if launches != 1 || len(submitted) != 1 || submitted[0].EventType != "invocation.notify" {
+	if launches != 1 || len(submitted) != 2 ||
+		submitted[0].EventType != "invocation.delivery-attempt" ||
+		submitted[1].EventType != "invocation.notify" {
 		t.Fatalf("launches=%d submitted=%+v", launches, submitted)
 	}
 }
 
 func TestDispatcherRecordsRetryableFailure(t *testing.T) {
 	var submitted []submittedCommand
-	dispatcher, err := NewDispatcher(nil, func(_ context.Context, _ string, actor, eventType, entityID string, payload any) error {
+	dispatcher, err := NewDispatcher(dispatcherConfigs(t), func(_ context.Context, _ string, actor, eventType, entityID string, payload any) error {
 		submitted = append(submitted, submittedCommand{Actor: actor, EventType: eventType, EntityID: entityID, Payload: payload})
 		return nil
 	})
@@ -65,13 +67,28 @@ func TestDispatcherRecordsRetryableFailure(t *testing.T) {
 	if err = dispatcher.Dispatch(context.Background(), "project", dispatcherState()); err != nil {
 		t.Fatal(err)
 	}
-	if len(submitted) != 2 || submitted[0].EventType != "invocation.notify" ||
+	if len(submitted) != 2 || submitted[0].EventType != "invocation.delivery-attempt" ||
 		submitted[1].EventType != "invocation.delivery-failed" {
 		t.Fatalf("unexpected delivery commands: %+v", submitted)
 	}
 	failure := submitted[1].Payload.(model.InvocationDeliveryFailed)
 	if failure.Final || failure.NextRetry == nil || !failure.NextRetry.After(now) {
 		t.Fatalf("unexpected retryable failure: %+v", failure)
+	}
+}
+
+func TestNonDeliveryConnectorsCannotManufactureSuccess(t *testing.T) {
+	envelope := InvocationEnvelope{
+		ProjectID:  "project",
+		Invocation: model.Invocation{ID: "invocation", Target: "builder"},
+		Runtime:    model.AgentRuntime{ID: "runtime", AgentID: "builder"},
+	}
+	for _, connector := range []string{"MANUAL", "MCP"} {
+		t.Run(connector, func(t *testing.T) {
+			if err := launchConnector(context.Background(), ConnectorConfig{Type: connector}, envelope); err == nil {
+				t.Fatalf("%s connector reported a delivery it cannot prove", connector)
+			}
+		})
 	}
 }
 
@@ -200,6 +217,45 @@ func TestLoadConnectorConfigsRequiresPrivateFileAndAbsoluteExecutable(t *testing
 	}
 }
 
+func TestDispatcherRevalidatesConnectorSource(t *testing.T) {
+	directory := t.TempDir()
+	configPath := filepath.Join(directory, "connectors.json")
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(map[string]any{"connectors": map[string]any{
+		"local": map[string]any{
+			"type": "LOCAL_PROCESS", "executable": executable, "timeout": "5s",
+		},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(configPath, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	configs, err := LoadConnectorConfigs(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dispatcher, err := NewDispatcher(configs,
+		func(context.Context, string, string, string, string, any) error { return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	dispatcher.SetConfigSource(configPath)
+	if err = dispatcher.ValidateRuntime("LOCAL_PROCESS", "local", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.Remove(configPath); err != nil {
+		t.Fatal(err)
+	}
+	if err = dispatcher.ValidateRuntime("LOCAL_PROCESS", "local", ""); err == nil {
+		t.Fatal("removed connector configuration remained usable from stale memory")
+	}
+}
+
 func TestConnectorHelperProcess(t *testing.T) {
 	if os.Getenv("CONNECTOR_TEST_HELPER") != "1" {
 		return
@@ -221,14 +277,29 @@ func TestConnectorHelperProcess(t *testing.T) {
 func dispatcherState() model.State {
 	return model.State{
 		Invocations: map[string]model.Invocation{
-			"inv-1": {ID: "inv-1", Target: "builder", Status: "PENDING", Priority: "NORMAL"},
+			"inv-1": {
+				ID: "inv-1", Target: "builder", Status: "PENDING", Priority: "NORMAL",
+				ConsumerMode: model.ConsumerModeWorkerOnly,
+			},
 		},
 		InvocationDeliveries: map[string]model.InvocationDelivery{},
 		AgentRuntimes: map[string]model.AgentRuntime{
 			"runtime-1": {
-				ID: "runtime-1", AgentID: "builder", Connector: "MANUAL",
+				ID: "runtime-1", AgentID: "builder", Kind: model.RuntimeKindWorker,
+				Connector: "LOCAL_PROCESS", ConfigReference: "runtime-local",
 				Status: "OFFLINE", MaxConcurrent: 1,
 			},
 		},
+	}
+}
+
+func dispatcherConfigs(t *testing.T) map[string]ConnectorConfig {
+	t.Helper()
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return map[string]ConnectorConfig{
+		"runtime-local": {Type: "LOCAL_PROCESS", Executable: executable, Timeout: time.Second},
 	}
 }

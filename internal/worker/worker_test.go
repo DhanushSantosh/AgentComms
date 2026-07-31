@@ -4,15 +4,15 @@ import (
 	"context"
 	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/DhanushSantosh/AgentComms/internal/identity"
+	"github.com/DhanushSantosh/AgentComms/internal/claudepath"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 	"github.com/DhanushSantosh/AgentComms/internal/service"
+	"github.com/DhanushSantosh/AgentComms/internal/testsupport"
 )
 
 func TestWorkerExecutesPublishesAndCompletesInvocation(t *testing.T) {
@@ -33,7 +33,7 @@ func TestWorkerExecutesPublishesAndCompletesInvocation(t *testing.T) {
 		t.Fatalf("invocation was not completed with evidence: %+v", invocation)
 	}
 	result, exists := state.Messages[invocation.ResultMessageID]
-	if !exists || result.From != "axiom" || len(result.To) != 1 || result.To[0] != "owner" {
+	if !exists || result.From != "AXIOM" || len(result.To) != 1 || result.To[0] != "owner" {
 		t.Fatalf("unexpected worker result message: %+v", result)
 	}
 }
@@ -62,7 +62,7 @@ func TestWorkerCreatesStructuredFollowUpInvocation(t *testing.T) {
 	worker := newTestWorker(t, instance, root)
 	worker.run = func(context.Context, model.Invocation) (string, error) {
 		return `Handing verification to DAMON.
-AGENT_COMMS_INVOKE: {"target":"damon","instruction":"Verify the result","expected_result":"Return an acknowledgement","priority":"NORMAL","expires_in_seconds":600}`, nil
+AGENT_COMMS_INVOKE: {"target":"DAMON","instruction":"Verify the result","expected_result":"Return an acknowledgement","priority":"NORMAL","expires_in_seconds":600}`, nil
 	}
 	if err := worker.Run(context.Background()); err != nil {
 		t.Fatal(err)
@@ -73,7 +73,7 @@ AGENT_COMMS_INVOKE: {"target":"damon","instruction":"Verify the result","expecte
 	}
 	found := false
 	for _, invocation := range state.Invocations {
-		if invocation.RequestedBy == "axiom" && invocation.Target == "damon" {
+		if invocation.RequestedBy == "AXIOM" && invocation.Target == "DAMON" {
 			found = true
 			break
 		}
@@ -90,7 +90,7 @@ func TestWorkerRejectsUnsafeAgentConfiguration(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = New(Config{
-		Service: instance, Actor: "axiom", RuntimeID: "runtime-axiom",
+		Service: instance, Actor: "AXIOM", RuntimeID: "runtime-axiom",
 		Adapter: "claude", Executable: executable, WorkDir: root,
 		PermissionMode: "bypassPermissions", ClaudeBudgetUSD: 1,
 		ListenWait: time.Second, ExecutionTimeout: time.Minute,
@@ -105,10 +105,54 @@ func TestWorkerResumesBoundClaudeSession(t *testing.T) {
 	worker := newTestWorker(t, instance, root)
 	worker.config.SessionID = "e22cbdad-7233-4d6d-8ecc-0c4bffd8c475"
 	worker.config.AgentCommsPath = worker.config.Executable
+	writeFakeClaudeSession(t, root, worker.config.SessionID)
 	arguments := worker.arguments()
 	assertArgumentsContain(t, arguments, "--resume", worker.config.SessionID)
 	assertArgumentsContain(t, arguments, "--allowedTools", "Bash("+worker.config.Executable+" *)")
 	assertArgumentsExclude(t, arguments, "--no-session-persistence")
+	assertArgumentsExclude(t, arguments, "--session-id")
+}
+
+// TestWorkerCreatesUnboundClaudeSession covers the first invocation a
+// runtime ever makes with a bound session ID: `--resume` fails outright on
+// an ID with no conversation behind it yet (confirmed live against the real
+// claude binary — "No conversation found"), so the worker must emit
+// `--session-id` instead to create the conversation at that exact ID.
+func TestWorkerCreatesUnboundClaudeSession(t *testing.T) {
+	instance, root := workerService(t)
+	worker := newTestWorker(t, instance, root)
+	worker.config.SessionID = "b3e6e5e0-6b3b-4a6b-9f0b-6b6b6b6b6b6b"
+	setTestUserHome(t, t.TempDir())
+	arguments := worker.arguments()
+	assertArgumentsContain(t, arguments, "--session-id", worker.config.SessionID)
+	assertArgumentsExclude(t, arguments, "--resume")
+	assertArgumentsExclude(t, arguments, "--no-session-persistence")
+}
+
+// writeFakeClaudeSession creates a placeholder session file at the exact
+// path claudeSessionExists checks, without depending on $HOME by pointing
+// HOME at a throwaway directory for the duration of the test.
+func writeFakeClaudeSession(t *testing.T, workDir, sessionID string) {
+	t.Helper()
+	home := t.TempDir()
+	setTestUserHome(t, home)
+	sessionPath, err := claudepath.SessionPath(filepath.Join(home, ".claude"), workDir, sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Dir(sessionPath)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(sessionPath, []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func setTestUserHome(t *testing.T, home string) {
+	t.Helper()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 }
 
 func TestWorkerResumesBoundCodexSession(t *testing.T) {
@@ -118,7 +162,7 @@ func TestWorkerResumesBoundCodexSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	worker, err := New(Config{
-		Service: instance, Actor: "axiom", RuntimeID: "runtime-axiom",
+		Service: instance, Actor: "AXIOM", RuntimeID: "runtime-axiom",
 		SessionID: "019e5408-3ef4-7db3-b584-03ad8f399199",
 		Adapter:   "codex", Executable: executable, WorkDir: root,
 		Sandbox: "workspace-write", ListenWait: time.Second,
@@ -135,6 +179,68 @@ func TestWorkerResumesBoundCodexSession(t *testing.T) {
 	assertArgumentsExclude(t, arguments, "--ephemeral")
 }
 
+func TestWorkerOpenCodeArgumentsIncludeSessionAndModel(t *testing.T) {
+	instance, root := workerService(t)
+	executable, err := filepath.Abs(os.Args[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	// worker's Config.SessionID always passes through validateConfig's
+	// UUID gate regardless of adapter, even though OpenCode itself mints
+	// non-UUID "ses_..." session IDs — real session continuity for this
+	// adapter goes through the local cache instead (see
+	// adapter_opencode_test.go), which never touches this field, so a
+	// syntactically valid UUID is enough to exercise argument-building.
+	worker, err := New(Config{
+		Service: instance, Actor: "AXIOM", RuntimeID: "runtime-axiom",
+		SessionID: "e22cbdad-7233-4d6d-8ecc-0c4bffd8c475",
+		Adapter:   "opencode", Executable: executable, WorkDir: root,
+		Model: "opencode/big-model", ListenWait: time.Second,
+		ExecutionTimeout: time.Minute, Once: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	arguments := worker.arguments()
+	assertArgumentsContain(t, arguments, "run", "--format", "json", "--pure")
+	assertArgumentsContain(t, arguments, "--session", worker.config.SessionID)
+	assertArgumentsContain(t, arguments, "--model", worker.config.Model)
+}
+
+func TestWorkerOpenCodeOmitsSessionWhenUnset(t *testing.T) {
+	instance, root := workerService(t)
+	executable, err := filepath.Abs(os.Args[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	worker, err := New(Config{
+		Service: instance, Actor: "AXIOM", RuntimeID: "runtime-axiom",
+		Adapter: "opencode", Executable: executable, WorkDir: root,
+		ListenWait: time.Second, ExecutionTimeout: time.Minute, Once: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertArgumentsExclude(t, worker.arguments(), "--session")
+}
+
+func TestWorkerRejectsUnsafeOpenCodeConfiguration(t *testing.T) {
+	instance, root := workerService(t)
+	executable, err := filepath.Abs(os.Args[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = New(Config{
+		Service: instance, Actor: "AXIOM", RuntimeID: "runtime-axiom",
+		Adapter: "opencode", Executable: executable, WorkDir: root,
+		PermissionMode: "bypassPermissions",
+		ListenWait:     time.Second, ExecutionTimeout: time.Minute,
+	})
+	if err == nil {
+		t.Fatal("unsafe opencode permission bypass was accepted")
+	}
+}
+
 func TestWorkerClaudeCarriesRuntimeFramingOnSystemPrompt(t *testing.T) {
 	instance, root := workerService(t)
 	worker := newTestWorker(t, instance, root)
@@ -149,7 +255,7 @@ func TestWorkerClaudeCarriesRuntimeFramingOnSystemPrompt(t *testing.T) {
 			t.Fatal("--append-system-prompt is missing its value")
 		}
 		systemPrompt := arguments[index+1]
-		if !strings.Contains(systemPrompt, "axiom") || !strings.Contains(systemPrompt, actionLinePrefix) {
+		if !strings.Contains(systemPrompt, "AXIOM") || !strings.Contains(systemPrompt, actionLinePrefix) {
 			t.Fatalf("system prompt missing expected runtime framing: %q", systemPrompt)
 		}
 	}
@@ -165,7 +271,7 @@ func TestWorkerCodexOmitsAppendSystemPrompt(t *testing.T) {
 		t.Fatal(err)
 	}
 	worker, err := New(Config{
-		Service: instance, Actor: "axiom", RuntimeID: "runtime-axiom",
+		Service: instance, Actor: "AXIOM", RuntimeID: "runtime-axiom",
 		Adapter: "codex", Executable: executable, WorkDir: root,
 		Sandbox: "workspace-write", ListenWait: time.Second,
 		ExecutionTimeout: time.Minute, Once: true,
@@ -187,6 +293,22 @@ func TestClaudeUserPromptOmitsRuntimeFraming(t *testing.T) {
 	}
 }
 
+func TestWorkerRejectsUnknownAdapter(t *testing.T) {
+	instance, root := workerService(t)
+	executable, err := filepath.Abs(os.Args[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = New(Config{
+		Service: instance, Actor: "AXIOM", RuntimeID: "runtime-axiom",
+		Adapter: "not-a-real-adapter", Executable: executable, WorkDir: root,
+		ListenWait: time.Second, ExecutionTimeout: time.Minute,
+	})
+	if err == nil {
+		t.Fatal("unregistered adapter was accepted")
+	}
+}
+
 func TestWorkerRejectsInvalidSessionID(t *testing.T) {
 	instance, root := workerService(t)
 	executable, err := filepath.Abs(os.Args[0])
@@ -194,7 +316,7 @@ func TestWorkerRejectsInvalidSessionID(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = New(Config{
-		Service: instance, Actor: "axiom", RuntimeID: "runtime-axiom",
+		Service: instance, Actor: "AXIOM", RuntimeID: "runtime-axiom",
 		SessionID: "most-recent", Adapter: "claude", Executable: executable,
 		WorkDir: root, PermissionMode: "acceptEdits", ClaudeBudgetUSD: 1,
 		ListenWait: time.Second, ExecutionTimeout: time.Minute,
@@ -237,7 +359,7 @@ func newTestWorker(t *testing.T, instance *service.Service, root string) *Worker
 		t.Fatal(err)
 	}
 	worker, err := New(Config{
-		Service: instance, Actor: "axiom", RuntimeID: "runtime-axiom",
+		Service: instance, Actor: "AXIOM", RuntimeID: "runtime-axiom",
 		Adapter: "claude", Executable: executable, WorkDir: root,
 		PermissionMode: "acceptEdits", ClaudeBudgetUSD: 1,
 		ListenWait: time.Second, ExecutionTimeout: time.Minute, Once: true,
@@ -250,45 +372,34 @@ func newTestWorker(t *testing.T, instance *service.Service, root string) *Worker
 
 func workerService(t *testing.T) (*service.Service, string) {
 	t.Helper()
-	root := t.TempDir()
-	command := exec.Command("git", "init")
-	command.Dir = root
-	if output, err := command.CombinedOutput(); err != nil {
-		t.Fatal(string(output))
-	}
-	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(root, "user"))
-	instance := service.New(root)
-	instance.Store.SetCredentialStore(identity.NewMemoryStore())
-	if err := instance.Store.Init("owner"); err != nil {
+	instance, root := testsupport.StartPersonalProject(t)
+	if _, err := instance.Register("AXIOM", "AXIOM", model.PrincipalAgent); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := instance.Register("axiom", "AXIOM", model.PrincipalAgent); err != nil {
+	if _, err := instance.Register("DAMON", "DAMON", model.PrincipalAgent); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := instance.Register("damon", "DAMON", model.PrincipalAgent); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := instance.Execute("owner", "agent.activate", "axiom",
+	if _, err := instance.Execute("owner", "agent.activate", "AXIOM",
 		model.AgentActivated{Role: model.RoleAgent, Scopes: []string{"src"}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := instance.Execute("axiom", "runtime.register", "runtime-axiom",
-		model.RuntimeRegistered{AgentID: "axiom", Connector: "MCP", MaxConcurrent: 1}); err != nil {
+	if _, err := instance.Execute("AXIOM", "runtime.register", "runtime-axiom",
+		model.RuntimeRegistered{AgentID: "AXIOM", Connector: "MCP", MaxConcurrent: 1}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := instance.Execute("owner", "agent.activate", "damon",
+	if _, err := instance.Execute("owner", "agent.activate", "DAMON",
 		model.AgentActivated{Role: model.RoleAgent, Scopes: []string{"src"}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := instance.Execute("owner", "invocation.policy.update", "damon",
+	if _, err := instance.Execute("owner", "invocation.policy.update", "DAMON",
 		model.InvocationPolicyUpdated{
-			Mode: "TRUSTED", TrustedActors: []string{"axiom"},
+			Mode: "TRUSTED", TrustedActors: []string{"AXIOM"},
 		}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := instance.Execute("owner", "invocation.request", "inv-worker",
 		model.InvocationRequested{
-			Target: "axiom", Instruction: "Review the implementation",
+			Target: "AXIOM", Instruction: "Review the implementation",
 			ExpectedResult: "Post a verified result", Priority: "NORMAL",
 		}); err != nil {
 		t.Fatal(err)

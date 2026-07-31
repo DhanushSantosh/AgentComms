@@ -14,26 +14,29 @@ import (
 )
 
 const (
-	LocalDaemonProtocolVersion = 3
-	MaxCommandBytes            = 256 * 1024
-	MaxRecipients              = 100
-	DefaultPageSize            = 100
-	MaxPageSize                = 500
-	MaxDraftBytes              = 5 * 1024 * 1024
-	MaxDraftsPerProject        = 1_000
-	MaxDraftStorageBytes       = 50 * 1024 * 1024
-	MaxInvocationBytes         = 16 * 1024
-	MaxInvocationListen        = 10 * time.Second
-	MaxDeliveryAttempts        = 10
-	MaxInvocationTTL           = 7 * 24 * time.Hour
-	DefaultClaimLease          = 15 * time.Minute
-	MaxClaimLease              = time.Hour
-	MaxRuntimesPerProject      = 500
-	MaxRuntimeConcurrency      = 100
-	MinHeartbeatInterval       = 10 * time.Second
-	RuntimeOfflineAfter        = 45 * time.Second
-	CommandClockSkew           = 5 * time.Minute
-	DefaultRequestTimeout      = 15 * time.Second
+	LocalDaemonProtocolVersion  = 4
+	MaxCommandBytes             = 256 * 1024
+	MaxRecipients               = 100
+	DefaultPageSize             = 100
+	MaxPageSize                 = 500
+	MaxDraftBytes               = 5 * 1024 * 1024
+	MaxDraftsPerProject         = 1_000
+	MaxDraftStorageBytes        = 50 * 1024 * 1024
+	MaxInvocationBytes          = 16 * 1024
+	MaxInvocationListen         = 10 * time.Second
+	MaxDeliveryAttempts         = 10
+	MaxDeliveryEvidence         = 8
+	DefaultDeliveryAttemptLease = 30 * time.Second
+	MaxDeliveryAttemptLease     = 2 * time.Minute
+	MaxInvocationTTL            = 7 * 24 * time.Hour
+	DefaultClaimLease           = 15 * time.Minute
+	MaxClaimLease               = time.Hour
+	MaxRuntimesPerProject       = 500
+	MaxRuntimeConcurrency       = 100
+	MinHeartbeatInterval        = 10 * time.Second
+	RuntimeOfflineAfter         = 45 * time.Second
+	CommandClockSkew            = 5 * time.Minute
+	DefaultRequestTimeout       = 15 * time.Second
 )
 
 type ErrorCode string
@@ -56,6 +59,30 @@ type Error struct {
 }
 
 func (e *Error) Error() string { return e.Message }
+
+// ClassifyValidationError maps a plain error returned by
+// internal/protocol.ValidateTransition to a *controlplane.Error with the
+// right Code, by pattern-matching its message. Both authority backends
+// (internal/personalauthority, internal/authority) need this identical
+// classification and used to each hand-maintain their own copy -- which had
+// already drifted (one had a dead "already claimed" branch the other
+// lacked; no ValidateTransition message has ever actually contained that
+// phrase, real claim conflicts say "no longer available to claim"). Shared
+// here so the two backends can never again classify the same error
+// differently.
+func ClassifyValidationError(err error) *Error {
+	message := err.Error()
+	lower := strings.ToLower(message)
+	if strings.Contains(lower, "required") &&
+		(strings.Contains(lower, "role") || strings.Contains(lower, "principal") ||
+			strings.Contains(lower, "owner") || strings.Contains(lower, "scope")) {
+		return &Error{Code: CodeAuthorization, Message: message}
+	}
+	if strings.Contains(lower, "overlap") || strings.Contains(lower, "already leased") {
+		return &Error{Code: CodeConflict, Message: message}
+	}
+	return &Error{Code: CodeValidation, Message: message}
+}
 
 type Command struct {
 	ProjectID        string          `json:"project_id"`
@@ -83,34 +110,43 @@ type commandCanonical struct {
 }
 
 type Event struct {
-	ProjectID       string          `json:"project_id"`
-	Sequence        uint64          `json:"sequence"`
-	ID              string          `json:"id"`
-	Time            time.Time       `json:"time"`
-	Actor           string          `json:"actor"`
-	Type            string          `json:"type"`
-	EntityID        string          `json:"entity_id,omitempty"`
-	Payload         json.RawMessage `json:"payload"`
-	PreviousHash    string          `json:"previous_hash,omitempty"`
-	Hash            string          `json:"hash"`
-	ActorIntentHash string          `json:"actor_intent_hash"`
-	IdempotencyKey  string          `json:"idempotency_key"`
-	Legacy          bool            `json:"legacy,omitempty"`
+	ProjectID           string          `json:"project_id"`
+	Sequence            uint64          `json:"sequence"`
+	ID                  string          `json:"id"`
+	Time                time.Time       `json:"time"`
+	Actor               string          `json:"actor"`
+	ActorKeyFingerprint string          `json:"actor_key_fingerprint,omitempty"`
+	Type                string          `json:"type"`
+	EntityID            string          `json:"entity_id,omitempty"`
+	Payload             json.RawMessage `json:"payload"`
+	PreviousHash        string          `json:"previous_hash,omitempty"`
+	Hash                string          `json:"hash"`
+	ActorIntentHash     string          `json:"actor_intent_hash"`
+	IdempotencyKey      string          `json:"idempotency_key"`
 }
 
 type eventCanonical struct {
-	ProjectID       string `json:"project_id"`
-	Sequence        uint64 `json:"sequence"`
-	ID              string `json:"id"`
-	Time            string `json:"time"`
-	Actor           string `json:"actor"`
-	Type            string `json:"type"`
-	EntityID        string `json:"entity_id,omitempty"`
-	PayloadHash     string `json:"payload_hash"`
-	PreviousHash    string `json:"previous_hash,omitempty"`
-	ActorIntentHash string `json:"actor_intent_hash"`
-	IdempotencyKey  string `json:"idempotency_key"`
-	Legacy          bool   `json:"legacy,omitempty"`
+	ProjectID           string `json:"project_id"`
+	Sequence            uint64 `json:"sequence"`
+	ID                  string `json:"id"`
+	Time                string `json:"time"`
+	Actor               string `json:"actor"`
+	ActorKeyFingerprint string `json:"actor_key_fingerprint,omitempty"`
+	Type                string `json:"type"`
+	EntityID            string `json:"entity_id,omitempty"`
+	PayloadHash         string `json:"payload_hash"`
+	PreviousHash        string `json:"previous_hash,omitempty"`
+	ActorIntentHash     string `json:"actor_intent_hash"`
+	IdempotencyKey      string `json:"idempotency_key"`
+	// Legacy is not stored on Event -- it is derived at hash time from the
+	// idempotency-key namespace ("legacy:" prefix) so HashEvent stays
+	// byte-compatible with what was originally computed for events
+	// imported by the now-removed legacy migration path (which included
+	// this field, then true, in its own canonical hash). Removing this
+	// field entirely (as an earlier refactor did) silently breaks
+	// verification for any pre-existing legacy-imported event, since
+	// recomputing the hash today would no longer match what's stored.
+	Legacy bool `json:"legacy,omitempty"`
 }
 
 type Receipt struct {
@@ -146,18 +182,6 @@ type EventPage struct {
 type EventRecord struct {
 	Event   Event   `json:"event"`
 	Receipt Receipt `json:"receipt"`
-}
-
-type AttestedImportStart struct {
-	ProjectID       string `json:"project_id"`
-	SourcePublicKey string `json:"source_public_key"`
-	SourceHeadHash  string `json:"source_head_hash"`
-	ExpectedEvents  uint64 `json:"expected_events"`
-}
-
-type AttestedImportBatch struct {
-	FromSequence uint64        `json:"from_sequence"`
-	Records      []EventRecord `json:"records"`
 }
 
 type Draft struct {
@@ -335,16 +359,36 @@ func HashEvent(event Event) (string, error) {
 	b, err := json.Marshal(eventCanonical{
 		ProjectID: event.ProjectID, Sequence: event.Sequence, ID: event.ID,
 		Time: event.Time.UTC().Format(time.RFC3339Nano), Actor: event.Actor,
-		Type: event.Type, EntityID: event.EntityID,
+		ActorKeyFingerprint: event.ActorKeyFingerprint, Type: event.Type, EntityID: event.EntityID,
 		PayloadHash: hex.EncodeToString(payloadHash[:]), PreviousHash: event.PreviousHash,
 		ActorIntentHash: event.ActorIntentHash, IdempotencyKey: event.IdempotencyKey,
-		Legacy: event.Legacy,
+		Legacy: strings.HasPrefix(event.IdempotencyKey, "legacy:"),
 	})
 	if err != nil {
 		return "", err
 	}
 	h := sha256.Sum256(b)
 	return hex.EncodeToString(h[:]), nil
+}
+
+// VerifyEventHash validates every event, including ones imported by the
+// removed legacy migration path, by recomputing their canonical hash.
+// Legacy-imported events are distinguishable by their immutable
+// idempotency-key namespace; HashEvent includes that fact in the canonical
+// form it hashes, exactly matching what was originally computed for them,
+// so recomputing and comparing here is a real content-integrity check for
+// every event -- not just a structural sanity check backed only by the
+// service-signed receipt.
+func VerifyEventHash(event Event) bool {
+	if strings.HasPrefix(event.IdempotencyKey, "legacy:") {
+		if event.ProjectID == "" || event.Sequence == 0 || event.ID == "" ||
+			event.Time.IsZero() || event.Actor == "" || event.Type == "" ||
+			event.ActorIntentHash == "" || len(event.Payload) == 0 || !json.Valid(event.Payload) {
+			return false
+		}
+	}
+	hash, err := HashEvent(event)
+	return err == nil && hash == event.Hash
 }
 
 func EncodeCursor(sequence uint64) string {

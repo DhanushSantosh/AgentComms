@@ -7,7 +7,22 @@ import (
 	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
 )
 
-const SchemaVersion = "2.0.0"
+const SchemaVersion = "2.1.0"
+
+type RuntimeKind string
+
+const (
+	RuntimeKindWorker      RuntimeKind = "WORKER"
+	RuntimeKindInteractive RuntimeKind = "INTERACTIVE"
+)
+
+type ConsumerMode string
+
+const (
+	ConsumerModeInteractiveOnly ConsumerMode = "INTERACTIVE_ONLY"
+	ConsumerModeWorkerOnly      ConsumerMode = "WORKER_ONLY"
+	ConsumerModeEither          ConsumerMode = "EITHER"
+)
 
 type Event struct {
 	SchemaVersion  string                `json:"schema_version"`
@@ -37,6 +52,13 @@ type Agent struct {
 	KeyFingerprint string        `json:"key_fingerprint"`
 	Capabilities   []string      `json:"capabilities"`
 	Scopes         []string      `json:"scopes"`
+	// ElevatedPublicKey, when set, must sign the security-sensitive
+	// transitions classified by internal/protocol.RequiresElevatedKey
+	// instead of PublicKey. Registered self-service via agent.elevate-key;
+	// empty means no elevated key exists yet and those transitions still
+	// verify against PublicKey.
+	ElevatedPublicKey      string `json:"elevated_public_key,omitempty"`
+	ElevatedKeyFingerprint string `json:"elevated_key_fingerprint,omitempty"`
 }
 type Offer struct {
 	ID        string    `json:"id"`
@@ -75,63 +97,90 @@ type Message struct {
 	Recipients []RecipientState `json:"recipients"`
 }
 type Invocation struct {
-	ID              string     `json:"id"`
-	RequestedBy     string     `json:"requested_by"`
-	Target          string     `json:"target"`
-	MessageID       string     `json:"message_id,omitempty"`
-	TaskID          string     `json:"task_id,omitempty"`
-	Instruction     string     `json:"instruction"`
-	ExpectedResult  string     `json:"expected_result,omitempty"`
-	Scopes          []string   `json:"scopes,omitempty"`
-	Priority        string     `json:"priority"`
-	Status          string     `json:"status"`
-	CreatedAt       time.Time  `json:"created_at"`
-	Deadline        *time.Time `json:"deadline,omitempty"`
-	ClaimedBy       string     `json:"claimed_by,omitempty"`
-	RuntimeID       string     `json:"runtime_id,omitempty"`
-	ClaimUntil      *time.Time `json:"claim_until,omitempty"`
-	StartedAt       *time.Time `json:"started_at,omitempty"`
-	CompletedAt     *time.Time `json:"completed_at,omitempty"`
-	NextAttemptAt   *time.Time `json:"next_attempt_at,omitempty"`
-	ResultMessageID string     `json:"result_message_id,omitempty"`
-	Summary         string     `json:"summary,omitempty"`
-	Reason          string     `json:"reason,omitempty"`
+	ID                 string       `json:"id"`
+	RequestedBy        string       `json:"requested_by"`
+	Target             string       `json:"target"`
+	MessageID          string       `json:"message_id,omitempty"`
+	TaskID             string       `json:"task_id,omitempty"`
+	Instruction        string       `json:"instruction"`
+	ExpectedResult     string       `json:"expected_result,omitempty"`
+	Scopes             []string     `json:"scopes,omitempty"`
+	Priority           string       `json:"priority"`
+	ConsumerMode       ConsumerMode `json:"consumer_mode"`
+	PreferredRuntimeID string       `json:"preferred_runtime_id,omitempty"`
+	Status             string       `json:"status"`
+	CreatedAt          time.Time    `json:"created_at"`
+	Deadline           *time.Time   `json:"deadline,omitempty"`
+	ClaimedBy          string       `json:"claimed_by,omitempty"`
+	ClaimedAt          *time.Time   `json:"claimed_at,omitempty"`
+	RuntimeID          string       `json:"runtime_id,omitempty"`
+	ClaimUntil         *time.Time   `json:"claim_until,omitempty"`
+	StartedAt          *time.Time   `json:"started_at,omitempty"`
+	CompletedAt        *time.Time   `json:"completed_at,omitempty"`
+	NextAttemptAt      *time.Time   `json:"next_attempt_at,omitempty"`
+	ResultMessageID    string       `json:"result_message_id,omitempty"`
+	Summary            string       `json:"summary,omitempty"`
+	Reason             string       `json:"reason,omitempty"`
+}
+type DeliveryEvidence struct {
+	Stage string    `json:"stage"`
+	At    time.Time `json:"at"`
 }
 type InvocationDelivery struct {
-	ID           string     `json:"id"`
-	InvocationID string     `json:"invocation_id"`
-	RuntimeID    string     `json:"runtime_id,omitempty"`
-	Attempt      int        `json:"attempt"`
-	Status       string     `json:"status"`
-	NotifiedAt   *time.Time `json:"notified_at,omitempty"`
-	FailedAt     *time.Time `json:"failed_at,omitempty"`
-	NextRetryAt  *time.Time `json:"next_retry_at,omitempty"`
-	Error        string     `json:"error,omitempty"`
+	ID           string             `json:"id"`
+	InvocationID string             `json:"invocation_id"`
+	RuntimeID    string             `json:"runtime_id,omitempty"`
+	Transport    string             `json:"transport,omitempty"`
+	HostID       string             `json:"host_id,omitempty"`
+	EndpointID   string             `json:"endpoint_id,omitempty"`
+	Attempt      int                `json:"attempt"`
+	Manual       bool               `json:"manual"`
+	Status       string             `json:"status"`
+	AttemptedAt  *time.Time         `json:"attempted_at,omitempty"`
+	AttemptUntil *time.Time         `json:"attempt_until,omitempty"`
+	NotifiedAt   *time.Time         `json:"notified_at,omitempty"`
+	FailedAt     *time.Time         `json:"failed_at,omitempty"`
+	NextRetryAt  *time.Time         `json:"next_retry_at,omitempty"`
+	Evidence     []DeliveryEvidence `json:"evidence,omitempty"`
+	Error        string             `json:"error,omitempty"`
 }
 type AgentRuntime struct {
-	ID                string    `json:"id"`
-	AgentID           string    `json:"agent_id"`
-	Connector         string    `json:"connector"`
-	ConfigReference   string    `json:"config_reference,omitempty"`
-	Status            string    `json:"status"`
-	Health            string    `json:"health"`
-	MaxConcurrent     int       `json:"max_concurrent"`
-	ActiveInvocations []string  `json:"active_invocations,omitempty"`
-	Scopes            []string  `json:"scopes,omitempty"`
-	Capabilities      []string  `json:"capabilities,omitempty"`
-	RegisteredAt      time.Time `json:"registered_at"`
-	LastSeenAt        time.Time `json:"last_seen_at,omitempty"`
-	LastChangedBy     string    `json:"last_changed_by"`
-	Reason            string    `json:"reason,omitempty"`
+	ID                 string                   `json:"id"`
+	AgentID            string                   `json:"agent_id"`
+	Kind               RuntimeKind              `json:"kind"`
+	Connector          string                   `json:"connector"`
+	ConfigReference    string                   `json:"config_reference,omitempty"`
+	HostID             string                   `json:"host_id,omitempty"`
+	EndpointID         string                   `json:"endpoint_id,omitempty"`
+	Status             string                   `json:"status"`
+	Health             string                   `json:"health"`
+	MaxConcurrent      int                      `json:"max_concurrent"`
+	ActiveInvocations  []string                 `json:"active_invocations,omitempty"`
+	Scopes             []string                 `json:"scopes,omitempty"`
+	Capabilities       []string                 `json:"capabilities,omitempty"`
+	RegisteredAt       time.Time                `json:"registered_at"`
+	LastSeenAt         time.Time                `json:"last_seen_at,omitempty"`
+	LastChangedBy      string                   `json:"last_changed_by"`
+	Reason             string                   `json:"reason,omitempty"`
+	InteractiveSession *InteractiveSessionState `json:"interactive_session,omitempty"`
+}
+type InteractiveSessionState struct {
+	Local      bool   `json:"local"`
+	Alive      bool   `json:"alive"`
+	Busy       bool   `json:"busy"`
+	SocketPath string `json:"socket_path,omitempty"`
 }
 type InvocationPolicy struct {
-	AgentID                  string    `json:"agent_id"`
-	Mode                     string    `json:"mode"`
-	TrustedActors            []string  `json:"trusted_actors,omitempty"`
-	AllowedScopes            []string  `json:"allowed_scopes,omitempty"`
-	RequireHumanForSensitive bool      `json:"require_human_for_sensitive"`
-	UpdatedBy                string    `json:"updated_by"`
-	UpdatedAt                time.Time `json:"updated_at"`
+	AgentID                       string         `json:"agent_id"`
+	Mode                          string         `json:"mode"`
+	TrustedActors                 []string       `json:"trusted_actors,omitempty"`
+	AllowedScopes                 []string       `json:"allowed_scopes,omitempty"`
+	DefaultConsumerMode           ConsumerMode   `json:"default_consumer_mode"`
+	AllowedConsumerModes          []ConsumerMode `json:"allowed_consumer_modes,omitempty"`
+	PreferredInteractiveRuntimeID string         `json:"preferred_interactive_runtime_id,omitempty"`
+	RequireHumanForSensitive      bool           `json:"require_human_for_sensitive"`
+	UpdatedBy                     string         `json:"updated_by"`
+	UpdatedAt                     time.Time      `json:"updated_at"`
 }
 type Approval struct {
 	ID        string   `json:"id"`

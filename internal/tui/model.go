@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"image/color"
 	"io"
@@ -11,17 +12,20 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/DhanushSantosh/AgentComms/internal/buildinfo"
 	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
+	"github.com/DhanushSantosh/AgentComms/internal/doctor"
 	"github.com/DhanushSantosh/AgentComms/internal/identity"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
+	"github.com/DhanushSantosh/AgentComms/internal/projectlifecycle"
 	"github.com/DhanushSantosh/AgentComms/internal/service"
 	"github.com/fsnotify/fsnotify"
 )
 
 var views = []string{
 	"Overview", "My work", "Tasks", "Inbox", "Agents", "Approvals", "Invocations",
-	"Runtimes", "Project settings", "Documents", "Contracts & decisions",
-	"Blockers", "Audit & health", "Activity", "Archive search",
+	"Runtimes", "Project settings", "Documents", "Contracts & decisions", "Artifacts", "Drafts",
+	"Blockers", "Audit & health", "Activity", "Archive search", "Environment",
 }
 
 type navigationHub struct {
@@ -31,10 +35,10 @@ type navigationHub struct {
 
 var navigationHubs = []navigationHub{
 	{Name: "Command", Views: []string{"Overview", "My work", "Blockers", "Approvals"}},
-	{Name: "Work", Views: []string{"Tasks", "Documents", "Contracts & decisions", "Archive search"}},
+	{Name: "Work", Views: []string{"Tasks", "Documents", "Contracts & decisions", "Artifacts", "Drafts", "Archive search"}},
 	{Name: "Team", Views: []string{"Agents", "Runtimes"}},
 	{Name: "Relay", Views: []string{"Inbox", "Invocations", "Activity"}},
-	{Name: "Project", Views: []string{"Project settings", "Audit & health"}},
+	{Name: "Project", Views: []string{"Project settings", "Environment", "Audit & health"}},
 }
 
 type Model struct {
@@ -60,27 +64,49 @@ type Model struct {
 	agentList      RowList
 	invocationList RowList
 	runtimeList    RowList
+	documentList   RowList
+	decisionList   RowList
+	artifactList   RowList
+	envList        RowList
+	drafts         []controlplane.Draft
 	settingsFocus  bool
 	settingsCursor int
 	confirm        *confirmState
 	watcher        *fsnotify.Watcher
+	lifecycle      projectlifecycle.Plan
+	findings       []doctor.Finding
 }
 
 func New(s *service.Service, actor string) (Model, error) {
 	st, e := s.State()
 	projectID := "local project"
-	if config, err := s.Store.Config(); err == nil && config.ProjectID != "" {
-		projectID = config.ProjectID
+	owner := ""
+	if config, err := s.Store.Config(); err == nil {
+		if config.ProjectID != "" {
+			projectID = config.ProjectID
+		}
+		owner = config.Owner
 	}
 	hc := false
 	if uc, err := identity.LoadUserConfig(); err == nil && uc.Theme == "high-contrast" {
 		hc = true
 	}
+	lifecycle, _, _ := projectlifecycle.Inspect(s.Store.Root, buildinfo.Version, buildinfo.ResolvedBuildID())
+	// findings deliberately NOT computed here: doctor.Findings dials every
+	// ONLINE interactive runtime's local PTY socket, which against a real
+	// busy session can take seconds -- fine as a one-shot cost paid when
+	// Audit & health is actually opened (focusCurrentView), not acceptable
+	// as a blocking cost on every TUI launch. See refreshSilent's comment
+	// for the matching reason it's excluded from the background tick too.
+	drafts, _ := s.Drafts(50)
 	return Model{
 		svc: s, state: st, actor: actor, projectID: projectID, width: 100, height: 30, highContrast: hc,
-		taskList: newRowList(taskRowSource{}), messageList: newRowList(messageRowSource{}),
+		taskList: newRowList(taskRowSource{}), messageList: newRowList(messageRowSource{owner: owner}),
 		approvalList: newRowList(approvalRowSource{}), agentList: newRowList(agentRowSource{}),
 		invocationList: newRowList(invocationRowSource{}), runtimeList: newRowList(runtimeRowSource{root: s.Store.Root}),
+		documentList: newRowList(documentRowSource{}), decisionList: newRowList(decisionRowSource{}),
+		artifactList: newRowList(artifactRowSource{}), envList: newRowList(envRowSource{}),
+		lifecycle: lifecycle, drafts: drafts,
 	}, e
 }
 func (m Model) Init() tea.Cmd {
@@ -162,7 +188,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "r":
 			m.refresh()
 		case "?":
-			m.notice = "↑/↓ navigate · → open · ← back · / commands · a switch actor · r refresh · q quit"
+			m.notice = "↑/↓ navigate · → open · ← back · / commands · a switch actor · r refresh · q quit · agent-comms agent-instructions for the full guide"
 		case "h":
 			m.highContrast = !m.highContrast
 			theme := "auto"
@@ -188,6 +214,7 @@ func (m *Model) openView(name string) {
 			m.view = index
 			m.cursor = index
 			m.notice = "Opened " + name
+			m.refreshView(name)
 			return
 		}
 	}
@@ -226,26 +253,52 @@ func (m *Model) moveHubView(delta int) {
 	m.notice = ""
 }
 
-func (m *Model) focusCurrentView() {
-	switch views[m.view] {
+// refreshView reloads whatever data the named view displays. Called both
+// from openView (so switching tabs by arrow key, letter shortcut, or the
+// palette shows live content immediately, not "No rows here yet." until
+// Enter is next pressed) and from focusCurrentView (so re-entering a view
+// you're already on with Enter still picks up any change since the last
+// refresh).
+func (m *Model) refreshView(name string) {
+	switch name {
 	case "Tasks", "My work":
-		m.rowFocus = true
-		m.taskList.SetMineFilter(views[m.view] == "My work", m.state, m.actor)
+		m.taskList.SetMineFilter(name == "My work", m.state, m.actor)
 	case "Inbox":
-		m.rowFocus = true
 		m.messageList.Refresh(m.state, m.actor)
 	case "Approvals":
-		m.rowFocus = true
 		m.approvalList.Refresh(m.state, m.actor)
 	case "Agents":
-		m.rowFocus = true
 		m.agentList.Refresh(m.state, m.actor)
 	case "Invocations":
-		m.rowFocus = true
 		m.invocationList.Refresh(m.state, m.actor)
 	case "Runtimes":
-		m.rowFocus = true
 		m.runtimeList.Refresh(m.state, m.actor)
+	case "Documents":
+		m.documentList.Refresh(m.state, m.actor)
+	case "Contracts & decisions":
+		m.decisionList.Refresh(m.state, m.actor)
+	case "Artifacts":
+		m.artifactList.Refresh(m.state, m.actor)
+	case "Environment":
+		m.envList.Refresh(m.state, m.actor)
+	case "Drafts":
+		m.refreshDrafts()
+	case "Audit & health":
+		m.refreshFindings()
+	}
+}
+
+// focusCurrentView enters interactive per-row mode (up/down selects a row,
+// contextual action keys apply to it) for the view Enter was just pressed
+// on. Content itself is already live by this point via openView's own
+// refreshView call; this only adds selection/action capability.
+func (m *Model) focusCurrentView() {
+	name := views[m.view]
+	m.refreshView(name)
+	switch name {
+	case "Tasks", "My work", "Inbox", "Approvals", "Agents", "Invocations",
+		"Runtimes", "Documents", "Contracts & decisions", "Artifacts", "Environment":
+		m.rowFocus = true
 	case "Project settings":
 		m.settingsFocus = true
 	}
@@ -255,13 +308,23 @@ func (m *Model) refresh() {
 	if m.err == nil {
 		m.notice = "State refreshed at " + time.Now().Format("15:04:05")
 		m.refreshLists()
+		m.refreshFindings()
+		m.refreshDrafts()
 	}
 }
 
 // refreshSilent re-reads state without disturbing the current notice/error,
 // used by the background file-watch tick so it never stomps a just-shown
 // action result. Read errors are swallowed; the last-known-good state stays
-// displayed until the next successful read.
+// displayed until the next successful read. Deliberately does NOT call
+// refreshFindings: doctor.Findings dials every ONLINE interactive runtime's
+// local PTY socket to check it's alive, and against a real, busy session
+// that round-trip can take seconds, not milliseconds -- fine as a one-shot
+// cost (New, or an explicit 'r' refresh) but not something to repeat on
+// every background tick a file-watch event fires. Findings still refresh
+// on the next real refresh() call; the last-known-good findings stay
+// displayed in between, the same tradeoff refreshDrafts already makes for
+// the same reason.
 func (m *Model) refreshSilent() {
 	st, err := m.svc.State()
 	if err != nil {
@@ -270,6 +333,18 @@ func (m *Model) refreshSilent() {
 	m.state = st
 	m.refreshLists()
 }
+
+// refreshFindings recomputes doctor's health findings using the exact same
+// logic `agent-comms doctor` runs (internal/doctor.Findings) so Audit &
+// health can never silently drift from the CLI's own picture of project
+// health. Errors are swallowed the same way refreshSilent swallows state
+// read errors -- the last-known-good findings stay displayed rather than
+// disappearing.
+func (m *Model) refreshFindings() {
+	if findings, err := doctor.Findings(context.Background(), m.svc); err == nil {
+		m.findings = findings
+	}
+}
 func (m *Model) refreshLists() {
 	m.taskList.Refresh(m.state, m.actor)
 	m.messageList.Refresh(m.state, m.actor)
@@ -277,6 +352,10 @@ func (m *Model) refreshLists() {
 	m.agentList.Refresh(m.state, m.actor)
 	m.invocationList.Refresh(m.state, m.actor)
 	m.runtimeList.Refresh(m.state, m.actor)
+	m.documentList.Refresh(m.state, m.actor)
+	m.decisionList.Refresh(m.state, m.actor)
+	m.artifactList.Refresh(m.state, m.actor)
+	m.envList.Refresh(m.state, m.actor)
 }
 func (m *Model) applyPalette() {
 	q := strings.ToLower(strings.TrimSpace(m.query))
@@ -301,6 +380,21 @@ func (m *Model) applyPalette() {
 		{names: []string{"new runtime", "create runtime"}, view: "Runtimes", open: func(value Model) (tea.Model, tea.Cmd) {
 			return value.openActionForm(runtimeRegisterForm, "runtime.register", "")
 		}},
+		{names: []string{"new document", "create document"}, view: "Documents", open: func(value Model) (tea.Model, tea.Cmd) {
+			return value.openActionForm(documentCreateForm, "document.create", "")
+		}},
+		{names: []string{"new decision", "create decision"}, view: "Contracts & decisions", open: func(value Model) (tea.Model, tea.Cmd) {
+			return value.openActionForm(decisionCreateForm, "decision.create", "")
+		}},
+		{names: []string{"new artifact", "add artifact"}, view: "Artifacts", open: func(value Model) (tea.Model, tea.Cmd) {
+			return value.openActionForm(artifactAddForm, "artifact.add", "")
+		}},
+		{names: []string{"new draft", "save draft"}, view: "Drafts", open: func(value Model) (tea.Model, tea.Cmd) {
+			return value.openActionForm(draftSaveForm, "draft.save", "")
+		}},
+		{names: []string{"new environment key", "set environment key"}, view: "Environment", open: func(value Model) (tea.Model, tea.Cmd) {
+			return value.openActionForm(envSetForm, "env.set", "")
+		}},
 	} {
 		for _, name := range command.names {
 			if q == name {
@@ -311,11 +405,9 @@ func (m *Model) applyPalette() {
 			}
 		}
 	}
-	for i, v := range views {
+	for _, v := range views {
 		if strings.Contains(strings.ToLower(v), q) {
-			m.view = i
-			m.cursor = i
-			m.notice = "Opened " + v
+			m.openView(v)
 			break
 		}
 	}
@@ -329,6 +421,16 @@ func (m Model) openTaskForm() (tea.Model, tea.Cmd) {
 
 func (m Model) updateForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if key, ok := msg.(tea.KeyPressMsg); ok {
+		if m.formSpec != nil && m.formFocus < len(m.formSpec.Fields) {
+			if options := m.formSpec.Fields[m.formFocus].Options; len(options) > 0 {
+				switch key.String() {
+				case "left", "right", " ":
+					current := cyclePickerOption(options, m.inputs[m.formFocus].Value(), key.String() == "left")
+					m.inputs[m.formFocus].SetValue(current)
+					return m, nil
+				}
+			}
+		}
 		switch key.String() {
 		case "esc":
 			m.form, m.inputs, m.err, m.formSpec = "", nil, nil, nil
@@ -390,9 +492,35 @@ func (m Model) updateForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	commands := make([]tea.Cmd, len(m.inputs))
 	for i := range m.inputs {
+		if m.formSpec != nil && i < len(m.formSpec.Fields) && len(m.formSpec.Fields[i].Options) > 0 {
+			// Picker fields only ever change via left/right cycling above;
+			// typed characters are silently dropped rather than mutating a
+			// value that must always be one of Options.
+			continue
+		}
 		m.inputs[i], commands[i] = m.inputs[i].Update(msg)
 	}
 	return m, tea.Batch(commands...)
+}
+
+// cyclePickerOption returns the next (or, if backward, previous) value in
+// options relative to current, wrapping around at either end. Falls back to
+// options[0] if current doesn't match anything in the list (e.g. the field
+// was just opened).
+func cyclePickerOption(options []string, current string, backward bool) string {
+	idx := 0
+	for i, o := range options {
+		if o == current {
+			idx = i
+			break
+		}
+	}
+	if backward {
+		idx = (idx - 1 + len(options)) % len(options)
+	} else {
+		idx = (idx + 1) % len(options)
+	}
+	return options[idx]
 }
 
 func splitCSV(value string) []string {
@@ -497,15 +625,26 @@ func (m Model) renderBody(p palette, w, h int) string {
 			m.agentList.View(p, m.state, m.actor, contentW, max(5, contentH-4))
 	case "Invocations":
 		bodyContent = m.invocationControlBar(p, contentW) + "\n\n" +
-			m.invocationList.View(p, m.state, m.actor, contentW, max(5, contentH-4))
+			m.invocationList.View(p, m.state, m.actor, contentW, max(5, contentH-10)) + "\n\n" +
+			m.invocationDeliveryDetails(p, contentW)
 	case "Runtimes":
-		bodyContent = m.runtimeList.View(p, m.state, m.actor, contentW, contentH)
+		bodyContent = m.runtimeList.View(p, m.state, m.actor, contentW, max(5, contentH-9)) + "\n\n" +
+			m.runtimeDetailPane(p, contentW)
 	case "Approvals":
 		bodyContent = m.approvalList.View(p, m.state, m.actor, contentW, contentH)
 	case "Documents":
-		bodyContent = wrap.Render(m.documents(p))
+		bodyContent = m.documentList.View(p, m.state, m.actor, contentW, contentH)
 	case "Contracts & decisions":
-		bodyContent = wrap.Render(m.decisions(p))
+		bodyContent = m.decisionList.View(p, m.state, m.actor, contentW, max(5, contentH-6))
+		if contracts := decisionMessages(m.state); contracts != "" {
+			bodyContent += "\n\n" + wrap.Render(contracts)
+		}
+	case "Artifacts":
+		bodyContent = m.artifactList.View(p, m.state, m.actor, contentW, contentH)
+	case "Drafts":
+		bodyContent = m.draftsView(p)
+	case "Environment":
+		bodyContent = m.envList.View(p, m.state, m.actor, contentW, contentH)
 	case "Project settings":
 		bodyContent = m.projectSettings(p, contentW, contentH)
 	case "Blockers":
@@ -564,17 +703,34 @@ func (m Model) renderForm(p palette) string {
 		lipgloss.NewStyle().Foreground(p.muted).Render(hint),
 		"",
 	}
+	focusedIsPicker := false
 	for i, input := range m.inputs {
 		marker := "  "
 		style := lipgloss.NewStyle().Foreground(p.text)
-		if i == m.formFocus {
+		focused := i == m.formFocus
+		if focused {
 			marker = "▌ "
 			style = style.Foreground(p.cyan).Bold(true)
 		}
+		var options []string
+		if m.formSpec != nil && i < len(m.formSpec.Fields) {
+			options = m.formSpec.Fields[i].Options
+		}
+		if len(options) > 0 {
+			if focused {
+				focusedIsPicker = true
+			}
+			rows = append(rows, style.Render(marker)+renderPickerField(style, input.Prompt, input.Value(), focused), "")
+			continue
+		}
 		rows = append(rows, style.Render(marker)+input.View(), "")
 	}
+	navHint := "Tab / Shift+Tab moves between fields"
+	if focusedIsPicker {
+		navHint = "←/→ cycles this field's value · " + navHint
+	}
 	rows = append(rows,
-		lipgloss.NewStyle().Foreground(p.muted).Render("Tab / Shift+Tab moves between fields"),
+		lipgloss.NewStyle().Foreground(p.muted).Render(navHint),
 		lipgloss.NewStyle().Foreground(p.amber).Render("Enter continues · final Enter reviews changes · Esc cancels"),
 	)
 	if m.notice != "" {
@@ -587,6 +743,16 @@ func (m Model) renderForm(p palette) string {
 		BorderForeground(p.cyan).PaddingLeft(2).MaxWidth(max(40, m.width-m.sidebarWidth()-10)).
 		Render(strings.Join(rows, "\n"))
 }
+// renderPickerField renders a picker field as "Label: ‹ value ›" instead of
+// a raw textinput.Model.View() (which would show a blinking text cursor
+// that's misleading here -- the value never accepts typed characters).
+func renderPickerField(style lipgloss.Style, prompt, value string, focused bool) string {
+	if !focused {
+		return style.Render(prompt + value)
+	}
+	return style.Render(prompt) + style.Render("‹ "+value+" ›")
+}
+
 func (m Model) overview(p palette) string {
 	contentWidth := max(28, m.width-m.sidebarWidth()-7)
 	open, running := 0, 0
@@ -709,10 +875,13 @@ func (m Model) attention(p palette) string {
 		switch invocation.Status {
 		case "WAITING":
 			rows = append(rows, "◫ "+invocation.ID+"  "+invocation.Target+" waits: "+invocation.Reason)
-		case "DEAD_LETTER":
-			rows = append(rows, "✕ "+invocation.ID+"  delivery failed: "+invocation.Reason)
 		case "PENDING":
 			rows = append(rows, "→ "+invocation.ID+"  pending delivery to "+invocation.Target)
+		}
+	}
+	for _, delivery := range m.state.InvocationDeliveries {
+		if delivery.Status == "FAILED" || delivery.Status == "EXHAUSTED" {
+			rows = append(rows, "✕ "+delivery.InvocationID+"  delivery failed: "+delivery.Error)
 		}
 	}
 	for _, runtime := range m.state.AgentRuntimes {
@@ -728,34 +897,6 @@ func (m Model) attention(p palette) string {
 	return strings.Join(rows, "\n")
 }
 
-func (m Model) documents(p palette) string {
-	rows := []string{"STATUS    VERSION  DOCUMENT             AUTHOR        TAGS"}
-	for _, id := range service.SortedKeys(m.state.Documents) {
-		d := m.state.Documents[id]
-		rows = append(rows, fmt.Sprintf("%-9s %-7d %-20s %-13s %s", d.Status, d.Version, id, d.Author, strings.Join(d.Tags, ",")))
-	}
-	if len(rows) == 1 {
-		return "No living documents yet."
-	}
-	return strings.Join(rows, "\n")
-}
-func (m Model) decisions(p palette) string {
-	rows := []string{}
-	for _, id := range service.SortedKeys(m.state.Decisions) {
-		d := m.state.Decisions[id]
-		rows = append(rows, fmt.Sprintf("◆ %s  %s\n  %s", id, d.Title, d.Statement))
-	}
-	for _, id := range service.SortedKeys(m.state.Messages) {
-		x := m.state.Messages[id]
-		if x.Kind == "CONTRACT" {
-			rows = append(rows, fmt.Sprintf("◇ %s  %s · %s", id, x.Subject, x.Status))
-		}
-	}
-	if len(rows) == 0 {
-		return "No contracts or decisions recorded."
-	}
-	return strings.Join(rows, "\n\n")
-}
 func (m Model) blockers(p palette) string {
 	rows := []string{}
 	for _, id := range service.SortedKeys(m.state.Tasks) {
@@ -774,7 +915,39 @@ func (m Model) integrity(p palette) string {
 	if !m.state.Integrity.Verified {
 		mark = "✕"
 	}
-	return fmt.Sprintf("%s Chain verified: %t\n  Signed events: %d\n  Head: %s\n  Checkpoint: %s\n  Remote: %s\n  Consistency: %s\n  Connectivity: %s\n  Server sequence: %d\n  Cache sequence: %d\n\nRun `agent-comms verify` before recovery or migration.", mark, m.state.Integrity.Verified, m.state.Integrity.EventCount, m.state.Integrity.Head, m.state.Integrity.SyncState, empty(m.state.Integrity.Remote, "not configured"), empty(m.state.Integrity.Consistency, "LEGACY_LOCAL"), empty(m.state.Integrity.Connectivity, "LOCAL"), m.state.Integrity.ServerSequence, m.state.Integrity.CacheSequence)
+	compatibility := "CURRENT"
+	if len(m.lifecycle.Actions) > 0 {
+		compatibility = fmt.Sprintf("%d UPGRADE ACTION(S)", len(m.lifecycle.Actions))
+	}
+	summary := fmt.Sprintf("%s Chain verified: %t\n  Signed events: %d\n  Head: %s\n  Consistency: %s\n  Connectivity: %s\n  Server sequence: %d\n  Cache sequence: %d\n\nProject lifecycle\n  Compatibility: %s\n  Installed build: %s\n  Project build: %s\n  Interrupted upgrade: %t",
+		mark, m.state.Integrity.Verified, m.state.Integrity.EventCount, m.state.Integrity.Head,
+		empty(m.state.Integrity.Consistency, "UNKNOWN"), empty(m.state.Integrity.Connectivity, "UNKNOWN"),
+		m.state.Integrity.ServerSequence, m.state.Integrity.CacheSequence, compatibility,
+		buildinfo.ResolvedBuildID(), empty(m.lifecycle.CurrentBuildID, "unrecorded"), m.lifecycle.Interrupted)
+	return summary + "\n\n" + m.findingsSummary(p) + "\n\nRun `agent-comms verify` before incident recovery."
+}
+
+// findingsSummary renders the same doctor findings `agent-comms doctor`
+// reports (internal/doctor.Findings) so a human never has to leave the TUI
+// to see what's wrong with the project -- this is the one place that data
+// previously had zero TUI presence at all.
+func (m Model) findingsSummary(p palette) string {
+	heading := lipgloss.NewStyle().Foreground(p.text).Bold(true).Render("Doctor findings")
+	if len(m.findings) == 0 {
+		return heading + "\n  " + lipgloss.NewStyle().Foreground(p.cyan).Render("✓ No findings.")
+	}
+	rows := []string{heading}
+	for _, f := range m.findings {
+		color := p.amber
+		if f.Severity == "ERROR" {
+			color = p.red
+		}
+		rows = append(rows, "  "+lipgloss.NewStyle().Foreground(color).Bold(true).Render(f.Severity+" "+f.Code)+"  "+f.Message)
+		if f.Guidance != "" {
+			rows = append(rows, lipgloss.NewStyle().Foreground(p.muted).Render("    "+f.Guidance))
+		}
+	}
+	return strings.Join(rows, "\n")
 }
 func (m Model) chain(p palette) string {
 	after := max(0, m.state.Integrity.EventCount-7)
@@ -845,7 +1018,7 @@ func (m Model) renderPalette(p palette, under string) string {
 
 func (m Model) paletteMatches() []string {
 	query := strings.ToLower(strings.TrimSpace(m.query))
-	commands := []string{"new task", "new agent", "new message", "new invocation", "new runtime"}
+	commands := []string{"new task", "new agent", "new message", "new invocation", "new runtime", "new document", "new decision", "new artifact", "new draft", "new environment key"}
 	commands = append(commands, views...)
 	matches := make([]string, 0, 6)
 	for _, command := range commands {

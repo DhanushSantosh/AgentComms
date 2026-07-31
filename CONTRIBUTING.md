@@ -10,8 +10,8 @@ Thank you for improving Agent Comms. Ordinary development targets the `dev` bran
 6. Sign every commit under the [Developer Certificate of Origin](https://developercertificate.org/) using `git commit -s`.
 7. Run `go test ./...` and `go vet ./...`. CI performs the authoritative platform, race, static, vulnerability, contamination, and build checks.
 
-Do not weaken authorization, integrity verification, transaction locking, migration preservation, release verification, or the contamination guard.
+Do not weaken authorization, integrity verification, authority transactions, release verification, or the contamination guard.
 
-Public contracts, schemas, migrations, governance, signing, storage transactions, installation security, supported platforms, and major TUI navigation require an accepted RFC before implementation. See [development workflow](docs/development-workflow.md), [RFC guidance](docs/rfcs/README.md), and [maintainer guidance](docs/maintainers.md).
+Public contracts, schemas, governance, signing, storage transactions, installation security, supported platforms, and major TUI navigation require an accepted RFC before implementation. See [development workflow](docs/development-workflow.md), [RFC guidance](docs/rfcs/README.md), and [maintainer guidance](docs/maintainers.md).
 
 Contributions are licensed under Apache-2.0. Contributors retain copyright and certify their right to contribute through DCO sign-off; no separate CLA is required.

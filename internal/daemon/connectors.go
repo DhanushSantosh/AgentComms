@@ -13,11 +13,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
+	"github.com/DhanushSantosh/AgentComms/internal/interactiveserve"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 	"github.com/google/uuid"
 )
@@ -69,10 +72,20 @@ type InvocationEnvelope struct {
 type commandSubmitter func(context.Context, string, string, string, string, any) error
 
 type Dispatcher struct {
-	configs map[string]ConnectorConfig
-	submit  commandSubmitter
-	now     func() time.Time
-	launch  func(context.Context, ConnectorConfig, InvocationEnvelope) error
+	configs     map[string]ConnectorConfig
+	configPath  string
+	configMu    sync.RWMutex
+	submit      commandSubmitter
+	now         func() time.Time
+	projectRoot string
+	hostID      string
+	launch      func(context.Context, ConnectorConfig, InvocationEnvelope) error
+	deliver     func(context.Context, ConnectorConfig, InvocationEnvelope) (DeliveryResult, error)
+}
+
+type DeliveryResult struct {
+	EndpointID string
+	Evidence   []model.DeliveryEvidence
 }
 
 func LoadConnectorConfigs(path string) (map[string]ConnectorConfig, error) {
@@ -139,8 +152,27 @@ func validateConnectorConfig(reference string, config ConnectorConfig) error {
 	if !filepath.IsAbs(config.Executable) {
 		return fmt.Errorf("connector %s executable must be an absolute path", reference)
 	}
+	executableInfo, err := os.Stat(config.Executable)
+	if err != nil {
+		return fmt.Errorf("connector %s executable is unavailable: %w", reference, err)
+	}
+	if !executableInfo.Mode().IsRegular() {
+		return fmt.Errorf("connector %s executable must be a regular file", reference)
+	}
+	if runtime.GOOS != "windows" && executableInfo.Mode().Perm()&0o111 == 0 {
+		return fmt.Errorf("connector %s executable is not executable", reference)
+	}
+	if runtime.GOOS != "windows" && executableInfo.Mode().Perm()&0o022 != 0 {
+		return fmt.Errorf("connector %s executable must not be writable by group or other users", reference)
+	}
 	if config.WorkingDirectory != "" && !filepath.IsAbs(config.WorkingDirectory) {
 		return fmt.Errorf("connector %s working directory must be absolute", reference)
+	}
+	if config.WorkingDirectory != "" {
+		workingDirectoryInfo, err := os.Stat(config.WorkingDirectory)
+		if err != nil || !workingDirectoryInfo.IsDir() {
+			return fmt.Errorf("connector %s working directory must be an existing directory", reference)
+		}
 	}
 	if len(config.Arguments) > maxConnectorArgs {
 		return fmt.Errorf("connector %s has too many arguments", reference)
@@ -209,13 +241,94 @@ func NewDispatcher(configs map[string]ConnectorConfig, submit commandSubmitter) 
 			return nil, err
 		}
 	}
-	return &Dispatcher{
+	dispatcher := &Dispatcher{
 		configs: configs, submit: submit, now: func() time.Time { return time.Now().UTC() },
 		launch: launchConnector,
-	}, nil
+	}
+	dispatcher.deliver = dispatcher.deliverConfiguredConnector
+	return dispatcher, nil
+}
+
+func (d *Dispatcher) SetLocalInteractive(projectRoot, hostID string) {
+	d.projectRoot = projectRoot
+	d.hostID = hostID
+	d.deliver = func(ctx context.Context, config ConnectorConfig, envelope InvocationEnvelope) (DeliveryResult, error) {
+		if config.Type != "INTERACTIVE" {
+			return d.deliverConfiguredConnector(ctx, config, envelope)
+		}
+		receipt, err := interactiveserve.NotifyInvocationWithEvidence(
+			ctx, projectRoot, envelope.Runtime.ID, envelope.Runtime.AgentID,
+			envelope.Invocation.ID, envelope.Invocation.RequestedBy,
+		)
+		if err != nil {
+			return DeliveryResult{}, err
+		}
+		return DeliveryResult{
+			EndpointID: envelope.Runtime.EndpointID,
+			Evidence: []model.DeliveryEvidence{
+				{Stage: "PTY_TEXT_ECHOED", At: receipt.TextEchoedAt},
+				{Stage: "PTY_ENTER_SENT", At: receipt.EnterSentAt},
+			},
+		}, nil
+	}
+}
+
+func (d *Dispatcher) SetConfigSource(path string) {
+	d.configPath = strings.TrimSpace(path)
+}
+
+func (d *Dispatcher) reloadConfigs() error {
+	if d.configPath == "" {
+		return nil
+	}
+	configs, err := LoadConnectorConfigs(d.configPath)
+	if err != nil {
+		return err
+	}
+	d.configMu.Lock()
+	d.configs = configs
+	d.configMu.Unlock()
+	return nil
+}
+
+func (d *Dispatcher) connectorConfig(reference string) (ConnectorConfig, bool) {
+	d.configMu.RLock()
+	defer d.configMu.RUnlock()
+	config, exists := d.configs[reference]
+	return config, exists
+}
+
+func (d *Dispatcher) ValidateRuntime(connector, configReference, hostID string) error {
+	if err := d.reloadConfigs(); err != nil {
+		return err
+	}
+	connector = strings.ToUpper(strings.TrimSpace(connector))
+	if connector == "INTERACTIVE" {
+		if d.hostID == "" || hostID != d.hostID {
+			return errors.New("interactive runtime host ID does not match this local daemon")
+		}
+		return nil
+	}
+	if connector != "LOCAL_PROCESS" && connector != "WEBHOOK" {
+		return nil
+	}
+	config, exists := d.connectorConfig(configReference)
+	if !exists {
+		return fmt.Errorf("connector configuration reference %q is not available on this host", configReference)
+	}
+	if config.Type != connector {
+		return fmt.Errorf("connector configuration %q has type %s, expected %s", configReference, config.Type, connector)
+	}
+	return validateConnectorConfig(configReference, config)
 }
 
 func (d *Dispatcher) Dispatch(ctx context.Context, projectID string, state model.State) error {
+	if err := d.reloadConfigs(); err != nil {
+		return fmt.Errorf("reload connector configuration: %w", err)
+	}
+	if err := d.expireAttempts(ctx, projectID, state); err != nil {
+		return err
+	}
 	invocationIDs := make([]string, 0, len(state.Invocations))
 	for id := range state.Invocations {
 		invocationIDs = append(invocationIDs, id)
@@ -223,8 +336,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, projectID string, state model
 	sort.Strings(invocationIDs)
 	for _, invocationID := range invocationIDs {
 		invocation := state.Invocations[invocationID]
-		if invocation.Status != "PENDING" ||
-			(invocation.NextAttemptAt != nil && invocation.NextAttemptAt.After(d.now())) {
+		if invocation.Status != "PENDING" || deliveryRetryPending(state, invocation.ID, d.now()) {
 			continue
 		}
 		runtime, config, found := d.selectRuntime(state, invocation)
@@ -232,17 +344,22 @@ func (d *Dispatcher) Dispatch(ctx context.Context, projectID string, state model
 			continue
 		}
 		attempt := deliveryAttempt(state, invocation.ID) + 1
-		if attempt > controlplane.MaxDeliveryAttempts {
+		if automaticDeliveryAttemptCount(state, invocation.ID) >= controlplane.MaxDeliveryAttempts {
 			continue
 		}
 		deliveryID := uuid.NewString()
-		if err := d.submit(ctx, projectID, runtime.AgentID, "invocation.notify", invocation.ID,
-			model.InvocationNotified{DeliveryID: deliveryID, RuntimeID: runtime.ID, Attempt: attempt}); err != nil {
+		if err := d.submit(ctx, projectID, runtime.AgentID, "invocation.delivery-attempt", invocation.ID,
+			model.InvocationDeliveryAttempted{
+				DeliveryID: deliveryID, RuntimeID: runtime.ID,
+				Transport: runtime.Connector, HostID: runtime.HostID,
+				EndpointID: runtime.EndpointID,
+			}); err != nil {
 			continue
 		}
 		envelope := InvocationEnvelope{ProjectID: projectID, Invocation: invocation, Runtime: runtime}
-		if err := d.launch(ctx, config, envelope); err != nil {
-			final := attempt == controlplane.MaxDeliveryAttempts
+		result, deliveryErr := d.deliver(ctx, config, envelope)
+		if deliveryErr != nil {
+			final := automaticDeliveryAttemptCount(state, invocation.ID)+1 >= controlplane.MaxDeliveryAttempts
 			var retryAt *time.Time
 			if !final {
 				next := d.now().Add(deliveryBackoff(attempt))
@@ -251,10 +368,135 @@ func (d *Dispatcher) Dispatch(ctx context.Context, projectID string, state model
 			if submitErr := d.submit(ctx, projectID, runtime.AgentID, "invocation.delivery-failed", invocation.ID,
 				model.InvocationDeliveryFailed{
 					DeliveryID: deliveryID, RuntimeID: runtime.ID, Attempt: attempt,
-					Error: err.Error(), NextRetry: retryAt, Final: final,
+					Error: deliveryErr.Error(), NextRetry: retryAt, Final: final,
 				}); submitErr != nil {
 				return submitErr
 			}
+			continue
+		}
+		if err := d.submit(ctx, projectID, runtime.AgentID, "invocation.notify", invocation.ID,
+			model.InvocationNotified{
+				DeliveryID: deliveryID, RuntimeID: runtime.ID, Attempt: attempt,
+				Transport: runtime.Connector, EndpointID: result.EndpointID,
+				Evidence: result.Evidence,
+			}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (d *Dispatcher) DeliverAttempt(ctx context.Context, projectID, invocationID, deliveryID string, state model.State) error {
+	delivery, exists := state.InvocationDeliveries[deliveryID]
+	if !exists || delivery.InvocationID != invocationID || delivery.Status != "ATTEMPTED" {
+		return errors.New("matching attempted delivery is required")
+	}
+	if delivery.AttemptUntil == nil || !delivery.AttemptUntil.After(d.now()) {
+		return errors.New("delivery attempt lease has expired")
+	}
+	invocation, exists := state.Invocations[invocationID]
+	if !exists {
+		return errors.New("invocation not found")
+	}
+	runtimeState, exists := state.AgentRuntimes[delivery.RuntimeID]
+	if !exists {
+		return errors.New("delivery runtime not found")
+	}
+	config, err := d.configForRuntime(runtimeState)
+	if err != nil {
+		return d.recordDeliveryFailure(ctx, projectID, invocation, delivery, state, err)
+	}
+	result, deliveryErr := d.deliver(ctx, config, InvocationEnvelope{
+		ProjectID: projectID, Invocation: invocation, Runtime: runtimeState,
+	})
+	if deliveryErr != nil {
+		return d.recordDeliveryFailure(ctx, projectID, invocation, delivery, state, deliveryErr)
+	}
+	return d.submit(ctx, projectID, runtimeState.AgentID, "invocation.notify", invocationID,
+		model.InvocationNotified{
+			DeliveryID: delivery.ID, RuntimeID: runtimeState.ID, Attempt: delivery.Attempt,
+			Transport: runtimeState.Connector, EndpointID: result.EndpointID,
+			Evidence: result.Evidence,
+		})
+}
+
+func (d *Dispatcher) configForRuntime(runtimeState model.AgentRuntime) (ConnectorConfig, error) {
+	if err := d.reloadConfigs(); err != nil {
+		return ConnectorConfig{}, fmt.Errorf("reload connector configuration: %w", err)
+	}
+	if effectiveRuntimeKind(runtimeState) == model.RuntimeKindInteractive {
+		if runtimeState.Connector != "INTERACTIVE" || runtimeState.Status != "ONLINE" ||
+			runtimeState.HostID == "" || runtimeState.HostID != d.hostID ||
+			d.projectRoot == "" {
+			return ConnectorConfig{}, errors.New("interactive runtime is not available on this host")
+		}
+		return ConnectorConfig{Type: "INTERACTIVE", Timeout: defaultConnectorTimeout}, nil
+	}
+	if runtimeState.Connector == "MANUAL" || runtimeState.Connector == "MCP" ||
+		runtimeState.Connector == "QUEUE" {
+		return ConnectorConfig{}, fmt.Errorf("%s runtime does not support notification delivery", runtimeState.Connector)
+	}
+	if runtimeState.ConfigReference == "" {
+		return ConnectorConfig{}, errors.New("runtime connector configuration reference is missing")
+	}
+	config, exists := d.connectorConfig(runtimeState.ConfigReference)
+	if !exists || config.Type != runtimeState.Connector {
+		return ConnectorConfig{}, errors.New("runtime connector configuration is unavailable or mismatched")
+	}
+	if err := validateConnectorConfig(runtimeState.ConfigReference, config); err != nil {
+		return ConnectorConfig{}, err
+	}
+	return config, nil
+}
+
+func (d *Dispatcher) recordDeliveryFailure(
+	ctx context.Context,
+	projectID string,
+	invocation model.Invocation,
+	delivery model.InvocationDelivery,
+	state model.State,
+	deliveryErr error,
+) error {
+	final := delivery.Manual ||
+		automaticDeliveryAttemptCount(state, invocation.ID) >= controlplane.MaxDeliveryAttempts
+	var retryAt *time.Time
+	if !final {
+		next := d.now().Add(deliveryBackoff(delivery.Attempt))
+		retryAt = &next
+	}
+	return d.submit(ctx, projectID, invocation.Target, "invocation.delivery-failed", invocation.ID,
+		model.InvocationDeliveryFailed{
+			DeliveryID: delivery.ID, RuntimeID: delivery.RuntimeID,
+			Attempt: delivery.Attempt, Error: deliveryErr.Error(),
+			NextRetry: retryAt, Final: final,
+		})
+}
+
+func (d *Dispatcher) expireAttempts(ctx context.Context, projectID string, state model.State) error {
+	now := d.now()
+	for _, delivery := range state.InvocationDeliveries {
+		if delivery.Status != "ATTEMPTED" || delivery.AttemptUntil == nil ||
+			delivery.AttemptUntil.After(now) {
+			continue
+		}
+		invocation, exists := state.Invocations[delivery.InvocationID]
+		if !exists {
+			continue
+		}
+		final := !delivery.Manual &&
+			automaticDeliveryAttemptCount(state, delivery.InvocationID) >= controlplane.MaxDeliveryAttempts
+		var retryAt *time.Time
+		if !final {
+			next := now.Add(deliveryBackoff(delivery.Attempt))
+			retryAt = &next
+		}
+		if err := d.submit(ctx, projectID, invocation.Target, "invocation.delivery-failed", delivery.InvocationID,
+			model.InvocationDeliveryFailed{
+				DeliveryID: delivery.ID, RuntimeID: delivery.RuntimeID,
+				Attempt: delivery.Attempt, Error: "delivery attempt lease expired",
+				NextRetry: retryAt, Final: final,
+			}); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -266,37 +508,77 @@ func (d *Dispatcher) selectRuntime(state model.State, invocation model.Invocatio
 		runtimeIDs = append(runtimeIDs, id)
 	}
 	sort.Strings(runtimeIDs)
+	type candidate struct {
+		runtime model.AgentRuntime
+		config  ConnectorConfig
+	}
+	candidates := make([]candidate, 0, len(runtimeIDs))
+	interactiveCandidates := 0
 	for _, runtimeID := range runtimeIDs {
 		runtime := state.AgentRuntimes[runtimeID]
 		if runtime.AgentID != invocation.Target || runtime.Status == "DRAINING" ||
-			runtime.Status == "REVOKED" || len(runtime.ActiveInvocations) >= runtime.MaxConcurrent {
+			runtime.Status == "REVOKED" || len(runtime.ActiveInvocations) >= runtime.MaxConcurrent ||
+			(invocation.PreferredRuntimeID != "" && invocation.PreferredRuntimeID != runtime.ID) {
 			continue
 		}
-		config := ConnectorConfig{Type: runtime.Connector, Timeout: defaultConnectorTimeout}
-		if runtime.ConfigReference != "" {
-			var configured bool
-			config, configured = d.configs[runtime.ConfigReference]
-			if !configured {
+		kind := effectiveRuntimeKind(runtime)
+		if !consumerModeAllowsRuntime(invocation.ConsumerMode, kind) {
+			continue
+		}
+		if kind == model.RuntimeKindInteractive {
+			if runtime.Status != "ONLINE" || runtime.HostID == "" ||
+				d.hostID == "" || runtime.HostID != d.hostID ||
+				runtime.Connector != "INTERACTIVE" || d.projectRoot == "" {
 				continue
 			}
-		}
-		if config.Type != runtime.Connector {
+			interactiveCandidates++
+			candidates = append(candidates, candidate{
+				runtime: runtime,
+				config:  ConnectorConfig{Type: "INTERACTIVE", Timeout: defaultConnectorTimeout},
+			})
 			continue
 		}
-		if config.Type == "MCP" && runtime.Status != "ONLINE" {
+		if runtime.Connector == "MANUAL" || runtime.Connector == "MCP" ||
+			runtime.Connector == "QUEUE" || runtime.ConfigReference == "" {
 			continue
 		}
-		if config.Type == "QUEUE" {
+		config, configured := d.connectorConfig(runtime.ConfigReference)
+		if !configured || config.Type != runtime.Connector {
 			continue
 		}
-		return runtime, config, true
+		candidates = append(candidates, candidate{runtime: runtime, config: config})
+	}
+	if invocation.PreferredRuntimeID == "" &&
+		effectiveConsumerMode(invocation.ConsumerMode) == model.ConsumerModeInteractiveOnly &&
+		interactiveCandidates > 1 {
+		return model.AgentRuntime{}, ConnectorConfig{}, false
+	}
+	for _, item := range candidates {
+		if interactiveCandidates > 1 && invocation.PreferredRuntimeID == "" &&
+			effectiveRuntimeKind(item.runtime) == model.RuntimeKindInteractive {
+			continue
+		}
+		return item.runtime, item.config, true
 	}
 	return model.AgentRuntime{}, ConnectorConfig{}, false
 }
 
+func (d *Dispatcher) deliverConfiguredConnector(ctx context.Context, config ConnectorConfig, envelope InvocationEnvelope) (DeliveryResult, error) {
+	if config.Type == "INTERACTIVE" {
+		return DeliveryResult{}, errors.New("interactive delivery is not configured")
+	}
+	if err := d.launch(ctx, config, envelope); err != nil {
+		return DeliveryResult{}, err
+	}
+	acceptedAt := time.Now().UTC()
+	return DeliveryResult{Evidence: []model.DeliveryEvidence{{
+		Stage: "CONNECTOR_ACCEPTED", At: acceptedAt,
+	}}}, nil
+}
+
 func launchConnector(ctx context.Context, config ConnectorConfig, envelope InvocationEnvelope) error {
 	if config.Type == "MANUAL" || config.Type == "MCP" {
-		return nil
+		return fmt.Errorf("%s connector cannot prove notification delivery", config.Type)
 	}
 	if config.Type == "WEBHOOK" {
 		return launchWebhook(ctx, config, envelope)
@@ -396,6 +678,62 @@ func deliveryAttempt(state model.State, invocationID string) int {
 		}
 	}
 	return maxAttempt
+}
+
+func automaticDeliveryAttemptCount(state model.State, invocationID string) int {
+	count := 0
+	for _, delivery := range state.InvocationDeliveries {
+		if delivery.InvocationID == invocationID && !delivery.Manual {
+			count++
+		}
+	}
+	return count
+}
+
+func deliveryRetryPending(state model.State, invocationID string, now time.Time) bool {
+	for _, delivery := range state.InvocationDeliveries {
+		if delivery.InvocationID != invocationID {
+			continue
+		}
+		if delivery.Status == "ATTEMPTED" && delivery.AttemptUntil != nil &&
+			delivery.AttemptUntil.After(now) {
+			return true
+		}
+		if delivery.NextRetryAt != nil && delivery.NextRetryAt.After(now) {
+			return true
+		}
+	}
+	return false
+}
+
+func effectiveRuntimeKind(runtime model.AgentRuntime) model.RuntimeKind {
+	if runtime.Kind != "" {
+		return runtime.Kind
+	}
+	if runtime.Connector == "INTERACTIVE" {
+		return model.RuntimeKindInteractive
+	}
+	return model.RuntimeKindWorker
+}
+
+func effectiveConsumerMode(mode model.ConsumerMode) model.ConsumerMode {
+	if mode == model.ConsumerModeInteractiveOnly ||
+		mode == model.ConsumerModeWorkerOnly ||
+		mode == model.ConsumerModeEither {
+		return mode
+	}
+	return model.ConsumerModeEither
+}
+
+func consumerModeAllowsRuntime(mode model.ConsumerMode, kind model.RuntimeKind) bool {
+	switch effectiveConsumerMode(mode) {
+	case model.ConsumerModeInteractiveOnly:
+		return kind == model.RuntimeKindInteractive
+	case model.ConsumerModeWorkerOnly:
+		return kind == model.RuntimeKindWorker
+	default:
+		return kind == model.RuntimeKindWorker || kind == model.RuntimeKindInteractive
+	}
 }
 
 func deliveryBackoff(attempt int) time.Duration {

@@ -19,7 +19,7 @@ var agentRegisterForm = &ActionForm{
 	Fields: []FormField{
 		{Label: "Principal ID", Placeholder: "builder", Required: true},
 		{Label: "Display name", Placeholder: ""},
-		{Label: "Principal type (HUMAN/AGENT)", Placeholder: "AGENT"},
+		{Label: "Principal type", Options: []string{"AGENT", "HUMAN"}},
 	},
 	Dispatch: func(m Model, v []string) (tea.Model, tea.Cmd) {
 		id := strings.TrimSpace(v[0])
@@ -42,7 +42,7 @@ var activateForm = &ActionForm{
 	Title: "Activate agent",
 	Hint:  "Assign a role, capabilities, and write scopes before this principal can act.",
 	Fields: []FormField{
-		{Label: "Role (OWNER/ORCHESTRATOR/AGENT/OBSERVER)", Placeholder: "AGENT", Required: true},
+		{Label: "Role", Options: []string{"AGENT", "OBSERVER", "ORCHESTRATOR", "OWNER"}, Required: true},
 		{Label: "Capabilities (comma-separated)", Placeholder: "go,test"},
 		{Label: "Scopes (comma-separated)", Placeholder: "src"},
 	},
@@ -55,18 +55,33 @@ var invocationPolicyForm = &ActionForm{
 	Title: "Invocation policy",
 	Hint:  "Controls which agents may wake this target. Sensitive work can remain human-gated.",
 	Fields: []FormField{
-		{Label: "Mode (MANUAL/TRUSTED/AUTOMATIC/DISABLED)", Placeholder: "MANUAL", Required: true},
+		{Label: "Mode", Options: []string{"MANUAL", "TRUSTED", "AUTOMATIC", "DISABLED"}, Required: true},
 		{Label: "Trusted actors (comma-separated)", Placeholder: ""},
 		{Label: "Allowed scopes (comma-separated)", Placeholder: "src"},
-		{Label: "Require human for sensitive (yes/no)", Placeholder: "yes", Required: true},
+		{Label: "Require human for sensitive", Options: []string{"yes", "no"}, Required: true},
+		{Label: "Default consumer", Options: []string{"EITHER", "INTERACTIVE_ONLY", "WORKER_ONLY"}, Required: true},
+		{Label: "Allowed consumers (comma-separated)", Placeholder: "INTERACTIVE_ONLY,WORKER_ONLY,EITHER"},
+		{Label: "Preferred interactive runtime", Placeholder: ""},
 	},
 	Build: func(values []string) (any, error) {
 		requireHuman := strings.EqualFold(values[3], "yes") || strings.EqualFold(values[3], "true")
 		return model.InvocationPolicyUpdated{
 			Mode: strings.ToUpper(values[0]), TrustedActors: splitCSV(values[1]),
-			AllowedScopes: splitCSV(values[2]), RequireHumanForSensitive: requireHuman,
+			AllowedScopes:                 splitCSV(values[2]),
+			DefaultConsumerMode:           model.ConsumerMode(strings.ToUpper(values[4])),
+			AllowedConsumerModes:          consumerModeValues(splitCSV(values[5])),
+			PreferredInteractiveRuntimeID: values[6],
+			RequireHumanForSensitive:      requireHuman,
 		}, nil
 	},
+}
+
+func consumerModeValues(values []string) []model.ConsumerMode {
+	result := make([]model.ConsumerMode, 0, len(values))
+	for _, value := range values {
+		result = append(result, model.ConsumerMode(strings.ToUpper(value)))
+	}
+	return result
 }
 
 var (
@@ -93,22 +108,77 @@ var (
 	actInvocationPolicy = RowAction{
 		Key: "p", Label: "policy", EventType: "invocation.policy.update", Form: invocationPolicyForm,
 	}
+	actRevoke = RowAction{
+		Key: "x", Label: "revoke", EventType: "agent.revoke", Confirm: true,
+		Payload: func() any { return model.RuntimeStatusChanged{Reason: "revoked from control room"} },
+		Prompt:  func(id string) string { return "Revoke " + id + "? This cannot be reversed." },
+	}
+	// "e" not "n": the row-list's "n" key is globally reserved for opening
+	// the panel's create form (updateRowList checks it before any row
+	// action), so a RowAction keyed "n" would never be reachable.
+	actRename = RowAction{
+		Key: "e", Label: "rename", EventType: "agent.rename",
+		Form: &ActionForm{
+			Title: "Rename agent",
+			Hint:  "Changes the principal's display name only; its ID and history are unchanged.",
+			Fields: []FormField{
+				{Label: "Display name", Placeholder: "", Required: true},
+			},
+			Build: func(v []string) (any, error) { return model.AgentRenamed{DisplayName: v[0]}, nil },
+		},
+	}
+	// actDelete requires BOTH the ordinary owner/orchestrator elevation this
+	// file already gates on AND a literal HUMAN principal
+	// (internal/protocol/transitions.go's separate agent.delete check) AND
+	// the actor's passphrase-protected elevated key
+	// (protocol.RequiresElevatedKey, since the target is REVOKED) --
+	// offered here the same way HUMAN-tier approval.approve already is
+	// (approvals.go's approvalActionsFor): the TUI can't satisfy the
+	// passphrase prompt itself (nonInteractivePassphrasePrompt refuses
+	// cleanly), so this fails with a clear "run the CLI" message rather
+	// than being hidden.
+	actDelete = RowAction{
+		Key: "d", Label: "delete", EventType: "agent.delete",
+		Form: &ActionForm{
+			Title: "Delete revoked agent",
+			Hint:  "Permanently removes this identity from active use; its signed history remains in the event log.",
+			Fields: []FormField{
+				{Label: "Reason", Placeholder: "duplicate registration, decommissioned, etc.", Required: true},
+			},
+			Build: func(v []string) (any, error) { return model.AgentDeleted{Reason: v[0]}, nil },
+			ConfirmIf: func(any) (bool, string) {
+				return true, "Permanently delete this revoked agent? This cannot be reversed."
+			},
+		},
+	}
 )
 
-// agentActionsFor mirrors service.go's elevated() gate: activate and suspend
-// both require the viewing actor to hold Owner or Orchestrator role,
-// regardless of whose row is selected. Key rotation is always self-service
-// (Service.RotateKey rotates the calling actor's own credential, never an
-// arbitrary target), so it only appears on the actor's own row.
+// agentActionsFor mirrors service.go's elevated() gate: activate, suspend,
+// rename, revoke, and delete all require the viewing actor to hold Owner or
+// Orchestrator role, regardless of whose row is selected. Key rotation is
+// always self-service (Service.RotateKey rotates the calling actor's own
+// credential, never an arbitrary target), so it only appears on the actor's
+// own row. Revoke is terminal (the target can never be reactivated,
+// renamed, or suspended again) and offered from every non-terminal status;
+// delete is offered only once REVOKED. The owner principal and, unless
+// self-revoking, an orchestrator or human principal cannot be revoked by a
+// non-human actor, and delete additionally requires a literal HUMAN
+// principal unconditionally plus the actor's elevated key --
+// internal/protocol/transitions.go enforces all of this regardless of what
+// the TUI shows or hides.
 func agentActionsFor(a model.Agent, id, actor string, role model.Role) []RowAction {
 	elevated := role == model.RoleOwner || role == model.RoleOrchestrator
 	var acts []RowAction
 	if elevated {
 		switch a.Status {
 		case "PENDING":
-			acts = append(acts, actActivate)
+			acts = append(acts, actActivate, actRename, actRevoke)
 		case "ACTIVE":
-			acts = append(acts, actSuspend)
+			acts = append(acts, actSuspend, actRename, actRevoke)
+		case "SUSPENDED":
+			acts = append(acts, actRename, actRevoke)
+		case "REVOKED":
+			acts = append(acts, actDelete)
 		}
 		if a.PrincipalType == model.PrincipalAgent && a.Status == "ACTIVE" {
 			acts = append(acts, actInvocationPolicy)
@@ -163,9 +233,16 @@ func (agentRowSource) Actions(id string, st model.State, actor string) []RowActi
 func (m Model) agentControlBar(p palette, width int) string {
 	selectedID := m.agentList.SelectedID(m.state, m.actor)
 	actions := m.agentList.Actions(selectedID, m.state, m.actor)
-	controls := []string{"[n] register agent"}
+	controls := []string{"[n] register agent"}
 	for _, action := range actions {
-		controls = append(controls, "["+action.Key+"] "+action.Label)
+		// Non-breaking spaces within one action's own text so a width-driven
+		// wrap (the outer style below is width-bound) can only break between
+		// separate actions, never split "[key] label" itself across lines --
+		// a real, not cosmetic, bug: more actions than fit on one line used
+		// to wrap mid-label (e.g. "[z]" on one line, "rotate key" on the
+		// next), silently breaking every "[key] label"-shaped substring
+		// match, including in tests.
+		controls = append(controls, "["+action.Key+"] "+strings.ReplaceAll(action.Label, " ", " "))
 	}
 	mode := "NAVIGATION · Enter to manage selected agent"
 	color := p.muted

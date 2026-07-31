@@ -20,21 +20,8 @@ import (
 const maxResponseBytes = 8 * 1024 * 1024
 
 type Client struct {
-	baseURL       string
-	http          *http.Client
-	authorization string
-}
-
-func NewMigration(baseURL, token string, timeout time.Duration) (*Client, error) {
-	if strings.TrimSpace(token) == "" {
-		return nil, errors.New("migration token is required")
-	}
-	client, err := New(baseURL, timeout)
-	if err != nil {
-		return nil, err
-	}
-	client.authorization = "Bearer " + token
-	return client, nil
+	baseURL string
+	http    *http.Client
 }
 
 func New(baseURL string, timeout time.Duration) (*Client, error) {
@@ -95,41 +82,6 @@ func (c *Client) CreateProject(ctx context.Context, projectID, ownerID string) e
 		map[string]string{"project_id": projectID, "owner_id": ownerID}, &map[string]any{})
 }
 
-func (c *Client) BeginLegacyImport(ctx context.Context, projectID string, request any, response any) error {
-	return c.doJSON(ctx, http.MethodPost,
-		fmt.Sprintf("/v1/projects/%s/imports/legacy", url.PathEscape(projectID)), request, response)
-}
-
-func (c *Client) ImportLegacyBatch(ctx context.Context, projectID string, request any, response any) error {
-	return c.doJSON(ctx, http.MethodPost,
-		fmt.Sprintf("/v1/projects/%s/imports/legacy/batches", url.PathEscape(projectID)), request, response)
-}
-
-func (c *Client) FinalizeLegacyImport(ctx context.Context, projectID string, request any, response any) error {
-	return c.doJSON(ctx, http.MethodPost,
-		fmt.Sprintf("/v1/projects/%s/imports/legacy/finalize", url.PathEscape(projectID)), request, response)
-}
-
-func (c *Client) LegacyImportStatus(ctx context.Context, projectID string, response any) error {
-	return c.doJSON(ctx, http.MethodGet,
-		fmt.Sprintf("/v1/projects/%s/imports/legacy", url.PathEscape(projectID)), nil, response)
-}
-
-func (c *Client) BeginAttestedImport(ctx context.Context, projectID string, request any, response any) error {
-	return c.doJSON(ctx, http.MethodPost,
-		fmt.Sprintf("/v1/projects/%s/imports/attested", url.PathEscape(projectID)), request, response)
-}
-
-func (c *Client) ImportAttestedBatch(ctx context.Context, projectID string, request any, response any) error {
-	return c.doJSON(ctx, http.MethodPost,
-		fmt.Sprintf("/v1/projects/%s/imports/attested/batches", url.PathEscape(projectID)), request, response)
-}
-
-func (c *Client) FinalizeAttestedImport(ctx context.Context, projectID string, request any, response any) error {
-	return c.doJSON(ctx, http.MethodPost,
-		fmt.Sprintf("/v1/projects/%s/imports/attested/finalize", url.PathEscape(projectID)), request, response)
-}
-
 func (c *Client) doJSON(ctx context.Context, method, path string, requestBody, responseBody any) error {
 	var body io.Reader
 	if requestBody != nil {
@@ -145,9 +97,6 @@ func (c *Client) doJSON(ctx context.Context, method, path string, requestBody, r
 	}
 	if requestBody != nil {
 		request.Header.Set("Content-Type", "application/json")
-	}
-	if c.authorization != "" {
-		request.Header.Set("Authorization", c.authorization)
 	}
 	response, err := c.http.Do(request)
 	if err != nil {

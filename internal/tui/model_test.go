@@ -1,29 +1,15 @@
 package tui
 
 import (
-	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/DhanushSantosh/AgentComms/internal/identity"
-	"github.com/DhanushSantosh/AgentComms/internal/service"
+	"github.com/DhanushSantosh/AgentComms/internal/model"
 )
 
 func TestProjectControlResponsiveViews(t *testing.T) {
-	d := t.TempDir()
-	cmd := exec.Command("git", "init")
-	cmd.Dir = d
-	if b, e := cmd.CombinedOutput(); e != nil {
-		t.Fatal(string(b))
-	}
-	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(d, "user"))
-	s := service.New(d)
-	s.Store.SetCredentialStore(identity.NewMemoryStore())
-	if e := s.Store.Init("owner"); e != nil {
-		t.Fatal(e)
-	}
+	s := newTestService(t)
 	for _, size := range [][2]int{{140, 40}, {100, 30}, {80, 24}} {
 		v, e := RenderForTest(s, "owner", size[0], size[1])
 		if e != nil {
@@ -38,18 +24,7 @@ func TestProjectControlResponsiveViews(t *testing.T) {
 }
 
 func TestProjectControlDirectNavigation(t *testing.T) {
-	d := t.TempDir()
-	cmd := exec.Command("git", "init")
-	cmd.Dir = d
-	if output, err := cmd.CombinedOutput(); err != nil {
-		t.Fatal(string(output))
-	}
-	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(d, "user"))
-	instance := service.New(d)
-	instance.Store.SetCredentialStore(identity.NewMemoryStore())
-	if err := instance.Store.Init("owner"); err != nil {
-		t.Fatal(err)
-	}
+	instance := newTestService(t)
 	view, err := New(instance, "owner")
 	if err != nil {
 		t.Fatal(err)
@@ -66,19 +41,98 @@ func TestProjectControlDirectNavigation(t *testing.T) {
 	}
 }
 
-func TestGuidedTaskFormUsesGovernedService(t *testing.T) {
-	d := t.TempDir()
-	cmd := exec.Command("git", "init")
-	cmd.Dir = d
-	if b, err := cmd.CombinedOutput(); err != nil {
-		t.Fatal(string(b))
-	}
-	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(d, "user"))
-	s := service.New(d)
-	s.Store.SetCredentialStore(identity.NewMemoryStore())
-	if err := s.Store.Init("owner"); err != nil {
+// TestSwitchingViewsWithoutEnterShowsLiveContent guards a real regression:
+// openView (driven by arrow-key hub navigation, letter shortcuts like 'g',
+// and the palette) used to switch which view was displayed without
+// refreshing that view's RowList -- only focusCurrentView (Enter) called
+// Refresh. Confirmed live: switching tabs left panels reading "No rows here
+// yet." until you additionally pressed Enter. Asserts the fix: opening a
+// view refreshes its content immediately, without entering row-focus mode.
+func TestSwitchingViewsWithoutEnterShowsLiveContent(t *testing.T) {
+	s := newTestService(t)
+	if _, err := s.Register("builder", "builder", model.PrincipalAgent); err != nil {
 		t.Fatal(err)
 	}
+	m, err := New(s, "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	next, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: 'g'})) // opens Agents; Enter never pressed
+	m = next.(Model)
+	if views[m.view] != "Agents" {
+		t.Fatalf("g opened %q, want Agents", views[m.view])
+	}
+	if m.rowFocus {
+		t.Fatal("g should open the view, not enter row-focus mode")
+	}
+	m.width, m.height = 120, 30
+	body := m.View().Content
+	if strings.Contains(body, "No rows here yet.") {
+		t.Fatal("Agents view shows no rows until Enter is pressed -- content should be live as soon as the view opens")
+	}
+	if !strings.Contains(body, "builder") {
+		t.Fatalf("Agents view should show the registered agent without needing Enter, got:\n%s", body)
+	}
+}
+
+func TestCyclePickerOption(t *testing.T) {
+	options := []string{"AGENT", "OBSERVER", "ORCHESTRATOR", "OWNER"}
+	if got := cyclePickerOption(options, "AGENT", false); got != "OBSERVER" {
+		t.Fatalf("forward from AGENT = %q, want OBSERVER", got)
+	}
+	if got := cyclePickerOption(options, "AGENT", true); got != "OWNER" {
+		t.Fatalf("backward from AGENT (wrap) = %q, want OWNER", got)
+	}
+	if got := cyclePickerOption(options, "OWNER", false); got != "AGENT" {
+		t.Fatalf("forward from OWNER (wrap) = %q, want AGENT", got)
+	}
+	if got := cyclePickerOption(options, "not-a-real-value", false); got != "OBSERVER" {
+		t.Fatalf("unknown current value should fall back to options[0] then advance, got %q", got)
+	}
+}
+
+// TestPickerFieldCyclesWithArrowKeysAndRejectsTypedText exercises the
+// picker end to end through a real form: left/right must change the
+// selected value, and typed characters must be silently ignored rather
+// than corrupting it -- this is what makes an enum field impossible to
+// mistype, the actual point of the picker.
+func TestPickerFieldCyclesWithArrowKeysAndRejectsTypedText(t *testing.T) {
+	s := newTestService(t)
+	if _, err := s.Register("builder", "builder", model.PrincipalAgent); err != nil {
+		t.Fatal(err)
+	}
+	m, err := New(s, "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m = enterAgentsView(t, m)
+	if id := m.agentList.SelectedID(m.state, m.actor); id != "builder" {
+		t.Fatalf("selected id = %q, want builder", id)
+	}
+	m = pressKey(t, m, keyText("a")) // activate
+	if m.form != "agent.activate" {
+		t.Fatalf("expected agent.activate form, got %q", m.form)
+	}
+	if got := m.inputs[0].Value(); got != "AGENT" {
+		t.Fatalf("role should default to Options[0]=AGENT, got %q", got)
+	}
+	m = pressKey(t, m, tea.KeyPressMsg(tea.Key{Code: tea.KeyRight}))
+	if got := m.inputs[0].Value(); got != "OBSERVER" {
+		t.Fatalf("right should cycle AGENT -> OBSERVER, got %q", got)
+	}
+	// A typed character must not reach the field at all.
+	m = pressKey(t, m, keyText("z"))
+	if got := m.inputs[0].Value(); got != "OBSERVER" {
+		t.Fatalf("typed text should be ignored on a picker field, got %q", got)
+	}
+	m = pressKey(t, m, tea.KeyPressMsg(tea.Key{Code: tea.KeyLeft}))
+	if got := m.inputs[0].Value(); got != "AGENT" {
+		t.Fatalf("left should cycle back OBSERVER -> AGENT, got %q", got)
+	}
+}
+
+func TestGuidedTaskFormUsesGovernedService(t *testing.T) {
+	s := newTestService(t)
 	m, err := New(s, "owner")
 	if err != nil {
 		t.Fatal(err)

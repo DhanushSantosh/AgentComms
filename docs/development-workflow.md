@@ -29,7 +29,11 @@ Pull request titles use Conventional Commit prefixes such as `feat:`, `fix:`, `d
 
 ## Design proposals
 
-Create a lightweight RFC before implementing changes to durable schemas, migrations, CLI or MCP contracts, authorization, credentials, leases, signing, storage transactions, installation security, platform support, or major TUI navigation. RFCs describe motivation, alternatives, compatibility, migration, security, and verification.
+Create a lightweight RFC before implementing changes to durable schemas, CLI
+or MCP contracts, authorization, credentials, leases, signing, storage
+transactions, installation security, platform support, or major TUI navigation.
+RFCs describe motivation, alternatives, compatibility, rollout, security, and
+verification.
 
 Accepted decisions that should outlive a pull request are recorded as ADRs. Templates and numbering guidance live under `docs/rfcs` and `docs/adrs`.
 
@@ -44,7 +48,7 @@ go test ./...
 go vet ./...
 ```
 
-Behavior changes require focused tests. Bug fixes include regression coverage when practical. Governance and state-machine changes cover allowed and denied transitions. Migration changes cover forward progress, interruption/resume, corruption, recovery, and downgrade refusal. Documentation-only work does not require artificial tests.
+Behavior changes require focused tests. Bug fixes include regression coverage when practical. Governance and state-machine changes cover allowed and denied transitions. Documentation-only work does not require artificial tests.
 
 CI uses fast pull-request checks, a complete platform matrix after integration, nightly deep tests, and full release gates. Coverage is reviewed by risk and regression rather than an arbitrary global percentage.
 
@@ -56,7 +60,7 @@ Sensitive identity, durable-state, schema, release, installer, and public-interf
 
 ## AI-assisted work
 
-AI assistance is allowed, but the human contributor remains responsible for correctness, licensing, security, privacy, and tests. Disclose material assistance for architecture, migrations, security-sensitive code, or substantial generated sections. Do not add AI watermarks or fabricated co-authors, and never send credentials, private reports, or unpublished vulnerability material to unapproved services.
+AI assistance is allowed, but the human contributor remains responsible for correctness, licensing, security, privacy, and tests. Disclose material assistance for architecture, security-sensitive code, or substantial generated sections. Do not add AI watermarks or fabricated co-authors, and never send credentials, private reports, or unpublished vulnerability material to unapproved services.
 
 ## Dogfooding boundary
 
