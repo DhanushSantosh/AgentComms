@@ -8,6 +8,10 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-0969da)](LICENSE)
 [![Go](https://img.shields.io/badge/go-1.26-0969da)](go.mod)
 
+<br>
+
+<img src="docs/img/tui-demo.gif" alt="Agent Comms terminal control room — tasks, agents, and invocation delivery" width="820">
+
 </div>
 
 <br>
