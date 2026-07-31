@@ -146,4 +146,6 @@ go vet ./...
 
 See [stabilization priorities](docs/stabilization.md), [development workflow](docs/development-workflow.md), [contributing](CONTRIBUTING.md), [architecture](docs/architecture.md), [governance](docs/governance.md), [threat model](docs/threat-model.md), [release process](docs/releasing.md), and [release verification](docs/release-verification.md).
 
-Licensed under Apache-2.0.
+Worker runtimes speak the open [Agent Client Protocol](https://agentclientprotocol.com), originally published by [Zed Industries](https://zed.dev) — see [CREDITS.md](CREDITS.md).
+
+Licensed under [Apache-2.0](LICENSE).
