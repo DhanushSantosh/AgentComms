@@ -41,6 +41,40 @@ func TestProjectControlDirectNavigation(t *testing.T) {
 	}
 }
 
+// TestSwitchingViewsWithoutEnterShowsLiveContent guards a real regression:
+// openView (driven by arrow-key hub navigation, letter shortcuts like 'g',
+// and the palette) used to switch which view was displayed without
+// refreshing that view's RowList -- only focusCurrentView (Enter) called
+// Refresh. Confirmed live: switching tabs left panels reading "No rows here
+// yet." until you additionally pressed Enter. Asserts the fix: opening a
+// view refreshes its content immediately, without entering row-focus mode.
+func TestSwitchingViewsWithoutEnterShowsLiveContent(t *testing.T) {
+	s := newTestService(t)
+	if _, err := s.Register("builder", "builder", model.PrincipalAgent); err != nil {
+		t.Fatal(err)
+	}
+	m, err := New(s, "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	next, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: 'g'})) // opens Agents; Enter never pressed
+	m = next.(Model)
+	if views[m.view] != "Agents" {
+		t.Fatalf("g opened %q, want Agents", views[m.view])
+	}
+	if m.rowFocus {
+		t.Fatal("g should open the view, not enter row-focus mode")
+	}
+	m.width, m.height = 120, 30
+	body := m.View().Content
+	if strings.Contains(body, "No rows here yet.") {
+		t.Fatal("Agents view shows no rows until Enter is pressed -- content should be live as soon as the view opens")
+	}
+	if !strings.Contains(body, "builder") {
+		t.Fatalf("Agents view should show the registered agent without needing Enter, got:\n%s", body)
+	}
+}
+
 func TestCyclePickerOption(t *testing.T) {
 	options := []string{"AGENT", "OBSERVER", "ORCHESTRATOR", "OWNER"}
 	if got := cyclePickerOption(options, "AGENT", false); got != "OBSERVER" {

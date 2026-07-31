@@ -214,6 +214,7 @@ func (m *Model) openView(name string) {
 			m.view = index
 			m.cursor = index
 			m.notice = "Opened " + name
+			m.refreshView(name)
 			return
 		}
 	}
@@ -252,42 +253,52 @@ func (m *Model) moveHubView(delta int) {
 	m.notice = ""
 }
 
-func (m *Model) focusCurrentView() {
-	switch views[m.view] {
+// refreshView reloads whatever data the named view displays. Called both
+// from openView (so switching tabs by arrow key, letter shortcut, or the
+// palette shows live content immediately, not "No rows here yet." until
+// Enter is next pressed) and from focusCurrentView (so re-entering a view
+// you're already on with Enter still picks up any change since the last
+// refresh).
+func (m *Model) refreshView(name string) {
+	switch name {
 	case "Tasks", "My work":
-		m.rowFocus = true
-		m.taskList.SetMineFilter(views[m.view] == "My work", m.state, m.actor)
+		m.taskList.SetMineFilter(name == "My work", m.state, m.actor)
 	case "Inbox":
-		m.rowFocus = true
 		m.messageList.Refresh(m.state, m.actor)
 	case "Approvals":
-		m.rowFocus = true
 		m.approvalList.Refresh(m.state, m.actor)
 	case "Agents":
-		m.rowFocus = true
 		m.agentList.Refresh(m.state, m.actor)
 	case "Invocations":
-		m.rowFocus = true
 		m.invocationList.Refresh(m.state, m.actor)
 	case "Runtimes":
-		m.rowFocus = true
 		m.runtimeList.Refresh(m.state, m.actor)
 	case "Documents":
-		m.rowFocus = true
 		m.documentList.Refresh(m.state, m.actor)
 	case "Contracts & decisions":
-		m.rowFocus = true
 		m.decisionList.Refresh(m.state, m.actor)
 	case "Artifacts":
-		m.rowFocus = true
 		m.artifactList.Refresh(m.state, m.actor)
 	case "Environment":
-		m.rowFocus = true
 		m.envList.Refresh(m.state, m.actor)
 	case "Drafts":
 		m.refreshDrafts()
 	case "Audit & health":
 		m.refreshFindings()
+	}
+}
+
+// focusCurrentView enters interactive per-row mode (up/down selects a row,
+// contextual action keys apply to it) for the view Enter was just pressed
+// on. Content itself is already live by this point via openView's own
+// refreshView call; this only adds selection/action capability.
+func (m *Model) focusCurrentView() {
+	name := views[m.view]
+	m.refreshView(name)
+	switch name {
+	case "Tasks", "My work", "Inbox", "Approvals", "Agents", "Invocations",
+		"Runtimes", "Documents", "Contracts & decisions", "Artifacts", "Environment":
+		m.rowFocus = true
 	case "Project settings":
 		m.settingsFocus = true
 	}
@@ -394,11 +405,9 @@ func (m *Model) applyPalette() {
 			}
 		}
 	}
-	for i, v := range views {
+	for _, v := range views {
 		if strings.Contains(strings.ToLower(v), q) {
-			m.view = i
-			m.cursor = i
-			m.notice = "Opened " + v
+			m.openView(v)
 			break
 		}
 	}
