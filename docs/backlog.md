@@ -74,6 +74,34 @@ one is picked up, remove it from here and note the landing commit.
   been read yet to confirm whether it's checking the wrong field or a
   genuinely stale condition.
 
+## Runtime workers / agent-spawns-agent
+
+- **No first-class "agent spawns and supervises another agent worker"
+  feature, despite the primitive already existing.** `runtime worker`
+  (`internal/worker/worker.go`) is already a fully general process any actor
+  with shell access can start — including an agent itself, since starting a
+  subprocess is an ordinary capability, not something gated by AgentComms.
+  In principle an orchestrator agent could already `exec` a `runtime worker`
+  process for a *different* registered identity, supervise it, restart it on
+  crash, and treat it like a managed subagent pool — the default (looping)
+  mode gives "stay alive and keep listening," and `--once`
+  (`process at most one invocation and exit`) gives "spawn, do this one
+  thing, exit." But nothing surfaces this as an intended, documented
+  workflow: no CLI command frames it as "spawn a worker," no guidance in
+  `docs/agent-invocations.md` describes an agent doing this to another
+  identity, and no supervision/restart/lifecycle-management helper exists —
+  a user or agent would have to independently discover and hand-roll process
+  supervision around `runtime worker` themselves to get this.
+  Investigated live 2026-07-31 while explaining the adapter/`-live`/
+  `interactive-serve` architecture to the user; confirmed ACP is unrelated to
+  this specific gap (ACP is about editor/agent wire communication for a
+  single agent process, not about one agent spawning and managing another's
+  process lifecycle) — the actual missing piece is closer to a lightweight
+  process-supervisor primitive layered on top of the existing `runtime
+  worker`/`--once` mechanics, not a new invocation/delivery concept. Marked
+  important by the user; worth a real design pass before building, not an
+  ad hoc addition.
+
 ## Cross-reference
 
 - [RFC 0012](rfcs/0012-agent-identity-deletion-and-key-fingerprinting.md) —
