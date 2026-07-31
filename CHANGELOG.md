@@ -5,6 +5,8 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-31 — “Chain of Custody”
+
 ### Added
 
 - Managed project lifecycle and one-step upgrades (RFC 0011):
@@ -416,5 +418,6 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 - Governed mutations revalidate authorization, leases, scopes, and conflicts
   inside the authoritative transaction.
 
-[Unreleased]: https://github.com/DhanushSantosh/AgentComms/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/DhanushSantosh/AgentComms/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/DhanushSantosh/AgentComms/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/DhanushSantosh/AgentComms/releases/tag/v0.1.0
