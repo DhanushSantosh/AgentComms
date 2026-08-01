@@ -2,6 +2,19 @@ const scrolledHeaderThresholdPixels = 24;
 const copyFeedbackDurationMilliseconds = 4_000;
 const defaultInstallButtonLabel = "Copy command";
 const pointerCenterOffset = 0.5;
+const minimumScrollableDistancePixels = 1;
+const revealIntersectionThreshold = 0.12;
+const revealRootMargin = "0px 0px -10% 0px";
+const reducedMotionMediaQuery = "(prefers-reduced-motion: reduce)";
+const motionReadyClassName = "motion-ready";
+const revealedClassName = "is-revealed";
+const activeClassName = "is-active";
+const readoutUpdatingClassName = "is-updating";
+const revealSelector = "[data-reveal], [data-motion-stage]";
+const scrollProgressProperty = "--scroll-progress";
+const scrollHeadPositionProperty = "--scroll-head-position";
+
+initializeRevealMotion();
 
 document.addEventListener("click", async (event) => {
   const target = event.target;
@@ -40,12 +53,27 @@ document.addEventListener("click", async (event) => {
   }
 });
 
-function updateScrolledHeader() {
+let scrollUpdateFrame = 0;
+
+function updateViewportState() {
   document.querySelector("[data-site-header]")?.toggleAttribute("data-scrolled", window.scrollY > scrolledHeaderThresholdPixels);
+  const scrollableDistance = Math.max(document.documentElement.scrollHeight - window.innerHeight, minimumScrollableDistancePixels);
+  const scrollProgress = Math.min(Math.max(window.scrollY / scrollableDistance, 0), 1);
+  document.documentElement.style.setProperty(scrollProgressProperty, scrollProgress.toFixed(4));
+  document.documentElement.style.setProperty(scrollHeadPositionProperty, `${(scrollProgress * 100).toFixed(2)}%`);
 }
 
-window.addEventListener("scroll", updateScrolledHeader, { passive: true });
-updateScrolledHeader();
+function scheduleViewportUpdate() {
+  if (scrollUpdateFrame !== 0) return;
+  scrollUpdateFrame = window.requestAnimationFrame(() => {
+    scrollUpdateFrame = 0;
+    updateViewportState();
+  });
+}
+
+window.addEventListener("scroll", scheduleViewportUpdate, { passive: true });
+window.addEventListener("resize", scheduleViewportUpdate, { passive: true });
+updateViewportState();
 
 document.addEventListener("pointermove", (event) => {
   const target = event.target;
@@ -100,6 +128,7 @@ function updateProtocolInstrument(button) {
   setText(instrument, "[data-stage-proves]", button.dataset.proves);
   setText(instrument, "[data-stage-excludes]", button.dataset.excludes);
   setText(instrument, "[data-stage-event]", button.dataset.event);
+  restartReadoutAnimation(instrument);
 }
 
 async function copyInstallCommand(copyButton) {
@@ -108,12 +137,55 @@ async function copyInstallCommand(copyButton) {
   try {
     await navigator.clipboard.writeText(installCommand);
     copyButton.textContent = "Command copied";
+    copyButton.dataset.copyState = "success";
   } catch {
     copyButton.textContent = "Copy failed";
+    copyButton.dataset.copyState = "failure";
   }
   window.setTimeout(() => {
     copyButton.textContent = defaultInstallButtonLabel;
+    delete copyButton.dataset.copyState;
   }, copyFeedbackDurationMilliseconds);
+}
+
+function initializeRevealMotion() {
+  const revealElements = [...document.querySelectorAll(revealSelector)];
+  const prefersReducedMotion = window.matchMedia(reducedMotionMediaQuery).matches;
+  if (prefersReducedMotion || !("IntersectionObserver" in window)) {
+    revealElements.forEach(revealElement);
+    return;
+  }
+
+  document.documentElement.classList.add(motionReadyClassName);
+  const revealObserver = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      entry.target.classList.toggle(activeClassName, entry.isIntersecting);
+      if (entry.isIntersecting) revealElement(entry.target);
+    }
+  }, {
+    rootMargin: revealRootMargin,
+    threshold: revealIntersectionThreshold
+  });
+
+  window.requestAnimationFrame(() => {
+    revealElements.forEach((element) => revealObserver.observe(element));
+  });
+}
+
+function revealElement(element) {
+  element.classList.add(revealedClassName);
+}
+
+function restartReadoutAnimation(instrument) {
+  const readout = instrument.querySelector(".protocol-readout");
+  if (!(readout instanceof HTMLElement)) return;
+  readout.classList.remove(readoutUpdatingClassName);
+  window.requestAnimationFrame(() => {
+    readout.classList.add(readoutUpdatingClassName);
+    readout.addEventListener("animationend", () => {
+      readout.classList.remove(readoutUpdatingClassName);
+    }, { once: true });
+  });
 }
 
 function setText(container, selector, value) {

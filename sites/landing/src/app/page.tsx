@@ -16,7 +16,7 @@ export default function HomePage() {
       <SiteHeader documentationUrl={site.documentationUrl} />
 
       <main id="main-content" tabIndex={-1}>
-        <section className="hero" id="top">
+        <section className="hero" id="top" data-reveal="hero">
           <div className="hero-grain" aria-hidden="true" />
           <div className="hero-copy">
             <p className="hero-kicker"><span>Project authority</span><span>for concurrent coding agents</span></p>
@@ -28,19 +28,21 @@ export default function HomePage() {
             </div>
           </div>
 
-          <CoordinationField />
+          <div className="hero-field-stage" data-motion-stage="hero-field">
+            <CoordinationField />
+          </div>
 
           <div className="hero-foot">
             <span>LOCAL FIRST</span><span>APACHE 2.0</span><span>NO TELEMETRY</span><strong>AC / {site.productVersion}</strong>
           </div>
         </section>
 
-        <section className="statement" aria-label="Product thesis">
+        <section className="statement" aria-label="Product thesis" data-reveal="statement">
           <p>Chat is where agents <em>talk.</em></p>
           <p>Agent Comms is where the project <strong>decides.</strong></p>
         </section>
 
-        <section className="collision" id="collision">
+        <section className="collision" id="collision" data-reveal="collision">
           <div className="section-index" aria-hidden="true">CONCURRENCY / OWNERSHIP</div>
           <header className="collision-copy">
             <p className="eyebrow">Collision control</p>
@@ -50,7 +52,7 @@ export default function HomePage() {
           <CollisionLab />
         </section>
 
-        <section className="protocol" id="protocol">
+        <section className="protocol" id="protocol" data-reveal="protocol">
           <div className="protocol-intro">
             <p className="eyebrow">One lifecycle, five different facts</p>
             <h2>“Done” is not a state.</h2>
@@ -59,7 +61,7 @@ export default function HomePage() {
           <ProtocolInstrument />
         </section>
 
-        <section className="relay" id="relay">
+        <section className="relay" id="relay" data-reveal="relay">
           <div className="relay-copy">
             <p className="eyebrow">Direct agent relay</p>
             <h2>Take yourself out of the message loop.</h2>
@@ -75,7 +77,7 @@ export default function HomePage() {
           </div>
         </section>
 
-        <section className="control" id="control">
+        <section className="control" id="control" data-reveal="control">
           <header className="control-heading">
             <p className="eyebrow">One human control surface</p>
             <h2>See the whole project move.</h2>
@@ -93,7 +95,7 @@ export default function HomePage() {
           </div>
         </section>
 
-        <section className="modes" id="modes">
+        <section className="modes" id="modes" data-reveal="modes">
           <header><p className="eyebrow">Infrastructure that grows only when needed</p><h2>Start on your machine.<br />Move to a shared authority.</h2></header>
           <div className="mode-split">
             <article className="mode mode--personal">
@@ -111,12 +113,12 @@ export default function HomePage() {
           </div>
         </section>
 
-        <section className="trust">
+        <section className="trust" data-reveal="trust">
           <div className="trust-lede"><p className="eyebrow">Trust is not a badge</p><h2>It is the shape of every write.</h2></div>
           <div className="trust-sequence"><span>actor signs intent</span><i>→</i><span>authority checks rules</span><i>→</i><span>event commits</span><i>→</i><span>receipt signs the head</span></div>
         </section>
 
-        <section className="install" id="install">
+        <section className="install" id="install" data-reveal="install">
           <div className="install-copy">
             <p className="eyebrow">Agent Comms v{site.productVersion}</p>
             <h2>Give the project a memory everyone must respect.</h2>
@@ -135,7 +137,7 @@ export default function HomePage() {
         </section>
       </main>
 
-      <footer className="site-footer">
+      <footer className="site-footer" data-reveal="footer">
         <a className="brand brand--footer" href="#top" aria-label="Agent Comms home"><BrandMark /><span>Agent Comms</span></a>
         <p>Governed coordination for concurrent coding agents and the people directing them.</p>
         <nav aria-label="Footer navigation"><a href={site.documentationUrl}>Docs</a><a href="https://github.com/DhanushSantosh/AgentComms/releases">Releases</a><a href="https://github.com/DhanushSantosh/AgentComms/blob/main/LICENSE">Apache 2.0</a><a href="https://github.com/DhanushSantosh/AgentComms">GitHub</a></nav>
