@@ -54,10 +54,10 @@ const { tools } = Astro.props as { tools: Tool[] };
     padding: 0.8rem 0.2rem;
   }
   .tool-entry summary::-webkit-details-marker { display: none; }
-  .tool-entry summary code { color: var(--receipt); font-size: 0.72rem; }
+  .tool-entry summary code { color: var(--brand-strong); font-size: 0.72rem; }
   .tool-entry summary span { color: var(--muted); font-size: 0.75rem; line-height: 1.45; }
   .tool-entry__count { color: var(--steel) !important; font-family: var(--font-mono); font-size: 0.58rem !important; text-transform: uppercase; }
-  .tool-entry__body { background: var(--surface-muted); border-left: 2px solid var(--receipt); margin-bottom: 0.7rem; padding: 0.8rem 1rem; }
+  .tool-entry__body { background: var(--surface-raised); border: 1px solid var(--line); border-left: 3px solid var(--receipt); box-shadow: 0.4rem 0.4rem 0 var(--signal-soft); margin-bottom: 0.7rem; padding: 0.8rem 1rem; }
   .tool-entry__body > p { margin: 0; }
   .schema-table { border-top: 1px solid var(--line); }
   .schema-row { border-bottom: 1px solid var(--line); display: grid; gap: 0.7rem; grid-template-columns: minmax(8rem, 0.6fr) 1fr 1fr; padding: 0.55rem 0; }

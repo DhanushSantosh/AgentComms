@@ -82,11 +82,12 @@ const { commands } = Astro.props as { commands: Command[] };
 
   .reference-filter input {
     background: var(--surface-raised);
-    border: 1px solid var(--line-strong);
-    border-radius: 0.35rem;
+    border: 1px solid var(--chrome);
+    border-left: 4px solid var(--brand);
+    border-radius: 0;
     color: var(--ink);
     font-size: 0.86rem;
-    padding: 0.7rem 0.8rem;
+    padding: 0.85rem 0.95rem;
   }
 
   .reference-count {
@@ -119,7 +120,7 @@ const { commands } = Astro.props as { commands: Command[] };
   }
 
   .reference-entry summary:hover code {
-    color: var(--signal-strong);
+    color: var(--brand-strong);
   }
 
   .reference-entry summary code {
@@ -149,8 +150,10 @@ const { commands } = Astro.props as { commands: Command[] };
   }
 
   .reference-entry__body {
-    background: var(--surface-muted);
-    border-left: 2px solid var(--signal);
+    background: var(--surface-raised);
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--signal);
+    box-shadow: 0.4rem 0.4rem 0 var(--receipt-soft);
     margin-bottom: 0.75rem;
     padding: 1rem 1.1rem;
   }

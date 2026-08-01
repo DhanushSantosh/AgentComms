@@ -40,9 +40,12 @@ document.addEventListener("click", async (event) => {
   }
 });
 
-window.addEventListener("scroll", () => {
+function updateScrolledHeader() {
   document.querySelector("[data-site-header]")?.toggleAttribute("data-scrolled", window.scrollY > scrolledHeaderThresholdPixels);
-}, { passive: true });
+}
+
+window.addEventListener("scroll", updateScrolledHeader, { passive: true });
+updateScrolledHeader();
 
 document.addEventListener("pointermove", (event) => {
   const target = event.target;

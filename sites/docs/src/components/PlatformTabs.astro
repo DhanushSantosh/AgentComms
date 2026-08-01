@@ -94,14 +94,16 @@ if (tabs.length === 0) throw new Error(`PlatformTabs ${id} requires at least one
 
 <style>
   .platform-tabs {
-    border: 1px solid #2d3c44;
-    border-radius: 0.35rem;
+    background: var(--chrome);
+    border: 1px solid var(--chrome-line);
+    border-radius: 0;
+    box-shadow: 0.5rem 0.5rem 0 color-mix(in srgb, var(--receipt) 34%, transparent);
     overflow: hidden;
   }
 
   .platform-tabs__bar {
     align-items: center;
-    border-bottom: 1px solid #2d3c44;
+    border-bottom: 1px solid var(--chrome-line);
     display: flex;
     justify-content: space-between;
   }
@@ -114,7 +116,7 @@ if (tabs.length === 0) throw new Error(`PlatformTabs ${id} requires at least one
   .platform-tabs__copy {
     background: transparent;
     border: 0;
-    color: #8fa1aa;
+    color: var(--chrome-muted);
     cursor: pointer;
     font-family: var(--font-mono);
     font-size: 0.62rem;
@@ -124,8 +126,9 @@ if (tabs.length === 0) throw new Error(`PlatformTabs ${id} requires at least one
   }
 
   [role="tab"][aria-selected="true"] {
-    box-shadow: 0 -2px #58d4d1 inset;
-    color: #e6eef1;
+    background: var(--brand);
+    box-shadow: 0 -2px var(--signal) inset;
+    color: #ffffff;
   }
 
   .platform-tabs__copy {
@@ -138,7 +141,7 @@ if (tabs.length === 0) throw new Error(`PlatformTabs ${id} requires at least one
   }
 
   .platform-tabs__language {
-    color: #70858f;
+    color: var(--chrome-muted);
     font-family: var(--font-mono);
     font-size: 0.58rem;
     position: absolute;
@@ -148,11 +151,12 @@ if (tabs.length === 0) throw new Error(`PlatformTabs ${id} requires at least one
   }
 
   pre {
-    color: #d6e0e4;
+    color: var(--chrome-ink);
     font-family: var(--font-mono);
     font-size: clamp(0.68rem, 1.5vw, 0.8rem);
     line-height: 1.8;
     margin: 0;
+    overflow-wrap: anywhere;
     overflow-x: auto;
     white-space: pre-wrap;
   }

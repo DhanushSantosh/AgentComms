@@ -1,10 +1,14 @@
 ---
+import BrandMark from "./BrandMark.astro";
 import { navigation } from "@data/navigation";
 const { currentPath = "/" } = Astro.props;
 ---
 
 <div class="sidebar-scrim" data-sidebar-scrim></div>
 <aside class="sidebar" id="docs-sidebar" aria-label="Documentation navigation">
+  <div class="sidebar-brand">
+    <BrandMark />
+  </div>
   <nav>
     {navigation.map((section) => {
       const activeSection = section.items.some((item) => item.href === currentPath);
@@ -37,14 +41,14 @@ const { currentPath = "/" } = Astro.props;
 
 <style>
   .sidebar {
-    background: var(--canvas);
-    border-right: 1px solid var(--line);
+    background: var(--chrome);
+    border-right: 1px solid var(--chrome-line);
     display: flex;
     flex-direction: column;
     height: calc(100vh - var(--header-height));
     justify-content: space-between;
     overflow-y: auto;
-    padding: 1.35rem 1rem 1rem;
+    padding: 1.55rem 1rem 1rem;
     position: sticky;
     top: var(--header-height);
     z-index: 35;
@@ -56,7 +60,7 @@ const { currentPath = "/" } = Astro.props;
 
   summary {
     align-items: center;
-    color: var(--steel);
+    color: var(--chrome-muted);
     cursor: pointer;
     display: flex;
     font-family: var(--font-mono);
@@ -64,7 +68,7 @@ const { currentPath = "/" } = Astro.props;
     font-weight: 700;
     justify-content: space-between;
     letter-spacing: 0.1em;
-    padding: 0.45rem 0.55rem;
+    padding: 0.5rem 0.6rem;
     text-transform: uppercase;
   }
 
@@ -98,29 +102,31 @@ const { currentPath = "/" } = Astro.props;
 
   li a {
     align-items: center;
-    border-radius: 0.3rem;
-    color: var(--muted);
+    border-left: 2px solid transparent;
+    border-radius: 0;
+    color: color-mix(in srgb, var(--chrome-ink) 70%, transparent);
     display: flex;
     font-size: 0.82rem;
     gap: 0.55rem;
     line-height: 1.3;
-    padding: 0.44rem 0.55rem;
+    padding: 0.5rem 0.6rem;
   }
 
   li a:hover {
-    background: var(--surface-muted);
-    color: var(--ink);
+    background: var(--chrome-raised);
+    color: var(--chrome-ink);
   }
 
   li a[aria-current="page"] {
-    background: var(--signal-soft);
-    color: var(--ink);
+    background: var(--brand);
+    border-left-color: var(--signal);
+    color: #ffffff;
     font-weight: 620;
   }
 
   .nav-marker {
-    background: var(--line-strong);
-    border-radius: 50%;
+    background: var(--chrome-line);
+    border-radius: 0;
     flex: 0 0 auto;
     height: 0.28rem;
     width: 0.28rem;
@@ -128,12 +134,12 @@ const { currentPath = "/" } = Astro.props;
 
   a[aria-current="page"] .nav-marker {
     background: var(--signal);
-    box-shadow: 0 0 0 3px var(--signal-soft);
+    box-shadow: none;
   }
 
   footer {
-    border-top: 1px solid var(--line);
-    color: var(--steel);
+    border-top: 1px solid var(--chrome-line);
+    color: var(--chrome-muted);
     font-family: var(--font-mono);
     font-size: 0.62rem;
     margin-top: 1rem;
@@ -145,10 +151,14 @@ const { currentPath = "/" } = Astro.props;
   }
 
   footer a:hover {
-    color: var(--signal-strong);
+    color: var(--signal);
   }
 
   .sidebar-scrim {
+    display: none;
+  }
+
+  .sidebar-brand {
     display: none;
   }
 
@@ -162,6 +172,13 @@ const { currentPath = "/" } = Astro.props;
       transform: translateX(-105%);
       transition: transform 180ms ease;
       width: 85vw;
+    }
+
+    .sidebar-brand {
+      border-bottom: 1px solid var(--chrome-line);
+      display: block;
+      margin-bottom: 0.85rem;
+      padding-bottom: 0.85rem;
     }
 
     :global(html.nav-open) .sidebar {

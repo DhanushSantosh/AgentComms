@@ -31,9 +31,9 @@ const stages = [
 
 <style>
   .coordination-rail {
-    background: var(--surface-raised);
-    border: 1px solid var(--line-strong);
-    box-shadow: 12px 12px 0 var(--signal-soft);
+    background: var(--chrome);
+    border: 1px solid color-mix(in srgb, var(--chrome-ink) 30%, transparent);
+    box-shadow: 12px 12px 0 var(--signal);
     max-width: 33rem;
     padding: 0.85rem 1rem;
     position: relative;
@@ -51,7 +51,7 @@ const stages = [
 
   .rail-head,
   .rail-foot {
-    color: var(--steel);
+    color: var(--chrome-muted);
     display: flex;
     font-family: var(--font-mono);
     font-size: 0.6rem;
@@ -61,7 +61,7 @@ const stages = [
   }
 
   .rail-head {
-    border-bottom: 1px solid var(--line);
+    border-bottom: 1px solid var(--chrome-line);
     padding: 0.1rem 0 0.7rem;
   }
 
@@ -87,7 +87,7 @@ const stages = [
 
   .track::before,
   .track::after {
-    background: var(--line-strong);
+    background: var(--chrome-line);
     content: "";
     height: 50%;
     left: calc(50% - 0.5px);
@@ -101,7 +101,7 @@ const stages = [
   li:last-child .track::after { display: none; }
 
   .node {
-    background: var(--surface-raised);
+    background: var(--chrome);
     border: 1.5px solid var(--signal);
     border-radius: 50%;
     height: 0.55rem;
@@ -123,15 +123,16 @@ const stages = [
   .state,
   .detail {
     font-family: var(--font-mono);
+    overflow-wrap: anywhere;
   }
 
   .ordinal {
-    color: var(--line-strong);
+    color: var(--chrome-muted);
     font-size: 0.58rem;
   }
 
   .state {
-    color: var(--ink);
+    color: var(--chrome-ink);
     font-size: 0.68rem;
     font-weight: 700;
     letter-spacing: 0.04em;
@@ -142,26 +143,26 @@ const stages = [
   }
 
   .detail {
-    color: var(--steel);
+    color: var(--chrome-muted);
     font-size: 0.63rem;
   }
 
   .rail-foot {
-    border-top: 1px solid var(--line);
+    border-top: 1px solid var(--chrome-line);
     padding-top: 0.7rem;
   }
 
   .verified {
-    color: var(--signal-strong);
+    color: var(--signal);
   }
 
   @media (max-width: 34rem) {
     .coordination-rail {
-      box-shadow: 7px 7px 0 var(--signal-soft);
+      box-shadow: 7px 7px 0 var(--signal);
     }
 
     li {
-      grid-template-columns: 1rem 1.4rem 1fr;
+      grid-template-columns: 1rem 1.4rem minmax(0, 1fr);
     }
 
     .detail {
