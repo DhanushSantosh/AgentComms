@@ -74,6 +74,13 @@ export const navigation: NavigationSection[] = [
       { title: "Configuration and errors", href: "/reference/configuration/" },
       { title: "Protocol glossary", href: "/reference/glossary/" }
     ]
+  },
+  {
+    title: "Releases",
+    shortTitle: "Releases",
+    items: [
+      { title: "Changelog", href: "/releases/changelog/" }
+    ]
   }
 ];
 
