@@ -7,7 +7,7 @@ type SiteHeaderProperties = {
 export function SiteHeader({ documentationUrl }: SiteHeaderProperties) {
   return (
     <header className="site-header" data-site-header>
-      <a className="brand" href="#top" aria-label="Agent Comms home">
+      <a className="brand" href="/" aria-label="Agent Comms home">
         <BrandMark />
         <span>Agent Comms</span>
       </a>
@@ -28,13 +28,13 @@ export function SiteHeader({ documentationUrl }: SiteHeaderProperties) {
         aria-label="Primary navigation"
         data-site-navigation
       >
-        <a href="#collision">Collision control</a>
-        <a href="#protocol">Protocol</a>
-        <a href="#relay">Agent relay</a>
-        <a href="#control">Control room</a>
+        <a href="/#collision">Collision control</a>
+        <a href="/#protocol">Protocol</a>
+        <a href="/#relay">Agent relay</a>
+        <a href="/#control">Control room</a>
         <a href={documentationUrl}>Docs</a>
       </nav>
-      <a className="header-action" href="#install"><span>Install</span><i aria-hidden="true">↘</i></a>
+      <a className="header-action" href="/download"><span>Download</span><i aria-hidden="true">↘</i></a>
     </header>
   );
 }

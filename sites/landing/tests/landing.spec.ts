@@ -6,6 +6,7 @@ test("presents the product thesis and truthful lifecycle", async ({ page }) => {
   await expect(page.getByRole("heading", { level: 1, name: /Let agents work at once/ })).toBeVisible();
   await expect(page.getByText("Keep the project in one piece.")).toBeVisible();
   await expect(page.getByRole("link", { name: /Install Agent Comms/ })).toHaveAttribute("href", "#install");
+  await expect(page.getByRole("link", { name: "Download", exact: true }).first()).toHaveAttribute("href", "/download");
   await expect(page.getByRole("link", { name: "Docs", exact: true }).first()).toHaveAttribute("href", "https://docs.agentcomms.dev");
 
   const lifecycle = page.getByRole("list").filter({ hasText: "REQUESTED" });
@@ -64,15 +65,85 @@ test("keeps delivery evidence separate from acknowledgement", async ({ page }) =
   await expect(page.getByText("invocation.notify", { exact: true })).toBeVisible();
 });
 
-test("renders the footer after restoring a page at the bottom", async ({ page }) => {
+test("reveals the footer after a reload", async ({ page }) => {
   await page.goto("/");
   await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
   await page.reload();
 
   const footer = page.locator(".site-footer");
+  await footer.scrollIntoViewIfNeeded();
   await expect(footer).toHaveClass(/is-revealed/);
   await expect(footer.getByRole("link", { name: "Agent Comms home" })).toBeVisible();
   await expect(footer.getByRole("navigation", { name: "Footer navigation" })).toBeVisible();
+});
+
+test("offers the supported installer commands without direct binary actions", async ({ page, context }) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.goto("/download");
+
+  await expect(page.getByRole("heading", { level: 1, name: /Agent Comms, ready to run/ })).toBeVisible();
+  await expect(page.getByText("Verification assets incomplete", { exact: true })).toBeVisible();
+  await expect(page.locator("[data-copy-command]")).toHaveCount(2);
+  await expect(page.locator("code").filter({ hasText: "install.sh" })).toBeVisible();
+  await expect(page.locator("code").filter({ hasText: "install.ps1" })).toBeVisible();
+  await expect(page.getByRole("link", { name: /Download Agent Comms/ })).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Copy Linux + macOS install command" }).click();
+  await expect(page.getByRole("button", { name: "Copy Linux + macOS install command" })).toContainText("Command copied");
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain("install.sh");
+
+  await expect(page.getByText(/every governed project/i)).toBeVisible();
+});
+
+test("reveals and activates installer rows as they enter the viewport", async ({ page }) => {
+  await page.goto("/download");
+
+  const unixInstaller = page.locator('[data-reveal="download-unix"]');
+  await unixInstaller.scrollIntoViewIfNeeded();
+  await expect(unixInstaller).toHaveClass(/is-revealed/);
+  await expect(unixInstaller).toHaveClass(/is-active/);
+});
+
+test("hydrates the download page without animation class drift", async ({ page }) => {
+  const hydrationErrors: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error" && message.text().toLowerCase().includes("hydrat")) {
+      hydrationErrors.push(message.text());
+    }
+  });
+
+  await page.goto("/download");
+  await expect(page.locator('[data-reveal="download-intro"]')).toHaveClass(/is-revealed/);
+  expect(hydrationErrors).toEqual([]);
+});
+
+test("activates the main hero motion after hydration", async ({ page }) => {
+  await page.goto("/");
+
+  const hero = page.locator('[data-reveal="hero"]');
+  const coordinationField = page.locator("[data-motion-stage]");
+  await expect(hero).toHaveClass(/is-revealed/);
+  await expect(hero).toHaveClass(/is-active/);
+  await coordinationField.scrollIntoViewIfNeeded();
+  await expect(coordinationField).toHaveClass(/is-revealed/);
+  await expect(coordinationField).toHaveClass(/is-active/);
+  await expect(coordinationField.locator(".path:not(.path--authority)").first()).toHaveCSS("animation-name", "field-flow");
+});
+
+test("waits for meaningful viewport entry before revealing main sections", async ({ page }) => {
+  await page.goto("/");
+
+  const statement = page.locator('[data-reveal="statement"]');
+  await expect(statement).not.toHaveClass(/is-revealed/);
+  await statement.scrollIntoViewIfNeeded();
+  await expect(statement).toHaveClass(/is-revealed/);
+  await expect(statement).toHaveClass(/is-active/);
+
+  const releases = page.locator('[data-reveal="releases"]');
+  await releases.scrollIntoViewIfNeeded();
+  await expect(releases).toHaveClass(/is-revealed/);
+  await expect(releases).toHaveClass(/is-active/);
+  await expect.poll(() => releases.locator(".release-list").evaluate((element) => getComputedStyle(element, "::after").animationName)).toBe("release-ledger-scan");
 });
 
 test("returns a branded not-found response", async ({ page }) => {

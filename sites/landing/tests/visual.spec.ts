@@ -17,4 +17,14 @@ test("landing page visual baselines", async ({ page }) => {
   await expect(page).toHaveScreenshot("landing-control-room.png", {
     timeout: visualSnapshotTimeoutMilliseconds
   });
+  await page.goto("/download");
+  await page.evaluate(() => document.fonts.ready);
+  await expect(page).toHaveScreenshot("download-page.png", {
+    timeout: visualSnapshotTimeoutMilliseconds
+  });
+  const handoff = page.locator('[data-reveal="download-handoff"]');
+  await handoff.scrollIntoViewIfNeeded();
+  await expect(handoff).toHaveScreenshot("download-handoff.png", {
+    timeout: visualSnapshotTimeoutMilliseconds
+  });
 });

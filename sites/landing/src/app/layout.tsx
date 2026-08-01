@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
 import type { ReactNode } from "react";
+import { MotionHydrationBridge } from "@/components/MotionHydrationBridge";
 import { site } from "@/lib/site";
 import "./globals.css";
 
@@ -53,7 +54,11 @@ export const viewport: Viewport = { themeColor: "#3341f0", width: "device-width"
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
   return (
     <html lang="en" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: `document.documentElement.classList.add("motion-ready");` }} />
+      </head>
       <body className={fontVariables}>
+        <MotionHydrationBridge />
         {children}
         <script src="/landing.js" defer />
       </body>

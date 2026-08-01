@@ -1,20 +1,23 @@
 const scrolledHeaderThresholdPixels = 24;
 const copyFeedbackDurationMilliseconds = 4_000;
 const defaultInstallButtonLabel = "Copy command";
+const defaultDownloadButtonLabel = "Copy";
 const pointerCenterOffset = 0.5;
 const minimumScrollableDistancePixels = 1;
 const revealIntersectionThreshold = 0.12;
 const revealRootMargin = "0px";
+const activeMotionDelayMilliseconds = 1_400;
 const reducedMotionMediaQuery = "(prefers-reduced-motion: reduce)";
-const motionReadyClassName = "motion-ready";
+const hydrationAttributeName = "data-agent-comms-hydrated";
+const hydrationEventName = "agent-comms:hydrated";
+const nextRuntimeScriptSelector = 'script[src^="/_next/static/chunks/"]';
 const revealedClassName = "is-revealed";
 const activeClassName = "is-active";
 const readoutUpdatingClassName = "is-updating";
 const revealSelector = "[data-reveal], [data-motion-stage]";
 const scrollProgressProperty = "--scroll-progress";
 const scrollHeadPositionProperty = "--scroll-head-position";
-
-initializeRevealMotion();
+const activeMotionTimers = new WeakMap();
 
 document.addEventListener("click", async (event) => {
   const target = event.target;
@@ -50,20 +53,38 @@ document.addEventListener("click", async (event) => {
   const copyButton = target.closest("[data-copy-install]");
   if (copyButton instanceof HTMLButtonElement) {
     await copyInstallCommand(copyButton);
+    return;
+  }
+
+  const downloadCopyButton = target.closest("[data-copy-command]");
+  if (downloadCopyButton instanceof HTMLButtonElement) {
+    await copyDownloadCommand(downloadCopyButton);
   }
 });
 
 let scrollUpdateFrame = 0;
+let pageMotionInitialized = false;
+let pageMotionInitializationScheduled = false;
+let pageLoaded = document.readyState === "complete";
+let frameworkHydrated = !document.querySelector(nextRuntimeScriptSelector)
+  || document.documentElement.hasAttribute(hydrationAttributeName);
 
 function updateViewportState() {
-  document.querySelector("[data-site-header]")?.toggleAttribute("data-scrolled", window.scrollY > scrolledHeaderThresholdPixels);
+  const scrollOffset = window.scrollY;
+  document.querySelector("[data-site-header]")?.toggleAttribute("data-scrolled", scrollOffset > scrolledHeaderThresholdPixels);
+  if (scrollOffset <= 0) {
+    document.documentElement.style.setProperty(scrollProgressProperty, "0");
+    document.documentElement.style.setProperty(scrollHeadPositionProperty, "0%");
+    return;
+  }
   const scrollableDistance = Math.max(document.documentElement.scrollHeight - window.innerHeight, minimumScrollableDistancePixels);
-  const scrollProgress = Math.min(Math.max(window.scrollY / scrollableDistance, 0), 1);
+  const scrollProgress = Math.min(Math.max(scrollOffset / scrollableDistance, 0), 1);
   document.documentElement.style.setProperty(scrollProgressProperty, scrollProgress.toFixed(4));
   document.documentElement.style.setProperty(scrollHeadPositionProperty, `${(scrollProgress * 100).toFixed(2)}%`);
 }
 
 function scheduleViewportUpdate() {
+  if (!pageMotionInitialized) return;
   if (scrollUpdateFrame !== 0) return;
   scrollUpdateFrame = window.requestAnimationFrame(() => {
     scrollUpdateFrame = 0;
@@ -73,7 +94,10 @@ function scheduleViewportUpdate() {
 
 window.addEventListener("scroll", scheduleViewportUpdate, { passive: true });
 window.addEventListener("resize", scheduleViewportUpdate, { passive: true });
-updateViewportState();
+window.addEventListener("pageshow", scheduleViewportUpdate);
+window.addEventListener("load", markPageLoaded, { once: true });
+window.addEventListener(hydrationEventName, markFrameworkHydrated, { once: true });
+attemptPageMotionInitialization();
 
 document.addEventListener("pointermove", (event) => {
   const target = event.target;
@@ -134,18 +158,39 @@ function updateProtocolInstrument(button) {
 async function copyInstallCommand(copyButton) {
   const installCommand = document.querySelector("[data-install-command]")?.textContent?.trim();
   if (!installCommand) return;
+  await copyCommandText(copyButton, installCommand, defaultInstallButtonLabel);
+}
+
+async function copyDownloadCommand(copyButton) {
+  const commandSourceID = copyButton.dataset.commandSource;
+  if (!commandSourceID) return;
+  const downloadCommand = document.getElementById(commandSourceID)?.textContent?.trim();
+  if (!downloadCommand) return;
+  await copyCommandText(copyButton, downloadCommand, defaultDownloadButtonLabel);
+}
+
+async function copyCommandText(copyButton, command, defaultLabel) {
   try {
-    await navigator.clipboard.writeText(installCommand);
-    copyButton.textContent = "Command copied";
+    await navigator.clipboard.writeText(command);
+    setCopyButtonLabel(copyButton, "Command copied");
     copyButton.dataset.copyState = "success";
   } catch {
-    copyButton.textContent = "Copy failed";
+    setCopyButtonLabel(copyButton, "Copy failed");
     copyButton.dataset.copyState = "failure";
   }
   window.setTimeout(() => {
-    copyButton.textContent = defaultInstallButtonLabel;
+    setCopyButtonLabel(copyButton, defaultLabel);
     delete copyButton.dataset.copyState;
   }, copyFeedbackDurationMilliseconds);
+}
+
+function setCopyButtonLabel(copyButton, label) {
+  const labelElement = copyButton.querySelector("[data-copy-label]");
+  if (labelElement) {
+    labelElement.textContent = label;
+    return;
+  }
+  copyButton.textContent = label;
 }
 
 function initializeRevealMotion() {
@@ -156,11 +201,14 @@ function initializeRevealMotion() {
     return;
   }
 
-  document.documentElement.classList.add(motionReadyClassName);
   const revealObserver = new IntersectionObserver((entries) => {
     for (const entry of entries) {
-      entry.target.classList.toggle(activeClassName, entry.isIntersecting);
-      if (entry.isIntersecting) revealElement(entry.target);
+      if (entry.isIntersecting) {
+        revealElement(entry.target);
+        scheduleElementActivation(entry.target);
+      } else {
+        deactivateElement(entry.target);
+      }
     }
   }, {
     rootMargin: revealRootMargin,
@@ -172,8 +220,53 @@ function initializeRevealMotion() {
   });
 }
 
+function schedulePageMotionInitialization() {
+  if (pageMotionInitializationScheduled || pageMotionInitialized) return;
+  pageMotionInitializationScheduled = true;
+  window.requestAnimationFrame(() => {
+    window.requestAnimationFrame(() => {
+      initializeRevealMotion();
+      pageMotionInitialized = true;
+      pageMotionInitializationScheduled = false;
+      updateViewportState();
+    });
+  });
+}
+
+function markPageLoaded() {
+  pageLoaded = true;
+  attemptPageMotionInitialization();
+}
+
+function markFrameworkHydrated() {
+  frameworkHydrated = true;
+  attemptPageMotionInitialization();
+}
+
+function attemptPageMotionInitialization() {
+  if (pageLoaded && frameworkHydrated) schedulePageMotionInitialization();
+}
+
 function revealElement(element) {
   element.classList.add(revealedClassName);
+}
+
+function scheduleElementActivation(element) {
+  if (element.classList.contains(activeClassName) || activeMotionTimers.has(element)) return;
+  const timer = window.setTimeout(() => {
+    activeMotionTimers.delete(element);
+    element.classList.add(activeClassName);
+  }, activeMotionDelayMilliseconds);
+  activeMotionTimers.set(element, timer);
+}
+
+function deactivateElement(element) {
+  const timer = activeMotionTimers.get(element);
+  if (timer !== undefined) {
+    window.clearTimeout(timer);
+    activeMotionTimers.delete(element);
+  }
+  element.classList.remove(activeClassName);
 }
 
 function restartReadoutAnimation(instrument) {
