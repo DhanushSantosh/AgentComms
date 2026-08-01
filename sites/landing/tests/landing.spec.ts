@@ -64,6 +64,17 @@ test("keeps delivery evidence separate from acknowledgement", async ({ page }) =
   await expect(page.getByText("invocation.notify", { exact: true })).toBeVisible();
 });
 
+test("renders the footer after restoring a page at the bottom", async ({ page }) => {
+  await page.goto("/");
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  await page.reload();
+
+  const footer = page.locator(".site-footer");
+  await expect(footer).toHaveClass(/is-revealed/);
+  await expect(footer.getByRole("link", { name: "Agent Comms home" })).toBeVisible();
+  await expect(footer.getByRole("navigation", { name: "Footer navigation" })).toBeVisible();
+});
+
 test("returns a branded not-found response", async ({ page }) => {
   const response = await page.goto("/missing-page");
 
