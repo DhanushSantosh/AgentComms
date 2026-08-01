@@ -8,7 +8,7 @@ Thank you for improving Agent Comms. Ordinary development targets the `dev` bran
 4. Add focused tests and update documentation for changed behavior.
 5. Keep fixtures synthetic and project-agnostic. Never commit real runtime history, credentials, leases, or private communication.
 6. Sign every commit under the [Developer Certificate of Origin](https://developercertificate.org/) using `git commit -s`.
-7. Every commit must also carry a real cryptographic signature (SSH or GPG) -- distinct from the DCO sign-off above, which is a text trailer, not a verifiable signature. Both `dev` and `main` require this (`required_signatures`), enforced for every contributor including repository admins (`enforce_admins`). Set up SSH signing once per machine/agent identity:
+7. Every commit must also carry a real cryptographic signature (SSH or GPG) -- distinct from the DCO sign-off above, which is a text trailer, not a verifiable signature. Both `dev` and `main` require this (`required_signatures`). Set up SSH signing once per machine/agent identity:
    ```sh
    git config --global gpg.format ssh
    git config --global user.signingkey ~/.ssh/id_ed25519.pub
