@@ -17,7 +17,16 @@ export default defineConfig({
     baseURL: "http://127.0.0.1:4323",
     colorScheme: "light",
     screenshot: "only-on-failure",
-    trace: "retain-on-failure"
+    trace: "retain-on-failure",
+    launchOptions: {
+      args: [
+        "--font-render-hinting=none",
+        "--disable-skia-runtime-opts",
+        "--disable-font-subpixel-positioning",
+        "--disable-lcd-text",
+        "--force-color-profile=srgb"
+      ]
+    }
   },
   webServer: {
     command: "node scripts/serve.mjs --host 127.0.0.1 --port 4323",
