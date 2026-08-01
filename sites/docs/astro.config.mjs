@@ -5,6 +5,7 @@ import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const site = process.env.DOCS_SITE_URL ?? "https://docs.agentcomms.dev";
+const marketingSite = process.env.PUBLIC_MARKETING_SITE_URL ?? "https://agentcomms.dev";
 const repositoryRoot = fileURLToPath(new URL("../..", import.meta.url));
 
 function gitOutput(arguments_) {
@@ -31,6 +32,7 @@ export default defineConfig({
   vite: {
     define: {
       "import.meta.env.PUBLIC_DOCS_CHANNEL": JSON.stringify(docsChannel),
+      "import.meta.env.PUBLIC_MARKETING_SITE_URL": JSON.stringify(marketingSite),
       "import.meta.env.PUBLIC_PRODUCT_VERSION": JSON.stringify(productVersion)
     }
   },

@@ -76,3 +76,22 @@ jobs:
           name: agent-comms-docs
           path: sites/docs/dist
           if-no-files-found: error
+  landing:
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+        with: {fetch-depth: 0}
+      - uses: actions/setup-node@49933ea5288ca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22', cache: npm}
+      - run: npm ci
+      - run: npm audit --audit-level=high
+      - run: npm run landing:check
+      - run: npx playwright install --with-deps chromium
+      - run: npm run landing:test
+      - run: npm run landing:lighthouse
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: agent-comms-landing
+          path: sites/landing/dist
+          if-no-files-found: error

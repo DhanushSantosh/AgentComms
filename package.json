@@ -4,6 +4,10 @@
   "workspaces": [
     "sites/*"
   ],
+  "overrides": {
+    "postcss": "^8.5.25",
+    "sharp": "^0.35.3"
+  },
   "scripts": {
     "docs:dev": "npm run dev --workspace @agent-comms/docs",
     "docs:build": "npm run build --workspace @agent-comms/docs",
@@ -11,6 +15,13 @@
     "docs:generate": "go run ./cmd/agent-comms-docgen",
     "docs:generate:check": "go run ./cmd/agent-comms-docgen --check",
     "docs:test": "npm run test:e2e --workspace @agent-comms/docs",
-    "docs:lighthouse": "npm run lighthouse --workspace @agent-comms/docs"
+    "docs:lighthouse": "npm run lighthouse --workspace @agent-comms/docs",
+    "landing:dev": "npm run dev --workspace @agent-comms/landing",
+    "landing:build": "npm run build --workspace @agent-comms/landing",
+    "landing:check": "npm run check --workspace @agent-comms/landing",
+    "landing:test": "npm run test:e2e --workspace @agent-comms/landing",
+    "landing:lighthouse": "npm run lighthouse --workspace @agent-comms/landing",
+    "sites:dev": "node scripts/dev-sites.mjs",
+    "sites:build": "npm run landing:build && npm run docs:build"
   }
 }

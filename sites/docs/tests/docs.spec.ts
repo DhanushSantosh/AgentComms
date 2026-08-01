@@ -5,6 +5,7 @@ test("the home page gives humans and agents separate starting paths", async ({ p
   await expect(page.getByRole("heading", { name: "Know who owns the work. Prove what happened next." })).toBeVisible();
   await expect(page.getByRole("link", { name: /Control a project/ })).toHaveAttribute("href", "/start/quickstart/");
   await expect(page.getByRole("link", { name: /Connect an agent/ })).toHaveAttribute("href", "/agents/integrations/");
+  await expect(page.getByRole("link", { name: "Agent Comms product website" })).toHaveAttribute("href", "https://agentcomms.dev");
   await expect(page.getByLabel("Invocation lifecycle")).toContainText("Transport evidence");
   await expect(page.getByLabel("Invocation lifecycle")).toContainText("Target acknowledged");
 });

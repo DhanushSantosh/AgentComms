@@ -12,6 +12,10 @@ import { product } from "@data/product";
   </div>
 
   <div class="site-header__actions">
+    <a class="product-link" href={product.marketingSite} aria-label="Agent Comms product website">
+      <span>Product</span><i aria-hidden="true">↗</i>
+    </a>
+
     <span class="channel" title="Documentation channel">
       <span class="channel__signal"></span>
       <span>{product.channel}</span>
@@ -74,7 +78,8 @@ import { product } from "@data/product";
   }
 
   .icon-button,
-  .search-trigger {
+  .search-trigger,
+  .product-link {
     align-items: center;
     background: transparent;
     border: 1px solid transparent;
@@ -91,7 +96,8 @@ import { product } from "@data/product";
   }
 
   .icon-button:hover,
-  .search-trigger:hover {
+  .search-trigger:hover,
+  .product-link:hover {
     background: var(--surface-raised);
     border-color: var(--line);
     color: var(--ink);
@@ -121,6 +127,24 @@ import { product } from "@data/product";
     justify-content: flex-start;
     min-width: 15.5rem;
     padding: 0 0.55rem 0 0.7rem;
+  }
+
+  .product-link {
+    border-color: var(--line);
+    border-radius: 0.35rem;
+    font-family: var(--font-mono);
+    font-size: 0.66rem;
+    gap: 0.45rem;
+    height: 2.25rem;
+    letter-spacing: 0.04em;
+    padding: 0 0.7rem;
+    text-decoration: none;
+    text-transform: uppercase;
+  }
+
+  .product-link i {
+    color: var(--signal);
+    font-style: normal;
   }
 
   .search-trigger span {
@@ -193,6 +217,15 @@ import { product } from "@data/product";
 
     .search-trigger {
       min-width: 2.25rem;
+      padding: 0;
+      width: 2.25rem;
+    }
+
+    .product-link span {
+      display: none;
+    }
+
+    .product-link {
       padding: 0;
       width: 2.25rem;
     }

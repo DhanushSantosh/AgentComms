@@ -1,0 +1,28 @@
+{
+  "name": "@agent-comms/landing",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build && node scripts/prune-next-runtime.mjs",
+    "check": "tsc --noEmit && npm run build",
+    "preview": "node scripts/serve.mjs",
+    "test:e2e": "npm run build && playwright test",
+    "test:e2e:update": "npm run build && playwright test --update-snapshots",
+    "lighthouse": "node scripts/lighthouse.mjs"
+  },
+  "dependencies": {
+    "next": "^16.2.12",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.55.0",
+    "@types/node": "^26.1.2",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "lighthouse": "^13.0.1",
+    "typescript": "^5.9.2"
+  }
+}

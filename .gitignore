@@ -6,8 +6,10 @@ dist/
 /agent-comms.exe
 /agent-comms-*.exe
 node_modules/
+*.tsbuildinfo
 .playwright-cli/
 output/
 sites/*/.astro/
+sites/*/.next/
 sites/*/dist/
 sites/*/output/
