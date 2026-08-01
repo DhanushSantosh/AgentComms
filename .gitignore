@@ -1,5 +1,7 @@
 .tools/
 dist/
+/.agents
+/.agent-comms/
 /agent-comms
 /agent-comms.exe
 /agent-comms-*.exe
