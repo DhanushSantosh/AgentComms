@@ -15,10 +15,20 @@ function readPort(environmentName, fallback) {
 }
 
 const localHost = process.env.SITES_DEV_HOST ?? defaultLocalHost;
+// Astro's dev CLI crashes (`new URL(server.resolvedUrls.local[0]).origin`,
+// node_modules/astro/dist/cli/dev/index.js) when --host is a specific LAN
+// IP rather than 0.0.0.0/localhost, because Vite only populates
+// resolvedUrls.local for loopback-style hosts. Binding to a LAN IP to test
+// from another device on the network therefore needs 0.0.0.0 as the bind
+// address while the cross-site links (NEXT_PUBLIC_DOCS_URL etc.) still
+// need the real LAN IP, or a phone/other device can't resolve them --
+// SITES_PUBLIC_HOST lets those two concerns differ; it defaults to
+// localHost so existing callers that only set SITES_DEV_HOST are unaffected.
+const publicHost = process.env.SITES_PUBLIC_HOST ?? localHost;
 const landingPort = readPort("LANDING_DEV_PORT", defaultLandingPort);
 const documentationPort = readPort("DOCS_DEV_PORT", defaultDocumentationPort);
-const landingUrl = `http://${localHost}:${landingPort}`;
-const documentationUrl = `http://${localHost}:${documentationPort}`;
+const landingUrl = `http://${publicHost}:${landingPort}`;
+const documentationUrl = `http://${publicHost}:${documentationPort}`;
 const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
 
 const sharedOptions = {
@@ -71,9 +81,15 @@ for (const child of children) {
   });
   child.on("exit", (code, signal) => {
     if (shuttingDown) return;
+    // A clean, unsignaled exit(0) isn't a crash to treat as fatal for the
+    // peer -- Astro's dev CLI (v7+) hands off to a persistent background
+    // daemon and its launching process then exits 0 once that handoff
+    // succeeds (the daemon keeps listening independently). Only a nonzero
+    // exit or a signal indicates the process actually failed.
+    if (code === 0 && !signal) return;
     const outcome = signal ? `signal ${signal}` : `exit code ${code ?? 1}`;
     console.error(`A site development process stopped with ${outcome}; stopping its peer.`);
-    process.exitCode = code === 0 ? 1 : code ?? 1;
+    process.exitCode = code ?? 1;
     stopChildren("SIGTERM");
   });
 }
