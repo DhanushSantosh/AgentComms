@@ -1,0 +1,22 @@
+---
+import BaseLayout from "@layouts/BaseLayout.astro";
+---
+
+<BaseLayout title="Page not found · Agent Comms Docs" description="The requested Agent Comms documentation page does not exist.">
+  <main class="not-found" id="main-content">
+    <p>STALE_PRECONDITION / 404</p>
+    <h1>This page is not in the current projection.</h1>
+    <span>The route may have moved, or the link may refer to a future protocol surface.</span>
+    <div><a href="/">Return to the manual</a><button type="button" data-search-trigger>Search documentation</button></div>
+  </main>
+</BaseLayout>
+
+<style>
+  .not-found { margin: 0 auto; max-width: 56rem; padding: clamp(5rem, 14vw, 10rem) 1.5rem; }
+  .not-found p { color: var(--signal-strong); font-family: var(--font-mono); font-size: 0.68rem; letter-spacing: 0.08em; }
+  .not-found h1 { font-size: clamp(2.6rem, 8vw, 5.5rem); letter-spacing: -0.06em; line-height: 0.95; margin: 1.2rem 0; max-width: 11ch; }
+  .not-found > span { color: var(--muted); display: block; font-size: 1rem; line-height: 1.6; max-width: 34rem; }
+  .not-found div { display: flex; flex-wrap: wrap; gap: 0.7rem; margin-top: 2rem; }
+  .not-found a, .not-found button { background: var(--ink); border: 1px solid var(--ink); border-radius: 0.35rem; color: var(--canvas); cursor: pointer; font-size: 0.78rem; padding: 0.7rem 0.9rem; text-decoration: none; }
+  .not-found button { background: transparent; border-color: var(--line-strong); color: var(--ink); }
+</style>

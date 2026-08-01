@@ -3,3 +3,9 @@ dist/
 /agent-comms
 /agent-comms.exe
 /agent-comms-*.exe
+node_modules/
+.playwright-cli/
+output/
+sites/*/.astro/
+sites/*/dist/
+sites/*/output/

@@ -1,0 +1,81 @@
+---
+import type { MarkdownHeading } from "astro";
+import BaseLayout from "./BaseLayout.astro";
+import Sidebar from "@components/Sidebar.astro";
+import { findNavigationItem, flatNavigation } from "@data/navigation";
+import { product } from "@data/product";
+
+type Props = {
+  title: string;
+  description: string;
+  section: string;
+  audience: string;
+  lastVerified: Date;
+  slug: string;
+  headings: MarkdownHeading[];
+  related: string[];
+};
+
+const { title, description, section, audience, lastVerified, slug, headings, related } = Astro.props;
+const currentPath = `/${slug}/`;
+const currentIndex = flatNavigation.findIndex((item) => item.href === currentPath);
+const previous = currentIndex > 0 ? flatNavigation[currentIndex - 1] : undefined;
+const next = currentIndex >= 0 && currentIndex < flatNavigation.length - 1 ? flatNavigation[currentIndex + 1] : undefined;
+const current = findNavigationItem(currentPath);
+const relatedPages = related
+  .map((relatedSlug) => findNavigationItem(`/${relatedSlug}/`))
+  .filter((item) => item !== undefined);
+const editURL = `${product.editBase}/${slug}.md`;
+const issueURL = `${product.issueBase}?title=${encodeURIComponent(`Docs: ${current?.title ?? title}`)}&body=${encodeURIComponent(`Documentation page: ${Astro.url.href}\n\nWhat needs to change?\n`)}`;
+---
+
+<BaseLayout title={`${title} · Agent Comms Docs`} description={description}>
+  <div class="docs-grid">
+    <Sidebar currentPath={currentPath} />
+    <main class="article-grid" id="main-content" data-pagefind-body>
+      <article class="article">
+        <header class="article-header">
+          <div class="article-meta">
+            <span class="article-meta__section">{section}</span>
+            <span>{audience}</span>
+            <span>Verified {lastVerified.toLocaleDateString("en-US", { month: "short", year: "numeric" })}</span>
+          </div>
+          <h1 data-pagefind-meta="title">{title}</h1>
+          <p>{description}</p>
+        </header>
+        <div class="prose">
+          <slot />
+        </div>
+        <nav class="page-navigation" aria-label="Adjacent documentation pages">
+          {previous ? <a href={previous.href}><small>Previous</small><strong>{previous.title}</strong></a> : <span></span>}
+          {next && <a href={next.href}><small>Next</small><strong>{next.title}</strong></a>}
+        </nav>
+        {relatedPages.length > 0 && (
+          <section class="related-pages" aria-labelledby="related-pages-heading">
+            <p id="related-pages-heading">Continue with</p>
+            <div>
+              {relatedPages.map((page) => <a href={page.href}>{page.title}<span>↗</span></a>)}
+            </div>
+          </section>
+        )}
+      </article>
+      <aside class="article-context" aria-label="Page context">
+        {headings.length > 0 && (
+          <>
+            <p class="context-label">On this page</p>
+            <ol class="on-this-page">
+              {headings.filter((heading) => heading.depth === 2 || heading.depth === 3).map((heading) => (
+                <li><a class={`depth-${heading.depth}`} href={`#${heading.slug}`}>{heading.text}</a></li>
+              ))}
+            </ol>
+          </>
+        )}
+        <div class="article-tools">
+          <a href={`/raw/${slug}.md`}>View as Markdown ↗</a>
+          <a href={editURL}>Edit this page ↗</a>
+          <a href={issueURL}>Report a docs issue ↗</a>
+        </div>
+      </aside>
+    </main>
+  </div>
+</BaseLayout>

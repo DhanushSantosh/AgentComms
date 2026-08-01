@@ -1,0 +1,187 @@
+---
+import { navigation } from "@data/navigation";
+const { currentPath = "/" } = Astro.props;
+---
+
+<div class="sidebar-scrim" data-sidebar-scrim></div>
+<aside class="sidebar" id="docs-sidebar" aria-label="Documentation navigation">
+  <nav>
+    {navigation.map((section) => {
+      const activeSection = section.items.some((item) => item.href === currentPath);
+      return (
+        <details open={activeSection || section.title === "Start here"}>
+          <summary>
+            <span>{section.title}</span>
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4.5 6 3.5 3.5L11.5 6" /></svg>
+          </summary>
+          <ul>
+            {section.items.map((item) => (
+              <li>
+                <a href={item.href} aria-current={item.href === currentPath ? "page" : undefined}>
+                  <span class="nav-marker"></span>
+                  <span>{item.title}</span>
+                </a>
+              </li>
+            ))}
+          </ul>
+        </details>
+      );
+    })}
+  </nav>
+  <footer>
+    <a href="/llms.txt">llms.txt</a>
+    <span>·</span>
+    <a href="https://github.com/DhanushSantosh/AgentComms/blob/dev/CONTRIBUTING.md">Contribute</a>
+  </footer>
+</aside>
+
+<style>
+  .sidebar {
+    background: var(--canvas);
+    border-right: 1px solid var(--line);
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - var(--header-height));
+    justify-content: space-between;
+    overflow-y: auto;
+    padding: 1.35rem 1rem 1rem;
+    position: sticky;
+    top: var(--header-height);
+    z-index: 35;
+  }
+
+  details + details {
+    margin-top: 0.55rem;
+  }
+
+  summary {
+    align-items: center;
+    color: var(--steel);
+    cursor: pointer;
+    display: flex;
+    font-family: var(--font-mono);
+    font-size: 0.64rem;
+    font-weight: 700;
+    justify-content: space-between;
+    letter-spacing: 0.1em;
+    padding: 0.45rem 0.55rem;
+    text-transform: uppercase;
+  }
+
+  summary::-webkit-details-marker {
+    display: none;
+  }
+
+  summary svg {
+    fill: none;
+    height: 0.9rem;
+    stroke: currentColor;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    transition: transform 150ms ease;
+    width: 0.9rem;
+  }
+
+  details:not([open]) summary svg {
+    transform: rotate(-90deg);
+  }
+
+  ul {
+    list-style: none;
+    margin: 0.1rem 0 0.5rem;
+    padding: 0;
+  }
+
+  a {
+    text-decoration: none;
+  }
+
+  li a {
+    align-items: center;
+    border-radius: 0.3rem;
+    color: var(--muted);
+    display: flex;
+    font-size: 0.82rem;
+    gap: 0.55rem;
+    line-height: 1.3;
+    padding: 0.44rem 0.55rem;
+  }
+
+  li a:hover {
+    background: var(--surface-muted);
+    color: var(--ink);
+  }
+
+  li a[aria-current="page"] {
+    background: var(--signal-soft);
+    color: var(--ink);
+    font-weight: 620;
+  }
+
+  .nav-marker {
+    background: var(--line-strong);
+    border-radius: 50%;
+    flex: 0 0 auto;
+    height: 0.28rem;
+    width: 0.28rem;
+  }
+
+  a[aria-current="page"] .nav-marker {
+    background: var(--signal);
+    box-shadow: 0 0 0 3px var(--signal-soft);
+  }
+
+  footer {
+    border-top: 1px solid var(--line);
+    color: var(--steel);
+    font-family: var(--font-mono);
+    font-size: 0.62rem;
+    margin-top: 1rem;
+    padding: 0.9rem 0.55rem 0;
+  }
+
+  footer a {
+    color: inherit;
+  }
+
+  footer a:hover {
+    color: var(--signal-strong);
+  }
+
+  .sidebar-scrim {
+    display: none;
+  }
+
+  @media (max-width: 70rem) {
+    .sidebar {
+      box-shadow: var(--shadow-large);
+      left: 0;
+      max-width: 20rem;
+      position: fixed;
+      top: var(--header-height);
+      transform: translateX(-105%);
+      transition: transform 180ms ease;
+      width: 85vw;
+    }
+
+    :global(html.nav-open) .sidebar {
+      transform: translateX(0);
+    }
+
+    .sidebar-scrim {
+      background: rgba(4, 12, 16, 0.5);
+      display: block;
+      inset: var(--header-height) 0 0;
+      opacity: 0;
+      pointer-events: none;
+      position: fixed;
+      transition: opacity 180ms ease;
+      z-index: 30;
+    }
+
+    :global(html.nav-open) .sidebar-scrim {
+      opacity: 1;
+      pointer-events: auto;
+    }
+  }
+</style>

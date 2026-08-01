@@ -1,5 +1,7 @@
 # Getting started, for humans and agents
 
+> The structured product guide now lives under [docs/site](site/start/overview.md). This file remains a compatibility entry point for existing links.
+
 This is the sequential walkthrough: what to figure out first, in what order,
 before reaching for [the deeper adapter/protocol reference](agent-invocations.md).
 An agent connected over MCP gets the same content dynamically, filled in

@@ -1,5 +1,7 @@
 # Team service deployment
 
+> The structured product guide is [Deploy the team service](site/operations/deploy.md). This file remains a compatibility target for existing links.
+
 This deployment is needed when users or agents coordinate across multiple
 machines. Local-only projects should use the default personal mode and do not
 need this stack.

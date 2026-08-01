@@ -1,5 +1,7 @@
 # Architecture
 
+> For the product guide, begin with [What Agent Comms does](site/start/overview.md) and [Personal and team modes](site/start/modes.md). This file remains the implementation-level architecture note.
+
 CLI, TUI, and stdio MCP are adapters around one transport-neutral application
 service. A project runs in personal mode or authoritative service mode; the
 managed bootstrap records the selected authority.

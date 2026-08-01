@@ -83,7 +83,7 @@ Academic work on the wire protocols agents actually speak — MCP, A2A, ACP — 
 
 <br>
 
-**Personal mode**, the default, is one user and one machine: zero setup, no PostgreSQL, no Docker. **Team mode** adds a shared PostgreSQL authority when you actually need multi-host coordination — see the [service deployment guide](docs/service-deployment.md).
+**Personal mode**, the default, is one user and one machine: zero setup, no PostgreSQL, no Docker. **Team mode** adds a shared PostgreSQL authority when you actually need multi-host coordination — see the [service deployment guide](docs/site/operations/deploy.md).
 
 <details>
 <summary><b>Everything else governed by default</b></summary>
@@ -99,9 +99,9 @@ Academic work on the wire protocols agents actually speak — MCP, A2A, ACP — 
 
 <br>
 
-Releases are signed and verified with SHA-256 and Sigstore — see [release verification](docs/release-verification.md). For the full walkthrough, including wiring up a real Claude Code, Codex, or OpenCode agent as a live participant, start at [getting started](docs/agent-onboarding.md).
+Releases are signed and verified with SHA-256 and Sigstore — see [release verification](docs/site/security/releases.md). For the full walkthrough, including wiring up a real Claude Code, Codex, or OpenCode agent as a live participant, start at [getting started](docs/site/start/quickstart.md).
 
-[Getting started](docs/agent-onboarding.md) · [Agent invocation protocol](docs/agent-invocations.md) · [Architecture](docs/architecture.md) · [Governance](docs/governance.md) · [Threat model](docs/threat-model.md) · [Development workflow](docs/development-workflow.md) · [Contributing](CONTRIBUTING.md) · [Release process](docs/releasing.md) · [Changelog](CHANGELOG.md)
+[Documentation](docs/site/start/overview.md) · [Agent integration](docs/site/agents/integrations.md) · [Architecture](docs/architecture.md) · [Governance](docs/site/guide/governance.md) · [Threat model](docs/site/security/threat-model.md) · [Development workflow](docs/development-workflow.md) · [Contributing](CONTRIBUTING.md) · [Release process](docs/releasing.md) · [Changelog](CHANGELOG.md)
 
 ```sh
 go test ./...

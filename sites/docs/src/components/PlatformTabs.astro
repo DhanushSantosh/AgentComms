@@ -1,0 +1,167 @@
+---
+type PlatformTab = {
+  label: string;
+  language: string;
+  code: string;
+};
+
+type Props = {
+  id: string;
+  label: string;
+  tabs: PlatformTab[];
+};
+
+const { id, label, tabs } = Astro.props;
+if (tabs.length === 0) throw new Error(`PlatformTabs ${id} requires at least one tab`);
+---
+
+<section class="platform-tabs" data-platform-tabs>
+  <div class="platform-tabs__bar">
+    <div class="platform-tabs__list" role="tablist" aria-label={label}>
+      {tabs.map((tab, index) => (
+        <button
+          id={`${id}-tab-${index}`}
+          type="button"
+          role="tab"
+          aria-controls={`${id}-panel-${index}`}
+          aria-selected={index === 0 ? "true" : "false"}
+          tabindex={index === 0 ? 0 : -1}
+          data-platform-tab
+        >
+          {tab.label}
+        </button>
+      ))}
+    </div>
+    <button class="platform-tabs__copy" type="button" data-platform-copy>Copy</button>
+  </div>
+  {tabs.map((tab, index) => (
+    <div
+      id={`${id}-panel-${index}`}
+      role="tabpanel"
+      aria-labelledby={`${id}-tab-${index}`}
+      hidden={index !== 0}
+      data-platform-panel
+    >
+      <span class="platform-tabs__language">{tab.language}</span>
+      <pre><code>{tab.code}</code></pre>
+    </div>
+  ))}
+</section>
+
+<script>
+  const copyFeedbackDurationMilliseconds = 1_500;
+  for (const root of document.querySelectorAll<HTMLElement>("[data-platform-tabs]")) {
+    if (root.dataset.enhanced === "true") continue;
+    root.dataset.enhanced = "true";
+    const tabs = [...root.querySelectorAll<HTMLButtonElement>("[data-platform-tab]")];
+    const panels = [...root.querySelectorAll<HTMLElement>("[data-platform-panel]")];
+    const copyButton = root.querySelector<HTMLButtonElement>("[data-platform-copy]");
+
+    const selectTab = (index: number) => {
+      tabs.forEach((tab, tabIndex) => {
+        const selected = tabIndex === index;
+        tab.setAttribute("aria-selected", String(selected));
+        tab.tabIndex = selected ? 0 : -1;
+        panels[tabIndex].hidden = !selected;
+      });
+    };
+
+    tabs.forEach((tab, index) => {
+      tab.addEventListener("click", () => selectTab(index));
+      tab.addEventListener("keydown", (event) => {
+        let nextIndex = index;
+        if (event.key === "ArrowRight") nextIndex = (index + 1) % tabs.length;
+        else if (event.key === "ArrowLeft") nextIndex = (index - 1 + tabs.length) % tabs.length;
+        else if (event.key === "Home") nextIndex = 0;
+        else if (event.key === "End") nextIndex = tabs.length - 1;
+        else return;
+        event.preventDefault();
+        selectTab(nextIndex);
+        tabs[nextIndex].focus();
+      });
+    });
+
+    copyButton?.addEventListener("click", async () => {
+      const selectedPanel = panels.find((panel) => !panel.hidden);
+      const code = selectedPanel?.querySelector("code")?.textContent;
+      if (!code) return;
+      await navigator.clipboard.writeText(code);
+      copyButton.textContent = "Copied";
+      window.setTimeout(() => { copyButton.textContent = "Copy"; }, copyFeedbackDurationMilliseconds);
+    });
+  }
+</script>
+
+<style>
+  .platform-tabs {
+    border: 1px solid #2d3c44;
+    border-radius: 0.35rem;
+    overflow: hidden;
+  }
+
+  .platform-tabs__bar {
+    align-items: center;
+    border-bottom: 1px solid #2d3c44;
+    display: flex;
+    justify-content: space-between;
+  }
+
+  .platform-tabs__list {
+    display: flex;
+  }
+
+  [role="tab"],
+  .platform-tabs__copy {
+    background: transparent;
+    border: 0;
+    color: #8fa1aa;
+    cursor: pointer;
+    font-family: var(--font-mono);
+    font-size: 0.62rem;
+    min-height: 2.4rem;
+    padding: 0 0.85rem;
+    text-transform: uppercase;
+  }
+
+  [role="tab"][aria-selected="true"] {
+    box-shadow: 0 -2px #58d4d1 inset;
+    color: #e6eef1;
+  }
+
+  .platform-tabs__copy {
+    margin-right: 0.25rem;
+  }
+
+  [role="tabpanel"] {
+    padding: 0.85rem 1rem 1rem;
+    position: relative;
+  }
+
+  .platform-tabs__language {
+    color: #70858f;
+    font-family: var(--font-mono);
+    font-size: 0.58rem;
+    position: absolute;
+    right: 0.85rem;
+    text-transform: uppercase;
+    top: 0.7rem;
+  }
+
+  pre {
+    color: #d6e0e4;
+    font-family: var(--font-mono);
+    font-size: clamp(0.68rem, 1.5vw, 0.8rem);
+    line-height: 1.8;
+    margin: 0;
+    overflow-x: auto;
+    white-space: pre-wrap;
+  }
+
+  @media (max-width: 30rem) {
+    [role="tab"],
+    .platform-tabs__copy {
+      font-size: 0.56rem;
+      padding: 0 0.55rem;
+    }
+  }
+</style>

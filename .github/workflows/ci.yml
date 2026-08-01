@@ -54,3 +54,25 @@ jobs:
               CGO_ENABLED=0 GOOS=$GOOS GOARCH=$GOARCH go build "./cmd/$command"
             done
           done
+  docs:
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+        with: {fetch-depth: 0}
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with: {go-version: '1.26.5', cache: true}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22', cache: npm}
+      - run: npm ci
+      - run: npm audit --audit-level=high
+      - run: npm run docs:generate:check
+      - run: npm run docs:check
+      - run: npx playwright install --with-deps chromium
+      - run: npm run docs:test
+      - run: npm run docs:lighthouse
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: agent-comms-docs
+          path: sites/docs/dist
+          if-no-files-found: error

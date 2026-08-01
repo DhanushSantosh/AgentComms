@@ -1,5 +1,7 @@
 # Agent invocation protocol
 
+> The compact user-facing guides now start at [Agent integration](site/agents/integrations.md). This file remains the deep technical appendix and compatibility target.
+
 Agent Comms separates durable messages, runtime notifications, and execution
 claims. Posting a message never grants execution authority by itself.
 

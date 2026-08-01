@@ -1,5 +1,7 @@
 # Governance
 
+> The structured product guide is [Approvals and decisions](site/guide/governance.md), with identity controls in [Identity and authority](site/security/identity.md). This file remains a compatibility target.
+
 Roles set permission ceilings: Owner, Orchestrator, Agent, and Observer. Capabilities and repository/resource scopes narrow access. Principals are permanently classified HUMAN or AGENT; HUMAN approval cannot be supplied by an automated principal.
 
 Granting the Orchestrator role is a hard, human-only check on top of the ordinary owner-or-orchestrator elevation `agent activate`/`agent_activate` already requires: an existing Orchestrator that is itself an AGENT principal cannot promote any principal — including itself or another agent — to Orchestrator. Only an active HUMAN principal (the owner, or any other human already holding an elevated role) may grant it. This closes an escalation path that would otherwise let one AI-driven Orchestrator mint further Orchestrators with no human ever in the loop. The check is enforced in `internal/protocol/transitions.go`, the one transition validator shared by the CLI, MCP, TUI, and daemon across both authority backends — not duplicated per interface, so it cannot be bypassed by going through a different one.
