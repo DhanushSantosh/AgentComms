@@ -1,0 +1,3 @@
+.page :global(.releases) {
+  padding-top: clamp(2rem, 4vw, 3rem);
+}

@@ -15,3 +15,14 @@ export const site = {
 export function documentationPage(path: string): string {
   return new URL(path, `${site.documentationUrl}/`).toString();
 }
+
+// Shared header nav for standalone content pages (releases, license, security,
+// support, privacy) -- these have no in-page sections worth anchoring to, so
+// they cross-link each other instead of the homepage's scroll-spy anchors.
+export const utilityNavItems = [
+  { label: "Download", href: "/download" },
+  { label: "Releases", href: "/releases" },
+  { label: "Security", href: "/security" },
+  { label: "License", href: "/license" },
+  { label: "Support", href: "/support" }
+] as const;

@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
+import { PageBreadcrumb } from "@/components/PageBreadcrumb";
 import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
 import { downloadRelease, installerMethods, nightlyBuild } from "@/lib/downloads";
+import { releases } from "@/lib/releases";
 import { documentationPage, site } from "@/lib/site";
 import styles from "./download.module.css";
 
@@ -35,6 +37,8 @@ export default function DownloadPage() {
       <SiteHeader documentationUrl={site.documentationUrl} navItems={downloadNavItems} />
 
       <main className={styles.page} id="main-content">
+        <PageBreadcrumb label="Download" />
+
         <section className={styles.downloadDesk}>
           <header className={styles.intro} data-reveal="download-intro">
             <div className={styles.releaseLine}>
@@ -136,47 +140,25 @@ export default function DownloadPage() {
             <p>Three tagged releases so far, each backed by a signed history and a written record of what actually changed — not a marketing recap. Every one is <strong>Beta</strong>: before v1.0.0, anything may still change without notice.</p>
           </header>
           <ol className="release-list">
-            <li className="release">
-              <div className="release-head">
-                <span className="release-version">v0.2.1</span>
-                <span className="release-channel">BETA</span>
-                <span className="release-name">“The Missing Bundle”</span>
-                <time className="release-date" dateTime="2026-08-02">2 Aug 2026</time>
-              </div>
-              <ul className="release-highlights">
-                <li>Hotfix: restored the Cosign-signed CLI installer bundles v0.2.0's release was missing, so install.sh/install.ps1 work again.</li>
-              </ul>
-            </li>
-            <li className="release">
-              <div className="release-head">
-                <span className="release-version">v0.2.0</span>
-                <span className="release-channel">BETA</span>
-                <span className="release-name">“Chain of Custody”</span>
-                <time className="release-date" dateTime="2026-07-31">31 Jul 2026</time>
-              </div>
-              <ul className="release-highlights">
-                <li>One-command project upgrades, with automatic backup and full post-upgrade verification.</li>
-                <li>Orchestrator grants now require a separate, human-approved decision.</li>
-                <li>A passphrase-protected elevated key gates the most sensitive actions.</li>
-                <li>Interactive delivery is a real, auditable state machine — no connector can fake a delivery.</li>
-              </ul>
-            </li>
-            <li className="release">
-              <div className="release-head">
-                <span className="release-version">v0.1.0</span>
-                <span className="release-channel">BETA</span>
-                <span className="release-name">“The Control Room”</span>
-                <time className="release-date" dateTime="2026-07-19">19 Jul 2026</time>
-              </div>
-              <ul className="release-highlights">
-                <li>First tagged release: signed events, protected work leases, typed messages, approvals.</li>
-                <li>Zero-setup SQLite personal authority, or a shared PostgreSQL team authority.</li>
-                <li>Full console TUI across Command, Work, Team, Relay, and Project hubs.</li>
-              </ul>
-            </li>
+            {releases.map((release) => (
+              <li className="release" key={release.version}>
+                <div className="release-head">
+                  <span className="release-version">{release.version}</span>
+                  <span className="release-channel">{release.channel}</span>
+                  <span className="release-name">“{release.name}”</span>
+                  <time className="release-date" dateTime={release.date}>{release.dateLabel}</time>
+                </div>
+                <ul className="release-highlights">
+                  {release.highlights.map((highlight) => (
+                    <li key={highlight}>{highlight}</li>
+                  ))}
+                </ul>
+              </li>
+            ))}
           </ol>
           <div className="releases-links">
-            <a className="action action--ink" href={documentationPage("/releases/changelog/")}>Read the full changelog <span>↗</span></a>
+            <a className="action action--ink" href="/releases">All releases <span>↗</span></a>
+            <a className="action action--line" href={documentationPage("/releases/changelog/")}>Read the full changelog <span>↗</span></a>
           </div>
         </section>
 

@@ -18,7 +18,7 @@
     linear-gradient(90deg, transparent calc(50% - 0.5px), color-mix(in srgb, var(--ink) 9%, transparent) 50%, transparent calc(50% + 0.5px)),
     var(--ice);
   min-height: 100svh;
-  padding: calc(var(--header-height) + 3rem) var(--gutter) clamp(6rem, 10vw, 10rem);
+  padding: 2rem var(--gutter) clamp(6rem, 10vw, 10rem);
 }
 
 .intro {
@@ -456,7 +456,7 @@
 }
 
 @media (max-width: 48rem) {
-  .downloadDesk { background: var(--ice); padding-top: calc(var(--header-height) + 2rem); }
+  .downloadDesk { background: var(--ice); padding-top: 1.5rem; }
   .introGrid,
   .buildPicker,
   .handoff { grid-template-columns: 1fr; }

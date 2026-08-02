@@ -169,3 +169,76 @@ test("returns a branded not-found response", async ({ page }) => {
   await expect(page.getByRole("heading", { level: 1, name: "This page left the project scope." })).toBeVisible();
   await expect(page.getByRole("link", { name: /Return home/ })).toHaveAttribute("href", "/");
 });
+
+test("footer links to native pages instead of bouncing straight to GitHub", async ({ page }) => {
+  await page.goto("/");
+
+  const footer = page.locator(".site-footer");
+  await expect(footer.getByRole("link", { name: "Releases", exact: true })).toHaveAttribute("href", "/releases");
+  await expect(footer.getByRole("link", { name: "Security", exact: true })).toHaveAttribute("href", "/security");
+  await expect(footer.getByRole("link", { name: "License", exact: true })).toHaveAttribute("href", "/license");
+  await expect(footer.getByRole("link", { name: "Contact", exact: true })).toHaveAttribute("href", "/support");
+  await expect(footer.getByRole("link", { name: "Privacy", exact: true })).toHaveAttribute("href", "/privacy");
+  await expect(footer.getByRole("link", { name: "Report an issue", exact: true })).toHaveAttribute(
+    "href",
+    "https://github.com/DhanushSantosh/AgentComms/issues/new"
+  );
+  await expect(footer.getByRole("link", { name: "Changelog", exact: true })).toHaveAttribute(
+    "href",
+    "https://agentcomms-docs.vercel.app/releases/changelog/"
+  );
+  await expect(footer.getByRole("link", { name: "GitHub", exact: true })).toHaveAttribute("href", "https://github.com/DhanushSantosh/AgentComms");
+});
+
+test("lists every tagged release on the releases page", async ({ page }) => {
+  await page.goto("/releases");
+
+  await expect(page.getByRole("heading", { level: 1, name: /Nothing ships without a changelog/ })).toBeVisible();
+  await expect(page.getByText("v0.2.1", { exact: true })).toBeVisible();
+  await expect(page.getByText("v0.2.0", { exact: true })).toBeVisible();
+  await expect(page.getByText("v0.1.0", { exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: /Read the full changelog/ })).toBeVisible();
+});
+
+test("shows the full Apache 2.0 text on the license page", async ({ page }) => {
+  await page.goto("/license");
+
+  await expect(page.getByRole("heading", { level: 1 })).toContainText("Use it. Modify it.");
+  await expect(page.getByText("Commercial use", { exact: true })).toBeVisible();
+  await expect(page.getByText(/Apache License/).first()).toBeVisible();
+  await expect(page.getByText(/TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION/)).toBeVisible();
+});
+
+test("points to private advisories on the security page", async ({ page }) => {
+  await page.goto("/security");
+
+  await expect(page.getByRole("heading", { level: 1 })).toContainText("Found a flaw?");
+  await expect(page.getByRole("link", { name: /Open a private advisory/ })).toHaveAttribute(
+    "href",
+    "https://github.com/DhanushSantosh/AgentComms/security/advisories/new"
+  );
+});
+
+test("cross-links support and privacy pages to the security policy", async ({ page }) => {
+  await page.goto("/support");
+
+  await expect(page.getByRole("heading", { level: 1 })).toContainText("Stuck?");
+  await expect(page.getByRole("link", { name: "security policy" })).toHaveAttribute("href", "/security");
+
+  await page.goto("/privacy");
+  await expect(page.getByRole("heading", { level: 1 })).toContainText("Nothing to disclose");
+  await expect(page.getByRole("link", { name: "security policy" })).toHaveAttribute("href", "/security");
+});
+
+test("shows a breadcrumb trail and a working back button on sub-pages", async ({ page }) => {
+  await page.goto("/license");
+
+  const breadcrumb = page.getByRole("navigation", { name: "Breadcrumb" });
+  await expect(breadcrumb.getByRole("link", { name: "Home" })).toHaveAttribute("href", "/");
+  await expect(breadcrumb.getByText("License", { exact: true })).toBeVisible();
+
+  await page.goto("/");
+  await page.goto("/security");
+  await page.getByRole("button", { name: "Back" }).click();
+  await expect(page).toHaveURL("/");
+});

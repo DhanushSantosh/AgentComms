@@ -59,6 +59,16 @@ document.addEventListener("click", async (event) => {
   const downloadCopyButton = target.closest("[data-copy-command]");
   if (downloadCopyButton instanceof HTMLButtonElement) {
     await copyDownloadCommand(downloadCopyButton);
+    return;
+  }
+
+  const backButton = target.closest("[data-back-button]");
+  if (backButton instanceof HTMLButtonElement) {
+    if (window.history.length > 1) {
+      window.history.back();
+    } else {
+      window.location.href = "/";
+    }
   }
 });
 
