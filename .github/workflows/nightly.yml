@@ -31,44 +31,28 @@ jobs:
       - run: go vet ./...
 
   # Dev-only unstable channel, distinct from signed-release AND from the
-  # real "Beta" pre-1.0 tagged releases users actually install: publishes a
-  # rolling pre-release built straight from dev's latest commit for
-  # developers to sanity-check current work, gated only on deep-test passing
-  # -- no CHANGELOG requirement, no protected `release` environment approval,
-  # since this is explicitly not a real numbered version. Not the
-  # tag/asset-immutability rule docs/releasing.md sets for actual semver
-  # releases: this channel is a rolling snapshot by design.
+  # real "Beta" pre-1.0 tagged releases users actually install: builds
+  # straight from dev's latest commit for developers to sanity-check
+  # current work, gated only on deep-test passing -- no CHANGELOG
+  # requirement, no protected `release` environment approval, since this is
+  # explicitly not a real numbered version. Uploaded as a workflow artifact,
+  # not a GitHub Release -- a Release would sit in the same list real
+  # tagged releases do (sorted by publish date, easy to mistake for one);
+  # an artifact lives under the Actions tab instead and auto-expires, never
+  # touching release history or the v* tag-protection ruleset.
   publish-nightly:
     needs: deep-test
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
-      contents: write
       id-token: write
       attestations: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
-        with: {fetch-depth: 0}
-      - name: Skip if dev hasn't moved since the last nightly build
-        id: guard
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          previous_sha="$(gh release view v0.0.0-nightly --json targetCommitish --jq .targetCommitish 2>/dev/null || true)"
-          if [ "$previous_sha" = "$GITHUB_SHA" ]; then
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-          fi
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        if: steps.guard.outputs.skip == 'false'
         with: {go-version: '1.26.5', cache: true}
       - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
-        if: steps.guard.outputs.skip == 'false'
       - name: Build and sign nightly binaries
-        if: steps.guard.outputs.skip == 'false'
         shell: bash
         run: |
           set -euo pipefail
@@ -84,37 +68,12 @@ jobs:
           sha256sum agent-comms-* > checksums.txt
           for asset in agent-comms-*; do cosign sign-blob --yes --bundle "${asset}.bundle" "$asset"; done
       - uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
-        if: steps.guard.outputs.skip == 'false'
         with: {path: dist, format: spdx-json, output-file: dist/sbom.spdx.json}
       - uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
-        if: steps.guard.outputs.skip == 'false'
         with: {subject-path: 'dist/agent-comms-*'}
-      - name: Replace the rolling nightly release
-        if: steps.guard.outputs.skip == 'false'
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release delete v0.0.0-nightly --cleanup-tag --yes 2>/dev/null || true
-      - uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
-        if: steps.guard.outputs.skip == 'false'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          tag_name: v0.0.0-nightly
-          target_commitish: ${{ github.sha }}
-          name: "Nightly build (unstable, developers only)"
-          prerelease: true
-          body: |
-            **Unstable nightly build from `dev` -- not a numbered release, not for regular users.**
-
-            This is a developer-only channel for sanity-checking `dev`'s current state, separate from the real **Beta** pre-1.0 tagged releases (`v0.1.0`, `v0.2.0`, ...) that actual users install via `install.sh`/`install.ps1` -- if you're looking to try Agent Comms, use [the latest real release](https://github.com/DhanushSantosh/AgentComms/releases/latest) instead.
-
-            Built from commit ${{ github.sha }} on ${{ github.event.repository.updated_at }}. This tag and its assets are replaced every night; it is not covered by the [release process](https://github.com/DhanushSantosh/AgentComms/blob/main/docs/releasing.md)'s tag/asset-immutability guarantee the way real `vX.Y.Z` releases are. Binaries are still Cosign-signed with full provenance attestation, independently verifiable the same way -- just not wired into `install.sh`/`install.ps1`.
-          files: |
-            dist/agent-comms-windows-amd64.exe*
-            dist/agent-comms-windows-arm64.exe*
-            dist/agent-comms-linux-amd64*
-            dist/agent-comms-linux-arm64*
-            dist/agent-comms-darwin-amd64*
-            dist/agent-comms-darwin-arm64*
-            dist/agent-comms-daemon-*
-            dist/agent-comms-server-*
-            dist/checksums.txt
+          name: agent-comms-nightly
+          path: dist
+          retention-days: 7
+          if-no-files-found: error
