@@ -132,9 +132,6 @@ img { max-width: 100%; }
 .site-navigation { align-items: center; display: flex; gap: clamp(1.2rem, 2.5vw, 2.7rem); }
 .site-navigation a { font-family: var(--mono); font-size: 0.55rem; letter-spacing: 0.06em; opacity: 0.72; text-decoration: none; text-transform: uppercase; }
 .site-navigation a:hover { opacity: 1; }
-.header-action { align-items: center; border: 1px solid color-mix(in srgb, var(--ice) 36%, transparent); display: flex; font-size: 0.7rem; font-weight: 750; gap: 1.5rem; justify-self: end; min-height: 2.6rem; padding: 0 0.85rem; text-decoration: none; }
-.header-action:hover { background: var(--ice); color: var(--ink); }
-.header-action i { font-style: normal; }
 .menu-toggle { background: none; border: 0; color: inherit; display: none; height: 2.8rem; padding: 0.7rem; width: 2.8rem; }
 .menu-toggle > span:not(.sr-only) { background: currentColor; display: block; height: 1px; margin: 0.35rem 0; transition: transform 180ms ease; width: 1.25rem; }
 
@@ -402,7 +399,6 @@ img { max-width: 100%; }
 /* The motion system treats each section as a governed handoff, not a generic fade. */
 .motion-ready .site-header .brand { animation: header-lock var(--motion-medium) var(--ease-authority) both; }
 .motion-ready .site-navigation { animation: header-lock var(--motion-medium) var(--ease-authority) calc(var(--motion-stagger) * 1.5) both; }
-.motion-ready .header-action { animation: header-lock var(--motion-medium) var(--ease-authority) calc(var(--motion-stagger) * 3) both; }
 
 .motion-ready .hero .hero-kicker,
 .motion-ready .hero h1 > span,
