@@ -122,12 +122,24 @@ export default function HomePage() {
           <header className="releases-heading">
             <p className="eyebrow">Every release, dated and signed</p>
             <h2>Nothing ships without a changelog.</h2>
-            <p>Two tagged releases so far, each backed by a signed history and a written record of what actually changed — not a marketing recap.</p>
+            <p>Three tagged releases so far, each backed by a signed history and a written record of what actually changed — not a marketing recap. Every one is <strong>Beta</strong>: before v1.0.0, anything may still change without notice.</p>
           </header>
           <ol className="release-list">
             <li className="release">
               <div className="release-head">
+                <span className="release-version">v0.2.1</span>
+                <span className="release-channel">BETA</span>
+                <span className="release-name">“The Missing Bundle”</span>
+                <time className="release-date" dateTime="2026-08-02">2 Aug 2026</time>
+              </div>
+              <ul className="release-highlights">
+                <li>Hotfix: restored the Cosign-signed CLI installer bundles v0.2.0's release was missing, so install.sh/install.ps1 work again.</li>
+              </ul>
+            </li>
+            <li className="release">
+              <div className="release-head">
                 <span className="release-version">v0.2.0</span>
+                <span className="release-channel">BETA</span>
                 <span className="release-name">“Chain of Custody”</span>
                 <time className="release-date" dateTime="2026-07-31">31 Jul 2026</time>
               </div>
@@ -141,6 +153,7 @@ export default function HomePage() {
             <li className="release">
               <div className="release-head">
                 <span className="release-version">v0.1.0</span>
+                <span className="release-channel">BETA</span>
                 <span className="release-name">“The Control Room”</span>
                 <time className="release-date" dateTime="2026-07-19">19 Jul 2026</time>
               </div>

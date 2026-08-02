@@ -361,6 +361,7 @@ img { max-width: 100%; }
 .release { border-bottom: 1px solid var(--line-light); display: grid; gap: 2rem; grid-template-columns: 16rem 1fr; padding: clamp(2rem, 4vw, 2.6rem) 0; }
 .release-head { display: flex; flex-direction: column; gap: 0.5rem; }
 .release-version { color: var(--blue); font-family: var(--mono); font-size: 1.4rem; font-weight: 700; }
+.release-channel { background: color-mix(in srgb, var(--coral) 16%, transparent); border-radius: 999px; color: var(--coral); font-family: var(--mono); font-size: 0.6rem; font-weight: 700; letter-spacing: 0.06em; padding: 0.2rem 0.55rem; width: fit-content; }
 .release-name { font-family: var(--display); font-size: 1.1rem; font-weight: 620; }
 .release-date { color: var(--steel); font-family: var(--mono); font-size: 0.58rem; letter-spacing: 0.04em; text-transform: uppercase; }
 .release-highlights { list-style: none; margin: 0; padding: 0; }

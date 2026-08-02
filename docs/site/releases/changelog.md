@@ -4,13 +4,23 @@ description: What changed in each tagged release, why it matters, and where to f
 section: Releases
 order: 1
 audience: Everyone
-lastVerified: 2026-08-01
+lastVerified: 2026-08-02
 related: [guide/maintenance, security/releases]
 ---
 
 Every tagged release is signed and dated. This page summarizes what changed and why; the repository's [CHANGELOG.md](https://github.com/DhanushSantosh/AgentComms/blob/main/CHANGELOG.md) carries the exhaustive per-change detail this page intentionally leaves out.
 
-## v0.2.0 — "Chain of Custody" — 2026-07-31
+Every release below is **Beta** — before v1.0.0, SemVer's own 0.x.y convention means anything may still change without notice. There is no Stable channel yet; that label only becomes accurate once a 1.x release ships.
+
+## v0.2.1 — "The Missing Bundle" — Beta — 2026-08-02
+
+A hotfix restoring the Cosign-signed installer bundles that v0.2.0's CLI release was missing, so `install.sh`/`install.ps1` work again.
+
+**Fixed**
+
+- The published release was missing the Cosign `.bundle` file for every primary CLI binary (`agent-comms-{os}-{arch}[.exe]`) — `install.sh` and `install.ps1` both require that exact file and fail closed without it, so a fresh install of v0.2.0's CLI never worked. The daemon and server binaries were unaffected (their release-asset wildcards happened to sweep the bundle in); Cosign was already signing the CLI bundles too, they simply were never attached to the release.
+
+## v0.2.0 — "Chain of Custody" — Beta — 2026-07-31
 
 A managed-lifecycle and security-hardening release: safer credential handling, a distinct human-approval gate on orchestrator grants, and a truthful interactive-delivery model.
 
@@ -29,7 +39,7 @@ A managed-lifecycle and security-hardening release: safer credential handling, a
 - MCP's `agent_register` tool could register or squat an unrelated agent identity — now enforces its documented self-registration invariant.
 - Assorted authorization and Postgres reliability fixes.
 
-## v0.1.0 — "The Control Room" — 2026-07-19
+## v0.1.0 — "The Control Room" — Beta — 2026-07-19
 
 First tagged release: terminal-native, signed coordination between humans and agents — typed messages, protected work leases, approvals, artifacts, living documents — backed by either a zero-setup local SQLite authority or a shared PostgreSQL team authority, and operated through a full console TUI or a deterministic JSON CLI/MCP surface.
 
