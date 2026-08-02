@@ -266,6 +266,49 @@
 .installCommand button[data-copy-state="failure"] { background: var(--coral); border-color: var(--coral); color: var(--ink); }
 .installCommand button:focus-visible { outline: 3px solid var(--lilac); outline-offset: -4px; }
 
+.nightly {
+  align-items: center;
+  border-top: 1px dashed var(--line-light);
+  display: grid;
+  gap: clamp(1.4rem, 3vw, 2.4rem);
+  grid-template-columns: minmax(18rem, 0.85fr) minmax(20rem, 1.15fr);
+  margin-top: clamp(2rem, 3.5vw, 3rem);
+  padding-top: clamp(2rem, 3.5vw, 3rem);
+}
+
+.nightly > div:first-child > p:first-child {
+  color: var(--steel);
+  font-family: var(--mono);
+  font-size: 0.5rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  margin: 0 0 0.6rem;
+  text-transform: uppercase;
+}
+
+.nightly h2 {
+  font-family: var(--display);
+  font-size: clamp(1.4rem, 2.2vw, 1.9rem);
+  font-weight: 620;
+  letter-spacing: -0.02em;
+  margin: 0 0 0.6rem;
+}
+
+.nightly > div:first-child > p:last-child {
+  color: color-mix(in srgb, var(--ink) 66%, transparent);
+  font-size: 0.82rem;
+  line-height: 1.55;
+  margin: 0;
+}
+
+.nightly > div:first-child code { font-family: var(--mono); }
+
+.nightly .installCommand { box-shadow: 0.35rem 0.35rem 0 var(--steel); }
+
+@media (max-width: 60rem) {
+  .nightly { grid-template-columns: 1fr; }
+}
+
 .handoff > header > p,
 .handoff li > span {
   font-family: var(--mono);

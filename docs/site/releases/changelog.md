@@ -64,6 +64,24 @@ First tagged release: terminal-native, signed coordination between humans and ag
 - Initialization refuses an existing `.agents` and publishes a complete runtime atomically.
 - Governed mutations revalidate authorization, leases, scopes, and conflicts inside the authoritative transaction.
 
+## Nightly builds
+
+Separate from every release above: an unstable snapshot builds from `dev`'s latest commit daily, for developers sanity-checking current work -- not a numbered release, not installed by `install.sh`/`install.ps1`, and not **Beta** either. It's published as a public OCI artifact rather than a GitHub Release, so it never appears alongside real tagged versions and carries no version history of its own -- the `:latest` tag is simply overwritten every run.
+
+```sh
+oras pull ghcr.io/dhanushsantosh/agentcomms-nightly:latest
+```
+
+No login required. The binaries are still Cosign-signed and attested exactly like a real release, just under a different workflow identity:
+
+```sh
+cosign verify-blob \
+  --bundle agent-comms-linux-amd64.bundle \
+  --certificate-identity-regexp '^https://github.com/DhanushSantosh/AgentComms/.github/workflows/nightly.yml@refs/heads/dev' \
+  --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+  agent-comms-linux-amd64
+```
+
 ## Verifying a release
 
 Every published binary is built from a tagged commit and its checksums are published alongside it. See [Verify a release](/security/releases/) for the exact steps to confirm a download matches what was actually tagged before you run it.

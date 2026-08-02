@@ -45,3 +45,10 @@ export const downloadRelease = {
   installerStatus: "Verification assets incomplete",
   installerDetail: `The ${releaseTag} CLI Cosign bundles required by both official installers are not published yet. The commands below are the supported install path, but they intentionally fail closed until those verification assets are restored.`
 } as const;
+
+// A separate, unstable channel from the release above: builds from dev's
+// latest commit daily, for developers -- not Beta, not a numbered version,
+// not installed by install.sh/install.ps1.
+export const nightlyBuild = {
+  command: "oras pull ghcr.io/dhanushsantosh/agentcomms-nightly:latest"
+} as const;

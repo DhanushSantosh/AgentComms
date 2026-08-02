@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
-import { downloadRelease, installerMethods } from "@/lib/downloads";
+import { downloadRelease, installerMethods, nightlyBuild } from "@/lib/downloads";
 import { documentationPage, site } from "@/lib/site";
 import styles from "./download.module.css";
 
@@ -53,6 +53,9 @@ export default function DownloadPage() {
                     <a href={`#${method.id}`}><span>{String(index + 1).padStart(2, "0")}</span>{method.name}</a>
                   </li>
                 ))}
+                <li>
+                  <a href="#nightly"><span>{String(installerMethods.length + 1).padStart(2, "0")}</span>Nightly (dev)</a>
+                </li>
               </ol>
               <div className={styles.releaseStatus}>
                 <span aria-hidden="true">!</span>
@@ -85,6 +88,23 @@ export default function DownloadPage() {
               })}
             </div>
           </section>
+          <aside className={styles.nightly} id="nightly" aria-label="Nightly build" data-reveal="download-nightly">
+            <div>
+              <p>FOR DEVELOPERS · NOT BETA · NOT FOR REGULAR USE</p>
+              <h2>Want dev's current state?</h2>
+              <p>An unstable snapshot builds from <code>dev</code> daily. Signed and verifiable the same way, no version, no login required to pull it.</p>
+            </div>
+            <div className={styles.installCommand}>
+              <pre><code id="nightly-command">{nightlyBuild.command}</code></pre>
+              <button
+                type="button"
+                aria-live="polite"
+                aria-label="Copy nightly build command"
+                data-command-source="nightly-command"
+                data-copy-command
+              ><span data-copy-label>Copy</span><b aria-hidden="true" /></button>
+            </div>
+          </aside>
         </section>
 
         <section className={styles.handoff} aria-labelledby="handoff-heading" data-reveal="download-handoff">
@@ -158,7 +178,6 @@ export default function DownloadPage() {
           <a href={documentationPage("/start/install/")}><span>Installation guide</span><i>Paths and prerequisites</i><b>↗</b></a>
           <a href={downloadRelease.allReleasesUrl}><span>All releases</span><i>Channels and history</i><b>↗</b></a>
           <a href={downloadRelease.sourceUrl}><span>Release source</span><i>Inspect the tagged code</i><b>↗</b></a>
-          <a href={documentationPage("/security/releases/#nightly-builds-developers-not-for-regular-use")}><span>Nightly builds</span><i>Unstable, for developers only</i><b>↗</b></a>
         </nav>
       </main>
 

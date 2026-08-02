@@ -38,24 +38,4 @@ Also compare the asset digest with `checksums.txt` and inspect the GitHub proven
 
 ## Platform warnings
 
-Sigstore verification is independent of Windows Authenticode and Apple notarization. Until native platform signing is published for a release, SmartScreen or Gatekeeper may still display an operating-system warning even when checksum and Sigstore verification succeed.
-
-## Nightly builds (developers, not for regular use)
-
-Separate from the releases above: an unstable snapshot builds from `dev`'s latest commit daily, for developers sanity-checking current work -- not a numbered release, not installed by `install.sh`/`install.ps1`. It's published as a public OCI artifact rather than a GitHub Release, so it never appears alongside real tagged versions:
-
-```sh
-oras pull ghcr.io/dhanushsantosh/agentcomms-nightly:latest
-```
-
-No login required. The binaries are Cosign-signed and attested exactly like a real release, just under a different workflow identity:
-
-```sh
-cosign verify-blob \
-  --bundle agent-comms-linux-amd64.bundle \
-  --certificate-identity-regexp '^https://github.com/DhanushSantosh/AgentComms/.github/workflows/nightly.yml@refs/heads/dev' \
-  --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
-  agent-comms-linux-amd64
-```
-
-The `:latest` tag is overwritten every run -- there's no history, and no immutability guarantee the way a real `vX.Y.Z` release has.
+Sigstore verification is independent of Windows Authenticode and Apple notarization. Until native platform signing is published for a release, SmartScreen or Gatekeeper may still display an operating-system warning even when checksum and Sigstore verification succeed. For the developer-only nightly channel and how to verify it, see the [changelog](/releases/changelog/#nightly-builds).

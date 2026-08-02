@@ -82,7 +82,7 @@ test("offers the supported installer commands without direct binary actions", as
 
   await expect(page.getByRole("heading", { level: 1, name: /Agent Comms, ready to run/ })).toBeVisible();
   await expect(page.getByText("Verification assets incomplete", { exact: true })).toBeVisible();
-  await expect(page.locator("[data-copy-command]")).toHaveCount(2);
+  await expect(page.locator("[data-copy-command]")).toHaveCount(3);
   await expect(page.locator("code").filter({ hasText: "install.sh" })).toBeVisible();
   await expect(page.locator("code").filter({ hasText: "install.ps1" })).toBeVisible();
   await expect(page.getByRole("link", { name: /Download Agent Comms/ })).toHaveCount(0);
@@ -92,6 +92,19 @@ test("offers the supported installer commands without direct binary actions", as
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain("install.sh");
 
   await expect(page.getByText(/every governed project/i)).toBeVisible();
+});
+
+test("surfaces the nightly build command, distinct from the release installers", async ({ page, context }) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.goto("/download");
+
+  const nightly = page.locator("#nightly");
+  await expect(nightly).toContainText("FOR DEVELOPERS");
+  await expect(nightly.locator("code").filter({ hasText: "oras pull" })).toBeVisible();
+
+  await nightly.getByRole("button", { name: "Copy nightly build command" }).click();
+  await expect(nightly.getByRole("button", { name: "Copy nightly build command" })).toContainText("Command copied");
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain("ghcr.io/dhanushsantosh/agentcomms-nightly");
 });
 
 test("reveals and activates installer rows as they enter the viewport", async ({ page }) => {
