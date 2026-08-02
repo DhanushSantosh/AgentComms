@@ -7,6 +7,15 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 
 ## [0.2.1] - 2026-08-02 — “The Missing Bundle”
 
+*A hotfix restoring the Cosign-signed installer bundles that v0.2.0's CLI
+release was missing, so `install.sh`/`install.ps1` work again.*
+
+**Fixed**
+- The published release was missing the Cosign `.bundle` file for every
+  primary CLI binary — the documented installers fail closed without it.
+
+Full technical detail is below and in [CHANGELOG.md](https://github.com/DhanushSantosh/AgentComms/blob/main/CHANGELOG.md).
+
 ### Fixed
 
 - The published release was missing the Cosign `.bundle` file for every
