@@ -137,6 +137,10 @@ test("waits for meaningful viewport entry before revealing main sections", async
   await statement.scrollIntoViewIfNeeded();
   await expect(statement).toHaveClass(/is-revealed/);
   await expect(statement).toHaveClass(/is-active/);
+});
+
+test("reveals the releases section on the download page", async ({ page }) => {
+  await page.goto("/download");
 
   const releases = page.locator('[data-reveal="releases"]');
   await releases.scrollIntoViewIfNeeded();

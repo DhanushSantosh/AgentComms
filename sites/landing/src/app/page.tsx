@@ -118,58 +118,6 @@ export default function HomePage() {
           <div className="trust-sequence"><span>actor signs intent</span><i>→</i><span>authority checks rules</span><i>→</i><span>event commits</span><i>→</i><span>receipt signs the head</span></div>
         </section>
 
-        <section className="releases" id="releases" data-reveal="releases">
-          <header className="releases-heading">
-            <p className="eyebrow">Every release, dated and signed</p>
-            <h2>Nothing ships without a changelog.</h2>
-            <p>Three tagged releases so far, each backed by a signed history and a written record of what actually changed — not a marketing recap. Every one is <strong>Beta</strong>: before v1.0.0, anything may still change without notice.</p>
-          </header>
-          <ol className="release-list">
-            <li className="release">
-              <div className="release-head">
-                <span className="release-version">v0.2.1</span>
-                <span className="release-channel">BETA</span>
-                <span className="release-name">“The Missing Bundle”</span>
-                <time className="release-date" dateTime="2026-08-02">2 Aug 2026</time>
-              </div>
-              <ul className="release-highlights">
-                <li>Hotfix: restored the Cosign-signed CLI installer bundles v0.2.0's release was missing, so install.sh/install.ps1 work again.</li>
-              </ul>
-            </li>
-            <li className="release">
-              <div className="release-head">
-                <span className="release-version">v0.2.0</span>
-                <span className="release-channel">BETA</span>
-                <span className="release-name">“Chain of Custody”</span>
-                <time className="release-date" dateTime="2026-07-31">31 Jul 2026</time>
-              </div>
-              <ul className="release-highlights">
-                <li>One-command project upgrades, with automatic backup and full post-upgrade verification.</li>
-                <li>Orchestrator grants now require a separate, human-approved decision.</li>
-                <li>A passphrase-protected elevated key gates the most sensitive actions.</li>
-                <li>Interactive delivery is a real, auditable state machine — no connector can fake a delivery.</li>
-              </ul>
-            </li>
-            <li className="release">
-              <div className="release-head">
-                <span className="release-version">v0.1.0</span>
-                <span className="release-channel">BETA</span>
-                <span className="release-name">“The Control Room”</span>
-                <time className="release-date" dateTime="2026-07-19">19 Jul 2026</time>
-              </div>
-              <ul className="release-highlights">
-                <li>First tagged release: signed events, protected work leases, typed messages, approvals.</li>
-                <li>Zero-setup SQLite personal authority, or a shared PostgreSQL team authority.</li>
-                <li>Full console TUI across Command, Work, Team, Relay, and Project hubs.</li>
-              </ul>
-            </li>
-          </ol>
-          <div className="releases-links">
-            <a className="action action--ink" href={documentationPage("/releases/changelog/")}>Read the full changelog <span>↗</span></a>
-            <a className="action action--line" href="https://github.com/DhanushSantosh/AgentComms/releases">View tagged releases <span>↗</span></a>
-          </div>
-        </section>
-
         <section className="install" id="install" data-reveal="install">
           <div className="install-copy">
             <p className="eyebrow">Agent Comms v{site.productVersion}</p>
