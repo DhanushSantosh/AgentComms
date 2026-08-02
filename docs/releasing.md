@@ -69,6 +69,10 @@ There is no hotfix branch cut from `main`. Every release, urgent or not, is prom
 
 If delaying validation would cause material harm, a release/security maintainer may use the documented emergency bypass. Record the approver, reason, skipped checks, risk, and rollback plan. Run skipped checks immediately and open a retrospective within two business days. Force pushes and asset replacement remain forbidden.
 
+## Nightly beta builds
+
+Separate from the promotion process above: `nightly.yml` builds and publishes a rolling, unstable `v0.0.0-nightly` pre-release straight from `dev`'s latest commit once a day (or on demand via `workflow_dispatch`), gated only on its own `deep-test` job passing -- no CHANGELOG entry, no PR, no protected `release` environment approval. Its tag and assets are replaced in place every run; deliberately not the immutability guarantee real `vX.Y.Z` releases have, since this channel is a rolling snapshot by design, not a version. Binaries are still Cosign-signed with full provenance attestation and independently verifiable the same way real releases are -- they're just not wired into `install.sh`/`install.ps1`, which always install the latest real release. Nightly builds report their version as `0.0.0-nightly` so they're never mistaken for a numbered release.
+
 ## Support
 
 Before v1, the newest preview line receives best-effort support. After v1, support the current stable minor and provide critical security fixes for the previous minor for six months after replacement.
