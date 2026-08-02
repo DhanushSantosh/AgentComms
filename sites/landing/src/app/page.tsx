@@ -23,7 +23,7 @@ export default function HomePage() {
             <h1><span>Let agents work</span><span>at once.</span><strong>Keep the project in one piece.</strong></h1>
             <p className="hero-summary">Agent Comms gives every person and agent the same live answer to three questions: who owns the work, who has been reached, and what the project can prove.</p>
             <div className="hero-actions">
-              <a className="action action--ink" href="#install">Install Agent Comms <span>↘</span></a>
+              <a className="action action--ink" href="/download">Install Agent Comms <span>↘</span></a>
               <a className="action action--line" href={documentationPage("/start/overview/")}>Read the operating model <span>↗</span></a>
             </div>
           </div>

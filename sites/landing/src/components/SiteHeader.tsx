@@ -34,7 +34,6 @@ export function SiteHeader({ documentationUrl }: SiteHeaderProperties) {
         <a href="/#control">Control room</a>
         <a href={documentationUrl}>Docs</a>
       </nav>
-      <a className="header-action" href="/download"><span>Download</span><i aria-hidden="true">↘</i></a>
     </header>
   );
 }

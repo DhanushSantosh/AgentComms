@@ -5,8 +5,7 @@ test("presents the product thesis and truthful lifecycle", async ({ page }) => {
 
   await expect(page.getByRole("heading", { level: 1, name: /Let agents work at once/ })).toBeVisible();
   await expect(page.getByText("Keep the project in one piece.")).toBeVisible();
-  await expect(page.getByRole("link", { name: /Install Agent Comms/ })).toHaveAttribute("href", "#install");
-  await expect(page.getByRole("link", { name: "Download", exact: true }).first()).toHaveAttribute("href", "/download");
+  await expect(page.getByRole("link", { name: /Install Agent Comms/ })).toHaveAttribute("href", "/download");
   await expect(page.getByRole("link", { name: "Docs", exact: true }).first()).toHaveAttribute("href", "https://docs.agentcomms.dev");
 
   const lifecycle = page.getByRole("list").filter({ hasText: "REQUESTED" });
