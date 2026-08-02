@@ -41,30 +41,28 @@ jobs:
           if [ "${{ github.ref_name }}" = "main" ]; then
             echo "vercel_env=production" >> "$GITHUB_OUTPUT"
             echo "prod_flag=--prod" >> "$GITHUB_OUTPUT"
-            echo "docs_url=https://agent-comms-docs.vercel.app" >> "$GITHUB_OUTPUT"
-            echo "landing_url=https://agent-comms-landing.vercel.app" >> "$GITHUB_OUTPUT"
           else
             echo "vercel_env=preview" >> "$GITHUB_OUTPUT"
             echo "prod_flag=" >> "$GITHUB_OUTPUT"
-            echo "docs_url=https://agent-comms-docs-beta.vercel.app" >> "$GITHUB_OUTPUT"
-            echo "landing_url=https://agent-comms-landing-beta.vercel.app" >> "$GITHUB_OUTPUT"
           fi
       - name: Build and deploy
         working-directory: sites/${{ matrix.site }}
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          DOCS_SITE_URL: ${{ steps.channel.outputs.docs_url }}
-          PUBLIC_MARKETING_SITE_URL: ${{ steps.channel.outputs.landing_url }}
-          NEXT_PUBLIC_DOCS_URL: ${{ steps.channel.outputs.docs_url }}
-          NEXT_PUBLIC_SITE_URL: ${{ steps.channel.outputs.landing_url }}
         run: |
           set -euo pipefail
+          # Production URLs are fixed and known in advance. dev/preview
+          # deploys get a fresh URL per push, so leave these genuinely
+          # unset there (not empty-string, which would defeat each
+          # site's own "??" production-URL fallback) and let each site
+          # fall back to its own default.
+          if [ "${{ github.ref_name }}" = "main" ]; then
+            export DOCS_SITE_URL="https://agent-comms-docs.vercel.app"
+            export PUBLIC_MARKETING_SITE_URL="https://agent-comms-landing.vercel.app"
+            export NEXT_PUBLIC_DOCS_URL="https://agent-comms-docs.vercel.app"
+            export NEXT_PUBLIC_SITE_URL="https://agent-comms-landing.vercel.app"
+          fi
           npx vercel pull --yes --environment="${{ steps.channel.outputs.vercel_env }}" --token="$VERCEL_TOKEN"
           npx vercel build ${{ steps.channel.outputs.prod_flag }} --token="$VERCEL_TOKEN"
           url=$(npx vercel deploy --prebuilt ${{ steps.channel.outputs.prod_flag }} --token="$VERCEL_TOKEN")
           echo "Deployed $GITHUB_REF_NAME/${{ matrix.site }} -> $url"
-          if [ "${{ github.ref_name }}" != "main" ]; then
-            alias="agent-comms-${{ matrix.site }}-beta.vercel.app"
-            npx vercel alias set "$url" "$alias" --token="$VERCEL_TOKEN" --scope="$VERCEL_ORG_ID"
-            echo "Aliased beta -> https://$alias"
-          fi
