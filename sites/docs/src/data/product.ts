@@ -1,5 +1,5 @@
 const channel = import.meta.env.PUBLIC_DOCS_CHANNEL;
-const sourceBranch = channel === "stable" ? "main" : "dev";
+const sourceBranch = import.meta.env.PUBLIC_SOURCE_BRANCH ?? "dev";
 
 export const product = {
   name: "Agent Comms",

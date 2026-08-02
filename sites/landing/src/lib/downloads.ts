@@ -30,10 +30,14 @@ export const installerMethods: readonly InstallerMethod[] = [
   }
 ] as const;
 
+// Before v1, every release is beta-maturity, not "Stable" -- SemVer's own
+// 0.x.y convention means anything may still change without notice.
+const releaseChannel = site.productVersion.split(".")[0] === "0" ? "Beta" : "Stable";
+
 export const downloadRelease = {
   version: site.productVersion,
   tag: releaseTag,
-  channel: "Stable",
+  channel: releaseChannel,
   releaseUrl: `${repositoryUrl}/releases/tag/${releaseTag}`,
   allReleasesUrl: `${repositoryUrl}/releases`,
   checksumsUrl: `${releaseBaseUrl}/checksums.txt`,

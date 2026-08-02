@@ -19,7 +19,12 @@ function gitOutput(arguments_) {
 const releaseTag = gitOutput(["describe", "--tags", "--abbrev=0", "--match", "v[0-9]*"]);
 const productVersion = process.env.PUBLIC_PRODUCT_VERSION ?? releaseTag.replace(/^v/, "");
 const sourceRef = process.env.GITHUB_REF_NAME ?? gitOutput(["branch", "--show-current"]);
-const docsChannel = process.env.PUBLIC_DOCS_CHANNEL ?? (sourceRef === "main" ? "stable" : "next");
+// Before v1, every release is beta-maturity regardless of branch -- main's
+// "stable"/dev's "next" distinction only becomes truthful once a 1.x release
+// actually ships. Explicit PUBLIC_DOCS_CHANNEL still wins for any deployment
+// that wants to force a specific label.
+const isPreV1 = productVersion.split(".")[0] === "0";
+const docsChannel = process.env.PUBLIC_DOCS_CHANNEL ?? (isPreV1 ? "beta" : (sourceRef === "main" ? "stable" : "next"));
 
 if (!productVersion) {
   throw new Error("Documentation builds require PUBLIC_PRODUCT_VERSION or an accessible version tag.");
@@ -32,6 +37,7 @@ export default defineConfig({
   vite: {
     define: {
       "import.meta.env.PUBLIC_DOCS_CHANNEL": JSON.stringify(docsChannel),
+      "import.meta.env.PUBLIC_SOURCE_BRANCH": JSON.stringify(sourceRef === "main" ? "main" : "dev"),
       "import.meta.env.PUBLIC_MARKETING_SITE_URL": JSON.stringify(marketingSite),
       "import.meta.env.PUBLIC_PRODUCT_VERSION": JSON.stringify(productVersion)
     }
