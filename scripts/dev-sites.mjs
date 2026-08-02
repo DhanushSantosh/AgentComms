@@ -1,4 +1,9 @@
 import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { dirname, resolve as resolvePath } from "node:path";
+import { fileURLToPath } from "node:url";
+
+loadLocalEnvFile();
 
 const defaultLocalHost = "127.0.0.1";
 const defaultLandingPort = 3_000;
@@ -96,3 +101,25 @@ for (const child of children) {
 
 process.on("SIGINT", () => stopChildren("SIGINT"));
 process.on("SIGTERM", () => stopChildren("SIGTERM"));
+
+// Untracked, per-machine overrides (e.g. this device's Tailscale IP for
+// SITES_PUBLIC_HOST so other devices on the tailnet can reach the dev
+// servers) -- silently absent for anyone who hasn't created one.
+function loadLocalEnvFile() {
+  const repoRoot = resolvePath(dirname(fileURLToPath(import.meta.url)), "..");
+  let contents;
+  try {
+    contents = readFileSync(resolvePath(repoRoot, ".env.local"), "utf8");
+  } catch {
+    return;
+  }
+  for (const line of contents.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const separatorIndex = trimmed.indexOf("=");
+    if (separatorIndex === -1) continue;
+    const key = trimmed.slice(0, separatorIndex).trim();
+    const value = trimmed.slice(separatorIndex + 1).trim();
+    if (process.env[key] === undefined) process.env[key] = value;
+  }
+}
