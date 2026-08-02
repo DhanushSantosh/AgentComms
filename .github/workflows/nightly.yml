@@ -30,13 +30,15 @@ jobs:
         if: runner.os != 'Windows'
       - run: go vet ./...
 
-  # Unstable beta channel, distinct from signed-release: publishes a rolling
-  # pre-release built straight from dev's latest commit, gated only on
-  # deep-test passing -- no CHANGELOG requirement, no protected `release`
-  # environment approval, since this is explicitly not a real numbered
-  # version. Never the tag/asset-immutability rule docs/releasing.md sets
-  # for actual semver releases: this channel is a rolling snapshot by design.
-  beta-release:
+  # Dev-only unstable channel, distinct from signed-release AND from the
+  # real "Beta" pre-1.0 tagged releases users actually install: publishes a
+  # rolling pre-release built straight from dev's latest commit for
+  # developers to sanity-check current work, gated only on deep-test passing
+  # -- no CHANGELOG requirement, no protected `release` environment approval,
+  # since this is explicitly not a real numbered version. Not the
+  # tag/asset-immutability rule docs/releasing.md sets for actual semver
+  # releases: this channel is a rolling snapshot by design.
+  publish-nightly:
     needs: deep-test
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -98,12 +100,14 @@ jobs:
         with:
           tag_name: v0.0.0-nightly
           target_commitish: ${{ github.sha }}
-          name: "Nightly beta build (unstable)"
+          name: "Nightly build (unstable, developers only)"
           prerelease: true
           body: |
-            **Unstable nightly build from `dev` -- not a numbered release, not for production use.**
+            **Unstable nightly build from `dev` -- not a numbered release, not for regular users.**
 
-            Built from commit ${{ github.sha }} on ${{ github.event.repository.updated_at }}. This tag and its assets are replaced every night; it is not covered by the [release process](https://github.com/DhanushSantosh/AgentComms/blob/main/docs/releasing.md)'s tag/asset-immutability guarantee the way real `vX.Y.Z` releases are. Binaries are still Cosign-signed with full provenance attestation, independently verifiable the same way -- just not wired into `install.sh`/`install.ps1`, which install the latest real release.
+            This is a developer-only channel for sanity-checking `dev`'s current state, separate from the real **Beta** pre-1.0 tagged releases (`v0.1.0`, `v0.2.0`, ...) that actual users install via `install.sh`/`install.ps1` -- if you're looking to try Agent Comms, use [the latest real release](https://github.com/DhanushSantosh/AgentComms/releases/latest) instead.
+
+            Built from commit ${{ github.sha }} on ${{ github.event.repository.updated_at }}. This tag and its assets are replaced every night; it is not covered by the [release process](https://github.com/DhanushSantosh/AgentComms/blob/main/docs/releasing.md)'s tag/asset-immutability guarantee the way real `vX.Y.Z` releases are. Binaries are still Cosign-signed with full provenance attestation, independently verifiable the same way -- just not wired into `install.sh`/`install.ps1`.
           files: |
             dist/agent-comms-windows-amd64.exe*
             dist/agent-comms-windows-arm64.exe*
