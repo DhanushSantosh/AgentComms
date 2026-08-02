@@ -63,9 +63,9 @@ TUI, agent controls, command palette, and resilient local control plane.
 
 The tag is the version source of truth. Never rebuild, replace, or silently edit assets for an existing version; publish a new version instead. Humans approve releases but do not upload local binaries.
 
-## Hotfixes
+## Urgent fixes
 
-Create `hotfix/<description>` from `main`. Use expedited review without bypassing focused CI or qualified approval. Merge the fix to `main`, release it, then merge `main` back into `dev`.
+There is no hotfix branch cut from `main`. Every release, urgent or not, is promoted from `dev` following the same Promotion steps above -- a fix branched from `main` skips `dev`'s own CI/review history and (as observed firsthand cutting v0.2.1) can silently carry a stale `main`-era `release.yml`, missing whatever release-automation improvements have landed on `dev` since the last promotion. An urgent fix still lands on `dev` first (expedited review is fine; skipping CI or qualified approval is not), then promotes to `main` immediately rather than waiting for unrelated work to be ready.
 
 If delaying validation would cause material harm, a release/security maintainer may use the documented emergency bypass. Record the approver, reason, skipped checks, risk, and rollback plan. Run skipped checks immediately and open a retrospective within two business days. Force pushes and asset replacement remain forbidden.
 

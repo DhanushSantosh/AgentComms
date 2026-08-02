@@ -24,8 +24,8 @@ jobs:
           HEAD_REF: ${{ github.head_ref }}
         run: |
           set -euo pipefail
-          if [ "$HEAD_REF" != "dev" ] && [[ "$HEAD_REF" != hotfix/* ]]; then
-            echo "::error::Promotion must originate from dev or a documented hotfix/* branch."
+          if [ "$HEAD_REF" != "dev" ]; then
+            echo "::error::Promotion must originate from dev. No branch cut directly from main -- including hotfix/* -- is permitted; see docs/releasing.md#urgent-fixes."
             exit 1
           fi
       - name: Require release documentation

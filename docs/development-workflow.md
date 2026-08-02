@@ -8,7 +8,7 @@ Agent Comms uses a permanent `dev` integration branch and a release-oriented `ma
 - Open ordinary pull requests against `dev`.
 - Promote releases through a dedicated pull request from `dev` to `main`.
 - Release promotion uses a merge commit so the permanent branches retain shared ancestry.
-- Hotfixes branch from `main`, merge into `main`, and are then merged back into `dev`.
+- There is no branch cut from `main`, ever, including a `hotfix/` one -- it would skip `dev`'s CI/review history and can silently carry a stale `main`-era workflow/config that later diverged on `dev`. Urgent work still uses a `hotfix/` prefix off `dev`, then promotes to `main` immediately rather than waiting for unrelated work. See [release process](releasing.md#urgent-fixes).
 - Never rebase, reset, force-push, or delete `dev` or `main`.
 
 Squash is the default for routine pull requests. A merge commit is appropriate when the commit sequence is deliberately structured and each commit is independently reviewable. Rebase merging is disabled.

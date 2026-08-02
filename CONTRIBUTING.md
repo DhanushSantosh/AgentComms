@@ -1,6 +1,6 @@
 # Contributing
 
-Thank you for improving Agent Comms. Ordinary development targets the `dev` branch; `main` is reserved for release promotion and hotfixes.
+Thank you for improving Agent Comms. All development, including urgent fixes, targets the `dev` branch; `main` only ever receives release promotions from `dev` -- never a branch cut directly from `main`. See [release process](docs/releasing.md#urgent-fixes).
 
 1. Open an issue for material behavior, feature, schema, governance, or public-contract changes.
 2. Start a short-lived branch from current `dev` and open a pull request against `dev`.

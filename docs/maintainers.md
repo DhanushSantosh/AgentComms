@@ -22,7 +22,7 @@ Acknowledge credible private reports within three business days. Validate and de
 ## Repository administration
 
 - `dev` is the default branch and accepts reviewed feature work.
-- `main` accepts release promotions and documented hotfixes.
+- `main` accepts release promotions from `dev` only -- never a branch cut directly from `main`, including for urgent fixes.
 - Required checks, CODEOWNERS review, conversation resolution, stale-review dismissal, and force-push protection remain enabled.
 - Fork pull requests receive no secrets and must not execute untrusted code under `pull_request_target`.
 - Release workflows use least privilege, OIDC, protected environments, and immutable action references.
