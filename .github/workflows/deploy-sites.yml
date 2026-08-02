@@ -37,10 +37,10 @@ jobs:
         working-directory: sites/${{ matrix.site }}
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          DOCS_SITE_URL: https://agent-comms-docs.vercel.app
-          PUBLIC_MARKETING_SITE_URL: https://agent-comms-landing.vercel.app
-          NEXT_PUBLIC_DOCS_URL: https://agent-comms-docs.vercel.app
-          NEXT_PUBLIC_SITE_URL: https://agent-comms-landing.vercel.app
+          DOCS_SITE_URL: https://agentcomms-docs.vercel.app
+          PUBLIC_MARKETING_SITE_URL: https://agentcomms-cli.vercel.app
+          NEXT_PUBLIC_DOCS_URL: https://agentcomms-docs.vercel.app
+          NEXT_PUBLIC_SITE_URL: https://agentcomms-cli.vercel.app
         run: |
           set -euo pipefail
           npx vercel pull --yes --environment=production --token="$VERCEL_TOKEN"

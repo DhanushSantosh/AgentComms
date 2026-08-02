@@ -1,5 +1,5 @@
-const fallbackMarketingSiteUrl = "https://agentcomms.dev";
-const fallbackDocumentationUrl = "https://docs.agentcomms.dev";
+const fallbackMarketingSiteUrl = "https://agentcomms-cli.vercel.app";
+const fallbackDocumentationUrl = "https://agentcomms-docs.vercel.app";
 const productVersion = process.env.NEXT_PUBLIC_PRODUCT_VERSION;
 
 if (!productVersion) {

@@ -26,9 +26,9 @@ export default function nextConfig(phase: string): NextConfig {
   return {
     distDir: isDev ? ".next" : "dist",
     env: {
-      NEXT_PUBLIC_DOCS_URL: process.env.NEXT_PUBLIC_DOCS_URL ?? "https://docs.agentcomms.dev",
+      NEXT_PUBLIC_DOCS_URL: process.env.NEXT_PUBLIC_DOCS_URL ?? "https://agentcomms-docs.vercel.app",
       NEXT_PUBLIC_PRODUCT_VERSION: productVersion,
-      NEXT_PUBLIC_SITE_URL: process.env.NEXT_PUBLIC_SITE_URL ?? "https://agentcomms.dev"
+      NEXT_PUBLIC_SITE_URL: process.env.NEXT_PUBLIC_SITE_URL ?? "https://agentcomms-cli.vercel.app"
     },
     images: { unoptimized: true },
     output: "export",

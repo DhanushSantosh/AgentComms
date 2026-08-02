@@ -4,8 +4,8 @@ import sitemap from "@astrojs/sitemap";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-const site = process.env.DOCS_SITE_URL ?? "https://docs.agentcomms.dev";
-const marketingSite = process.env.PUBLIC_MARKETING_SITE_URL ?? "https://agentcomms.dev";
+const site = process.env.DOCS_SITE_URL ?? "https://agentcomms-docs.vercel.app";
+const marketingSite = process.env.PUBLIC_MARKETING_SITE_URL ?? "https://agentcomms-cli.vercel.app";
 const repositoryRoot = fileURLToPath(new URL("../..", import.meta.url));
 
 function gitOutput(arguments_) {
