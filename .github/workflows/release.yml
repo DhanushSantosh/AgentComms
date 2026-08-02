@@ -48,12 +48,12 @@ jobs:
           prerelease: ${{ contains(github.ref_name, 'preview') || contains(github.ref_name, 'rc') }}
           generate_release_notes: true
           files: |
-            dist/agent-comms-windows-amd64.exe
-            dist/agent-comms-windows-arm64.exe
-            dist/agent-comms-linux-amd64
-            dist/agent-comms-linux-arm64
-            dist/agent-comms-darwin-amd64
-            dist/agent-comms-darwin-arm64
+            dist/agent-comms-windows-amd64.exe*
+            dist/agent-comms-windows-arm64.exe*
+            dist/agent-comms-linux-amd64*
+            dist/agent-comms-linux-arm64*
+            dist/agent-comms-darwin-amd64*
+            dist/agent-comms-darwin-arm64*
             dist/agent-comms-daemon-*
             dist/agent-comms-server-*
             dist/checksums.txt
