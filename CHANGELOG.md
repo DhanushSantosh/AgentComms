@@ -5,6 +5,28 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-08-02 — “The Missing Bundle”
+
+*A hotfix restoring the Cosign-signed installer bundles that v0.2.0's CLI
+release was missing, so `install.sh`/`install.ps1` work again.*
+
+**Fixed**
+- The published release was missing the Cosign `.bundle` file for every
+  primary CLI binary — the documented installers fail closed without it.
+
+Full technical detail is below and in [CHANGELOG.md](https://github.com/DhanushSantosh/AgentComms/blob/main/CHANGELOG.md).
+
+### Fixed
+
+- The published release was missing the Cosign `.bundle` file for every
+  primary CLI binary (`agent-comms-{os}-{arch}[.exe]`) — `install.sh` and
+  `install.ps1` both require that exact file and fail closed without it,
+  so a fresh install of v0.2.0's CLI never worked. The daemon and server
+  binaries were unaffected (their release-asset wildcards happened to
+  sweep the bundle in); Cosign was already signing the CLI bundles too,
+  they simply were never attached to the release. This release re-cuts
+  the same source with the release workflow's asset list corrected.
+
 ## [0.2.0] - 2026-07-31 — “Chain of Custody”
 
 *A managed-lifecycle and security-hardening release: safer credential
