@@ -1,10 +1,23 @@
 import { BrandMark } from "@/components/BrandMark";
 
-type SiteHeaderProperties = {
-  documentationUrl: string;
+export type SiteHeaderNavItem = {
+  label: string;
+  href: string;
 };
 
-export function SiteHeader({ documentationUrl }: SiteHeaderProperties) {
+type SiteHeaderProperties = {
+  documentationUrl: string;
+  navItems?: readonly SiteHeaderNavItem[];
+};
+
+const defaultNavItems: readonly SiteHeaderNavItem[] = [
+  { label: "Collision control", href: "/#collision" },
+  { label: "Protocol", href: "/#protocol" },
+  { label: "Agent relay", href: "/#relay" },
+  { label: "Control room", href: "/#control" }
+];
+
+export function SiteHeader({ documentationUrl, navItems = defaultNavItems }: SiteHeaderProperties) {
   return (
     <header className="site-header" data-site-header>
       <a className="brand" href="/" aria-label="Agent Comms home">
@@ -28,10 +41,9 @@ export function SiteHeader({ documentationUrl }: SiteHeaderProperties) {
         aria-label="Primary navigation"
         data-site-navigation
       >
-        <a href="/#collision">Collision control</a>
-        <a href="/#protocol">Protocol</a>
-        <a href="/#relay">Agent relay</a>
-        <a href="/#control">Control room</a>
+        {navItems.map((item) => (
+          <a key={item.href} href={item.href}>{item.label}</a>
+        ))}
         <a href={documentationUrl}>Docs</a>
       </nav>
     </header>

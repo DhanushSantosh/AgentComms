@@ -22,11 +22,17 @@ export const metadata: Metadata = {
   twitter: { card: "summary_large_image", title: pageTitle, description: pageDescription, images: ["/social-card.svg"] }
 };
 
+const downloadNavItems = [
+  { label: "Installers", href: "#installer" },
+  { label: "Nightly", href: "#nightly" },
+  { label: "Releases", href: "#releases" }
+];
+
 export default function DownloadPage() {
   return (
     <>
       <a className="skip-link" href="#installer">Skip to installer</a>
-      <SiteHeader documentationUrl={site.documentationUrl} />
+      <SiteHeader documentationUrl={site.documentationUrl} navItems={downloadNavItems} />
 
       <main className={styles.page} id="main-content">
         <section className={styles.downloadDesk}>
