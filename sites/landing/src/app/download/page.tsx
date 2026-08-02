@@ -158,6 +158,7 @@ export default function DownloadPage() {
           <a href={documentationPage("/start/install/")}><span>Installation guide</span><i>Paths and prerequisites</i><b>↗</b></a>
           <a href={downloadRelease.allReleasesUrl}><span>All releases</span><i>Channels and history</i><b>↗</b></a>
           <a href={downloadRelease.sourceUrl}><span>Release source</span><i>Inspect the tagged code</i><b>↗</b></a>
+          <a href={documentationPage("/security/releases/#nightly-builds-developers-not-for-regular-use")}><span>Nightly builds</span><i>Unstable, for developers only</i><b>↗</b></a>
         </nav>
       </main>
 
