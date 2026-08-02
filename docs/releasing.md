@@ -73,7 +73,15 @@ If delaying validation would cause material harm, a release/security maintainer 
 
 A separate, developer-only channel from everything above -- not to be confused with **Beta**, which before v1.0 is what every real tagged release (`v0.1.0`, `v0.2.0`, ...) already is, and which regular users install via `install.sh`/`install.ps1`. Nightly is for developers sanity-checking `dev`'s current state, not for people who want to use the app.
 
-`nightly.yml` builds an unstable snapshot straight from `dev`'s latest commit once a day (or on demand via `workflow_dispatch`), gated only on its own `deep-test` job passing -- no CHANGELOG entry, no PR, no protected `release` environment approval. Uploaded as a workflow artifact (Actions tab, 7-day retention), not a GitHub Release: a Release would sit in the same list real tagged releases do, sorted by publish date, and be easy to mistake for one. Binaries are still Cosign-signed with full provenance attestation and independently verifiable the same way real releases are -- they're just not wired into `install.sh`/`install.ps1`, which always install the latest real release. Nightly builds report their version as `0.0.0-nightly` so they're never mistaken for a numbered release.
+`nightly.yml` builds an unstable snapshot straight from `dev`'s latest commit once a day (or on demand via `workflow_dispatch`), gated only on its own `deep-test` job passing -- no CHANGELOG entry, no PR, no protected `release` environment approval. Published as a public OCI artifact to GitHub Container Registry rather than a GitHub Release: a Release would sit in the same list real tagged releases do, sorted by publish date, and be easy to mistake for one. Binaries are still Cosign-signed with full provenance attestation and independently verifiable the same way real releases are -- they're just not wired into `install.sh`/`install.ps1`, which always install the latest real release. Nightly builds report their version as `0.0.0-nightly` so they're never mistaken for a numbered release.
+
+Pull the latest nightly build with [`oras`](https://oras.land) -- no login required, the package is public:
+
+```sh
+oras pull ghcr.io/dhanushsantosh/agentcomms-nightly:latest
+```
+
+The `:latest` tag is overwritten every run; this is a rolling snapshot, not a version. **One-time setup note for maintainers:** the first push creates the GHCR package, which may default to private -- verify it's set to Public under [github.com/DhanushSantosh?tab=packages](https://github.com/DhanushSantosh?tab=packages) → `agentcomms-nightly` → Package settings after the first run, or the pull command above will fail for anyone without registry access.
 
 ## Support
 

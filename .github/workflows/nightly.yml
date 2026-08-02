@@ -35,11 +35,15 @@ jobs:
   # straight from dev's latest commit for developers to sanity-check
   # current work, gated only on deep-test passing -- no CHANGELOG
   # requirement, no protected `release` environment approval, since this is
-  # explicitly not a real numbered version. Uploaded as a workflow artifact,
-  # not a GitHub Release -- a Release would sit in the same list real
-  # tagged releases do (sorted by publish date, easy to mistake for one);
-  # an artifact lives under the Actions tab instead and auto-expires, never
-  # touching release history or the v* tag-protection ruleset.
+  # explicitly not a real numbered version. Pushed as a public OCI artifact
+  # to GHCR (ghcr.io/<owner>/agentcomms-nightly:latest), not a GitHub
+  # Release -- a Release would sit in the same list real tagged releases do
+  # (sorted by publish date, easy to mistake for one) and an Actions
+  # artifact needs a GitHub login to fetch at all. A public GHCR package is
+  # pullable with a single unauthenticated `oras pull`, closest to
+  # install.sh's ergonomics this channel should have. The `:latest` tag is
+  # overwritten every run -- ordinary registry behavior, not subject to the
+  # git-level v* tag-protection ruleset real release tags have.
   publish-nightly:
     needs: deep-test
     runs-on: ubuntu-latest
@@ -47,11 +51,13 @@ jobs:
     permissions:
       id-token: write
       attestations: write
+      packages: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with: {go-version: '1.26.5', cache: true}
       - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2.0.1
       - name: Build and sign nightly binaries
         shell: bash
         run: |
@@ -71,9 +77,17 @@ jobs:
         with: {path: dist, format: spdx-json, output-file: dist/sbom.spdx.json}
       - uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
         with: {subject-path: 'dist/agent-comms-*'}
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: agent-comms-nightly
-          path: dist
-          retention-days: 7
-          if-no-files-found: error
+      - name: Push nightly artifact to GHCR
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          owner="$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')"
+          echo "$GH_TOKEN" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          cd dist
+          oras push "ghcr.io/${owner}/agentcomms-nightly:latest" \
+            --annotation "org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
+            --annotation "org.opencontainers.image.revision=${GITHUB_SHA}" \
+            --annotation "org.opencontainers.image.description=Unstable nightly build from dev -- not a numbered release, not for regular users" \
+            *
