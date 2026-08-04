@@ -695,13 +695,23 @@ func (m Model) renderSidebar(p palette, w, h int) (view string, hubLine []int) {
 	return lipgloss.NewStyle().Width(w).Height(h).Padding(1).Background(p.ink).Foreground(p.text).Render(strings.Join(rows, "\n")), hubLine
 }
 func (m Model) renderBody(p palette, w, h int) string {
+	// contentW, not w: meta/tabs render inside pane's own Padding(1, 2)
+	// below, whose actual usable width is w-4 (2 columns of padding each
+	// side), not the outer w. Sizing them to w made the tabs bar's
+	// border-bottom line exactly 4 columns too wide for that inner box,
+	// silently wrapping it onto an extra line and shifting the header and
+	// everything below it down by one row -- confirmed live via a click
+	// landing one row above the domain it should have selected in Project
+	// settings. bodyPrefixHeight (mouse.go) mirrors this exact width so
+	// its line-counting and the real render can never disagree again.
+	_, _, contentW, contentH := m.bodyLayout()
 	title := views[m.view]
 	if title == "Overview" {
 		title = "PROJECT CONTROL"
 	}
 	header := lipgloss.NewStyle().Foreground(p.text).Bold(true).Render(title)
-	meta := m.commandRail(p, w)
-	tabs, _ := m.renderHubTabs(p, w)
+	meta := m.commandRail(p, contentW)
+	tabs, _ := m.renderHubTabs(p, contentW)
 	pane := lipgloss.NewStyle().Width(w).Height(h).Padding(1, 2).Background(p.panel).Foreground(p.text)
 	if m.form != "" {
 		content := m.renderForm(p)
@@ -711,7 +721,6 @@ func (m Model) renderBody(p palette, w, h int) string {
 		content := m.renderConfirm(p)
 		return pane.Render(meta + "\n" + tabs + "\n\n" + header + "\n\n" + content)
 	}
-	_, _, contentW, contentH := m.bodyLayout()
 	wrap := lipgloss.NewStyle().MaxWidth(contentW)
 	content := ""
 	bodyContent := ""

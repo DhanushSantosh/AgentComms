@@ -46,10 +46,16 @@ func (m *Model) syncActiveRowListDimensions() {
 // rail, the hub tabs, and the section header -- for the view active right
 // now. Recomputed fresh from the same model fields renderBody itself uses
 // (there's no other way: View() cannot persist layout metrics for the
-// Update() call that handles a click to read back).
-func (m Model) bodyPrefixHeight(p palette, paneW int) int {
-	meta := m.commandRail(p, paneW)
-	tabs, _ := m.renderHubTabs(p, paneW)
+// Update() call that handles a click to read back). Takes no width
+// parameter deliberately: meta/tabs render at contentW (renderBody's own
+// inner width, w-4 for pane's Padding(1, 2)), never the outer paneW --
+// passing the wrong one here was the exact bug behind an inaccurate
+// settings click, so this owns computing it correctly rather than trusting
+// each caller to pass the right one.
+func (m Model) bodyPrefixHeight(p palette) int {
+	_, _, contentW, _ := m.bodyLayout()
+	meta := m.commandRail(p, contentW)
+	tabs, _ := m.renderHubTabs(p, contentW)
 	title := views[m.view]
 	if title == "Overview" {
 		title = "PROJECT CONTROL"
@@ -63,8 +69,8 @@ func (m Model) bodyPrefixHeight(p palette, paneW int) int {
 // above the first data row -- accounting for whichever per-view content
 // (agentControlBar, invocationControlBar) renders before it.
 func (m Model) rowTableTopY(p palette) int {
-	paneW, _, contentW, _ := m.bodyLayout()
-	top := m.bodyPrefixHeight(p, paneW)
+	_, _, contentW, _ := m.bodyLayout()
+	top := m.bodyPrefixHeight(p)
 	switch views[m.view] {
 	case "Agents":
 		top += lipgloss.Height(m.agentControlBar(p, contentW)) + 2
@@ -124,8 +130,7 @@ func (m Model) formFieldAtY(p palette, y int) (field int, ok bool) {
 	if len(m.inputs) == 0 {
 		return 0, false
 	}
-	paneW, _, _, _ := m.bodyLayout()
-	top := m.bodyPrefixHeight(p, paneW)
+	top := m.bodyPrefixHeight(p)
 	rows, fieldLine := m.formRows(p)
 	maxW := m.formMaxWidth()
 	measure := lipgloss.NewStyle().MaxWidth(maxW)
@@ -152,14 +157,13 @@ func (m Model) confirmChoiceAt(p palette, x, y int) (yes, ok bool) {
 	if m.confirm == nil {
 		return false, false
 	}
-	paneW, _, _, _ := m.bodyLayout()
 	rows := []string{
 		lipgloss.NewStyle().Foreground(p.amber).Bold(true).Render("REVIEW / Signed change"),
 		m.confirm.prompt,
 		"",
 		lipgloss.NewStyle().Foreground(p.muted).Render("This action becomes part of project history."),
 	}
-	line := m.bodyPrefixHeight(p, paneW)
+	line := m.bodyPrefixHeight(p)
 	for _, row := range rows {
 		line += lipgloss.Height(row)
 	}
@@ -190,13 +194,13 @@ func (m Model) confirmChoiceAt(p palette, x, y int) (yes, ok bool) {
 // own column ranges (renderHubTabs's tabRange, recomputed fresh here for
 // the same reason sidebarHubAt and rowAtY do).
 func (m Model) hubTabAt(p palette, x, y int) (view string, ok bool) {
-	paneW, _, _, _ := m.bodyLayout()
-	meta := m.commandRail(p, paneW)
+	_, _, contentW, _ := m.bodyLayout()
+	meta := m.commandRail(p, contentW)
 	top := 1 + lipgloss.Height(meta) // pane's own top padding, then the command rail
 	if y != top {
 		return "", false
 	}
-	_, tabRange := m.renderHubTabs(p, paneW)
+	_, tabRange := m.renderHubTabs(p, contentW)
 	relativeX := x - m.sidebarWidth() - 1 // sidebar + JoinHorizontal's " " separator
 	hub := navigationHubs[m.activeHubIndex()]
 	for i, r := range tabRange {
@@ -216,7 +220,7 @@ func (m Model) hubTabAt(p palette, x, y int) (view string, ok bool) {
 // blank, then two rows per domain) so this can never drift from what's
 // actually on screen.
 func (m Model) settingsSectionAt(p palette, x, y int) (index int, ok bool) {
-	paneW, _, contentW, _ := m.bodyLayout()
+	_, _, contentW, _ := m.bodyLayout()
 	if contentW < 72 {
 		return 0, false
 	}
@@ -225,7 +229,7 @@ func (m Model) settingsSectionAt(p palette, x, y int) (index int, ok bool) {
 	if x < left || x >= left+domainWidth {
 		return 0, false
 	}
-	top := m.bodyPrefixHeight(p, paneW)
+	top := m.bodyPrefixHeight(p)
 	relative := y - top - 4 // border(1) + padding(1) + title(1) + blank(1)
 	if relative < 0 || relative%2 != 0 {
 		return 0, false

@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -890,5 +891,48 @@ func TestFileWatchTriggersRefresh(t *testing.T) {
 	mm := next.(Model)
 	if _, ok := mm.state.Tasks["task-1"]; !ok {
 		t.Fatal("state was not refreshed after the file-watch event")
+	}
+}
+
+// TestBodyPrefixMatchesActualRender is the regression test for a real,
+// pre-existing bug found while chasing an inaccurate settings click:
+// commandRail and renderHubTabs were sized to the body pane's OUTER width,
+// but render inside its Padding(1, 2), whose usable inner width is 4
+// columns narrower -- wide enough to make the tabs bar's border-bottom
+// line wrap onto an extra line, silently shifting every row below it (the
+// header, and everything in the actual view) down by one. Renders a real
+// screen and asserts bodyPrefixHeight's line count agrees with where the
+// header text is actually found, rather than trusting the two formulas to
+// stay in sync by inspection alone.
+func TestBodyPrefixMatchesActualRender(t *testing.T) {
+	s := newTestService(t)
+	m, e := New(s, "owner")
+	if e != nil {
+		t.Fatal(e)
+	}
+	m.width, m.height = 140, 38
+	for index, name := range views {
+		if name == "Project settings" {
+			m.view, m.cursor = index, index
+		}
+	}
+	m.focusCurrentView()
+
+	full := m.View().Content
+	lines := strings.Split(full, "\n")
+	p := colors(m.highContrast)
+	predicted := m.bodyPrefixHeight(p)
+	if predicted <= 0 || predicted >= len(lines) {
+		t.Fatalf("bodyPrefixHeight returned an out-of-range %d", predicted)
+	}
+	// The header text ("Project settings", bold) is the last thing
+	// bodyPrefixHeight accounts for, two lines above where it says content
+	// begins (predicted-1 is the blank line "\n\n" leaves between them) --
+	// it must appear there and nowhere else nearby, or the two have
+	// drifted again.
+	headerLine := predicted - 2
+	if !strings.Contains(lines[headerLine], "Project settings") {
+		t.Fatalf("expected the header at predicted line %d, got %q (surrounding: %q / %q)",
+			headerLine, lines[headerLine], lines[max(0, headerLine-1)], lines[min(len(lines)-1, headerLine+1)])
 	}
 }
