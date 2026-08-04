@@ -65,17 +65,23 @@ func (m Model) bodyPrefixHeight(p palette) int {
 }
 
 // rowTableTopY returns the absolute screen row where the active row list's
-// table.Model.View() output begins -- i.e. the table's own header row, one
-// above the first data row -- accounting for whichever per-view content
-// (agentControlBar, invocationControlBar) renders before it.
+// own header row renders -- one above the first data row -- accounting
+// for whichever per-view content (agentControlBar, invocationControlBar)
+// renders before it. The "+1", not "+2", after each control bar's height
+// is deliberate: bodyContent joins them with "\n\n", and a double newline
+// between two strings that don't already end in one contributes exactly
+// one blank line, not two -- getting this wrong here was the exact bug
+// behind a real click landing one row below the row it should have
+// selected, confirmed by rendering a real Agents screen and comparing
+// byte-for-byte against this formula's prediction.
 func (m Model) rowTableTopY(p palette) int {
 	_, _, contentW, _ := m.bodyLayout()
 	top := m.bodyPrefixHeight(p)
 	switch views[m.view] {
 	case "Agents":
-		top += lipgloss.Height(m.agentControlBar(p, contentW)) + 2
+		top += lipgloss.Height(m.agentControlBar(p, contentW)) + 1
 	case "Invocations":
-		top += lipgloss.Height(m.invocationControlBar(p, contentW)) + 2
+		top += lipgloss.Height(m.invocationControlBar(p, contentW)) + 1
 	}
 	return top
 }

@@ -936,3 +936,39 @@ func TestBodyPrefixMatchesActualRender(t *testing.T) {
 			headerLine, lines[headerLine], lines[max(0, headerLine-1)], lines[min(len(lines)-1, headerLine+1)])
 	}
 }
+
+// TestRowTableTopYMatchesActualRender is the regression test for a second,
+// distinct off-by-one found while still chasing an inaccurate click on the
+// Agents table: rowTableTopY added "+2" for the blank line bodyContent's
+// "\n\n" leaves between the control bar and the table, but joining two
+// strings that don't already end in "\n" with "\n\n" only ever contributes
+// one blank line, not two -- the same miscount TestBodyPrefixMatchesActualRender
+// exists to catch, just in a different formula. Renders a real Agents
+// screen and asserts rowTableTopY's prediction agrees with where the
+// table's own header row actually is, rather than trusting the formula by
+// inspection alone.
+func TestRowTableTopYMatchesActualRender(t *testing.T) {
+	s := newTestService(t)
+	registerAgent(t, s, "alpha", model.RoleAgent, "src")
+
+	m, e := New(s, "owner")
+	if e != nil {
+		t.Fatal(e)
+	}
+	m = enterAgentsView(t, m)
+
+	full := m.View().Content
+	lines := strings.Split(full, "\n")
+	p := colors(m.highContrast)
+	predicted := m.rowTableTopY(p)
+	if predicted <= 0 || predicted >= len(lines) {
+		t.Fatalf("rowTableTopY returned an out-of-range %d", predicted)
+	}
+	if !strings.Contains(lines[predicted], "STATE") || !strings.Contains(lines[predicted], "PRINCIPAL") {
+		t.Fatalf("expected the table header at predicted line %d, got %q (surrounding: %q / %q)",
+			predicted, lines[predicted], lines[max(0, predicted-1)], lines[min(len(lines)-1, predicted+1)])
+	}
+	if row, ok := m.rowAtY(p, predicted+1); !ok || row != 0 {
+		t.Fatalf("expected the line right after the header (y=%d) to resolve to row 0, got row=%d ok=%v", predicted+1, row, ok)
+	}
+}
