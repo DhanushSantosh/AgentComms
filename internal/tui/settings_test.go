@@ -87,6 +87,59 @@ func TestSettingsSectionClickAndDoubleClick(t *testing.T) {
 	}
 }
 
+// TestSettingsSectionClickAtNarrowWidths is the regression test for a real
+// bug: settingsSectionAt assumed a fixed layout for the domain rail --
+// "CONTROL DOMAINS" on exactly 1 line, then exactly 2 lines per domain
+// (its name, then a blank) -- but domainWidth (projectSettings) has its
+// own floor of 18, hit by any contentW from 72 up to just under 96 (an
+// entirely ordinary window size, not some extreme edge case). At that
+// floor, the interior text width left after settingsDomainRail's own
+// Border(1)+Padding(1) is only 14 columns -- too narrow for "CONTROL
+// DOMAINS" itself, or "Agents & access"/"Authority & data" with their
+// marker -- so those wrap onto a second line, and the fixed-offset
+// formula pointed at the wrong domain (or none at all) for every row
+// after the first wrap. Confirmed live: at contentW=72, every domain past
+// "Project policy" resolved to either the wrong index or nothing.
+// Iterates every domain at that exact width and asserts a click on its
+// real on-screen text selects it correctly.
+func TestSettingsSectionClickAtNarrowWidths(t *testing.T) {
+	s := newTestService(t)
+	m, e := New(s, "owner")
+	if e != nil {
+		t.Fatal(e)
+	}
+	// contentW = m.width - sidebarWidth(21) - 3 - 4 = 72 here, exactly
+	// domainWidth's floor boundary -- the width this bug lived at.
+	m.width, m.height = 100, 32
+	for index, name := range views {
+		if name == "Project settings" {
+			m.view, m.cursor = index, index
+		}
+	}
+	m.focusCurrentView()
+	p := colors(m.highContrast)
+
+	for wantDomain := range settingsSections {
+		var targetX, targetY int
+		found := false
+		for y := 0; y < m.height && !found; y++ {
+			for x := 0; x < m.width; x++ {
+				if idx, ok := m.settingsSectionAt(p, x, y); ok && idx == wantDomain {
+					targetX, targetY, found = x, y, true
+					break
+				}
+			}
+		}
+		if !found {
+			t.Fatalf("domain %d: could not find its clickable position at width 100", wantDomain)
+		}
+		clicked := pressMsg(t, m, click(targetX, targetY))
+		if clicked.settingsCursor != wantDomain {
+			t.Fatalf("domain %d: click at (%d,%d) selected domain %d instead", wantDomain, targetX, targetY, clicked.settingsCursor)
+		}
+	}
+}
+
 func TestSettingsWheelScrollsDomainSelection(t *testing.T) {
 	s := newTestService(t)
 	m, e := New(s, "owner")

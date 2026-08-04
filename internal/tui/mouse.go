@@ -222,9 +222,20 @@ func (m Model) hubTabAt(p palette, x, y int) (view string, ok bool) {
 // entirely -- including when the rail isn't even rendered, below
 // settings.go's own 72-column threshold where projectSettings falls back
 // to showing only the current domain's name, with no list to click.
-// Mirrors settingsDomainRail's exact layout (border, padding, title,
-// blank, then two rows per domain) so this can never drift from what's
-// actually on screen.
+//
+// Measures each row's real rendered height with lipgloss.Height() rather
+// than assuming "title is 1 line, every domain is exactly 2 lines
+// (name + blank)" -- that assumption only held at a wide enough
+// domainWidth. At domainWidth's own floor of 18 (hit by any contentW from
+// 72 up to just under 96 -- an entirely ordinary window size, not some
+// extreme edge case), the interior text width left after
+// settingsDomainRail's Border(1)+Padding(1) is only 14 columns, too narrow
+// for "Agents & access" or "Authority & data" (18 columns with their
+// marker) or even "CONTROL DOMAINS" itself (15 columns) -- all three wrap
+// onto a second line there, and the fixed-offset formula silently pointed
+// at the wrong domain, or none, for every row after the first wrap.
+// Confirmed live: at contentW=72 every domain past "Project policy"
+// resolved to the wrong index or nothing at all.
 func (m Model) settingsSectionAt(p palette, x, y int) (index int, ok bool) {
 	_, _, contentW, _ := m.bodyLayout()
 	if contentW < 72 {
@@ -235,16 +246,22 @@ func (m Model) settingsSectionAt(p palette, x, y int) (index int, ok bool) {
 	if x < left || x >= left+domainWidth {
 		return 0, false
 	}
-	top := m.bodyPrefixHeight(p)
-	relative := y - top - 4 // border(1) + padding(1) + title(1) + blank(1)
-	if relative < 0 || relative%2 != 0 {
-		return 0, false
+	innerW := max(1, domainWidth-4) // Border(1) + Padding(1), each side
+	measure := lipgloss.NewStyle().Width(innerW)
+	line := m.bodyPrefixHeight(p) + 1 /* border top */ + 1 /* padding top */
+	line += lipgloss.Height(measure.Render("CONTROL DOMAINS")) + 1 /* blank */
+	for i, section := range settingsSections {
+		marker := "  "
+		if i == m.settingsCursor {
+			marker = "▌ "
+		}
+		rowHeight := lipgloss.Height(measure.Render(marker + section.name))
+		if y >= line && y < line+rowHeight {
+			return i, true
+		}
+		line += rowHeight + 1 // the blank line settingsDomainRail leaves after each row
 	}
-	index = relative / 2
-	if index >= len(settingsSections) {
-		return 0, false
-	}
-	return index, true
+	return 0, false
 }
 
 // sidebarHubAt translates a click's absolute screen (x, y) into a
