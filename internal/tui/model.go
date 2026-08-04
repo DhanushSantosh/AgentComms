@@ -75,6 +75,27 @@ type Model struct {
 	watcher        *fsnotify.Watcher
 	lifecycle      projectlifecycle.Plan
 	findings       []doctor.Finding
+	// lastClickX/Y/At track the previous left click's exact cell and time,
+	// purely to recognize a second click on that same cell within
+	// doubleClickWindow as a double-click (see isDoubleClick) -- bubbletea
+	// reports raw clicks with no click-count of its own.
+	lastClickX, lastClickY int
+	lastClickAt            time.Time
+}
+
+// doubleClickWindow bounds how long after a first click a second click on
+// the same cell still counts as a double-click, rather than two unrelated
+// single clicks.
+const doubleClickWindow = 500 * time.Millisecond
+
+// isDoubleClick reports whether (x, y) at now forms a double-click with
+// the immediately preceding one, and records this click as the new
+// "previous" one either way -- callers observe the double-click exactly
+// once, on the second click, never retroactively on the first.
+func (m *Model) isDoubleClick(x, y int, now time.Time) bool {
+	double := x == m.lastClickX && y == m.lastClickY && !m.lastClickAt.IsZero() && now.Sub(m.lastClickAt) <= doubleClickWindow
+	m.lastClickX, m.lastClickY, m.lastClickAt = x, y, now
+	return double
 }
 
 func New(s *service.Service, actor string) (Model, error) {
@@ -151,9 +172,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if click, ok := msg.(tea.MouseClickMsg); ok {
 		mouse := click.Mouse()
 		if mouse.Button == tea.MouseLeft {
-			if hub, ok := m.sidebarHubAt(colors(m.highContrast), mouse.X, mouse.Y); ok {
+			p := colors(m.highContrast)
+			if hub, ok := m.sidebarHubAt(p, mouse.X, mouse.Y); ok {
 				m.form, m.inputs, m.formSpec, m.confirm, m.rowFocus, m.settingsFocus = "", nil, nil, nil, false, false
 				m.openView(navigationHubs[hub].Views[0])
+				m.focusCurrentView()
+				return m, nil
+			}
+			// Same "always wins, before any mode dispatch" treatment as the
+			// sidebar above, and for the identical reason: switching tabs
+			// within the current hub has to work no matter what's currently
+			// focused, not just from plain navigation mode.
+			if view, ok := m.hubTabAt(p, mouse.X, mouse.Y); ok {
+				m.form, m.inputs, m.formSpec, m.confirm, m.rowFocus, m.settingsFocus = "", nil, nil, nil, false, false
+				m.openView(view)
 				m.focusCurrentView()
 				return m, nil
 			}
@@ -669,7 +701,7 @@ func (m Model) renderBody(p palette, w, h int) string {
 	}
 	header := lipgloss.NewStyle().Foreground(p.text).Bold(true).Render(title)
 	meta := m.commandRail(p, w)
-	tabs := m.renderHubTabs(p, w)
+	tabs, _ := m.renderHubTabs(p, w)
 	pane := lipgloss.NewStyle().Width(w).Height(h).Padding(1, 2).Background(p.panel).Foreground(p.text)
 	if m.form != "" {
 		content := m.renderForm(p)
@@ -749,20 +781,34 @@ func (m Model) commandRail(p palette, width int) string {
 		strings.Repeat(" ", gap) + lipgloss.NewStyle().Foreground(p.amber).Render(right)
 }
 
-func (m Model) renderHubTabs(p palette, width int) string {
+// renderHubTabs also returns each tab's [start, end) column range within
+// the rendered line (before the sidebar's own width is added) -- read back
+// by mouse.go's hubTabAt, recomputed fresh from the same (m, p, width) a
+// click arrived under, since View() has no way to hand this to the
+// Update() call that handles the click.
+func (m Model) renderHubTabs(p palette, width int) (view string, tabRange [][2]int) {
 	hub := navigationHubs[m.activeHubIndex()]
 	current := views[m.view]
 	tabs := make([]string, 0, len(hub.Views))
-	for _, name := range hub.Views {
+	tabRange = make([][2]int, len(hub.Views))
+	col := 0
+	for i, name := range hub.Views {
 		label := name
 		style := lipgloss.NewStyle().Foreground(p.muted).Padding(0, 1)
 		if name == current {
 			style = style.Foreground(p.ink).Background(p.cyan).Bold(true)
 		}
-		tabs = append(tabs, style.Render(label))
+		rendered := style.Render(label)
+		w := lipgloss.Width(rendered)
+		tabRange[i] = [2]int{col, col + w}
+		col += w
+		if i < len(hub.Views)-1 {
+			col++ // the " " separator strings.Join adds between tabs
+		}
+		tabs = append(tabs, rendered)
 	}
 	return lipgloss.NewStyle().Width(width).BorderBottom(true).BorderStyle(lipgloss.NormalBorder()).
-		BorderForeground(p.muted).Render(strings.Join(tabs, " "))
+		BorderForeground(p.muted).Render(strings.Join(tabs, " ")), tabRange
 }
 // formMaxWidth is the width constraint renderForm's final Render applies --
 // shared with formFieldLines so a standalone lipgloss.Height measurement of

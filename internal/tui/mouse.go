@@ -49,7 +49,7 @@ func (m *Model) syncActiveRowListDimensions() {
 // Update() call that handles a click to read back).
 func (m Model) bodyPrefixHeight(p palette, paneW int) int {
 	meta := m.commandRail(p, paneW)
-	tabs := m.renderHubTabs(p, paneW)
+	tabs, _ := m.renderHubTabs(p, paneW)
 	title := views[m.view]
 	if title == "Overview" {
 		title = "PROJECT CONTROL"
@@ -182,6 +182,29 @@ func (m Model) confirmChoiceAt(p palette, x, y int) (yes, ok bool) {
 		return false, true
 	}
 	return false, false
+}
+
+// hubTabAt translates a click's absolute screen (x, y) into a view name
+// from the current hub's tab bar, or ok=false if the click missed it --
+// the row directly below the command rail, within one of the tab labels'
+// own column ranges (renderHubTabs's tabRange, recomputed fresh here for
+// the same reason sidebarHubAt and rowAtY do).
+func (m Model) hubTabAt(p palette, x, y int) (view string, ok bool) {
+	paneW, _, _, _ := m.bodyLayout()
+	meta := m.commandRail(p, paneW)
+	top := 1 + lipgloss.Height(meta) // pane's own top padding, then the command rail
+	if y != top {
+		return "", false
+	}
+	_, tabRange := m.renderHubTabs(p, paneW)
+	relativeX := x - m.sidebarWidth() - 1 // sidebar + JoinHorizontal's " " separator
+	hub := navigationHubs[m.activeHubIndex()]
+	for i, r := range tabRange {
+		if relativeX >= r[0] && relativeX < r[1] {
+			return hub.Views[i], true
+		}
+	}
+	return "", false
 }
 
 // sidebarHubAt translates a click's absolute screen (x, y) into a

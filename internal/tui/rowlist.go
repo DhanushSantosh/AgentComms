@@ -2,6 +2,7 @@ package tui
 
 import (
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
@@ -339,7 +340,26 @@ func (m Model) updateRowList(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if mouse.Button == tea.MouseLeft {
 			p := colors(m.highContrast)
 			if row, ok := m.rowAtY(p, mouse.Y); ok {
+				// Recorded regardless of whether this turns out to be a
+				// double-click, so a third click starts a fresh window
+				// rather than chaining into more double-clicks.
+				double := m.isDoubleClick(mouse.X, mouse.Y, time.Now())
 				list.SetCursor(row, rowCount)
+				if double {
+					id := list.SelectedID(m.state, m.actor)
+					if actions := list.Actions(id, m.state, m.actor); id != "" && len(actions) > 0 {
+						// The row's first action -- activate for a PENDING
+						// agent, suspend for an ACTIVE one, and so on --
+						// matching what "enter into it" means without a
+						// single, universal per-row default action to name.
+						// Safe to fire directly: every genuinely irreversible
+						// action here already requires either a Confirm
+						// prompt or a form (reason/passphrase) before
+						// anything is actually signed, so double-clicking
+						// never itself completes one in a single gesture.
+						return m.triggerRowAction(actions[0], id)
+					}
+				}
 			}
 		}
 		return m, nil
@@ -373,15 +393,7 @@ func (m Model) updateRowList(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if id != "" {
 			for _, act := range list.Actions(id, m.state, m.actor) {
 				if act.Key == k {
-					if act.Confirm {
-						var payload any
-						if act.Payload != nil {
-							payload = act.Payload()
-						}
-						m.confirm = &confirmState{prompt: act.prompt(id), typ: act.EventType, id: id, payload: payload, onError: act.OnError}
-						return m, nil
-					}
-					return m.dispatchRowAction(act, id)
+					return m.triggerRowAction(act, id)
 				}
 			}
 		}
@@ -535,6 +547,22 @@ func (m Model) dispatchOrchestratorApprovalChain(c confirmState) (tea.Model, tea
 	m.notice = "Requested, approved, and granted Orchestrator to " + c.id
 	m.refresh()
 	return m, nil
+}
+// triggerRowAction runs act against id exactly as pressing its own key
+// would: a Confirm action opens its prompt, everything else goes through
+// dispatchRowAction. Shared by the keyboard action lookup above and
+// double-click's "open this row's primary action" so the two can never
+// diverge in what a given action actually does.
+func (m Model) triggerRowAction(act RowAction, id string) (tea.Model, tea.Cmd) {
+	if act.Confirm {
+		var payload any
+		if act.Payload != nil {
+			payload = act.Payload()
+		}
+		m.confirm = &confirmState{prompt: act.prompt(id), typ: act.EventType, id: id, payload: payload, onError: act.OnError}
+		return m, nil
+	}
+	return m.dispatchRowAction(act, id)
 }
 func (m Model) dispatchRowAction(act RowAction, id string) (tea.Model, tea.Cmd) {
 	if act.Form != nil {

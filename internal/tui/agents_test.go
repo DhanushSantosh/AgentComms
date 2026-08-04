@@ -229,6 +229,110 @@ func TestRowListCursorAlwaysStaysVisibleWhileScrolling(t *testing.T) {
 	}
 }
 
+// TestDoubleClickRowTriggersFirstAction proves a double-click on a row
+// runs its first available action (activate, for a PENDING agent) -- and
+// that a single click, or two clicks far enough apart, does not.
+func TestDoubleClickRowTriggersFirstAction(t *testing.T) {
+	s := newTestService(t)
+	if _, e := s.Register("candidate", "candidate", model.PrincipalAgent); e != nil {
+		t.Fatal(e)
+	}
+
+	m, e := New(s, "owner")
+	if e != nil {
+		t.Fatal(e)
+	}
+	m = enterAgentsView(t, m)
+
+	p := colors(m.highContrast)
+	var targetX, targetY int
+	found := false
+	for y := 0; y < m.height && !found; y++ {
+		for x := m.sidebarWidth(); x < m.width; x++ {
+			if row, ok := m.rowAtY(p, y); ok && row == 0 {
+				targetX, targetY, found = x, y, true
+				break
+			}
+		}
+	}
+	if !found {
+		t.Fatal("could not find the row's clickable position")
+	}
+
+	m = pressMsg(t, m, click(targetX, targetY))
+	if m.form != "" {
+		t.Fatalf("a single click should not open a form, got %q", m.form)
+	}
+
+	m = pressMsg(t, m, click(targetX, targetY))
+	if m.form != "agent.activate" {
+		t.Fatalf("expected double-click to open the activate form (candidate's first action), got form=%q", m.form)
+	}
+}
+
+// TestDoubleClickRequiresTheSameCellWithinTheWindow guards against
+// over-triggering: two clicks on DIFFERENT rows, or the same row far
+// enough apart in time, must not be treated as a double-click.
+func TestDoubleClickRequiresTheSameCellWithinTheWindow(t *testing.T) {
+	s := newTestService(t)
+	if _, e := s.Register("candidate", "candidate", model.PrincipalAgent); e != nil {
+		t.Fatal(e)
+	}
+
+	m, e := New(s, "owner")
+	if e != nil {
+		t.Fatal(e)
+	}
+	if m.isDoubleClick(5, 5, time.Now()) {
+		t.Fatal("a first-ever click must never be a double-click")
+	}
+	if m.isDoubleClick(6, 5, time.Now()) {
+		t.Fatal("a click on a different cell must not count as a double-click")
+	}
+	if m.isDoubleClick(6, 5, time.Now().Add(doubleClickWindow+time.Millisecond)) {
+		t.Fatal("a click on the same cell past the window must not count as a double-click")
+	}
+	if !m.isDoubleClick(6, 5, time.Now()) {
+		t.Fatal("a click on the same cell within the window should count as a double-click")
+	}
+}
+
+// TestHubTabClickSwitchesView proves clicking a tab in the current hub's
+// tab bar switches to and focuses that view -- the gap reported live right
+// after the sidebar-click fix ("not the other tabs").
+func TestHubTabClickSwitchesView(t *testing.T) {
+	s := newTestService(t)
+	registerAgent(t, s, "builder", model.RoleAgent, "src")
+
+	m, e := New(s, "owner")
+	if e != nil {
+		t.Fatal(e)
+	}
+	// Command hub's views are Overview, My work, Blockers, Approvals --
+	// start on Overview (the hub's default) and click the "Approvals" tab.
+	p := colors(m.highContrast)
+	var targetX, targetY int
+	found := false
+	for y := 0; y < m.height && !found; y++ {
+		for x := 0; x < m.width; x++ {
+			if view, ok := m.hubTabAt(p, x, y); ok && view == "Approvals" {
+				targetX, targetY, found = x, y, true
+				break
+			}
+		}
+	}
+	if !found {
+		t.Fatal("could not find the Approvals tab's clickable position")
+	}
+	m = pressMsg(t, m, click(targetX, targetY))
+	if views[m.view] != "Approvals" {
+		t.Fatalf("expected clicking the Approvals tab to open it, got %q", views[m.view])
+	}
+	if !m.rowFocus {
+		t.Fatal("expected clicking a tab to enter row focus, matching Enter's behavior")
+	}
+}
+
 // TestSidebarClickOpensAndFocusesHub proves clicking a hub name in the
 // sidebar both switches to its first view and enters row-focus, matching
 // arrow-navigation-then-Enter's combined effect.
