@@ -27,18 +27,6 @@ one is picked up, remove it from here and note the landing commit.
   restricted further, to avoid breaking legitimate managerial renaming.
   Revisit if it's ever actually exploited.
 
-## Elevated key / TUI
-
-- **No TUI passphrase-entry UI.** Once a HUMAN principal registers an
-  elevated key (`agent elevate-key`), completing an orchestrator grant or
-  HUMAN-tier approval from the TUI now refuses cleanly with a "run this
-  from the CLI instead" error (fixed — see `internal/app/passphrase.go`'s
-  `nonInteractivePassphrasePrompt`), rather than risking a hang racing
-  bubbletea's own raw-mode stdin reader. But that's a safety fix, not the
-  real UX: building an actual masked-password bubbletea form so this can be
-  completed in-TUI is still open. Same shape as the RFC 0011 TUI
-  confirmation-flow gap below, and could reasonably be solved together.
-
 ## Test / CI infrastructure
 
 - **Postgres-backend authorization logic doesn't run in CI.**

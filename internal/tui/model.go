@@ -449,15 +449,22 @@ func (m Model) updateForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.formFocus++
 				return m, m.inputs[m.formFocus].Focus()
 			}
+			raw := make([]string, len(m.inputs))
 			values := make([]string, len(m.inputs))
 			for i := range m.inputs {
-				values[i] = strings.TrimSpace(m.inputs[i].Value())
+				raw[i] = m.inputs[i].Value()
+				values[i] = strings.TrimSpace(raw[i])
 			}
 			for i, f := range m.formSpec.Fields {
 				if f.Required && values[i] == "" {
 					m.notice = "Complete every required field."
 					return m, nil
 				}
+			}
+			passphrase := ""
+			if m.formSpec.CollectsPassphrase && len(raw) > 0 {
+				passphrase = raw[len(raw)-1]
+				values = values[:len(values)-1]
 			}
 			if m.formSpec.Dispatch != nil {
 				return m.formSpec.Dispatch(m, values)
@@ -475,11 +482,11 @@ func (m Model) updateForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.formSpec.ConfirmIf != nil {
 				if ok, prompt := m.formSpec.ConfirmIf(payload); ok {
 					m.form, m.inputs, m.formSpec = "", nil, nil
-					m.confirm = &confirmState{prompt: prompt, typ: typ, id: id, payload: payload}
+					m.confirm = &confirmState{prompt: prompt, typ: typ, id: id, payload: payload, passphrase: passphrase}
 					return m, nil
 				}
 			}
-			_, err = m.svc.Execute(m.actor, typ, id, payload)
+			_, err = m.svc.ExecuteWithPassphrase(m.actor, typ, id, payload, passphrase)
 			if err != nil {
 				m.err = err
 				return m, nil

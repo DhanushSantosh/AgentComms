@@ -407,13 +407,26 @@ func RefreshRuntimePresence(state *model.State, now time.Time) {
 }
 
 func (s *Service) Execute(actor, typ, id string, payload any) (model.Event, error) {
+	return s.ExecuteWithPassphrase(actor, typ, id, payload, "")
+}
+
+// ExecuteWithPassphrase behaves exactly like Execute, except that when the
+// transition actually requires the actor's elevated key
+// (protocol.RequiresElevatedKey) and passphrase is non-empty, that value
+// decrypts it directly instead of calling PassphrasePrompt. This lets a
+// caller that already collected the passphrase through its own UI -- the
+// TUI's masked form field, rather than a separate terminal prompt racing
+// bubbletea's raw-mode stdin -- supply it inline. An empty passphrase falls
+// back to the existing PassphrasePrompt behavior unchanged, so every
+// existing caller (CLI, MCP) is unaffected.
+func (s *Service) ExecuteWithPassphrase(actor, typ, id string, payload any, passphrase string) (model.Event, error) {
 	if s.remoteErr != nil {
 		return model.Event{}, s.remoteErr
 	}
-	return s.executeRemote(actor, typ, id, payload)
+	return s.executeRemote(actor, typ, id, payload, passphrase)
 }
 
-func (s *Service) executeRemote(actor, typ, id string, payload any) (model.Event, error) {
+func (s *Service) executeRemote(actor, typ, id string, payload any, passphrase string) (model.Event, error) {
 	cfg, err := s.Store.Config()
 	if err != nil {
 		return model.Event{}, err
@@ -422,7 +435,7 @@ func (s *Service) executeRemote(actor, typ, id string, payload any) (model.Event
 	if err != nil {
 		return model.Event{}, fmt.Errorf("credential for %s: %w", actor, err)
 	}
-	credential, err = s.elevateCredentialIfNeeded(cfg, actor, typ, id, payload, credential)
+	credential, err = s.elevateCredentialIfNeeded(cfg, actor, typ, id, payload, credential, passphrase)
 	if err != nil {
 		return model.Event{}, err
 	}
@@ -442,7 +455,7 @@ func (s *Service) executeRemote(actor, typ, id string, payload any) (model.Event
 // command still gets rejected there with an integrity error, never silently
 // accepted with weaker protection than the record calls for.
 func (s *Service) elevateCredentialIfNeeded(
-	cfg store.Config, actor, typ, id string, payload any, primary identity.Credential,
+	cfg store.Config, actor, typ, id string, payload any, primary identity.Credential, overridePassphrase string,
 ) (identity.Credential, error) {
 	if typ != "agent.activate" && typ != "approval.approve" && typ != "agent.revoke" && typ != "agent.delete" {
 		return primary, nil
@@ -470,6 +483,9 @@ func (s *Service) elevateCredentialIfNeeded(
 	}
 	if !elevated.Encrypted {
 		return elevated, nil
+	}
+	if overridePassphrase != "" {
+		return elevated.Decrypted(overridePassphrase)
 	}
 	if s.PassphrasePrompt == nil {
 		return identity.Credential{}, fmt.Errorf("%s for %s requires the elevated key, but no passphrase prompt is available in this context", typ, actor)

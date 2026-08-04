@@ -39,6 +39,29 @@ var (
 	}
 )
 
+// approveActionFor mirrors protocol.RequiresElevatedKey's approval.approve
+// branch: completing a HUMAN-tier approval needs the actor's elevated key,
+// so it gets a form with a masked passphrase field instead of the plain
+// one-keypress approve every other (ORCHESTRATOR-tier) approval uses --
+// keeping the fast path fast for the common case.
+func approveActionFor(a model.Approval) RowAction {
+	if a.Tier != "HUMAN" {
+		return appApprove
+	}
+	return RowAction{
+		Key: "y", Label: "approve", EventType: "approval.approve",
+		Form: &ActionForm{
+			Title: "Approve (HUMAN tier)",
+			Hint:  "This is a HUMAN-tier approval; completing it requires your elevated-key passphrase, if one is registered.",
+			Fields: []FormField{
+				{Label: "Elevated-key passphrase", Mask: true},
+			},
+			CollectsPassphrase: true,
+			Build:              func(v []string) (any, error) { return model.ApprovalResponse{}, nil },
+		},
+	}
+}
+
 // approvalActionsFor mirrors service.go's elevated() gate (approval.approve
 // and approval.reject both require Owner or Orchestrator role) plus the
 // HUMAN-tier check on approve (an AGENT principal can never approve a
@@ -52,7 +75,7 @@ func approvalActionsFor(a model.Approval, role model.Role, pt model.PrincipalTyp
 	}
 	var acts []RowAction
 	if a.Tier != "HUMAN" || pt == model.PrincipalHuman {
-		acts = append(acts, appApprove)
+		acts = append(acts, approveActionFor(a))
 	}
 	acts = append(acts, appReject)
 	return acts

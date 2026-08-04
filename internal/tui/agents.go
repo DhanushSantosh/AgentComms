@@ -40,12 +40,14 @@ var agentRegisterForm = &ActionForm{
 }
 var activateForm = &ActionForm{
 	Title: "Activate agent",
-	Hint:  "Assign a role, capabilities, and write scopes before this principal can act.",
+	Hint:  "Assign a role, capabilities, and write scopes before this principal can act. Granting Orchestrator additionally requires your elevated-key passphrase, if one is registered.",
 	Fields: []FormField{
 		{Label: "Role", Options: []string{"AGENT", "OBSERVER", "ORCHESTRATOR", "OWNER"}, Required: true},
 		{Label: "Capabilities (comma-separated)", Placeholder: "go,test"},
 		{Label: "Scopes (comma-separated)", Placeholder: "src"},
+		{Label: "Elevated-key passphrase (Orchestrator grants only)", Mask: true},
 	},
+	CollectsPassphrase: true,
 	Build: func(v []string) (any, error) {
 		role := strings.ToUpper(strings.TrimSpace(v[0]))
 		return model.AgentActivated{Role: model.Role(role), Capabilities: splitCSV(v[1]), Scopes: splitCSV(v[2])}, nil
@@ -141,17 +143,47 @@ var (
 		Key: "d", Label: "delete", EventType: "agent.delete",
 		Form: &ActionForm{
 			Title: "Delete revoked agent",
-			Hint:  "Permanently removes this identity from active use; its signed history remains in the event log.",
+			Hint:  "Permanently removes this identity from active use; its signed history remains in the event log. Requires your elevated-key passphrase, if one is registered.",
 			Fields: []FormField{
 				{Label: "Reason", Placeholder: "duplicate registration, decommissioned, etc.", Required: true},
+				{Label: "Elevated-key passphrase", Mask: true},
 			},
-			Build: func(v []string) (any, error) { return model.AgentDeleted{Reason: v[0]}, nil },
+			CollectsPassphrase: true,
+			Build:              func(v []string) (any, error) { return model.AgentDeleted{Reason: v[0]}, nil },
 			ConfirmIf: func(any) (bool, string) {
 				return true, "Permanently delete this revoked agent? This cannot be reversed."
 			},
 		},
 	}
 )
+
+// revokeActionFor mirrors protocol.RequiresElevatedKey's agent.revoke branch:
+// revoking a different Orchestrator or HUMAN principal needs the actor's
+// elevated key, exactly as sensitive as granting the role in the first
+// place, so it gets a form with a masked passphrase field instead of the
+// plain one-keypress confirm every other revoke uses. id == actor is never
+// elevated (self-revocation is not an escalation) and always takes the
+// plain path.
+func revokeActionFor(a model.Agent, id, actor string) RowAction {
+	if id == actor || (a.Role != model.RoleOrchestrator && a.PrincipalType != model.PrincipalHuman) {
+		return actRevoke
+	}
+	return RowAction{
+		Key: "x", Label: "revoke", EventType: "agent.revoke",
+		Form: &ActionForm{
+			Title: "Revoke agent",
+			Hint:  "This principal holds Orchestrator role or HUMAN standing, so revoking it requires your elevated-key passphrase, if one is registered.",
+			Fields: []FormField{
+				{Label: "Elevated-key passphrase", Mask: true},
+			},
+			CollectsPassphrase: true,
+			Build: func(v []string) (any, error) {
+				return model.RuntimeStatusChanged{Reason: "revoked from control room"}, nil
+			},
+			ConfirmIf: func(any) (bool, string) { return true, "Revoke " + id + "? This cannot be reversed." },
+		},
+	}
+}
 
 // agentActionsFor mirrors service.go's elevated() gate: activate, suspend,
 // rename, revoke, and delete all require the viewing actor to hold Owner or
@@ -170,13 +202,14 @@ func agentActionsFor(a model.Agent, id, actor string, role model.Role) []RowActi
 	elevated := role == model.RoleOwner || role == model.RoleOrchestrator
 	var acts []RowAction
 	if elevated {
+		revoke := revokeActionFor(a, id, actor)
 		switch a.Status {
 		case "PENDING":
-			acts = append(acts, actActivate, actRename, actRevoke)
+			acts = append(acts, actActivate, actRename, revoke)
 		case "ACTIVE":
-			acts = append(acts, actSuspend, actRename, actRevoke)
+			acts = append(acts, actSuspend, actRename, revoke)
 		case "SUSPENDED":
-			acts = append(acts, actRename, actRevoke)
+			acts = append(acts, actRename, revoke)
 		case "REVOKED":
 			acts = append(acts, actDelete)
 		}

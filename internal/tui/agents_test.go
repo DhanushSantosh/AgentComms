@@ -5,8 +5,10 @@ import (
 	"testing"
 	"time"
 
+	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
+	"github.com/DhanushSantosh/AgentComms/internal/protocol"
 )
 
 func agentLabels(acts []RowAction) []string {
@@ -92,8 +94,8 @@ func TestRegisterThenActivateAgent(t *testing.T) {
 	}
 
 	m = pressKey(t, m, keyText("a"))
-	if m.form != "agent.activate" || len(m.inputs) != 3 {
-		t.Fatalf("expected agent.activate form with 3 fields, got form=%q inputs=%d", m.form, len(m.inputs))
+	if m.form != "agent.activate" || len(m.inputs) != 4 {
+		t.Fatalf("expected agent.activate form with 4 fields, got form=%q inputs=%d", m.form, len(m.inputs))
 	}
 	m.inputs[0].SetValue("AGENT")
 	m.inputs[2].SetValue("src")
@@ -109,6 +111,82 @@ func TestRegisterThenActivateAgent(t *testing.T) {
 	}
 	if st.Agents["builder"].Status != "ACTIVE" {
 		t.Fatalf("status = %q, want ACTIVE", st.Agents["builder"].Status)
+	}
+}
+
+// TestActivateOrchestratorThroughMaskedPassphraseField is the TUI-level
+// end-to-end proof for the masked-passphrase form field: once owner has a
+// registered elevated key, granting ORCHESTRATOR must be completable
+// entirely within the TUI's own activate form -- a wrong passphrase fails
+// clearly without closing the form, and the correct one signs successfully
+// -- with s.PassphrasePrompt deliberately nil throughout the actual grant so
+// nothing but the form field itself can be supplying it.
+func TestActivateOrchestratorThroughMaskedPassphraseField(t *testing.T) {
+	s := newTestService(t)
+	if _, e := s.Register("candidate", "candidate", model.PrincipalAgent); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := s.ElevateKey("owner", "correct passphrase"); e != nil {
+		t.Fatal(e)
+	}
+
+	// Pre-approve the orchestrator grant (a separate, deliberate human step
+	// in real usage) using the elevated key directly, so the TUI portion of
+	// this test only has to exercise the activate-with-passphrase path.
+	approvalID := "candidate-orchestrator-approval"
+	s.PassphrasePrompt = func(string) (string, error) { return "correct passphrase", nil }
+	if _, e := s.Execute("owner", "approval.request", approvalID, model.ApprovalRequested{
+		Tier: "HUMAN", Action: protocol.OrchestratorGrantApprovalAction("candidate"), Reason: "test fixture",
+	}); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := s.Execute("owner", "approval.approve", approvalID, model.ApprovalResponse{}); e != nil {
+		t.Fatal(e)
+	}
+	s.PassphrasePrompt = nil
+
+	m, e := New(s, "owner")
+	if e != nil {
+		t.Fatal(e)
+	}
+	m = enterAgentsView(t, m)
+	if id := m.agentList.SelectedID(m.state, m.actor); id != "candidate" {
+		t.Fatalf("selected id = %q, want candidate", id)
+	}
+	m = pressKey(t, m, keyText("a"))
+	if m.form != "agent.activate" || len(m.inputs) != 4 {
+		t.Fatalf("expected agent.activate form with 4 fields, got form=%q inputs=%d", m.form, len(m.inputs))
+	}
+	if mode := m.inputs[3].EchoMode; mode != textinput.EchoPassword {
+		t.Fatalf("expected the passphrase field to be masked, got echo mode %v", mode)
+	}
+	m.inputs[0].SetValue("ORCHESTRATOR")
+	m.inputs[2].SetValue("src")
+	m.inputs[3].SetValue("wrong passphrase")
+	m.formFocus = len(m.inputs) - 1
+	m = pressKey(t, m, keyEnter())
+	if m.err == nil {
+		t.Fatal("expected the orchestrator grant to fail with an incorrect passphrase")
+	}
+	if m.form != "agent.activate" {
+		t.Fatalf("form should stay open after a failed passphrase, got %q", m.form)
+	}
+
+	m.inputs[3].SetValue("correct passphrase")
+	m = pressKey(t, m, keyEnter())
+	if m.err != nil {
+		t.Fatalf("expected the orchestrator grant to succeed with the correct passphrase: %v", m.err)
+	}
+	if m.form != "" {
+		t.Fatalf("activate form should have closed, got %q", m.form)
+	}
+
+	state, e := s.State()
+	if e != nil {
+		t.Fatal(e)
+	}
+	if state.Agents["candidate"].Role != model.RoleOrchestrator {
+		t.Fatalf("expected candidate to be ORCHESTRATOR, got %+v", state.Agents["candidate"])
 	}
 }
 

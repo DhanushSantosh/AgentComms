@@ -23,6 +23,10 @@ type FormField struct {
 	// it. The field's value defaults to Options[0] and can only ever be one
 	// of these strings; typed characters are ignored while it's focused.
 	Options []string
+	// Mask renders this field as a masked password input (bubbles/textinput's
+	// EchoPassword mode) instead of plain text -- for values like an
+	// elevated-key passphrase that must never echo to the screen.
+	Mask bool
 }
 type ActionForm struct {
 	Title, Hint string
@@ -31,6 +35,16 @@ type ActionForm struct {
 	ResolveID   func(fixedID string, values []string) string
 	ConfirmIf   func(payload any) (ok bool, prompt string)
 	Dispatch    func(m Model, values []string) (tea.Model, tea.Cmd)
+	// CollectsPassphrase marks this form's last field as the actor's
+	// elevated-key passphrase rather than payload data: it is stripped from
+	// values before Build/ResolveID/Dispatch ever see it, and threaded
+	// through Service.ExecuteWithPassphrase instead of Execute so a
+	// transition that actually needs the elevated key
+	// (protocol.RequiresElevatedKey) can be completed without leaving the
+	// TUI for the CLI. The stripped-out value is read from the raw,
+	// untrimmed input on submit, since a passphrase's whitespace is
+	// significant unlike every other field's.
+	CollectsPassphrase bool
 }
 type RowAction struct {
 	Key       string
@@ -58,11 +72,12 @@ type RowSource interface {
 	Actions(id string, st model.State, actor string) []RowAction
 }
 type confirmState struct {
-	prompt  string
-	typ     string
-	id      string
-	payload any
-	onError func(err error, id string) error
+	prompt     string
+	typ        string
+	id         string
+	payload    any
+	onError    func(err error, id string) error
+	passphrase string
 }
 type RowList struct {
 	table  table.Model
@@ -229,7 +244,7 @@ func (m Model) updateConfirm(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case "y", "Y", "enter":
 		c := *m.confirm
 		m.confirm = nil
-		next, cmd := m.dispatchEvent(c.typ, c.id, c.payload)
+		next, cmd := m.dispatchEventWithPassphrase(c.typ, c.id, c.payload, c.passphrase)
 		mm := next.(Model)
 		if mm.err != nil && c.onError != nil {
 			mm.err = c.onError(mm.err, c.id)
@@ -253,7 +268,10 @@ func (m Model) renderConfirm(p palette) string {
 		BorderForeground(p.amber).PaddingLeft(2).Render(strings.Join(rows, "\n"))
 }
 func (m Model) dispatchEvent(typ, id string, payload any) (tea.Model, tea.Cmd) {
-	_, err := m.svc.Execute(m.actor, typ, id, payload)
+	return m.dispatchEventWithPassphrase(typ, id, payload, "")
+}
+func (m Model) dispatchEventWithPassphrase(typ, id string, payload any, passphrase string) (tea.Model, tea.Cmd) {
+	_, err := m.svc.ExecuteWithPassphrase(m.actor, typ, id, payload, passphrase)
 	if err != nil {
 		m.err = err
 		return m, nil
@@ -287,6 +305,10 @@ func (m Model) openActionForm(spec *ActionForm, typ, id string) (tea.Model, tea.
 		input := textinput.New()
 		input.Prompt = f.Label + ": "
 		input.CharLimit = 1200
+		if f.Mask {
+			input.EchoMode = textinput.EchoPassword
+			input.EchoCharacter = '•'
+		}
 		if len(f.Options) > 0 {
 			input.SetValue(f.Options[0])
 		} else {
