@@ -468,3 +468,34 @@ func TestDeliverToPtyFailsClosedWhenTargetStaysBusy(t *testing.T) {
 		t.Fatal("deliverToPty must not have written anything while the target stayed busy")
 	}
 }
+
+// TestChildEnvironStripsClaudeSessionInheritance guards the real, live-
+// confirmed bug this fixes: Serve's wrapped child inheriting the invoking
+// Claude Code session's own CLAUDE_CODE_CHILD_SESSION/SESSION_ID/
+// BRIDGE_SESSION_ID and concluding it is itself a subordinate child,
+// disabling its own transcript persistence entirely.
+func TestChildEnvironStripsClaudeSessionInheritance(t *testing.T) {
+	t.Setenv("CLAUDE_CODE_CHILD_SESSION", "1")
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "parent-session-id")
+	t.Setenv("CLAUDE_CODE_BRIDGE_SESSION_ID", "session_parentbridge")
+	t.Setenv("SOME_UNRELATED_VAR", "keep-me")
+
+	env := childEnviron()
+	for _, kv := range env {
+		key, _, _ := strings.Cut(kv, "=")
+		for _, stripped := range claudeSessionInheritanceKeys {
+			if key == stripped {
+				t.Fatalf("expected %s to be stripped, but it was present: %s", stripped, kv)
+			}
+		}
+	}
+	found := false
+	for _, kv := range env {
+		if kv == "SOME_UNRELATED_VAR=keep-me" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("expected an unrelated environment variable to be preserved")
+	}
+}

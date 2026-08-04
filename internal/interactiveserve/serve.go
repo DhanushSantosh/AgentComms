@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -57,6 +58,44 @@ const gracePeriod = 3 * time.Second
 // special-casing needed. The signal handling here is for the other case:
 // something sends SIGINT/SIGTERM to the wrapper process itself directly.
 //
+// claudeSessionInheritanceKeys are environment variables Claude Code's own
+// CLI sets to mark "this process is a subordinate child of another live
+// session" (CLAUDE_CODE_CHILD_SESSION) and to identify that parent session
+// (CLAUDE_CODE_SESSION_ID, CLAUDE_CODE_BRIDGE_SESSION_ID). The child Serve
+// execs is meant to become a fresh, independent, top-level interactive
+// session in its own right — if Serve is invoked from inside an
+// already-running Claude Code session (an agent spinning up its own, or
+// another runtime's, interactive-serve), the wrapped `claude` process would
+// otherwise inherit these unchanged and conclude it is itself a child,
+// disabling its own transcript persistence entirely. Confirmed live: a
+// `claude` child spawned this way showed "Transcript saving is off —
+// inherited CLAUDE_CODE_CHILD_SESSION marker" in its own status line.
+var claudeSessionInheritanceKeys = []string{
+	"CLAUDE_CODE_CHILD_SESSION",
+	"CLAUDE_CODE_SESSION_ID",
+	"CLAUDE_CODE_BRIDGE_SESSION_ID",
+}
+
+// childEnviron returns os.Environ() with claudeSessionInheritanceKeys
+// removed, so the wrapped command never inherits a stale parent-session
+// identity it never asked for.
+func childEnviron() []string {
+	exclude := make(map[string]bool, len(claudeSessionInheritanceKeys))
+	for _, k := range claudeSessionInheritanceKeys {
+		exclude[k] = true
+	}
+	env := os.Environ()
+	filtered := make([]string, 0, len(env))
+	for _, kv := range env {
+		key, _, _ := strings.Cut(kv, "=")
+		if exclude[key] {
+			continue
+		}
+		filtered = append(filtered, kv)
+	}
+	return filtered
+}
+
 // Serve returns the child's exit code and never calls os.Exit itself — the
 // caller must do that only after Serve has returned, so pending cleanup
 // (terminal-mode restore, socket removal) always runs first. Calling
@@ -95,13 +134,14 @@ func Serve(ctx context.Context, opts ServeOptions) (int, error) {
 	defer func() { _ = os.Remove(sockPath) }()
 
 	cmd := exec.Command(opts.Command[0], opts.Command[1:]...)
+	cmd.Env = childEnviron()
 	if opts.Actor != "" {
 		// Appended, not prepended: os/exec keeps only the last value for a
 		// duplicate key, so this deliberately overrides any AGENT_COMMS_ACTOR
 		// already present in the wrapper's own environment (e.g. one set by
 		// hand in the shell) with the identity actually resolved for this
 		// invocation -- the explicit, resolved value should win.
-		cmd.Env = append(os.Environ(), "AGENT_COMMS_ACTOR="+opts.Actor)
+		cmd.Env = append(cmd.Env, "AGENT_COMMS_ACTOR="+opts.Actor)
 	}
 	w, h, sizeErr := term.GetSize(fd)
 	if sizeErr != nil {
