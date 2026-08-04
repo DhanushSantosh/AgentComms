@@ -1207,6 +1207,7 @@ func (c *cli) runtimeCmd() *cobra.Command {
 	var interactiveServeID string
 	var interactiveClaudeAllowAgentComms bool
 	var interactiveLaunchTerminal bool
+	var interactiveTakeoverPID int
 	interactiveServe := &cobra.Command{
 		Use:   "interactive-serve --id <runtimeID> -- <command> [args...]",
 		Short: "Own a real pty running <command>, dialable by other runtimes for direct invocation delivery",
@@ -1223,7 +1224,16 @@ func (c *cli) runtimeCmd() *cobra.Command {
 				}
 			}
 			if interactiveLaunchTerminal {
+				// --takeover-pid, if set, stays in the re-exec'd argv
+				// (stripLaunchTerminalFlag only removes --launch-terminal)
+				// and is handled for real by the freshly spawned process
+				// below -- this process never touches the target pid.
 				return c.launchInteractiveServeInNewTerminal()
+			}
+			if interactiveTakeoverPID > 0 {
+				if err := interactiveserve.Takeover(interactiveTakeoverPID, interactiveserve.GracePeriod); err != nil {
+					return fmt.Errorf("take over pid %d: %w", interactiveTakeoverPID, err)
+				}
 			}
 			return c.runInteractiveServe(cmd.Context(), interactiveServeID, args)
 		},
@@ -1232,6 +1242,7 @@ func (c *cli) runtimeCmd() *cobra.Command {
 	_ = interactiveServe.MarkFlagRequired("id")
 	interactiveServe.Flags().BoolVar(&interactiveClaudeAllowAgentComms, "claude-allow-agent-comms", false, "wrapped command must be claude; scopes unattended Bash permission to this Agent Comms executable only")
 	interactiveServe.Flags().BoolVar(&interactiveLaunchTerminal, "launch-terminal", false, "open a new, dedicated terminal window running this same command instead of using the current one, then exit")
+	interactiveServe.Flags().IntVar(&interactiveTakeoverPID, "takeover-pid", 0, "gracefully terminate this PID (an existing live session for the same provider conversation) and wait for it to fully exit before starting, so resuming it with the wrapped command's own --continue/--resume flag never collides with a still-live copy")
 
 	var interactiveShowID string
 	interactiveShow := &cobra.Command{

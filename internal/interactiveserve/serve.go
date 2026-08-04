@@ -40,9 +40,11 @@ const echoTimeout = 10 * time.Second
 // another agent finishes a potentially long turn.
 const directDeliveryIdleTimeout = 250 * time.Millisecond
 
-// gracePeriod bounds how long Serve waits for the child to exit on its own
-// after being sent a forwarded signal before it is killed outright.
-const gracePeriod = 3 * time.Second
+// GracePeriod bounds how long Serve waits for the child to exit on its own
+// after being sent a forwarded signal before it is killed outright. Exported
+// so Takeover (takeover.go) can wait the same amount of time for an
+// existing session to exit cleanly before escalating.
+const GracePeriod = 3 * time.Second
 
 // Serve allocates a real pty, execs opts.Command attached to it, and
 // transparently forwards opts.ControlFD/Stdin/Stdout so the invoking
@@ -207,14 +209,14 @@ func Serve(ctx context.Context, opts ServeOptions) (int, error) {
 	return exitCodeFor(cmd, waitErr), nil
 }
 
-// forwardAndWait forwards sig to cmd's process, waits up to gracePeriod for
+// forwardAndWait forwards sig to cmd's process, waits up to GracePeriod for
 // it to exit on its own, and kills it outright if it hasn't.
 func forwardAndWait(cmd *exec.Cmd, sig os.Signal, waitDone <-chan error) error {
 	_ = cmd.Process.Signal(sig)
 	select {
 	case err := <-waitDone:
 		return err
-	case <-time.After(gracePeriod):
+	case <-time.After(GracePeriod):
 		_ = cmd.Process.Kill()
 		return <-waitDone
 	}

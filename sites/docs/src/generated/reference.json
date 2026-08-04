@@ -6292,6 +6292,12 @@
           "type": "bool"
         },
         {
+          "name": "launch-terminal",
+          "usage": "open a new, dedicated terminal window running this same command instead of using the current one, then exit",
+          "default": "false",
+          "type": "bool"
+        },
+        {
           "name": "no-color",
           "usage": "disable ANSI color",
           "default": "false",
@@ -6321,6 +6327,12 @@
           "usage": "suppress non-essential output",
           "default": "false",
           "type": "bool"
+        },
+        {
+          "name": "takeover-pid",
+          "usage": "gracefully terminate this PID (an existing live session for the same provider conversation) and wait for it to fully exit before starting, so resuming it with the wrapped command's own --continue/--resume flag never collides with a still-live copy",
+          "default": "0",
+          "type": "int"
         },
         {
           "name": "timeout",
