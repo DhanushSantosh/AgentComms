@@ -17,7 +17,7 @@ a second, `interactive-serve`-wrapped process at a session ID that's
 *still running elsewhere* collides: two processes end up attached to one
 provider-side session lock, and killing either one disrupts the other. See
 [agent-invocations.md's "Migrating a live, ordinary session into
-interactive-serve"](../../agent-invocations.md#migrating-a-live-ordinary-session-into-interactive-serve)
+interactive-serve"](https://github.com/DhanushSantosh/AgentComms/blob/main/docs/agent-invocations.md#migrating-a-live-ordinary-session-into-interactive-serve)
 for `--takeover-pid`, the safe way to hand one off in place, before
 resuming a session you aren't certain has already finished.
 

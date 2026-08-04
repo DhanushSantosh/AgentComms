@@ -40,12 +40,6 @@ const echoTimeout = 10 * time.Second
 // another agent finishes a potentially long turn.
 const directDeliveryIdleTimeout = 250 * time.Millisecond
 
-// GracePeriod bounds how long Serve waits for the child to exit on its own
-// after being sent a forwarded signal before it is killed outright. Exported
-// so Takeover (takeover.go) can wait the same amount of time for an
-// existing session to exit cleanly before escalating.
-const GracePeriod = 3 * time.Second
-
 // Serve allocates a real pty, execs opts.Command attached to it, and
 // transparently forwards opts.ControlFD/Stdin/Stdout so the invoking
 // terminal shows the child's native UI unmediated — the same experience as
