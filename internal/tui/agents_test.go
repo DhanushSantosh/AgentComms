@@ -32,7 +32,7 @@ func TestAgentActionsForStates(t *testing.T) {
 		want  []string
 	}{
 		{"pending non-elevated sees nothing", model.Agent{Status: "PENDING"}, "builder", "watcher", model.RoleAgent, nil},
-		{"pending elevated sees request orchestrator activate rename and revoke", model.Agent{Status: "PENDING"}, "builder", "owner", model.RoleOwner, []string{"request orchestrator", "activate", "rename", "revoke"}},
+		{"pending elevated sees activate rename and revoke", model.Agent{Status: "PENDING"}, "builder", "owner", model.RoleOwner, []string{"activate", "rename", "revoke"}},
 		{"active elevated sees suspend rename and revoke", model.Agent{Status: "ACTIVE"}, "builder", "owner", model.RoleOwner, []string{"suspend", "rename", "revoke"}},
 		{"active non-elevated sees nothing", model.Agent{Status: "ACTIVE"}, "builder", "watcher", model.RoleAgent, nil},
 		{"suspended elevated sees rename and revoke", model.Agent{Status: "SUSPENDED"}, "builder", "owner", model.RoleOwner, []string{"rename", "revoke"}},
@@ -111,51 +111,6 @@ func TestRegisterThenActivateAgent(t *testing.T) {
 	}
 	if st.Agents["builder"].Status != "ACTIVE" {
 		t.Fatalf("status = %q, want ACTIVE", st.Agents["builder"].Status)
-	}
-}
-
-// TestRequestOrchestratorApprovalShortcut proves the one-keypress shortcut
-// creates the exact HUMAN-tier approval.request that agent.activate's
-// hasHumanApproval check later looks for -- the same Approval ID and
-// Action a human would otherwise have to type by hand in the Approvals
-// view's generic request form.
-func TestRequestOrchestratorApprovalShortcut(t *testing.T) {
-	s := newTestService(t)
-	if _, e := s.Register("candidate", "candidate", model.PrincipalAgent); e != nil {
-		t.Fatal(e)
-	}
-	m, e := New(s, "owner")
-	if e != nil {
-		t.Fatal(e)
-	}
-	m = enterAgentsView(t, m)
-	if id := m.agentList.SelectedID(m.state, m.actor); id != "candidate" {
-		t.Fatalf("selected id = %q, want candidate", id)
-	}
-	m = pressKey(t, m, keyText("o"))
-	if m.form != "approval.request" {
-		t.Fatalf("expected approval.request form, got %q", m.form)
-	}
-	m.inputs[0].SetValue("needs org-wide coordination")
-	m.formFocus = len(m.inputs) - 1
-	m = pressKey(t, m, keyEnter())
-	if m.err != nil {
-		t.Fatalf("request failed: %v", m.err)
-	}
-	if m.form != "" {
-		t.Fatalf("form should have closed, got %q", m.form)
-	}
-
-	state, e := s.State()
-	if e != nil {
-		t.Fatal(e)
-	}
-	approval, ok := state.Approvals["candidate-orchestrator-approval"]
-	if !ok {
-		t.Fatal("expected an approval record under the pre-filled ID candidate-orchestrator-approval")
-	}
-	if approval.Tier != "HUMAN" || approval.Action != protocol.OrchestratorGrantApprovalAction("candidate") || approval.Status != "PENDING" {
-		t.Fatalf("unexpected approval record: %+v", approval)
 	}
 }
 

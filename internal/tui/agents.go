@@ -10,7 +10,6 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/DhanushSantosh/AgentComms/internal/identity"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
-	"github.com/DhanushSantosh/AgentComms/internal/protocol"
 	"github.com/DhanushSantosh/AgentComms/internal/service"
 )
 
@@ -186,37 +185,6 @@ func revokeActionFor(a model.Agent, id, actor string) RowAction {
 	}
 }
 
-// requestOrchestratorApprovalAction is a one-keypress shortcut for the
-// first of the two deliberate, separately-signed steps
-// protocol.ValidateTransition requires before agent.activate may grant id
-// the Orchestrator role (see the "human principal required" and
-// hasHumanApproval checks in internal/protocol/transitions.go): it creates
-// the HUMAN-tier approval.request with the exact Action string
-// (agent.activate:<id>) and a matching Approval ID pre-filled, so the only
-// thing left to type is a reason -- no hand-typed action string to get
-// wrong. This does not, and must not, also approve it: that remains a
-// distinct action in the Approvals view (approveActionFor), requiring its
-// own masked passphrase entry, so a human always has a real, separate
-// record to review before the grant can proceed.
-func requestOrchestratorApprovalAction(id string) RowAction {
-	approvalID := id + "-orchestrator-approval"
-	action := protocol.OrchestratorGrantApprovalAction(id)
-	return RowAction{
-		Key: "o", Label: "request orchestrator", EventType: "approval.request",
-		Form: &ActionForm{
-			Title: "Request Orchestrator approval for " + id,
-			Hint:  "Creates a HUMAN-tier approval (" + action + "). A human must separately approve it in Approvals before activation can grant Orchestrator.",
-			Fields: []FormField{
-				{Label: "Reason", Placeholder: "why this agent needs Orchestrator", Required: true},
-			},
-			Build: func(v []string) (any, error) {
-				return model.ApprovalRequested{Tier: "HUMAN", Action: action, Reason: v[0]}, nil
-			},
-			ResolveID: func(_ string, _ []string) string { return approvalID },
-		},
-	}
-}
-
 // agentActionsFor mirrors service.go's elevated() gate: activate, suspend,
 // rename, revoke, and delete all require the viewing actor to hold Owner or
 // Orchestrator role, regardless of whose row is selected. Key rotation is
@@ -237,7 +205,7 @@ func agentActionsFor(a model.Agent, id, actor string, role model.Role) []RowActi
 		revoke := revokeActionFor(a, id, actor)
 		switch a.Status {
 		case "PENDING":
-			acts = append(acts, requestOrchestratorApprovalAction(id), actActivate, actRename, revoke)
+			acts = append(acts, actActivate, actRename, revoke)
 		case "ACTIVE":
 			acts = append(acts, actSuspend, actRename, revoke)
 		case "SUSPENDED":
