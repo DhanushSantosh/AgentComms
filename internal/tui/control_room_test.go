@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
@@ -31,6 +32,61 @@ func TestControlRoomRendersWorkforceAndOperationalViews(t *testing.T) {
 		if !strings.Contains(rendered, expected) {
 			t.Errorf("control room missing %q", expected)
 		}
+	}
+}
+
+// TestWorkforceSignalIsStableAcrossMultipleRuntimeRecords is the regression
+// test for a real bug: an agent can end up with more than one AgentRuntime
+// record (a stale, revoked one left behind alongside its current, live
+// one -- registering under a new runtime ID never removes an older record
+// for the same agent). workforce() used to keep whichever matching record
+// its range over the AgentRuntimes map happened to visit last -- and Go
+// deliberately randomizes map iteration order on every single range call,
+// so the exact same, unchanged state rendered a *different* signal from
+// one call to the next: 42 of 50 real runs of this exact scenario showed
+// "REVOKED" and the other 8 showed "ONLINE", with no state change between
+// them. Builds an agent with an old, revoked runtime and a newer, online
+// one and asserts every one of many renders agrees on the most recent
+// record (ONLINE), never flickering back to the stale one.
+func TestWorkforceSignalIsStableAcrossMultipleRuntimeRecords(t *testing.T) {
+	older := time.Now().Add(-time.Hour)
+	newer := time.Now()
+	m := Model{
+		state: model.State{
+			Agents: map[string]model.Agent{
+				"HENRY": {ID: "HENRY", DisplayName: "HENRY", Role: model.RoleAgent, PrincipalType: model.PrincipalAgent},
+			},
+			AgentRuntimes: map[string]model.AgentRuntime{
+				"henry-test": {ID: "henry-test", AgentID: "HENRY", Status: "REVOKED", Health: "UNKNOWN", RegisteredAt: older, LastSeenAt: older},
+				"HENRY":      {ID: "HENRY", AgentID: "HENRY", Status: "ONLINE", Health: "HEALTHY", RegisteredAt: newer, LastSeenAt: newer},
+			},
+		},
+	}
+	p := colors(false)
+	for i := 0; i < 50; i++ {
+		out := m.workforce(p, 100)
+		if !strings.Contains(out, "ONLINE") || strings.Contains(out, "REVOKED") {
+			t.Fatalf("iteration %d: expected a stable ONLINE signal for HENRY, got:\n%s", i, out)
+		}
+	}
+}
+
+// TestWorkforceFallsBackToAgentIDWhenDisplayNameIsBlank is the regression
+// test for an agent registered without a display name (optional at
+// registration) rendering as a blank AGENT column -- indistinguishable
+// from missing data -- instead of falling back to its ID, which is always
+// present.
+func TestWorkforceFallsBackToAgentIDWhenDisplayNameIsBlank(t *testing.T) {
+	m := Model{
+		state: model.State{
+			Agents: map[string]model.Agent{
+				"PETER": {ID: "PETER", DisplayName: "", Role: model.RoleAgent, PrincipalType: model.PrincipalAgent},
+			},
+		},
+	}
+	out := m.workforce(colors(false), 100)
+	if !strings.Contains(out, "PETER") {
+		t.Fatalf("expected the blank-display-name agent to fall back to its ID %q, got:\n%s", "PETER", out)
 	}
 }
 

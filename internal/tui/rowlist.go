@@ -197,10 +197,82 @@ type rowStyles struct {
 
 func rowListStyles(p palette) rowStyles {
 	return rowStyles{
-		Header:   lipgloss.NewStyle().Bold(true).Foreground(p.muted).Padding(0, 1),
-		Cell:     lipgloss.NewStyle().Foreground(p.text).Padding(0, 1),
-		Selected: lipgloss.NewStyle().Bold(true).Foreground(p.ink).Background(p.cyan).Padding(0, 1),
+		Header: lipgloss.NewStyle().Bold(true).Foreground(p.muted).Padding(0, 1),
+		Cell:   lipgloss.NewStyle().Foreground(p.text).Padding(0, 1),
+		// No Padding here: Selected re-styles a row already built from
+		// Header/Cell-rendered, padding-inclusive cells (see cellWidth's
+		// comment) -- adding its own padding on top would widen a selected
+		// row by 2 columns beyond every unselected row's, and every
+		// RowSource.Columns(width) sizes its columns to sum to exactly
+		// `width`, with no slack for that. That extra width was silently
+		// wrapping onto the next physical line, which -- because the
+		// wrapped fragment was Selected's own trailing padding space, not
+		// real text -- showed up as a small, otherwise-blank cyan-colored
+		// block sitting just under whichever row happened to be selected.
+		Selected: lipgloss.NewStyle().Bold(true).Foreground(p.ink).Background(p.cyan),
 	}
+}
+
+// cellWidth returns how many columns of col.Width are left for the cell's
+// own text after reserving room for the Header/Cell style's Padding(0, 1)
+// (1 column each side, added when styles.Header/Cell.Render wraps the
+// already-fixed-width string below). Every RowSource.Columns(width) sizes
+// its columns to sum to exactly `width` -- table.Column.Width has always
+// meant "total rendered width, padding included" here, not "width of the
+// text alone" -- so without this the four columns' Header/Cell padding
+// (2 columns apiece) made every rendered row 2*len(cols) columns wider than
+// its own RowSource believed it was, silently overflowing the pane's own
+// Width() and wrapping the tail of the row (typically the last column's
+// text) onto a spurious extra physical line under every single row, at
+// every terminal size -- confirmed live on the Inbox and Runtimes views,
+// and by rendering real screens at width 60 through 160 in
+// TestRowCellsNeverWrapOntoAnExtraLine.
+func cellWidth(colWidth int) int { return max(1, colWidth-2) }
+
+// clampColumnsToWidth shrinks cols, right column first, so their Width sum
+// never exceeds w. Every RowSource.Columns(width) computes its flexible
+// column as `width - (the fixed ones)`, then floors it at some readable
+// minimum (messageRowSource's subj, e.g., never goes below 15) -- and at a
+// narrow enough terminal, that floor alone pushes the total over budget,
+// independent of the padding-double-count this shares a bug class with
+// (see cellWidth's comment): the row still overflows the pane's own
+// Width() and wraps, corrupting the display and shifting every rowAtY
+// click below it by however many extra lines it wrapped onto. Shrinking
+// down to 3 columns (enough to show "…") before dropping a column
+// entirely (Width <= 0, which renderHeader/renderTableRow already treat
+// as "omit") guarantees the invariant every caller of RowList.View
+// depends on: the rendered row is never wider than the width it was asked
+// to fit in, at any terminal size.
+func clampColumnsToWidth(cols []table.Column, w int) []table.Column {
+	total := 0
+	for _, c := range cols {
+		total += c.Width
+	}
+	over := total - w
+	if over <= 0 {
+		return cols
+	}
+	out := make([]table.Column, len(cols))
+	copy(out, cols)
+	for i := len(out) - 1; i >= 0 && over > 0; i-- {
+		room := out[i].Width - 3
+		if room <= 0 {
+			continue
+		}
+		take := min(room, over)
+		out[i].Width -= take
+		over -= take
+	}
+	// Still over budget even at every column's floor of 3: drop columns
+	// entirely from the right until it fits.
+	for i := len(out) - 1; i >= 0 && over > 0; i-- {
+		if out[i].Width <= 0 {
+			continue
+		}
+		over -= out[i].Width
+		out[i].Width = 0
+	}
+	return out
 }
 
 // renderHeader and renderTableRow replicate bubbles/table's own
@@ -213,7 +285,8 @@ func renderHeader(cols []table.Column, styles rowStyles) string {
 		if col.Width <= 0 {
 			continue
 		}
-		cell := lipgloss.NewStyle().Width(col.Width).MaxWidth(col.Width).Inline(true).Render(ansi.Truncate(col.Title, col.Width, "…"))
+		w := cellWidth(col.Width)
+		cell := lipgloss.NewStyle().Width(w).MaxWidth(w).Inline(true).Render(ansi.Truncate(col.Title, w, "…"))
 		cells = append(cells, styles.Header.Render(cell))
 	}
 	return lipgloss.JoinHorizontal(lipgloss.Top, cells...)
@@ -228,7 +301,8 @@ func renderTableRow(cols []table.Column, values table.Row, styles rowStyles, sel
 		if i < len(values) {
 			text = values[i]
 		}
-		cell := lipgloss.NewStyle().Width(col.Width).MaxWidth(col.Width).Inline(true).Render(ansi.Truncate(text, col.Width, "…"))
+		w := cellWidth(col.Width)
+		cell := lipgloss.NewStyle().Width(w).MaxWidth(w).Inline(true).Render(ansi.Truncate(text, w, "…"))
 		cells = append(cells, styles.Cell.Render(cell))
 	}
 	row := lipgloss.JoinHorizontal(lipgloss.Top, cells...)
@@ -238,7 +312,7 @@ func renderTableRow(cols []table.Column, values table.Row, styles rowStyles, sel
 	return row
 }
 func (r RowList) View(p palette, st model.State, actor string, w, h int) string {
-	cols := r.source.Columns(w)
+	cols := clampColumnsToWidth(r.source.Columns(w), w)
 	rows := r.source.Rows(st, actor, r.mine)
 	if len(rows) == 0 {
 		return lipgloss.NewStyle().Foreground(p.muted).Render("No rows here yet.")

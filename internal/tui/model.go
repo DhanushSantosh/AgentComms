@@ -963,19 +963,47 @@ func (m Model) workforce(p palette, width int) string {
 		if agent.PrincipalType == model.PrincipalHuman {
 			signal = "◆ CONTROL"
 		}
-		for _, runtime := range m.state.AgentRuntimes {
+		// An agent can have more than one AgentRuntime record (e.g. a
+		// stale, revoked one left behind alongside the current live one --
+		// registering a runtime never deletes an older entry under a
+		// different runtime ID for the same agent). AgentRuntimes is a Go
+		// map, so ranging over it visits entries in random order every
+		// time; picking whichever match the loop happened to see last used
+		// to make the displayed signal flip unpredictably between renders
+		// -- e.g. HENRY showing "● ONLINE" one moment and "○ REVOKED" the
+		// next for the exact same state, with no user action in between.
+		// Deterministic fix: among every runtime for this agent, keep the
+		// one most recently seen (falling back to registration time for a
+		// runtime that's never reported in), so the signal reflects
+		// reality -- the most current runtime -- the same way on every
+		// render.
+		var current *model.AgentRuntime
+		currentAt := func(r model.AgentRuntime) time.Time {
+			if !r.LastSeenAt.IsZero() {
+				return r.LastSeenAt
+			}
+			return r.RegisteredAt
+		}
+		for id := range m.state.AgentRuntimes {
+			runtime := m.state.AgentRuntimes[id]
 			if runtime.AgentID != agentID {
 				continue
 			}
+			if current == nil || currentAt(runtime).After(currentAt(*current)) {
+				runtime := runtime
+				current = &runtime
+			}
+		}
+		if current != nil {
 			switch {
-			case runtime.Health == "DEGRADED":
+			case current.Health == "DEGRADED":
 				signal = "▲ DEGRADED"
-			case runtime.Status == "ONLINE":
+			case current.Status == "ONLINE":
 				signal = "● ONLINE"
-			case runtime.Status == "DRAINING":
+			case current.Status == "DRAINING":
 				signal = "◐ DRAINING"
 			default:
-				signal = "○ " + runtime.Status
+				signal = "○ " + current.Status
 			}
 		}
 		work := "available"
@@ -993,13 +1021,21 @@ func (m Model) workforce(p palette, width int) string {
 				}
 			}
 		}
+		// An agent's DisplayName is optional at registration (agent.go's
+		// register form never required it) and empty for any agent that
+		// registered without one -- rendering it verbatim left that row's
+		// AGENT column blank, which read as missing data rather than what
+		// it actually was: a name nobody set. Falling back to the agent's
+		// ID (always present, always unique) means every row always shows
+		// a real identity.
+		name := empty(agent.DisplayName, agentID)
 		if width < 54 {
-			rows = append(rows, fmt.Sprintf("%-12s %s\n             %s", signal, agentID, truncate(work, width-13)))
+			rows = append(rows, fmt.Sprintf("%-12s %s\n             %s", signal, name, truncate(work, width-13)))
 			continue
 		}
 		rows = append(rows, fmt.Sprintf(
 			"%-12s %-14s %-10s %s",
-			signal, truncate(agent.DisplayName, 13), strings.ToLower(string(agent.Role)), truncate(work, max(10, width-42)),
+			signal, truncate(name, 13), strings.ToLower(string(agent.Role)), truncate(work, max(10, width-42)),
 		))
 	}
 	return strings.Join(rows, "\n")

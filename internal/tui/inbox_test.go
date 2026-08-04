@@ -1,10 +1,14 @@
 package tui
 
 import (
+	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 )
+
+var inboxTestAnsi = regexp.MustCompile("\x1b\\[[0-9;]*m")
 
 func enterInboxView(t *testing.T, m Model) Model {
 	t.Helper()
@@ -146,5 +150,61 @@ func TestContractPostRequiresConfirm(t *testing.T) {
 	}
 	if st.Messages["contract-1"].Kind != "CONTRACT" {
 		t.Fatalf("message not created: %+v", st.Messages["contract-1"])
+	}
+}
+
+// TestRowCellsNeverWrapOntoAnExtraLine is the regression test for a bug
+// affecting every RowList-backed view, not just Inbox: renderHeader and
+// renderTableRow (rowlist.go) rendered each already-fixed-width cell
+// through a Header/Cell style that added its own Padding(0, 1) on top,
+// silently making every rendered row 2 columns wider per column than the
+// width its own RowSource.Columns(width) assumed -- 8 columns of overflow
+// on a 4-column table like Inbox's, at every terminal size, not just
+// narrow ones. lipgloss wrapped that overflow onto a spurious extra
+// physical line under the row (usually landing inside the last column's
+// text, e.g. "DELIVERED"), and for the selected row -- widened further
+// still by Selected's own Padding(0, 1) around the whole already-oversized
+// row -- the wrapped overflow was blank padding, showing up as a small,
+// otherwise-unexplained stray colored block. Confirmed live on both the
+// Inbox and Runtimes views. Renders a real Inbox screen across a wide
+// range of terminal widths and asserts each message's FROM and its
+// delivery state always land on the same physical line -- proof nothing
+// wrapped.
+func TestRowCellsNeverWrapOntoAnExtraLine(t *testing.T) {
+	s := newTestService(t)
+	registerAgent(t, s, "HENRY", model.RoleAgent, "src")
+	registerAgent(t, s, "PETER", model.RoleAgent, "src")
+	if _, e := s.Execute("HENRY", "message.post", "msg-1", model.MessagePosted{Kind: "FYI", To: []string{"owner"}, Subject: "Hello from HENRY"}); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := s.Execute("PETER", "message.post", "msg-2", model.MessagePosted{Kind: "FYI", To: []string{"owner"}, Subject: "Greetings from PETER"}); e != nil {
+		t.Fatal(e)
+	}
+
+	for _, width := range []int{70, 80, 90, 100, 120, 160} {
+		m, e := New(s, "owner")
+		if e != nil {
+			t.Fatal(e)
+		}
+		m.width, m.height = width, 30
+		m = enterInboxView(t, m)
+		lines := strings.Split(inboxTestAnsi.ReplaceAllString(m.View().Content, ""), "\n")
+		// "DELIV", not the full "DELIVERED": at a narrow enough width the
+		// STATE column legitimately truncates with "…" (clampColumnsToWidth),
+		// which is the correct, non-wrapping degradation this test exists
+		// to confirm still holds -- only a wrap would split it onto its own
+		// line entirely.
+		for _, want := range []string{"HENRY", "PETER"} {
+			found := false
+			for _, line := range lines {
+				if strings.Contains(line, want) && strings.Contains(line, "DELIV") {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Fatalf("width %d: expected a single line containing both %q and DELIV(ERED), got:\n%s", width, want, strings.Join(lines, "\n"))
+			}
+		}
 	}
 }
