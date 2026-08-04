@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -24,6 +25,32 @@ var settingsSections = []struct {
 }
 
 func (m Model) updateSettings(message tea.Msg) (tea.Model, tea.Cmd) {
+	if wheel, ok := message.(tea.MouseWheelMsg); ok {
+		switch wheel.Button {
+		case tea.MouseWheelUp:
+			if m.settingsCursor > 0 {
+				m.settingsCursor--
+			}
+		case tea.MouseWheelDown:
+			if m.settingsCursor < len(settingsSections)-1 {
+				m.settingsCursor++
+			}
+		}
+		return m, nil
+	}
+	if click, ok := message.(tea.MouseClickMsg); ok {
+		mouse := click.Mouse()
+		if mouse.Button == tea.MouseLeft {
+			if index, ok := m.settingsSectionAt(colors(m.highContrast), mouse.X, mouse.Y); ok {
+				double := m.isDoubleClick(mouse.X, mouse.Y, time.Now())
+				m.settingsCursor = index
+				if double {
+					return m.enterSettingsDomain(index)
+				}
+			}
+		}
+		return m, nil
+	}
 	key, ok := message.(tea.KeyPressMsg)
 	if !ok {
 		return m, nil
@@ -42,24 +69,7 @@ func (m Model) updateSettings(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.settingsCursor++
 		}
 	case "e", "enter":
-		switch m.settingsCursor {
-		case 0:
-			return m.openProjectSettingsForm()
-		case 1:
-			m.openView("Agents")
-			m.settingsFocus, m.rowFocus = false, true
-			m.agentList.Refresh(m.state, m.actor)
-		case 2:
-			m.openView("Runtimes")
-			m.settingsFocus, m.rowFocus = false, true
-			m.runtimeList.Refresh(m.state, m.actor)
-		case 4:
-			m.openView("Environment")
-			m.settingsFocus, m.rowFocus = false, true
-			m.envList.Refresh(m.state, m.actor)
-		case 5:
-			m.toggleTheme()
-		}
+		return m.enterSettingsDomain(m.settingsCursor)
 	case "g":
 		m.openView("Agents")
 		m.settingsFocus, m.rowFocus = false, true
@@ -72,6 +82,32 @@ func (m Model) updateSettings(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.toggleTheme()
 	case "?":
 		m.notice = "↑/↓ choose domain · e/enter manage · g agents · r runtimes · h contrast · esc navigation"
+	}
+	return m, nil
+}
+
+// enterSettingsDomain runs whatever "e"/"enter" (keyboard) or a double-click
+// (mouse) both mean for the given domain index -- opening its form, moving
+// into its own row-focused view, or toggling the local theme. Shared so
+// the two input paths can never disagree about what a domain does.
+func (m Model) enterSettingsDomain(index int) (tea.Model, tea.Cmd) {
+	switch index {
+	case 0:
+		return m.openProjectSettingsForm()
+	case 1:
+		m.openView("Agents")
+		m.settingsFocus, m.rowFocus = false, true
+		m.agentList.Refresh(m.state, m.actor)
+	case 2:
+		m.openView("Runtimes")
+		m.settingsFocus, m.rowFocus = false, true
+		m.runtimeList.Refresh(m.state, m.actor)
+	case 4:
+		m.openView("Environment")
+		m.settingsFocus, m.rowFocus = false, true
+		m.envList.Refresh(m.state, m.actor)
+	case 5:
+		m.toggleTheme()
 	}
 	return m, nil
 }

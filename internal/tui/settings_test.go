@@ -33,6 +33,85 @@ func TestSettingsWorkspaceIsResponsiveAndActionable(t *testing.T) {
 	}
 }
 
+// TestSettingsSectionClickAndDoubleClick proves the Project settings view
+// -- the one place mouse support was missing entirely -- now responds to
+// a click (selecting a domain) and a double-click (entering it, matching
+// "e"/"enter").
+func TestSettingsSectionClickAndDoubleClick(t *testing.T) {
+	s := newTestService(t)
+	m, e := New(s, "owner")
+	if e != nil {
+		t.Fatal(e)
+	}
+	m.width, m.height = 140, 38
+	for index, name := range views {
+		if name == "Project settings" {
+			m.view, m.cursor = index, index
+		}
+	}
+	m.focusCurrentView()
+	if !m.settingsFocus {
+		t.Fatal("expected entering Project settings to set settingsFocus")
+	}
+
+	p := colors(m.highContrast)
+	const wantDomain = 1 // "Agents & access"
+	var targetX, targetY int
+	found := false
+	for y := 0; y < m.height && !found; y++ {
+		for x := 0; x < m.width; x++ {
+			if idx, ok := m.settingsSectionAt(p, x, y); ok && idx == wantDomain {
+				targetX, targetY, found = x, y, true
+				break
+			}
+		}
+	}
+	if !found {
+		t.Fatal("could not find the Agents & access domain's clickable position")
+	}
+
+	m = pressMsg(t, m, click(targetX, targetY))
+	if m.settingsCursor != wantDomain {
+		t.Fatalf("expected a click to select domain %d, got %d", wantDomain, m.settingsCursor)
+	}
+	if !m.settingsFocus {
+		t.Fatal("a single click should not leave the settings view")
+	}
+
+	m = pressMsg(t, m, click(targetX, targetY))
+	if views[m.view] != "Agents" {
+		t.Fatalf("expected double-click on Agents & access to open Agents, got %q", views[m.view])
+	}
+	if !m.rowFocus || m.settingsFocus {
+		t.Fatalf("expected double-click to leave settings for row focus, got rowFocus=%v settingsFocus=%v", m.rowFocus, m.settingsFocus)
+	}
+}
+
+func TestSettingsWheelScrollsDomainSelection(t *testing.T) {
+	s := newTestService(t)
+	m, e := New(s, "owner")
+	if e != nil {
+		t.Fatal(e)
+	}
+	for index, name := range views {
+		if name == "Project settings" {
+			m.view, m.cursor = index, index
+		}
+	}
+	m.focusCurrentView()
+	if m.settingsCursor != 0 {
+		t.Fatalf("expected settings to start on domain 0, got %d", m.settingsCursor)
+	}
+	m = pressMsg(t, m, wheelDown())
+	if m.settingsCursor != 1 {
+		t.Fatalf("expected wheel-down to move to domain 1, got %d", m.settingsCursor)
+	}
+	m = pressMsg(t, m, wheelUp())
+	if m.settingsCursor != 0 {
+		t.Fatalf("expected wheel-up to return to domain 0, got %d", m.settingsCursor)
+	}
+}
+
 func TestSettingsFormPublishesSignedPolicy(t *testing.T) {
 	instance := newTestService(t)
 	view, err := New(instance, "owner")

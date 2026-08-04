@@ -207,6 +207,36 @@ func (m Model) hubTabAt(p palette, x, y int) (view string, ok bool) {
 	return "", false
 }
 
+// settingsSectionAt translates a click's absolute screen (x, y) into a
+// settingsSections index, or ok=false if the click missed the domain rail
+// entirely -- including when the rail isn't even rendered, below
+// settings.go's own 72-column threshold where projectSettings falls back
+// to showing only the current domain's name, with no list to click.
+// Mirrors settingsDomainRail's exact layout (border, padding, title,
+// blank, then two rows per domain) so this can never drift from what's
+// actually on screen.
+func (m Model) settingsSectionAt(p palette, x, y int) (index int, ok bool) {
+	paneW, _, contentW, _ := m.bodyLayout()
+	if contentW < 72 {
+		return 0, false
+	}
+	domainWidth := min(24, max(18, contentW/4))
+	left := m.sidebarWidth() + 1
+	if x < left || x >= left+domainWidth {
+		return 0, false
+	}
+	top := m.bodyPrefixHeight(p, paneW)
+	relative := y - top - 4 // border(1) + padding(1) + title(1) + blank(1)
+	if relative < 0 || relative%2 != 0 {
+		return 0, false
+	}
+	index = relative / 2
+	if index >= len(settingsSections) {
+		return 0, false
+	}
+	return index, true
+}
+
 // sidebarHubAt translates a click's absolute screen (x, y) into a
 // navigationHubs index, or ok=false when the click missed the sidebar
 // entirely or landed on a non-clickable line (blank space, the project
