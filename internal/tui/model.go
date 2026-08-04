@@ -136,6 +136,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+	// Also handled before any mode dispatch, for the same reason as the
+	// resize above: a sidebar click has to work regardless of what's
+	// currently focused, not just from plain navigation mode. It used to
+	// live in the switch below, reachable only when none of
+	// form/confirm/rowFocus/settingsFocus were set -- fine for the very
+	// first click, but that click's own openView+focusCurrentView sets
+	// rowFocus, so it was the LAST sidebar click that mode session ever
+	// saw: every click after it got routed to updateRowList instead, which
+	// has no idea what a sidebar hub is and just swallowed it. Clicking a
+	// different section is an unambiguous "go there now" that should win
+	// over whatever mode the previous click (or keypress) left behind, the
+	// same way it would in any mouse-native app.
+	if click, ok := msg.(tea.MouseClickMsg); ok {
+		mouse := click.Mouse()
+		if mouse.Button == tea.MouseLeft {
+			if hub, ok := m.sidebarHubAt(colors(m.highContrast), mouse.X, mouse.Y); ok {
+				m.form, m.inputs, m.formSpec, m.confirm, m.rowFocus, m.settingsFocus = "", nil, nil, nil, false, false
+				m.openView(navigationHubs[hub].Views[0])
+				m.focusCurrentView()
+				return m, nil
+			}
+		}
+	}
 	if m.form != "" {
 		return m.updateForm(msg)
 	}
@@ -149,20 +172,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateSettings(msg)
 	}
 	switch v := msg.(type) {
-	case tea.MouseClickMsg:
-		mouse := v.Mouse()
-		if mouse.Button != tea.MouseLeft {
-			return m, nil
-		}
-		// One click both selects and enters a sidebar hub -- matching
-		// arrow-navigation-then-Enter's combined effect -- rather than
-		// requiring a second action, since a click is already the more
-		// direct gesture a mouse-native experience should reward.
-		if hub, ok := m.sidebarHubAt(colors(m.highContrast), mouse.X, mouse.Y); ok {
-			m.openView(navigationHubs[hub].Views[0])
-			m.focusCurrentView()
-		}
-		return m, nil
 	case tea.KeyPressMsg:
 		k := v.String()
 		if m.palette {

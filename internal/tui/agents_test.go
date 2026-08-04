@@ -232,6 +232,64 @@ func TestRowListCursorAlwaysStaysVisibleWhileScrolling(t *testing.T) {
 // TestSidebarClickOpensAndFocusesHub proves clicking a hub name in the
 // sidebar both switches to its first view and enters row-focus, matching
 // arrow-navigation-then-Enter's combined effect.
+// hubClickPosition finds hubIndex's clickable (x, y) in the CURRENT
+// render -- recomputed fresh each call, not cached, since the active
+// hub's extra "current view" sub-label line shifts every later hub's
+// position by two lines once it becomes active.
+func hubClickPosition(t *testing.T, m Model, hubIndex int) (x, y int) {
+	t.Helper()
+	p := colors(m.highContrast)
+	for y := 0; y < m.height; y++ {
+		for x := 0; x < m.sidebarWidth(); x++ {
+			if hub, ok := m.sidebarHubAt(p, x, y); ok && hub == hubIndex {
+				return x, y
+			}
+		}
+	}
+	t.Fatalf("could not find hub %d's clickable position", hubIndex)
+	return 0, 0
+}
+
+// TestSidebarClickSwitchesHubsRepeatedly is the regression test for the
+// exact bug reported live: the first sidebar click's own openView+
+// focusCurrentView sets rowFocus, and sidebar clicks used to be handled
+// only in the plain-navigation-mode switch -- reachable, before this fix,
+// only when rowFocus (and form/confirm/settingsFocus) were all unset. That
+// made the first click load-bearing and every click after it dead: they'd
+// route to updateRowList instead, which has no notion of a sidebar hub and
+// silently swallowed them. Clicking three different hubs in sequence here
+// must actually switch each time, not get stuck on the first one clicked.
+func TestSidebarClickSwitchesHubsRepeatedly(t *testing.T) {
+	s := newTestService(t)
+	registerAgent(t, s, "builder", model.RoleAgent, "src")
+
+	m, e := New(s, "owner")
+	if e != nil {
+		t.Fatal(e)
+	}
+	hubs := []string{"Command", "Team", "Relay"}
+	for _, name := range hubs {
+		index := -1
+		for i, hub := range navigationHubs {
+			if hub.Name == name {
+				index = i
+			}
+		}
+		if index < 0 {
+			t.Fatalf("expected a %s hub in navigationHubs", name)
+		}
+		x, y := hubClickPosition(t, m, index)
+		m = pressMsg(t, m, click(x, y))
+		wantView := navigationHubs[index].Views[0]
+		if views[m.view] != wantView {
+			t.Fatalf("clicking %s: expected view %q, got %q", name, wantView, views[m.view])
+		}
+		if !m.rowFocus && wantView != "Overview" {
+			t.Fatalf("clicking %s: expected row focus on %q", name, wantView)
+		}
+	}
+}
+
 func TestSidebarClickOpensAndFocusesHub(t *testing.T) {
 	s := newTestService(t)
 	registerAgent(t, s, "builder", model.RoleAgent, "src")
