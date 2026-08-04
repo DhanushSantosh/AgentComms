@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"reflect"
 	"testing"
 	"time"
@@ -60,6 +61,254 @@ func enterAgentsView(t *testing.T, m Model) Model {
 		t.Fatal("expected row focus after entering Agents")
 	}
 	return m
+}
+
+// TestMouseWheelScrollsRowSelection proves wheel events move the row
+// cursor the same way LineUp/LineDown keys already do -- table.Model only
+// ever reacts to tea.KeyPressMsg internally, so updateRowList has to
+// translate tea.MouseWheelMsg itself (rowlist.go).
+func TestMouseWheelScrollsRowSelection(t *testing.T) {
+	s := newTestService(t)
+	registerAgent(t, s, "alpha", model.RoleAgent, "src")
+	registerAgent(t, s, "beta", model.RoleAgent, "src")
+	registerAgent(t, s, "gamma", model.RoleAgent, "src")
+
+	m, e := New(s, "owner")
+	if e != nil {
+		t.Fatal(e)
+	}
+	m = enterAgentsView(t, m)
+	first := m.agentList.SelectedID(m.state, m.actor)
+
+	m = pressMsg(t, m, wheelDown())
+	second := m.agentList.SelectedID(m.state, m.actor)
+	if second == first {
+		t.Fatalf("expected wheel-down to move selection past %q, got %q", first, second)
+	}
+
+	m = pressMsg(t, m, wheelUp())
+	back := m.agentList.SelectedID(m.state, m.actor)
+	if back != first {
+		t.Fatalf("expected wheel-up to return to %q, got %q", first, back)
+	}
+}
+
+func click(x, y int) tea.MouseClickMsg {
+	return tea.MouseClickMsg{X: x, Y: y, Button: tea.MouseLeft}
+}
+
+// TestMouseClickSelectsRow proves a click at the exact screen position
+// rowAtY computes for a given row actually selects that row through the
+// real Update() dispatch -- not just that rowAtY's math is internally
+// consistent with itself.
+func TestMouseClickSelectsRow(t *testing.T) {
+	s := newTestService(t)
+	registerAgent(t, s, "alpha", model.RoleAgent, "src")
+	registerAgent(t, s, "beta", model.RoleAgent, "src")
+	registerAgent(t, s, "gamma", model.RoleAgent, "src")
+
+	m, e := New(s, "owner")
+	if e != nil {
+		t.Fatal(e)
+	}
+	m = enterAgentsView(t, m)
+
+	p := colors(m.highContrast)
+	wantRow := 2
+	wantID := m.agentList.source.RowID(wantRow, m.state, m.actor, m.agentList.mine)
+	var targetY int
+	found := false
+	for y := 0; y < m.height; y++ {
+		if row, ok := m.rowAtY(p, y); ok && row == wantRow {
+			targetY, found = y, true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("could not find a screen row resolving to the target row via rowAtY")
+	}
+
+	m = pressMsg(t, m, click(m.sidebarWidth()+5, targetY))
+	if got := m.agentList.SelectedID(m.state, m.actor); got != wantID {
+		t.Fatalf("clicking at the computed row position selected %q, want %q", got, wantID)
+	}
+}
+
+// TestMouseClickSelectsRowAfterScrolling is the case that actually
+// exercises the fix: with more rows than fit on screen and the list
+// scrolled down first, a click must resolve to the correct ABSOLUTE row,
+// not one relative to the top of the (now scrolled) visible window. This
+// only works because updateRowList drives the cursor exclusively through
+// SetCursor, never MoveUp/MoveDown, keeping bubbles/table's internal
+// YOffset pinned at 0 -- see rowAtY's comment for why that invariant is
+// load-bearing here.
+func TestMouseClickSelectsRowAfterScrolling(t *testing.T) {
+	s := newTestService(t)
+	for i := 0; i < 15; i++ {
+		registerAgent(t, s, fmt.Sprintf("agent-%02d", i), model.RoleAgent, "src")
+	}
+
+	m, e := New(s, "owner")
+	if e != nil {
+		t.Fatal(e)
+	}
+	m.height = 20 // small enough that all 15 rows can't fit at once
+	m = enterAgentsView(t, m)
+
+	for i := 0; i < 8; i++ {
+		m = pressMsg(t, m, wheelDown())
+	}
+	scrolledCursor := m.agentList.SelectedID(m.state, m.actor)
+	if scrolledCursor == "" {
+		t.Fatal("expected a selection after scrolling")
+	}
+
+	p := colors(m.highContrast)
+	wantRow := m.agentList.Cursor() // click exactly the current cursor's own row
+	var targetY int
+	found := false
+	for y := 0; y < m.height; y++ {
+		if row, ok := m.rowAtY(p, y); ok && row == wantRow {
+			targetY, found = y, true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("could not find a screen row resolving to the cursor's row after scrolling")
+	}
+	// Move off the target first so the click has to actually do the work.
+	m = pressMsg(t, m, wheelUp())
+	if m.agentList.SelectedID(m.state, m.actor) == scrolledCursor {
+		t.Fatal("expected wheel-up to move off the target row")
+	}
+
+	m = pressMsg(t, m, click(m.sidebarWidth()+5, targetY))
+	if got := m.agentList.SelectedID(m.state, m.actor); got != scrolledCursor {
+		t.Fatalf("click after scrolling selected %q, want %q (row %d)", got, scrolledCursor, wantRow)
+	}
+}
+
+// TestRowListCursorAlwaysStaysVisibleWhileScrolling guards the property a
+// first cut of this feature risked losing: bubbles/table's MoveUp/MoveDown
+// keep the cursor on screen via internal YOffset adjustments this package
+// can't reproduce from outside, so RowList now owns cursor/topRow directly
+// (rowlist.go) instead. This walks the cursor the length of a 30-row list
+// one key at a time and asserts it's within [topRow, topRow+height) after
+// every single step, not just at the end.
+func TestRowListCursorAlwaysStaysVisibleWhileScrolling(t *testing.T) {
+	s := newTestService(t)
+	for i := 0; i < 30; i++ {
+		registerAgent(t, s, fmt.Sprintf("agent-%02d", i), model.RoleAgent, "src")
+	}
+
+	m, e := New(s, "owner")
+	if e != nil {
+		t.Fatal(e)
+	}
+	m.height = 20
+	m = enterAgentsView(t, m)
+
+	assertVisible := func(step string) {
+		t.Helper()
+		list := m.agentList
+		if list.Cursor() < list.topRow || list.Cursor() >= list.topRow+list.height {
+			t.Fatalf("%s: cursor %d outside visible window [%d, %d)", step, list.Cursor(), list.topRow, list.topRow+list.height)
+		}
+	}
+	assertVisible("initial")
+	for i := 0; i < 35; i++ {
+		m = pressKey(t, m, keyText("j"))
+		assertVisible(fmt.Sprintf("down step %d", i))
+	}
+	for i := 0; i < 35; i++ {
+		m = pressKey(t, m, keyText("k"))
+		assertVisible(fmt.Sprintf("up step %d", i))
+	}
+	if got := m.agentList.Cursor(); got != 0 {
+		t.Fatalf("expected cursor back at 0 after walking all the way up, got %d", got)
+	}
+}
+
+// TestSidebarClickOpensAndFocusesHub proves clicking a hub name in the
+// sidebar both switches to its first view and enters row-focus, matching
+// arrow-navigation-then-Enter's combined effect.
+func TestSidebarClickOpensAndFocusesHub(t *testing.T) {
+	s := newTestService(t)
+	registerAgent(t, s, "builder", model.RoleAgent, "src")
+
+	m, e := New(s, "owner")
+	if e != nil {
+		t.Fatal(e)
+	}
+	p := colors(m.highContrast)
+	teamHub := -1
+	for i, hub := range navigationHubs {
+		if hub.Name == "Team" {
+			teamHub = i
+		}
+	}
+	if teamHub < 0 {
+		t.Fatal("expected a Team hub in navigationHubs")
+	}
+	var targetX, targetY int
+	found := false
+	for y := 0; y < m.height && !found; y++ {
+		for x := 0; x < m.sidebarWidth(); x++ {
+			if hub, ok := m.sidebarHubAt(p, x, y); ok && hub == teamHub {
+				targetX, targetY, found = x, y, true
+				break
+			}
+		}
+	}
+	if !found {
+		t.Fatal("could not find the Team hub's clickable position")
+	}
+
+	m = pressMsg(t, m, click(targetX, targetY))
+	if views[m.view] != "Agents" {
+		t.Fatalf("expected clicking the Team hub to open Agents (its first view), got %q", views[m.view])
+	}
+	if !m.rowFocus {
+		t.Fatal("expected clicking a sidebar hub to enter row focus, matching Enter's behavior")
+	}
+}
+
+// TestFormFieldClickFocusesField proves clicking a field's own line moves
+// formFocus to it, mirroring what Tab already does.
+func TestFormFieldClickFocusesField(t *testing.T) {
+	s := newTestService(t)
+
+	m, e := New(s, "owner")
+	if e != nil {
+		t.Fatal(e)
+	}
+	m = enterAgentsView(t, m)
+	m = pressKey(t, m, keyText("n"))
+	if m.form != "agent.register" || len(m.inputs) != 3 {
+		t.Fatalf("expected agent.register form with 3 fields, got form=%q inputs=%d", m.form, len(m.inputs))
+	}
+	if m.formFocus != 0 {
+		t.Fatalf("expected initial focus on field 0, got %d", m.formFocus)
+	}
+
+	p := colors(m.highContrast)
+	wantField := 2
+	var targetY int
+	found := false
+	for y := 0; y < m.height; y++ {
+		if field, ok := m.formFieldAtY(p, y); ok && field == wantField {
+			targetY, found = y, true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("could not find field 2's clickable position")
+	}
+
+	m = pressMsg(t, m, click(m.sidebarWidth()+5, targetY))
+	if m.formFocus != wantField {
+		t.Fatalf("expected clicking field %d's line to focus it, got formFocus=%d", wantField, m.formFocus)
+	}
 }
 
 func TestRegisterThenActivateAgent(t *testing.T) {

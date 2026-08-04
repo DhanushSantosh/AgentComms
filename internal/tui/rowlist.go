@@ -11,6 +11,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 	"github.com/DhanushSantosh/AgentComms/internal/protocol"
+	"github.com/charmbracelet/x/ansi"
 )
 
 type FormField struct {
@@ -91,55 +92,174 @@ type confirmState struct {
 	// into one confirmation instead of a separate trip through Approvals.
 	chainOrchestratorApproval bool
 }
+// RowList owns its cursor and scroll position directly (cursor, topRow,
+// height) rather than delegating to bubbles/table.Model's internal
+// viewport. That component's MoveUp/MoveDown adjust an internal scroll
+// offset (viewport.YOffset) it never exposes a getter for, and that offset
+// is not a pure function of (cursor, height, rowCount) -- it depends on
+// the history of prior moves. That makes it fundamentally impossible for
+// an outside caller (mouse.go's rowAtY) to reconstruct which absolute row
+// a screen click landed on with any reliability; a first attempt at this
+// (see git history) shipped a version that either broke click accuracy or
+// broke the table's own guarantee that the cursor stays visible while
+// scrolling, depending on how the tradeoff was made. Owning cursor/topRow
+// directly removes the tradeoff entirely: topRow is a plain field, always
+// exactly known, and clampTopRow's "scroll the minimum to keep cursor
+// visible" logic is the one place that guarantee is enforced, so both
+// properties hold unconditionally.
 type RowList struct {
-	table  table.Model
 	source RowSource
 	mine   bool
+	cursor int
+	topRow int
+	height int // visible data-row count, kept in sync by syncActiveRowListDimensions
+	width  int
 }
 
 func newRowList(source RowSource) RowList {
-	return RowList{table: table.New(table.WithFocused(true), table.WithColumns(source.Columns(80))), source: source}
+	return RowList{source: source, height: 20}
 }
+
+// visibleRowCount is the one formula translating a RowList.View caller's
+// requested outer height into how many data rows actually show -- shared
+// between View itself and syncActiveRowListDimensions (mouse.go) so the
+// persisted height used for scroll math can never drift from what's
+// actually rendered.
+func visibleRowCount(h int) int { return max(3, h-3) }
+
 func (r *RowList) Refresh(st model.State, actor string) {
-	rows := r.source.Rows(st, actor, r.mine)
-	r.table.SetRows(rows)
-	if len(rows) > 0 && r.table.Cursor() < 0 {
-		r.table.SetCursor(0)
-	}
+	r.clampToRowCount(len(r.source.Rows(st, actor, r.mine)))
 }
 func (r *RowList) SetMineFilter(mine bool, st model.State, actor string) {
 	r.mine = mine
 	r.Refresh(st, actor)
 }
 func (r RowList) SelectedID(st model.State, actor string) string {
-	return r.source.RowID(r.table.Cursor(), st, actor, r.mine)
+	return r.source.RowID(r.cursor, st, actor, r.mine)
 }
 func (r RowList) Actions(id string, st model.State, actor string) []RowAction {
 	return r.source.Actions(id, st, actor)
 }
-func rowListStyles(p palette) table.Styles {
-	return table.Styles{
+func (r RowList) Cursor() int { return r.cursor }
+
+// SetCursor moves to an absolute row (clamped to the valid range for
+// rowCount), scrolling topRow the minimum amount needed to keep it
+// visible -- never re-centering, the same "just enough" scroll ordinary
+// list widgets use.
+func (r *RowList) SetCursor(n, rowCount int) {
+	if rowCount <= 0 {
+		r.cursor, r.topRow = 0, 0
+		return
+	}
+	r.cursor = clamp(n, 0, rowCount-1)
+	r.clampTopRow(rowCount)
+}
+func (r *RowList) MoveCursor(delta, rowCount int) {
+	r.SetCursor(r.cursor+delta, rowCount)
+}
+func (r *RowList) SetDimensions(w, h int) {
+	r.width = w
+	r.height = max(1, h)
+}
+func (r *RowList) clampToRowCount(rowCount int) {
+	if rowCount <= 0 {
+		r.cursor, r.topRow = 0, 0
+		return
+	}
+	if r.cursor < 0 {
+		r.cursor = 0
+	}
+	if r.cursor >= rowCount {
+		r.cursor = rowCount - 1
+	}
+	r.clampTopRow(rowCount)
+}
+func (r *RowList) clampTopRow(rowCount int) {
+	height := max(1, r.height)
+	if r.topRow > r.cursor {
+		r.topRow = r.cursor
+	}
+	if r.cursor >= r.topRow+height {
+		r.topRow = r.cursor - height + 1
+	}
+	if maxTop := max(0, rowCount-height); r.topRow > maxTop {
+		r.topRow = maxTop
+	}
+	if r.topRow < 0 {
+		r.topRow = 0
+	}
+}
+
+type rowStyles struct {
+	Header, Cell, Selected lipgloss.Style
+}
+
+func rowListStyles(p palette) rowStyles {
+	return rowStyles{
 		Header:   lipgloss.NewStyle().Bold(true).Foreground(p.muted).Padding(0, 1),
 		Cell:     lipgloss.NewStyle().Foreground(p.text).Padding(0, 1),
 		Selected: lipgloss.NewStyle().Bold(true).Foreground(p.ink).Background(p.cyan).Padding(0, 1),
 	}
 }
+
+// renderHeader and renderTableRow replicate bubbles/table's own
+// headersView/renderRow cell layout exactly (per-column width, ansi-safe
+// truncation, whole-row Selected styling) so dropping table.Model changes
+// nothing about what's on screen -- only how scroll position is tracked.
+func renderHeader(cols []table.Column, styles rowStyles) string {
+	cells := make([]string, 0, len(cols))
+	for _, col := range cols {
+		if col.Width <= 0 {
+			continue
+		}
+		cell := lipgloss.NewStyle().Width(col.Width).MaxWidth(col.Width).Inline(true).Render(ansi.Truncate(col.Title, col.Width, "…"))
+		cells = append(cells, styles.Header.Render(cell))
+	}
+	return lipgloss.JoinHorizontal(lipgloss.Top, cells...)
+}
+func renderTableRow(cols []table.Column, values table.Row, styles rowStyles, selected bool) string {
+	cells := make([]string, 0, len(cols))
+	for i, col := range cols {
+		if col.Width <= 0 {
+			continue
+		}
+		var text string
+		if i < len(values) {
+			text = values[i]
+		}
+		cell := lipgloss.NewStyle().Width(col.Width).MaxWidth(col.Width).Inline(true).Render(ansi.Truncate(text, col.Width, "…"))
+		cells = append(cells, styles.Cell.Render(cell))
+	}
+	row := lipgloss.JoinHorizontal(lipgloss.Top, cells...)
+	if selected {
+		return styles.Selected.Render(row)
+	}
+	return row
+}
 func (r RowList) View(p palette, st model.State, actor string, w, h int) string {
-	t := r.table
-	t.SetColumns(r.source.Columns(w))
-	t.SetWidth(w)
-	t.SetHeight(max(3, h-3))
-	t.SetStyles(rowListStyles(p))
-	if len(t.Rows()) == 0 {
+	cols := r.source.Columns(w)
+	rows := r.source.Rows(st, actor, r.mine)
+	if len(rows) == 0 {
 		return lipgloss.NewStyle().Foreground(p.muted).Render("No rows here yet.")
 	}
-	id := r.source.RowID(t.Cursor(), st, actor, r.mine)
+	styles := rowListStyles(p)
+	top := min(r.topRow, len(rows)-1)
+	if top < 0 {
+		top = 0
+	}
+	end := min(top+visibleRowCount(h), len(rows))
+	lines := make([]string, 0, end-top+1)
+	lines = append(lines, renderHeader(cols, styles))
+	for i := top; i < end; i++ {
+		lines = append(lines, renderTableRow(cols, rows[i], styles, i == r.cursor))
+	}
+	id := r.source.RowID(r.cursor, st, actor, r.mine)
 	bindings := make([]key.Binding, 0)
 	for _, act := range r.source.Actions(id, st, actor) {
 		bindings = append(bindings, key.NewBinding(key.WithKeys(act.Key), key.WithHelp(act.Key, act.Label)))
 	}
 	footer := lipgloss.NewStyle().Foreground(p.muted).Render("↑/↓ select  esc back  ") + help.New().ShortHelpView(bindings)
-	return t.View() + "\n" + footer
+	return strings.Join(lines, "\n") + "\n" + footer
 }
 
 func (m *Model) activeRowList() *RowList {
@@ -196,13 +316,36 @@ func (m Model) openCreateForm() (tea.Model, tea.Cmd) {
 }
 
 func (m Model) updateRowList(msg tea.Msg) (tea.Model, tea.Cmd) {
-	key, ok := msg.(tea.KeyPressMsg)
-	if !ok {
-		return m, nil
-	}
+	m.syncActiveRowListDimensions()
 	list := m.activeRowList()
 	if list == nil {
 		m.rowFocus = false
+		return m, nil
+	}
+	rowCount := len(list.source.Rows(m.state, m.actor, list.mine))
+	// Mouse wheel scrolls the row cursor the same one row at a time that
+	// LineUp/LineDown (k/j, up/down) already do.
+	if wheel, ok := msg.(tea.MouseWheelMsg); ok {
+		switch wheel.Button {
+		case tea.MouseWheelUp:
+			list.MoveCursor(-1, rowCount)
+		case tea.MouseWheelDown:
+			list.MoveCursor(1, rowCount)
+		}
+		return m, nil
+	}
+	if click, ok := msg.(tea.MouseClickMsg); ok {
+		mouse := click.Mouse()
+		if mouse.Button == tea.MouseLeft {
+			p := colors(m.highContrast)
+			if row, ok := m.rowAtY(p, mouse.Y); ok {
+				list.SetCursor(row, rowCount)
+			}
+		}
+		return m, nil
+	}
+	key, ok := msg.(tea.KeyPressMsg)
+	if !ok {
 		return m, nil
 	}
 	switch k := key.String(); k {
@@ -242,42 +385,93 @@ func (m Model) updateRowList(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
+		// Falls through to navigation only once no per-row action claimed
+		// the key (matching the priority row actions already had before
+		// this took over cursor movement from table.Model.Update).
+		height := max(1, list.height)
+		switch k {
+		case "up", "k":
+			list.MoveCursor(-1, rowCount)
+		case "down", "j":
+			list.MoveCursor(1, rowCount)
+		case "b", "pgup":
+			list.MoveCursor(-height, rowCount)
+		case "f", "pgdown", " ":
+			list.MoveCursor(height, rowCount)
+		case "u", "ctrl+u":
+			list.MoveCursor(-height/2, rowCount)
+		case "d", "ctrl+d":
+			list.MoveCursor(height/2, rowCount)
+		case "home", "g":
+			list.SetCursor(0, rowCount)
+		case "end", "G":
+			list.SetCursor(rowCount-1, rowCount)
+		}
 	}
-	var cmd tea.Cmd
-	list.table, cmd = list.table.Update(msg)
-	return m, cmd
+	return m, nil
 }
 func (m Model) updateConfirm(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if click, ok := msg.(tea.MouseClickMsg); ok {
+		mouse := click.Mouse()
+		if mouse.Button != tea.MouseLeft {
+			return m, nil
+		}
+		// Deliberately conservative: a click that doesn't land precisely on
+		// one of the two printed labels does nothing at all -- unlike row
+		// selection or form focus, a wrong guess here could sign an
+		// irreversible action (revoke, delete, an elevated-key-gated
+		// grant), so there is no default direction an ambiguous click ever
+		// resolves to.
+		if yes, ok := m.confirmChoiceAt(colors(m.highContrast), mouse.X, mouse.Y); ok {
+			return m.resolveConfirm(yes)
+		}
+		return m, nil
+	}
 	key, ok := msg.(tea.KeyPressMsg)
 	if !ok {
 		return m, nil
 	}
 	switch key.String() {
 	case "y", "Y", "enter":
-		c := *m.confirm
-		m.confirm = nil
-		if c.chainOrchestratorApproval {
-			return m.dispatchOrchestratorApprovalChain(c)
-		}
-		next, cmd := m.dispatchEventWithPassphrase(c.typ, c.id, c.payload, c.passphrase)
-		mm := next.(Model)
-		if mm.err != nil && c.onError != nil {
-			mm.err = c.onError(mm.err, c.id)
-		}
-		return mm, cmd
+		return m.resolveConfirm(true)
 	case "n", "N", "esc":
-		m.confirm = nil
-		m.notice = "Cancelled."
+		return m.resolveConfirm(false)
 	}
 	return m, nil
 }
+func (m Model) resolveConfirm(yes bool) (tea.Model, tea.Cmd) {
+	c := *m.confirm
+	m.confirm = nil
+	if !yes {
+		m.notice = "Cancelled."
+		return m, nil
+	}
+	if c.chainOrchestratorApproval {
+		return m.dispatchOrchestratorApprovalChain(c)
+	}
+	next, cmd := m.dispatchEventWithPassphrase(c.typ, c.id, c.payload, c.passphrase)
+	mm := next.(Model)
+	if mm.err != nil && c.onError != nil {
+		mm.err = c.onError(mm.err, c.id)
+	}
+	return mm, cmd
+}
+// confirmYesLabel/confirmNoLabel are shared between renderConfirm's actual
+// button line and confirmChoiceAt's (mouse.go) click hit-testing, so the
+// clickable regions can never drift from what's actually printed on screen.
+const (
+	confirmYesLabel = "[y / enter] Sign and apply"
+	confirmNoLabel  = "[n / esc] Go back"
+	confirmGap      = "    "
+)
+
 func (m Model) renderConfirm(p palette) string {
 	rows := []string{
 		lipgloss.NewStyle().Foreground(p.amber).Bold(true).Render("REVIEW / Signed change"),
 		m.confirm.prompt,
 		"",
 		lipgloss.NewStyle().Foreground(p.muted).Render("This action becomes part of project history."),
-		lipgloss.NewStyle().Foreground(p.amber).Render("[y / enter] Sign and apply    [n / esc] Go back"),
+		lipgloss.NewStyle().Foreground(p.amber).Render(confirmYesLabel + confirmGap + confirmNoLabel),
 	}
 	return lipgloss.NewStyle().BorderLeft(true).BorderStyle(lipgloss.ThickBorder()).
 		BorderForeground(p.amber).PaddingLeft(2).Render(strings.Join(rows, "\n"))

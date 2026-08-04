@@ -116,6 +116,19 @@ func (m Model) Init() tea.Cmd {
 	return tea.RequestBackgroundColor
 }
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Handled before any mode dispatch below: a resize while a form,
+	// confirm dialog, row list, or settings pane has focus used to never
+	// reach the tea.WindowSizeMsg case further down at all (form/confirm/
+	// rowFocus/settingsFocus each return out of one of their own
+	// mode-specific update functions first), leaving m.width/m.height
+	// stale -- silently wrong layout, and stale inputs to the row-list
+	// click math in mouse.go -- until something returned to plain
+	// navigation mode.
+	if resize, ok := msg.(tea.WindowSizeMsg); ok {
+		m.width = resize.Width
+		m.height = resize.Height
+		return m, nil
+	}
 	if _, ok := msg.(fsEventMsg); ok {
 		m.refreshSilent()
 		if m.watcher != nil {
@@ -136,9 +149,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateSettings(msg)
 	}
 	switch v := msg.(type) {
-	case tea.WindowSizeMsg:
-		m.width = v.Width
-		m.height = v.Height
+	case tea.MouseClickMsg:
+		mouse := v.Mouse()
+		if mouse.Button != tea.MouseLeft {
+			return m, nil
+		}
+		// One click both selects and enters a sidebar hub -- matching
+		// arrow-navigation-then-Enter's combined effect -- rather than
+		// requiring a second action, since a click is already the more
+		// direct gesture a mouse-native experience should reward.
+		if hub, ok := m.sidebarHubAt(colors(m.highContrast), mouse.X, mouse.Y); ok {
+			m.openView(navigationHubs[hub].Views[0])
+			m.focusCurrentView()
+		}
+		return m, nil
 	case tea.KeyPressMsg:
 		k := v.String()
 		if m.palette {
@@ -420,6 +444,17 @@ func (m Model) openTaskForm() (tea.Model, tea.Cmd) {
 }
 
 func (m Model) updateForm(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if click, ok := msg.(tea.MouseClickMsg); ok {
+		mouse := click.Mouse()
+		if mouse.Button == tea.MouseLeft && len(m.inputs) > 0 {
+			if field, ok := m.formFieldAtY(colors(m.highContrast), mouse.Y); ok && field != m.formFocus {
+				m.inputs[m.formFocus].Blur()
+				m.formFocus = field
+				return m, m.inputs[m.formFocus].Focus()
+			}
+		}
+		return m, nil
+	}
 	if key, ok := msg.(tea.KeyPressMsg); ok {
 		if m.formSpec != nil && m.formFocus < len(m.formSpec.Fields) {
 			if options := m.formSpec.Fields[m.formFocus].Options; len(options) > 0 {
@@ -548,13 +583,25 @@ func colors(high bool) palette {
 	}
 	return palette{lipgloss.Color("#071216"), lipgloss.Color("#0D2024"), lipgloss.Color("#56D6C9"), lipgloss.Color("#E8B85C"), lipgloss.Color("#F07167"), lipgloss.Color("#B9A7E8"), lipgloss.Color("#78918F"), lipgloss.Color("#D7E5E3")}
 }
+// bodyLayout returns the same pane/content dimensions View, renderBody, and
+// the mouse hit-testing in mouse.go all need -- computed once here so they
+// can never drift apart. paneW/paneH are the body pane's own outer size
+// (what renderBody receives); innerW/innerH are its padded interior, where
+// bodyContent (row tables, forms, prose) actually renders.
+func (m Model) bodyLayout() (paneW, paneH, innerW, innerH int) {
+	sidebarW := m.sidebarWidth()
+	paneW = max(30, m.width-sidebarW-3)
+	paneH = max(10, m.height)
+	innerW = max(30, paneW-4)
+	innerH = max(6, paneH-8)
+	return
+}
 func (m Model) View() tea.View {
 	p := colors(m.highContrast)
 	sidebarW := m.sidebarWidth()
-	contentW := max(30, m.width-sidebarW-3)
-	availH := max(10, m.height)
-	side := m.renderSidebar(p, sidebarW, availH)
-	body := m.renderBody(p, contentW, availH)
+	paneW, paneH, _, _ := m.bodyLayout()
+	side, _ := m.renderSidebar(p, sidebarW, paneH)
+	body := m.renderBody(p, paneW, paneH)
 	screen := lipgloss.JoinHorizontal(lipgloss.Top, side, " ", body)
 	screen = lipgloss.NewStyle().MaxWidth(m.width).Render(screen)
 	if m.palette {
@@ -572,10 +619,17 @@ func (m Model) sidebarWidth() int {
 	}
 	return 21
 }
-func (m Model) renderSidebar(p palette, w, h int) string {
+
+// renderSidebar also returns, per navigationHubs entry, which line of rows
+// (before Padding is applied) carries that hub's clickable name -- read
+// back by mouse.go's sidebarHubAt, recomputed fresh from the same (m, p, w)
+// a click arrived under, since View() has no way to hand this to the
+// Update() call that handles the click.
+func (m Model) renderSidebar(p palette, w, h int) (view string, hubLine []int) {
 	title := lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("● AGENT COMMS")
 	sub := lipgloss.NewStyle().Foreground(p.muted).Render(truncate(m.projectID, max(8, w-2)))
 	rows := []string{title, sub, "", lipgloss.NewStyle().Foreground(p.muted).Render("OPERATIONS"), ""}
+	hubLine = make([]int, len(navigationHubs))
 	activeHub := m.activeHubIndex()
 	for i, hub := range navigationHubs {
 		marker := "  "
@@ -584,6 +638,7 @@ func (m Model) renderSidebar(p palette, w, h int) string {
 			marker = "▌ "
 			style = style.Foreground(p.cyan).Bold(true)
 		}
+		hubLine[i] = len(rows)
 		rows = append(rows, style.Render(marker+hub.Name), "")
 		if i == activeHub {
 			rows = append(rows, lipgloss.NewStyle().Foreground(p.text).PaddingLeft(2).
@@ -596,7 +651,7 @@ func (m Model) renderSidebar(p palette, w, h int) string {
 		lipgloss.NewStyle().Foreground(p.muted).Render("Enter open  Esc back"),
 		lipgloss.NewStyle().Foreground(p.muted).Render("[/] commands"),
 	)
-	return lipgloss.NewStyle().Width(w).Height(h).Padding(1).Background(p.ink).Foreground(p.text).Render(strings.Join(rows, "\n"))
+	return lipgloss.NewStyle().Width(w).Height(h).Padding(1).Background(p.ink).Foreground(p.text).Render(strings.Join(rows, "\n")), hubLine
 }
 func (m Model) renderBody(p palette, w, h int) string {
 	title := views[m.view]
@@ -615,43 +670,43 @@ func (m Model) renderBody(p palette, w, h int) string {
 		content := m.renderConfirm(p)
 		return pane.Render(meta + "\n" + tabs + "\n\n" + header + "\n\n" + content)
 	}
-	contentW := max(30, w-4)
-	contentH := max(6, h-8)
+	_, _, contentW, contentH := m.bodyLayout()
 	wrap := lipgloss.NewStyle().MaxWidth(contentW)
 	content := ""
 	bodyContent := ""
+	listW, listH := m.rowListDimensions()
 	switch views[m.view] {
 	case "Overview":
 		bodyContent = wrap.Render(m.overview(p))
 	case "My work", "Tasks":
-		bodyContent = m.taskList.View(p, m.state, m.actor, contentW, contentH)
+		bodyContent = m.taskList.View(p, m.state, m.actor, listW, listH)
 	case "Inbox":
-		bodyContent = m.messageList.View(p, m.state, m.actor, contentW, contentH)
+		bodyContent = m.messageList.View(p, m.state, m.actor, listW, listH)
 	case "Agents":
 		bodyContent = m.agentControlBar(p, contentW) + "\n\n" +
-			m.agentList.View(p, m.state, m.actor, contentW, max(5, contentH-4))
+			m.agentList.View(p, m.state, m.actor, listW, listH)
 	case "Invocations":
 		bodyContent = m.invocationControlBar(p, contentW) + "\n\n" +
-			m.invocationList.View(p, m.state, m.actor, contentW, max(5, contentH-10)) + "\n\n" +
+			m.invocationList.View(p, m.state, m.actor, listW, listH) + "\n\n" +
 			m.invocationDeliveryDetails(p, contentW)
 	case "Runtimes":
-		bodyContent = m.runtimeList.View(p, m.state, m.actor, contentW, max(5, contentH-9)) + "\n\n" +
+		bodyContent = m.runtimeList.View(p, m.state, m.actor, listW, listH) + "\n\n" +
 			m.runtimeDetailPane(p, contentW)
 	case "Approvals":
-		bodyContent = m.approvalList.View(p, m.state, m.actor, contentW, contentH)
+		bodyContent = m.approvalList.View(p, m.state, m.actor, listW, listH)
 	case "Documents":
-		bodyContent = m.documentList.View(p, m.state, m.actor, contentW, contentH)
+		bodyContent = m.documentList.View(p, m.state, m.actor, listW, listH)
 	case "Contracts & decisions":
-		bodyContent = m.decisionList.View(p, m.state, m.actor, contentW, max(5, contentH-6))
+		bodyContent = m.decisionList.View(p, m.state, m.actor, listW, listH)
 		if contracts := decisionMessages(m.state); contracts != "" {
 			bodyContent += "\n\n" + wrap.Render(contracts)
 		}
 	case "Artifacts":
-		bodyContent = m.artifactList.View(p, m.state, m.actor, contentW, contentH)
+		bodyContent = m.artifactList.View(p, m.state, m.actor, listW, listH)
 	case "Drafts":
 		bodyContent = m.draftsView(p)
 	case "Environment":
-		bodyContent = m.envList.View(p, m.state, m.actor, contentW, contentH)
+		bodyContent = m.envList.View(p, m.state, m.actor, listW, listH)
 	case "Project settings":
 		bodyContent = m.projectSettings(p, contentW, contentH)
 	case "Blockers":
@@ -700,16 +755,33 @@ func (m Model) renderHubTabs(p palette, width int) string {
 	return lipgloss.NewStyle().Width(width).BorderBottom(true).BorderStyle(lipgloss.NormalBorder()).
 		BorderForeground(p.muted).Render(strings.Join(tabs, " "))
 }
-func (m Model) renderForm(p palette) string {
+// formMaxWidth is the width constraint renderForm's final Render applies --
+// shared with formFieldLines so a standalone lipgloss.Height measurement of
+// any one row (title, hint, a field line) wraps exactly the same way it
+// will inside the real combined render. Lipgloss wraps each pre-existing
+// line independently rather than reflowing across "\n" boundaries, so
+// measuring one row against this same width in isolation is exact, not an
+// approximation.
+func (m Model) formMaxWidth() int {
+	return max(40, m.width-m.sidebarWidth()-10)
+}
+
+// formRows builds renderForm's row content plus, per m.inputs index, which
+// row holds that field's own line -- read back by formFieldAtY (mouse.go)
+// to translate a click into a field to focus, recomputed fresh from the
+// same model state renderForm itself renders from (View() can't persist
+// this for the Update() call that handles the click).
+func (m Model) formRows(p palette) (rows []string, fieldLine []int) {
 	title, hint := "Form", ""
 	if m.formSpec != nil {
 		title, hint = m.formSpec.Title, m.formSpec.Hint
 	}
-	rows := []string{
+	rows = []string{
 		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("EDIT / " + title),
 		lipgloss.NewStyle().Foreground(p.muted).Render(hint),
 		"",
 	}
+	fieldLine = make([]int, len(m.inputs))
 	focusedIsPicker := false
 	for i, input := range m.inputs {
 		marker := "  "
@@ -723,6 +795,7 @@ func (m Model) renderForm(p palette) string {
 		if m.formSpec != nil && i < len(m.formSpec.Fields) {
 			options = m.formSpec.Fields[i].Options
 		}
+		fieldLine[i] = len(rows)
 		if len(options) > 0 {
 			if focused {
 				focusedIsPicker = true
@@ -746,8 +819,12 @@ func (m Model) renderForm(p palette) string {
 	if m.err != nil {
 		rows = append(rows, lipgloss.NewStyle().Foreground(p.red).Render(m.err.Error()))
 	}
+	return rows, fieldLine
+}
+func (m Model) renderForm(p palette) string {
+	rows, _ := m.formRows(p)
 	return lipgloss.NewStyle().BorderLeft(true).BorderStyle(lipgloss.ThickBorder()).
-		BorderForeground(p.cyan).PaddingLeft(2).MaxWidth(max(40, m.width-m.sidebarWidth()-10)).
+		BorderForeground(p.cyan).PaddingLeft(2).MaxWidth(m.formMaxWidth()).
 		Render(strings.Join(rows, "\n"))
 }
 // renderPickerField renders a picker field as "Label: ‹ value ›" instead of

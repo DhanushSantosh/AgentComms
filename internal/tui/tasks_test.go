@@ -48,6 +48,10 @@ func createTask(t *testing.T, s *service.Service, id string) {
 }
 func pressKey(t *testing.T, m Model, msg tea.KeyPressMsg) Model {
 	t.Helper()
+	return pressMsg(t, m, msg)
+}
+func pressMsg(t *testing.T, m Model, msg tea.Msg) Model {
+	t.Helper()
 	next, _ := m.Update(msg)
 	mm, ok := next.(Model)
 	if !ok {
@@ -57,6 +61,8 @@ func pressKey(t *testing.T, m Model, msg tea.KeyPressMsg) Model {
 }
 func keyText(s string) tea.KeyPressMsg { return tea.KeyPressMsg(tea.Key{Text: s, Code: rune(s[0])}) }
 func keyEnter() tea.KeyPressMsg        { return tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}) }
+func wheelUp() tea.MouseWheelMsg       { return tea.MouseWheelMsg{Button: tea.MouseWheelUp} }
+func wheelDown() tea.MouseWheelMsg     { return tea.MouseWheelMsg{Button: tea.MouseWheelDown} }
 
 func enterTasksView(t *testing.T, m Model) Model {
 	t.Helper()
