@@ -1,13 +1,10 @@
 import Image from "next/image";
 import { CollisionLab } from "@/components/CollisionLab";
 import { CoordinationField } from "@/components/CoordinationField";
-import { CopyInstallButton } from "@/components/CopyInstallButton";
 import { ProtocolInstrument } from "@/components/ProtocolInstrument";
 import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
 import { documentationPage, site } from "@/lib/site";
-
-const installCommand = "curl -fsSL https://raw.githubusercontent.com/DhanushSantosh/AgentComms/main/install.sh | sh";
 
 export default function HomePage() {
   return (
@@ -118,23 +115,6 @@ export default function HomePage() {
           <div className="trust-sequence"><span>actor signs intent</span><i>→</i><span>authority checks rules</span><i>→</i><span>event commits</span><i>→</i><span>receipt signs the head</span></div>
         </section>
 
-        <section className="install" id="install" data-reveal="install">
-          <div className="install-copy">
-            <p className="eyebrow">Agent Comms v{site.productVersion}</p>
-            <h2>Give the project a memory everyone must respect.</h2>
-            <p>Install at user level. Initialize once. Every managed project stays reconciled as the binary evolves.</p>
-          </div>
-          <div className="install-terminal">
-            <div><span>USER-LEVEL INSTALL</span><span>LINUX / macOS</span></div>
-            <p><i>$</i><code data-install-command>{installCommand}</code></p>
-            <CopyInstallButton />
-            <footer><span>agent-comms init</span><i>→</i><span>agent-comms tui</span><i>→</i><strong>PROJECT LIVE</strong></footer>
-          </div>
-          <div className="install-links">
-            <a className="action action--paper" href={documentationPage("/start/install/")}>Open installation guide <span>↗</span></a>
-            <a className="action action--line-light" href="https://github.com/DhanushSantosh/AgentComms">View source <span>↗</span></a>
-          </div>
-        </section>
       </main>
 
       <SiteFooter />

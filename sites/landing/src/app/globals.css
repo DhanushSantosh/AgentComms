@@ -65,7 +65,6 @@ img { max-width: 100%; }
 .control ::selection { background: var(--coral); color: var(--ink); }
 .modes ::selection { background: var(--cyan); color: var(--ink); }
 .trust ::selection { background: var(--ice); color: var(--ink); }
-.install ::selection,
 .site-footer ::selection { background: var(--cyan); color: var(--ink); }
 :focus-visible { outline: 3px solid var(--coral); outline-offset: 4px; }
 
@@ -77,7 +76,6 @@ img { max-width: 100%; }
 .modes,
 .trust,
 .releases,
-.install,
 .site-footer {
   content-visibility: auto;
   contain-intrinsic-size: auto 70rem;
@@ -266,8 +264,8 @@ img { max-width: 100%; }
 .section-index { border-bottom: 1px solid var(--line-light); font-family: var(--mono); font-size: 0.51rem; grid-column: 1 / -1; letter-spacing: 0.06em; padding-bottom: 0.8rem; }
 .eyebrow { color: var(--blue); font-family: var(--mono); font-size: 0.56rem; font-weight: 700; letter-spacing: 0.09em; margin: 0 0 1.3rem; text-transform: uppercase; }
 .collision { background: #f7f9fa; display: grid; gap: clamp(3rem, 7vw, 8rem); grid-template-columns: minmax(18rem, 0.62fr) minmax(30rem, 1.38fr); padding: clamp(6rem, 10vw, 10rem) var(--gutter); }
-.collision-copy h2, .protocol h2, .relay h2, .control h2, .modes h2, .trust h2, .install h2 { font-family: var(--display); font-size: clamp(3rem, 5.8vw, 6rem); font-weight: 620; letter-spacing: -0.066em; line-height: 0.9; margin: 0; text-wrap: balance; }
-.collision-copy > p:last-child, .protocol-intro > p:last-child, .relay-copy > p, .control-heading > p:last-child, .install-copy > p:last-child { color: #51636c; font-size: clamp(0.92rem, 1.25vw, 1.1rem); line-height: 1.7; margin: 1.8rem 0 0; max-width: 34rem; }
+.collision-copy h2, .protocol h2, .relay h2, .control h2, .modes h2, .trust h2 { font-family: var(--display); font-size: clamp(3rem, 5.8vw, 6rem); font-weight: 620; letter-spacing: -0.066em; line-height: 0.9; margin: 0; text-wrap: balance; }
+.collision-copy > p:last-child, .protocol-intro > p:last-child, .relay-copy > p, .control-heading > p:last-child { color: #51636c; font-size: clamp(0.92rem, 1.25vw, 1.1rem); line-height: 1.7; margin: 1.8rem 0 0; max-width: 34rem; }
 .collision-lab { align-self: end; background: var(--ink); border: 1px solid var(--line-dark); color: var(--ice); min-width: 0; }
 .lab-toolbar { align-items: center; border-bottom: 1px solid var(--line-dark); display: flex; font-family: var(--mono); font-size: 0.52rem; justify-content: space-between; padding: 0.7rem; }
 .lab-toolbar > span { color: var(--steel-light); }
@@ -407,20 +405,6 @@ img { max-width: 100%; }
 .release-highlights li::before { color: var(--blue); content: "↳"; left: 0; position: absolute; }
 .releases-links { display: flex; flex-wrap: wrap; gap: 0.7rem; margin-top: clamp(3rem, 6vw, 5rem); }
 
-.install { background: var(--ink); color: var(--ice); padding: clamp(7rem, 12vw, 12rem) var(--gutter); }
-.install .eyebrow { color: var(--cyan); }
-.install-copy h2 { font-size: clamp(3.6rem, 7.5vw, 8rem); max-width: 12ch; }
-.install-copy > p:last-child { color: var(--steel-light); max-width: 40rem; }
-.install-terminal { border: 1px solid var(--line-dark); margin-top: 4rem; }
-.install-terminal > div { border-bottom: 1px solid var(--line-dark); color: var(--steel-light); display: flex; font-family: var(--mono); font-size: 0.5rem; justify-content: space-between; padding: 0.8rem 1rem; }
-.install-terminal > p { align-items: center; display: grid; gap: 1rem; grid-template-columns: auto minmax(0, 1fr); margin: 0; padding: 1.5rem 1rem; }
-.install-terminal > p i { color: var(--cyan); font-family: var(--mono); font-style: normal; }
-.install-terminal code { color: var(--ice); font-family: var(--mono); font-size: clamp(0.55rem, 1.1vw, 0.72rem); overflow-x: auto; padding: 0.4rem 0; white-space: nowrap; }
-.install-terminal > button { background: var(--cyan); border: 0; color: var(--ink); cursor: pointer; font-family: var(--mono); font-size: 0.55rem; font-weight: 700; margin: 0 1rem 1rem; min-height: 2.5rem; padding: 0 0.9rem; }
-.install-terminal footer { align-items: center; border-top: 1px solid var(--line-dark); color: var(--steel-light); display: flex; flex-wrap: wrap; font-family: var(--mono); font-size: 0.52rem; gap: 1rem; padding: 0.8rem 1rem; }
-.install-terminal footer i { color: var(--steel); font-style: normal; }
-.install-terminal footer strong { color: var(--cyan); font-weight: 400; }
-.install-links { display: flex; flex-wrap: wrap; gap: 0.7rem; margin-top: 1.5rem; }
 .action--paper { background: var(--ice); color: var(--ink); }
 .action--paper:hover { background: var(--cyan); }
 .action--line-light { border: 1px solid var(--line-dark); color: var(--ice); }
@@ -537,19 +521,19 @@ img { max-width: 100%; }
 .section-index::after { background: var(--blue); bottom: -1px; content: ""; height: 2px; left: 0; position: absolute; transform: scaleX(1); transform-origin: left; transition: transform var(--motion-slow) var(--ease-authority); width: 100%; }
 .motion-ready .collision:not(.is-revealed) .section-index::after { transform: scaleX(0); }
 
-.motion-ready :is(.collision-copy, .protocol-intro, .relay-copy, .control-heading, .modes > header, .trust-lede, .install-copy) > * {
+.motion-ready :is(.collision-copy, .protocol-intro, .relay-copy, .control-heading, .modes > header, .trust-lede) > * {
   transition-duration: var(--motion-medium);
   transition-property: clip-path, opacity, transform;
   transition-timing-function: var(--ease-authority);
 }
-.motion-ready [data-reveal]:not(.is-revealed) :is(.collision-copy, .protocol-intro, .relay-copy, .control-heading, .modes > header, .trust-lede, .install-copy) > * {
+.motion-ready [data-reveal]:not(.is-revealed) :is(.collision-copy, .protocol-intro, .relay-copy, .control-heading, .modes > header, .trust-lede) > * {
   clip-path: inset(0 0 100% 0);
   opacity: 0;
   transform: translateY(1.5rem);
 }
-.motion-ready [data-reveal].is-revealed :is(.collision-copy, .protocol-intro, .relay-copy, .control-heading, .modes > header, .trust-lede, .install-copy) > :nth-child(2) { transition-delay: calc(var(--motion-stagger) * 1); }
-.motion-ready [data-reveal].is-revealed :is(.collision-copy, .protocol-intro, .relay-copy, .control-heading, .modes > header, .trust-lede, .install-copy) > :nth-child(3) { transition-delay: calc(var(--motion-stagger) * 2); }
-.motion-ready [data-reveal].is-revealed :is(.collision-copy, .protocol-intro, .relay-copy, .control-heading, .modes > header, .trust-lede, .install-copy) > :nth-child(4) { transition-delay: calc(var(--motion-stagger) * 3); }
+.motion-ready [data-reveal].is-revealed :is(.collision-copy, .protocol-intro, .relay-copy, .control-heading, .modes > header, .trust-lede) > :nth-child(2) { transition-delay: calc(var(--motion-stagger) * 1); }
+.motion-ready [data-reveal].is-revealed :is(.collision-copy, .protocol-intro, .relay-copy, .control-heading, .modes > header, .trust-lede) > :nth-child(3) { transition-delay: calc(var(--motion-stagger) * 2); }
+.motion-ready [data-reveal].is-revealed :is(.collision-copy, .protocol-intro, .relay-copy, .control-heading, .modes > header, .trust-lede) > :nth-child(4) { transition-delay: calc(var(--motion-stagger) * 3); }
 
 .motion-ready .collision-lab { transition: clip-path var(--motion-slow) var(--ease-handoff), opacity var(--motion-medium) ease; }
 .motion-ready .collision:not(.is-revealed) .collision-lab { clip-path: inset(0 100% 0 0); opacity: 0.35; }
@@ -706,18 +690,6 @@ img { max-width: 100%; }
   transform: translateX(-105%);
 }
 .motion-ready .releases.is-active .release-list::after { animation: release-ledger-scan var(--motion-loop-long) var(--ease-handoff) 1.4s infinite; }
-
-.install-terminal > p { grid-template-columns: auto minmax(0, 1fr) auto; }
-.install-terminal > p::after { background: var(--cyan); content: ""; height: 1rem; opacity: 1; width: 0.45rem; }
-.motion-ready .install-terminal,
-.motion-ready .install-links { transition: clip-path var(--motion-slow) var(--ease-handoff), opacity var(--motion-medium) ease, transform var(--motion-slow) var(--ease-authority); }
-.motion-ready .install:not(.is-revealed) .install-terminal { clip-path: inset(0 100% 0 0); opacity: 0; transform: translateY(1.5rem); }
-.motion-ready .install:not(.is-revealed) .install-links { opacity: 0; transform: translateY(1rem); }
-.motion-ready .install.is-revealed .install-terminal { transition-delay: calc(var(--motion-stagger) * 3); }
-.motion-ready .install.is-revealed .install-links { transition-delay: calc(var(--motion-stagger) * 6); }
-.motion-ready .install.is-active .install-terminal > p::after { animation: terminal-cursor 1s steps(1, end) infinite; }
-.install-terminal > button[data-copy-state="success"] { animation: receipt-confirm var(--motion-fast) var(--ease-authority) both; }
-.install-terminal > button[data-copy-state="failure"] { animation: receipt-reject var(--motion-fast) var(--ease-handoff) both; }
 
 .motion-ready .site-footer > * { transition: opacity var(--motion-medium) ease, transform var(--motion-medium) var(--ease-authority); }
 .motion-ready .site-footer:not(.is-revealed) > * { opacity: 0; transform: translateY(1rem); }
@@ -894,7 +866,7 @@ img { max-width: 100%; }
   .receipt-ticket { bottom: 10%; left: 4%; width: 10.5rem; }
   .statement p { font-size: clamp(3rem, 14vw, 5rem); }
   .statement p + p { margin-left: 0; margin-top: 0.45em; }
-  .motion-ready [data-reveal]:not(.is-revealed) :is(.collision-copy, .protocol-intro, .relay-copy, .control-heading, .modes > header, .trust-lede, .install-copy) > * { transform: translateY(0.8rem); }
+  .motion-ready [data-reveal]:not(.is-revealed) :is(.collision-copy, .protocol-intro, .relay-copy, .control-heading, .modes > header, .trust-lede) > * { transform: translateY(0.8rem); }
   .collision { grid-template-columns: minmax(0, 1fr); }
   .lab-toolbar { align-items: stretch; flex-direction: column; gap: 0.7rem; }
   .lab-toolbar div { display: grid; grid-template-columns: repeat(2, 1fr); }
@@ -930,9 +902,6 @@ img { max-width: 100%; }
   .trust-sequence { align-items: flex-start; flex-direction: column; }
   .trust-sequence i { transform: rotate(90deg); }
   .motion-ready .trust:not(.is-revealed) .trust-sequence > * { clip-path: inset(0 0 100% 0); transform: translateY(0.5rem); }
-  .install-terminal > p { grid-template-columns: auto minmax(0, 1fr); }
-  .install-terminal > p::after { display: none; }
-  .motion-ready .install:not(.is-revealed) .install-terminal { clip-path: inset(0 0 100% 0); transform: translateY(1rem); }
   .site-footer-nav { grid-auto-flow: row; grid-template-columns: repeat(2, 1fr); }
   .site-footer-bottom { flex-direction: column; align-items: flex-start; }
 }
@@ -944,7 +913,7 @@ img { max-width: 100%; }
 }
 
 @media print {
-  .site-header, .hero-grain, .hero-actions, .install-links { display: none !important; }
+  .site-header, .hero-grain, .hero-actions { display: none !important; }
   * { background: white !important; box-shadow: none !important; color: black !important; }
   section { break-inside: avoid; }
 }
