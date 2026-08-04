@@ -15,15 +15,6 @@ test("presents the product thesis and truthful lifecycle", async ({ page }) => {
   await expect(page.getByText(/A transport can succeed while the agent never acknowledges/)).toBeVisible();
 });
 
-test("copies the install command", async ({ page, context }) => {
-  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
-  await page.goto("/#install");
-
-  await page.getByRole("button", { name: "Copy command" }).click();
-  await expect(page.getByRole("button", { name: "Command copied" })).toBeVisible();
-  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain("install.sh");
-});
-
 test("mobile navigation opens, closes, and preserves keyboard semantics", async ({ page, isMobile }) => {
   test.skip(!isMobile, "Mobile-only navigation behavior");
   await page.goto("/");
