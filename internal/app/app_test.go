@@ -1211,6 +1211,34 @@ func TestWithClaudeAllowAgentCommsAppendsScopedAllowedTools(t *testing.T) {
 	}
 }
 
+func TestStripLaunchTerminalFlag(t *testing.T) {
+	cases := []struct {
+		name string
+		in   []string
+		want []string
+	}{
+		{"bare form", []string{"runtime", "interactive-serve", "--id", "x", "--launch-terminal", "--", "claude"},
+			[]string{"runtime", "interactive-serve", "--id", "x", "--", "claude"}},
+		{"equals form", []string{"runtime", "interactive-serve", "--launch-terminal=true", "--id", "x"},
+			[]string{"runtime", "interactive-serve", "--id", "x"}},
+		{"absent", []string{"runtime", "interactive-serve", "--id", "x"},
+			[]string{"runtime", "interactive-serve", "--id", "x"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := stripLaunchTerminalFlag(c.in)
+			if len(got) != len(c.want) {
+				t.Fatalf("got %v, want %v", got, c.want)
+			}
+			for i := range c.want {
+				if got[i] != c.want[i] {
+					t.Fatalf("got %v, want %v", got, c.want)
+				}
+			}
+		})
+	}
+}
+
 // TestInteractiveServeRejectsClaudeAllowAgentCommsForOtherCommands guards the
 // CLI wiring itself (not just the extracted helper): the flag's validation
 // must run and return an error before interactive-serve ever tries to open a

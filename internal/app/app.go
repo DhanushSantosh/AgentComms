@@ -41,6 +41,7 @@ import (
 	"github.com/DhanushSantosh/AgentComms/internal/service"
 	"github.com/DhanushSantosh/AgentComms/internal/sessionbind"
 	"github.com/DhanushSantosh/AgentComms/internal/store"
+	"github.com/DhanushSantosh/AgentComms/internal/terminallaunch"
 	tuiterm "github.com/DhanushSantosh/AgentComms/internal/tui"
 	runtimeworker "github.com/DhanushSantosh/AgentComms/internal/worker"
 	"github.com/google/uuid"
@@ -1205,6 +1206,7 @@ func (c *cli) runtimeCmd() *cobra.Command {
 
 	var interactiveServeID string
 	var interactiveClaudeAllowAgentComms bool
+	var interactiveLaunchTerminal bool
 	interactiveServe := &cobra.Command{
 		Use:   "interactive-serve --id <runtimeID> -- <command> [args...]",
 		Short: "Own a real pty running <command>, dialable by other runtimes for direct invocation delivery",
@@ -1220,12 +1222,16 @@ func (c *cli) runtimeCmd() *cobra.Command {
 					return err
 				}
 			}
+			if interactiveLaunchTerminal {
+				return c.launchInteractiveServeInNewTerminal()
+			}
 			return c.runInteractiveServe(cmd.Context(), interactiveServeID, args)
 		},
 	}
 	interactiveServe.Flags().StringVar(&interactiveServeID, "id", "", "runtime ID")
 	_ = interactiveServe.MarkFlagRequired("id")
 	interactiveServe.Flags().BoolVar(&interactiveClaudeAllowAgentComms, "claude-allow-agent-comms", false, "wrapped command must be claude; scopes unattended Bash permission to this Agent Comms executable only")
+	interactiveServe.Flags().BoolVar(&interactiveLaunchTerminal, "launch-terminal", false, "open a new, dedicated terminal window running this same command instead of using the current one, then exit")
 
 	var interactiveShowID string
 	interactiveShow := &cobra.Command{
@@ -1243,6 +1249,41 @@ func (c *cli) runtimeCmd() *cobra.Command {
 	root.AddCommand(register, configure, heartbeat, list, workerCommand, bindSession, sessionShow,
 		interactiveServe, interactiveShow)
 	return root
+}
+
+// stripLaunchTerminalFlag removes the --launch-terminal flag (in either its
+// bare or --launch-terminal=<value> form) from args, so re-execing the same
+// invocation inside a freshly opened terminal doesn't recurse into another
+// launch instead of actually serving.
+func stripLaunchTerminalFlag(args []string) []string {
+	out := make([]string, 0, len(args))
+	for _, a := range args {
+		if a == "--launch-terminal" || strings.HasPrefix(a, "--launch-terminal=") {
+			continue
+		}
+		out = append(out, a)
+	}
+	return out
+}
+
+// launchInteractiveServeInNewTerminal re-execs the exact command line the
+// operator just typed -- minus --launch-terminal itself -- inside a freshly
+// opened, dedicated terminal window via internal/terminallaunch, then
+// returns immediately. This exists only to remove the manual "open a
+// terminal, cd here, retype the long command" step; the resulting session
+// still needs a real, dedicated window for the same reason the plain
+// command always has (see docs/agent-invocations.md's interactive-serve
+// section) -- this does not, and structurally cannot, relax that.
+func (c *cli) launchInteractiveServeInNewTerminal() error {
+	executable, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("resolve agent-comms executable: %w", err)
+	}
+	full := append([]string{executable}, stripLaunchTerminalFlag(os.Args[1:])...)
+	if err := terminallaunch.Open(c.svc.Store.Root, full); err != nil {
+		return fmt.Errorf("open a new terminal window: %w -- run this command yourself instead: %s", err, strings.Join(full, " "))
+	}
+	return c.emit("runtime.interactive-serve-launched", map[string]any{"command": full, "working_directory": c.svc.Store.Root})
 }
 
 func (c *cli) runInteractiveServe(ctx context.Context, runtimeID string, command []string) (runErr error) {

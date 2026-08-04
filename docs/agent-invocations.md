@@ -563,6 +563,19 @@ wrapper, no multiplexer to install. The `--` before the wrapped command is
 required (not optional): everything after it is passed through untouched as
 the command and its own arguments.
 
+Add `--launch-terminal` to skip manually opening a terminal and retyping the
+command yourself: it re-execs this exact invocation (minus the flag itself)
+inside a freshly opened, dedicated window via `internal/terminallaunch`,
+then exits, leaving the current terminal free. This is a convenience over
+the manual step only — the session still needs a real, dedicated terminal
+for the same reason the plain command always has (see "genuine, structural
+limit" below); nothing about that requirement changes. It tries a short
+list of known terminal programs per OS (`gnome-terminal`, `konsole`,
+`kitty`, `foot`, `alacritty`, `xterm`, etc. on Linux; `Terminal.app` via
+`osascript` on macOS; Windows Terminal or a detached console on Windows)
+and fails with a clear error naming everything it tried if none are
+available, rather than silently doing nothing.
+
 Wrapping `claude` this way hits its own permission mode: by default every
 CLI call Claude makes (including `agent-comms invocation claim/start/
 complete`, once it decides to act on a delivered nudge) stops on a "Do you
