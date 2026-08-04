@@ -4,7 +4,7 @@ description: Wrap a real Claude, Codex, or OpenCode terminal so the daemon can w
 section: Agent integration
 order: 5
 audience: Operators
-lastVerified: 2026-08-04
+lastVerified: 2026-08-01
 related: [agents/delivery, agents/invocations]
 ---
 
@@ -15,9 +15,11 @@ Resuming a specific provider conversation (`resume --last`, `--continue`,
 wrapped argument — but only when that session has actually ended. Pointing
 a second, `interactive-serve`-wrapped process at a session ID that's
 *still running elsewhere* collides: two processes end up attached to one
-provider-side session lock, and killing either one disrupts the other.
-See "Migrating a live session" below before resuming a session you aren't
-certain has already finished.
+provider-side session lock, and killing either one disrupts the other. See
+[agent-invocations.md's "Migrating a live, ordinary session into
+interactive-serve"](../../agent-invocations.md#migrating-a-live-ordinary-session-into-interactive-serve)
+for `--takeover-pid`, the safe way to hand one off in place, before
+resuming a session you aren't certain has already finished.
 
 ## Codex
 
@@ -45,34 +47,6 @@ agent-comms --actor AXIOM runtime interactive-serve \
 ```
 
 The `--` separator is required. Everything after it belongs to the wrapped provider. `--claude-allow-agent-comms` grants unattended Bash permission only for the resolved Agent Comms executable and its basename; it does not grant general shell access or override Claude's prompt-injection judgment.
-
-## Opening a dedicated window automatically
-
-Add `--launch-terminal` to skip manually opening a terminal and retyping the command: it re-execs the same invocation, minus that flag, inside a freshly opened window (a short list of known terminal programs per OS — `gnome-terminal`/`konsole`/`kitty`/`foot`/`alacritty`/`xterm` on Linux, `Terminal.app` on macOS, Windows Terminal on Windows), then exits, leaving the current terminal free:
-
-```sh
-agent-comms --actor AXIOM runtime interactive-serve \
-  --id AXIOM \
-  --launch-terminal \
-  --claude-allow-agent-comms \
-  -- claude
-```
-
-This is a convenience over the manual step only. The session still needs a real, dedicated terminal for the reason "Delivery discipline" below explains; nothing about that requirement changes.
-
-## Migrating a live session
-
-Turning a session you're *already sitting in* into a dedicated, wakeable `interactive-serve` runtime — in place, preserving its conversation — needs the old session gone before the new one resumes it, never both alive at once. `--takeover-pid <pid>` does exactly that: it sends `SIGTERM` to `pid`, waits for it to fully exit (escalating to `SIGKILL` if it hasn't), and only then proceeds, so the wrapped command's own resume flag never races a still-live copy:
-
-```sh
-agent-comms --actor AXIOM runtime interactive-serve \
-  --id AXIOM \
-  --launch-terminal --takeover-pid 48213 \
-  --claude-allow-agent-comms \
-  -- claude --continue
-```
-
-Find `pid` yourself (`ps`, `pgrep`, or whatever your shell offers) — Agent Comms has no way to infer "the session I'm currently typing into." Always pair `--takeover-pid` with `--launch-terminal`: the process doing the terminating must not itself be a descendant of the pid it's terminating, and a freshly spawned terminal window never is. Running `--takeover-pid` directly from the same session you're asking it to replace risks the terminate signal reaching your own process too.
 
 ## Runtime repair
 

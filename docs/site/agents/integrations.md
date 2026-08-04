@@ -4,7 +4,7 @@ description: Select MCP, CLI/JSON, a supervised worker, or a live interactive ru
 section: Agent integration
 order: 1
 audience: Agents
-lastVerified: 2026-08-04
+lastVerified: 2026-08-01
 related: [agents/mcp, agents/workers, agents/interactive]
 ---
 
@@ -34,4 +34,4 @@ MCP and `MANUAL` connectors do not manufacture notification success. A pull cons
 - Choose `-live` or ACP adapters only for their specific provider behavior.
 - Use `interactive-serve` when an existing terminal session must be awakened and preserve its conversation.
 
-Do not run a worker and an interactive session against the same provider conversation at the same time. The same rule applies to two interactive sessions: resuming a provider conversation (`--continue`, `--resume <id>`, `resume --last`) that's still live in another process collides — see [Serve an interactive session](interactive.md#migrating-a-live-session) for the safe way to hand one off in place.
+Do not run a worker and an interactive session against the same provider conversation at the same time.
