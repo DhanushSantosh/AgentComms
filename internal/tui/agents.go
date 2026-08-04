@@ -21,7 +21,7 @@ var agentRegisterForm = &ActionForm{
 		{Label: "Display name", Placeholder: ""},
 		{Label: "Principal type", Options: []string{"AGENT", "HUMAN"}},
 	},
-	Dispatch: func(m Model, v []string) (tea.Model, tea.Cmd) {
+	Dispatch: func(m Model, v []string, _ string) (tea.Model, tea.Cmd) {
 		id := strings.TrimSpace(v[0])
 		pt := strings.ToUpper(strings.TrimSpace(v[2]))
 		if pt == "" {
@@ -48,9 +48,36 @@ var activateForm = &ActionForm{
 		{Label: "Elevated-key passphrase (Orchestrator grants only)", Mask: true},
 	},
 	CollectsPassphrase: true,
-	Build: func(v []string) (any, error) {
-		role := strings.ToUpper(strings.TrimSpace(v[0]))
-		return model.AgentActivated{Role: model.Role(role), Capabilities: splitCSV(v[1]), Scopes: splitCSV(v[2])}, nil
+	// A plain Build+ConfirmIf can't see whether an Orchestrator grant
+	// already has its required HUMAN-tier approval (ConfirmIf only gets the
+	// built payload, not id or state), so this needs the full Dispatch
+	// escape hatch: activate directly when no approval is needed or one
+	// already exists, otherwise offer one confirm that chains
+	// request+approve+activate as three separate signed events using the
+	// passphrase already typed into this form.
+	Dispatch: func(m Model, v []string, passphrase string) (tea.Model, tea.Cmd) {
+		id := m.formTaskID
+		role := model.Role(strings.ToUpper(strings.TrimSpace(v[0])))
+		payload := model.AgentActivated{Role: role, Capabilities: splitCSV(v[1]), Scopes: splitCSV(v[2])}
+		if role == model.RoleOrchestrator && !hasApprovedOrchestratorGrant(m.state, id) {
+			m.form, m.inputs, m.formSpec = "", nil, nil
+			m.confirm = &confirmState{
+				prompt: "Granting " + id + " the Orchestrator role needs a HUMAN-tier approval first. " +
+					"Request and approve it now, then activate?",
+				typ: "agent.activate", id: id, payload: payload, passphrase: passphrase,
+				chainOrchestratorApproval: true,
+			}
+			return m, nil
+		}
+		_, err := m.svc.ExecuteWithPassphrase(m.actor, "agent.activate", id, payload, passphrase)
+		if err != nil {
+			m.err = err
+			return m, nil
+		}
+		m.form, m.inputs, m.err, m.formSpec = "", nil, nil, nil
+		m.notice = "Applied agent.activate to " + id
+		m.refresh()
+		return m, nil
 	},
 }
 var invocationPolicyForm = &ActionForm{
@@ -319,7 +346,7 @@ func actorSwitchForm(current string, options []string) *ActionForm {
 		Title:  "Switch actor",
 		Hint:   hint,
 		Fields: []FormField{{Label: "Actor ID", Placeholder: current, Required: true}},
-		Dispatch: func(m Model, v []string) (tea.Model, tea.Cmd) {
+		Dispatch: func(m Model, v []string, _ string) (tea.Model, tea.Cmd) {
 			candidate := strings.TrimSpace(v[0])
 			found := false
 			for _, o := range options {

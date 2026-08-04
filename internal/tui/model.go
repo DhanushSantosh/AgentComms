@@ -467,7 +467,7 @@ func (m Model) updateForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 				values = values[:len(values)-1]
 			}
 			if m.formSpec.Dispatch != nil {
-				return m.formSpec.Dispatch(m, values)
+				return m.formSpec.Dispatch(m, values, passphrase)
 			}
 			payload, err := m.formSpec.Build(values)
 			if err != nil {

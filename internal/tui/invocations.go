@@ -113,7 +113,7 @@ var (
 			Title:  "Redeliver invocation",
 			Hint:   "Creates a new audited delivery attempt for one explicit runtime.",
 			Fields: []FormField{{Label: "Runtime ID", Placeholder: "reviewer-interactive", Required: true}},
-			Dispatch: func(m Model, values []string) (tea.Model, tea.Cmd) {
+			Dispatch: func(m Model, values []string, _ string) (tea.Model, tea.Cmd) {
 				invocationID := m.formTaskID
 				invocation := m.state.Invocations[invocationID]
 				runtimeState, exists := m.state.AgentRuntimes[values[0]]

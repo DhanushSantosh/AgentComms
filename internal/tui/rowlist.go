@@ -10,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
+	"github.com/DhanushSantosh/AgentComms/internal/protocol"
 )
 
 type FormField struct {
@@ -34,7 +35,11 @@ type ActionForm struct {
 	Build       func(values []string) (any, error)
 	ResolveID   func(fixedID string, values []string) string
 	ConfirmIf   func(payload any) (ok bool, prompt string)
-	Dispatch    func(m Model, values []string) (tea.Model, tea.Cmd)
+	// Dispatch's passphrase parameter carries whatever CollectsPassphrase
+	// stripped from values (empty string when CollectsPassphrase is false).
+	// Present on every implementation for a single, consistent signature;
+	// most ignore it.
+	Dispatch func(m Model, values []string, passphrase string) (tea.Model, tea.Cmd)
 	// CollectsPassphrase marks this form's last field as the actor's
 	// elevated-key passphrase rather than payload data: it is stripped from
 	// values before Build/ResolveID/Dispatch ever see it, and threaded
@@ -78,6 +83,13 @@ type confirmState struct {
 	payload    any
 	onError    func(err error, id string) error
 	passphrase string
+	// chainOrchestratorApproval marks a confirm dialog that, on "y", must
+	// first file and approve a HUMAN-tier approval.request for id's
+	// Orchestrator grant (protocol.OrchestratorGrantApprovalAction) before
+	// attempting the confirm's own typ/id/payload -- three separate signed
+	// events, exactly as protocol.ValidateTransition requires, just chained
+	// into one confirmation instead of a separate trip through Approvals.
+	chainOrchestratorApproval bool
 }
 type RowList struct {
 	table  table.Model
@@ -244,6 +256,9 @@ func (m Model) updateConfirm(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case "y", "Y", "enter":
 		c := *m.confirm
 		m.confirm = nil
+		if c.chainOrchestratorApproval {
+			return m.dispatchOrchestratorApprovalChain(c)
+		}
 		next, cmd := m.dispatchEventWithPassphrase(c.typ, c.id, c.payload, c.passphrase)
 		mm := next.(Model)
 		if mm.err != nil && c.onError != nil {
@@ -278,6 +293,52 @@ func (m Model) dispatchEventWithPassphrase(typ, id string, payload any, passphra
 	}
 	m.err = nil
 	m.notice = typ + " applied to " + id
+	m.refresh()
+	return m, nil
+}
+// hasApprovedOrchestratorGrant mirrors internal/protocol/transitions.go's
+// unexported hasHumanApproval for the one action agent.activate cares
+// about: an APPROVED, HUMAN-tier approval.request for id's Orchestrator
+// grant. Client-side only -- it decides whether the TUI needs to offer the
+// chained request+approve confirm below; the server re-checks the real
+// thing regardless.
+func hasApprovedOrchestratorGrant(st model.State, id string) bool {
+	action := protocol.OrchestratorGrantApprovalAction(id)
+	for _, a := range st.Approvals {
+		if a.Action == action && a.Status == "APPROVED" && a.Tier == "HUMAN" {
+			return true
+		}
+	}
+	return false
+}
+
+// dispatchOrchestratorApprovalChain runs the two steps
+// protocol.ValidateTransition requires before c.payload's Orchestrator
+// grant can succeed -- approval.request then approval.approve, both for
+// c.id's grant -- immediately followed by the grant itself, as three
+// separate signed events sharing the one passphrase already collected in
+// the activate form. A human still explicitly confirmed this at the prior
+// prompt; this only saves the separate trip through Approvals to create
+// and approve the record by hand.
+func (m Model) dispatchOrchestratorApprovalChain(c confirmState) (tea.Model, tea.Cmd) {
+	approvalID := c.id + "-orchestrator-approval"
+	action := protocol.OrchestratorGrantApprovalAction(c.id)
+	if _, err := m.svc.Execute(m.actor, "approval.request", approvalID, model.ApprovalRequested{
+		Tier: "HUMAN", Action: action, Reason: "Orchestrator grant for " + c.id,
+	}); err != nil {
+		m.err = err
+		return m, nil
+	}
+	if _, err := m.svc.ExecuteWithPassphrase(m.actor, "approval.approve", approvalID, model.ApprovalResponse{}, c.passphrase); err != nil {
+		m.err = err
+		return m, nil
+	}
+	if _, err := m.svc.ExecuteWithPassphrase(m.actor, c.typ, c.id, c.payload, c.passphrase); err != nil {
+		m.err = err
+		return m, nil
+	}
+	m.err = nil
+	m.notice = "Requested, approved, and granted Orchestrator to " + c.id
 	m.refresh()
 	return m, nil
 }

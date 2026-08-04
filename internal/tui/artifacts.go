@@ -20,7 +20,7 @@ var artifactAddForm = &ActionForm{
 	Fields: []FormField{
 		{Label: "File path", Placeholder: "/path/to/file", Required: true},
 	},
-	Dispatch: func(m Model, values []string) (tea.Model, tea.Cmd) {
+	Dispatch: func(m Model, values []string, _ string) (tea.Model, tea.Cmd) {
 		_, err := m.svc.AddArtifact(m.actor, values[0])
 		if err != nil {
 			m.err = err

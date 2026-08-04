@@ -20,7 +20,7 @@ var draftSaveForm = &ActionForm{
 		{Label: "Kind (document/message/artifact)", Placeholder: "document", Required: true},
 		{Label: "Content", Placeholder: "", Required: true},
 	},
-	Dispatch: func(m Model, values []string) (tea.Model, tea.Cmd) {
+	Dispatch: func(m Model, values []string, _ string) (tea.Model, tea.Cmd) {
 		kind := strings.ToLower(strings.TrimSpace(values[1]))
 		raw := []byte(values[2])
 		if !json.Valid(raw) {

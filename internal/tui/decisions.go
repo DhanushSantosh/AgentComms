@@ -39,7 +39,7 @@ var decisionSupersedeForm = &ActionForm{
 		{Label: "Statement", Placeholder: "", Required: true},
 		{Label: "To (comma-separated, optional)", Placeholder: ""},
 	},
-	Dispatch: func(m Model, values []string) (tea.Model, tea.Cmd) {
+	Dispatch: func(m Model, values []string, _ string) (tea.Model, tea.Cmd) {
 		oldID := m.formTaskID
 		_, err := m.svc.Execute(m.actor, "decision.supersede", values[0], model.DecisionPayload{
 			Title: values[1], Statement: values[2], To: splitCSV(values[3]), Supersedes: oldID,

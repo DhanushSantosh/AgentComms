@@ -114,6 +114,64 @@ func TestRegisterThenActivateAgent(t *testing.T) {
 	}
 }
 
+// TestActivateOrchestratorChainsApprovalWhenNoneExists is the sibling of
+// TestActivateOrchestratorThroughMaskedPassphraseField for the case where
+// nobody has requested or approved the grant yet: activating with role
+// ORCHESTRATOR must offer a chained confirm (not fail outright, not
+// silently succeed), and accepting it must produce all three real signed
+// events -- approval.request, approval.approve, agent.activate -- using
+// only the passphrase already typed into the activate form.
+func TestActivateOrchestratorChainsApprovalWhenNoneExists(t *testing.T) {
+	s := newTestService(t)
+	if _, e := s.Register("candidate", "candidate", model.PrincipalAgent); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := s.ElevateKey("owner", "correct passphrase"); e != nil {
+		t.Fatal(e)
+	}
+
+	m, e := New(s, "owner")
+	if e != nil {
+		t.Fatal(e)
+	}
+	m = enterAgentsView(t, m)
+	m = pressKey(t, m, keyText("a"))
+	if m.form != "agent.activate" || len(m.inputs) != 4 {
+		t.Fatalf("expected agent.activate form with 4 fields, got form=%q inputs=%d", m.form, len(m.inputs))
+	}
+	m.inputs[0].SetValue("ORCHESTRATOR")
+	m.inputs[2].SetValue("src")
+	m.inputs[3].SetValue("correct passphrase")
+	m.formFocus = len(m.inputs) - 1
+	m = pressKey(t, m, keyEnter())
+	if m.confirm == nil {
+		t.Fatal("expected a chained-approval confirm when no approval exists yet")
+	}
+	if !m.confirm.chainOrchestratorApproval {
+		t.Fatal("expected the confirm to be marked for the orchestrator-approval chain")
+	}
+	if m.form != "" {
+		t.Fatalf("activate form should have closed in favor of the confirm, got %q", m.form)
+	}
+
+	m = pressKey(t, m, keyText("y"))
+	if m.err != nil {
+		t.Fatalf("expected the chain to succeed: %v", m.err)
+	}
+
+	state, e := s.State()
+	if e != nil {
+		t.Fatal(e)
+	}
+	if state.Agents["candidate"].Role != model.RoleOrchestrator {
+		t.Fatalf("expected candidate to be ORCHESTRATOR, got %+v", state.Agents["candidate"])
+	}
+	approval, ok := state.Approvals["candidate-orchestrator-approval"]
+	if !ok || approval.Status != "APPROVED" || approval.Tier != "HUMAN" {
+		t.Fatalf("expected an APPROVED HUMAN-tier approval record, got %+v (found=%v)", approval, ok)
+	}
+}
+
 // TestActivateOrchestratorThroughMaskedPassphraseField is the TUI-level
 // end-to-end proof for the masked-passphrase form field: once owner has a
 // registered elevated key, granting ORCHESTRATOR must be completable

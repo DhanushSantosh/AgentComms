@@ -30,7 +30,7 @@ var envUpdateForm = &ActionForm{
 	Fields: []FormField{
 		{Label: "Value", Placeholder: "", Required: true},
 	},
-	Dispatch: func(m Model, values []string) (tea.Model, tea.Cmd) {
+	Dispatch: func(m Model, values []string, _ string) (tea.Model, tea.Cmd) {
 		key := m.formTaskID
 		_, err := m.svc.Execute(m.actor, "env.set", key, model.EnvSetPayload{Key: key, Value: values[0]})
 		if err != nil {
