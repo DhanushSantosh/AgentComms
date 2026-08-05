@@ -185,6 +185,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.focusCurrentView()
 				return m, nil
 			}
+			// Any click inside the sidebar area that didn't land on a hub
+			// label is a no-op -- never let it fall through to table row
+			// selection or any other content-pane handler.
+			if mouse.X < m.sidebarWidth() {
+				return m, nil
+			}
 			// Same "always wins, before any mode dispatch" treatment as the
 			// sidebar above, and for the identical reason: switching tabs
 			// within the current hub has to work no matter what's currently
