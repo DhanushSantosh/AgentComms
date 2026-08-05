@@ -337,16 +337,19 @@ func (r RowList) View(p palette, st model.State, actor string, w, h int) string 
 		lines = append(lines, renderTableRow(cols, rows[i], styles, i == r.cursor))
 	}
 	id := r.source.RowID(r.cursor, st, actor, r.mine)
-	var actionHints []string
+	navHint := lipgloss.NewStyle().Foreground(p.muted).Render("↑/↓ select · [i] inspect · esc back")
+	parts := []string{navHint}
 	for _, act := range r.source.Actions(id, st, actor) {
-		actionHints = append(actionHints, lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render(act.Key)+" "+lipgloss.NewStyle().Foreground(p.muted).Render(act.Label))
+		hint := lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("["+act.Key+"]") +
+			" " + lipgloss.NewStyle().Foreground(p.muted).Render(act.Label)
+		candidate := strings.Join(append(parts, hint), "  ")
+		if lipgloss.Width(candidate) <= w {
+			parts = append(parts, hint)
+		} else {
+			break
+		}
 	}
-	actionsStr := strings.Join(actionHints, " · ")
-	footerText := "↑/↓ select · [i] inspect · esc back"
-	if len(actionsStr) > 0 {
-		footerText += "  " + actionsStr
-	}
-	footer := lipgloss.NewStyle().Foreground(p.muted).MaxWidth(w).Render(footerText)
+	footer := strings.Join(parts, "  ")
 	return strings.Join(lines, "\n") + "\n" + footer
 }
 
