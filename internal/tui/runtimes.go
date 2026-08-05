@@ -116,7 +116,7 @@ type runtimeRowSource struct{ root string }
 // list-plus-detail shape settings.go already uses for one row's full
 // picture (settingsControl/settingsImpact).
 func (runtimeRowSource) Columns(width int) []table.Column {
-	status, health, kind := 11, 10, 12
+	status, health, kind := 14, 10, 10
 	agent := max(12, width-status-health-kind)
 	return []table.Column{
 		{Title: "STATUS", Width: status}, {Title: "HEALTH", Width: health},
@@ -133,7 +133,7 @@ func (runtimeRowSource) Rows(state model.State, _ string, _ bool) []table.Row {
 		if kind == "" {
 			kind = model.RuntimeKindWorker
 		}
-		rows = append(rows, table.Row{runtime.Status, runtime.Health, runtime.AgentID, string(kind)})
+		rows = append(rows, table.Row{fmtStatus(runtime.Status), runtime.Health, runtime.AgentID, string(kind)})
 	}
 	return rows
 }

@@ -84,7 +84,7 @@ func approvalActionsFor(a model.Approval, role model.Role, pt model.PrincipalTyp
 type approvalRowSource struct{}
 
 func (approvalRowSource) Columns(width int) []table.Column {
-	id, tier, status := 14, 12, 10
+	id, tier, status := 14, 12, 14
 	action := width - id - tier - status
 	if action < 15 {
 		action = 15
@@ -104,7 +104,7 @@ func (s approvalRowSource) Rows(st model.State, actor string, mine bool) []table
 	rows := make([]table.Row, 0, len(ids))
 	for _, id := range ids {
 		a := st.Approvals[id]
-		rows = append(rows, table.Row{id, a.Tier, a.Status, a.Action})
+		rows = append(rows, table.Row{id, a.Tier, fmtStatus(a.Status), a.Action})
 	}
 	return rows
 }

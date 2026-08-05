@@ -253,7 +253,7 @@ func agentActionsFor(a model.Agent, id, actor string, role model.Role) []RowActi
 type agentRowSource struct{}
 
 func (agentRowSource) Columns(width int) []table.Column {
-	state, principal, role, ptype := 11, 16, 13, 8
+	state, principal, role, ptype := 13, 16, 13, 8
 	scopes := width - state - principal - role - ptype
 	if scopes < 10 {
 		scopes = 10
@@ -271,7 +271,7 @@ func (s agentRowSource) Rows(st model.State, actor string, mine bool) []table.Ro
 	rows := make([]table.Row, 0, len(ids))
 	for _, id := range ids {
 		a := st.Agents[id]
-		rows = append(rows, table.Row{a.Status, id, string(a.Role), string(a.PrincipalType), strings.Join(a.Scopes, ",")})
+		rows = append(rows, table.Row{fmtStatus(a.Status), id, string(a.Role), string(a.PrincipalType), strings.Join(a.Scopes, ",")})
 	}
 	return rows
 }

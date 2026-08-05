@@ -213,6 +213,27 @@ func rowListStyles(p palette) rowStyles {
 	}
 }
 
+// fmtStatus adds a visual indicator emoji prefix to status strings for enhanced visual hierarchy.
+func fmtStatus(s string) string {
+	switch strings.ToUpper(strings.TrimSpace(s)) {
+	case "ACTIVE", "ONLINE", "APPROVED":
+		return "🟢 " + s
+	case "PENDING", "WAITING", "OPEN":
+		return "🟡 " + s
+	case "SUSPENDED", "OFFLINE", "DRAINING":
+		return "🟠 " + s
+	case "REVOKED", "REJECTED", "CANCELLED", "ERROR", "EXPIRED", "DISABLED", "FAILED", "EXHAUSTED", "BLOCKED":
+		return "🔴 " + s
+	case "CLAIMED", "RUNNING", "SUCCEEDED", "IN-FLIGHT", "AUTOMATIC", "TRUSTED", "IN_PROGRESS":
+		return "⚡ " + s
+	case "COMPLETED":
+		return "✅ " + s
+	default:
+		return s
+	}
+}
+
+
 // cellWidth returns how many columns of col.Width are left for the cell's
 // own text after reserving room for the Header/Cell style's Padding(0, 1)
 // (1 column each side, added when styles.Header/Cell.Render wraps the
@@ -333,7 +354,7 @@ func (r RowList) View(p palette, st model.State, actor string, w, h int) string 
 	for _, act := range r.source.Actions(id, st, actor) {
 		bindings = append(bindings, key.NewBinding(key.WithKeys(act.Key), key.WithHelp(act.Key, act.Label)))
 	}
-	footer := lipgloss.NewStyle().Foreground(p.muted).Render("↑/↓ select  esc back  ") + help.New().ShortHelpView(bindings)
+	footer := lipgloss.NewStyle().Foreground(p.muted).Render("↑/↓ select · [i] inspect · esc back  ") + help.New().ShortHelpView(bindings)
 	return strings.Join(lines, "\n") + "\n" + footer
 }
 
@@ -454,8 +475,11 @@ func (m Model) updateRowList(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case "r":
 		m.refresh()
 		return m, nil
+	case "i":
+		m.inspecting = !m.inspecting
+		return m, nil
 	case "?":
-		m.notice = "↑/↓ select row · [key] run contextual action · n new · esc back · q quit"
+		m.notice = "↑/↓ select row · [key] contextual action · [i] inspect · [n] new · [esc] back · [q] quit"
 		return m, nil
 	case "h":
 		m.highContrast = !m.highContrast

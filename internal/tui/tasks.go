@@ -170,7 +170,7 @@ func taskActionsFor(t model.Task, actor string, role model.Role) []RowAction {
 type taskRowSource struct{}
 
 func (taskRowSource) Columns(width int) []table.Column {
-	status, id, owner, lease := 9, 14, 10, 8
+	status, id, owner, lease := 15, 14, 10, 8
 	res := width - status - id - owner - lease
 	if res < 10 {
 		res = 10
@@ -203,7 +203,7 @@ func (s taskRowSource) Rows(st model.State, actor string, mine bool) []table.Row
 		if !t.LeaseUntil.IsZero() {
 			lease = time.Until(t.LeaseUntil).Round(time.Minute).String()
 		}
-		rows = append(rows, table.Row{t.Status, id, t.Owner, lease, strings.Join(t.Resources, ",")})
+		rows = append(rows, table.Row{fmtStatus(t.Status), id, t.Owner, lease, strings.Join(t.Resources, ",")})
 	}
 	return rows
 }

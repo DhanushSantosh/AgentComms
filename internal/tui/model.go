@@ -75,6 +75,10 @@ type Model struct {
 	watcher        *fsnotify.Watcher
 	lifecycle      projectlifecycle.Plan
 	findings       []doctor.Finding
+	inspecting     bool
+	toastMsg       string
+	toastExpiresAt time.Time
+	lastSeq        uint64
 	// lastClickX/Y/At track the previous left click's exact cell and time,
 	// purely to recognize a second click on that same cell within
 	// doubleClickWindow as a double-click (see isDoubleClick) -- bubbletea
@@ -127,7 +131,7 @@ func New(s *service.Service, actor string) (Model, error) {
 		invocationList: newRowList(invocationRowSource{}), runtimeList: newRowList(runtimeRowSource{root: s.Store.Root}),
 		documentList: newRowList(documentRowSource{}), decisionList: newRowList(decisionRowSource{}),
 		artifactList: newRowList(artifactRowSource{}), envList: newRowList(envRowSource{}),
-		lifecycle: lifecycle, drafts: drafts,
+		lifecycle: lifecycle, drafts: drafts, lastSeq: st.Integrity.ServerSequence,
 	}, e
 }
 func (m Model) Init() tea.Cmd {
@@ -395,6 +399,11 @@ func (m *Model) refreshSilent() {
 	if err != nil {
 		return
 	}
+	if m.lastSeq > 0 && st.Integrity.ServerSequence > m.lastSeq {
+		m.toastMsg = fmt.Sprintf("🔔 Event #%d committed in background", st.Integrity.ServerSequence)
+		m.toastExpiresAt = time.Now().Add(4 * time.Second)
+	}
+	m.lastSeq = st.Integrity.ServerSequence
 	m.state = st
 	m.refreshLists()
 }
@@ -645,6 +654,10 @@ func (m Model) View() tea.View {
 	body := m.renderBody(p, paneW, paneH)
 	screen := lipgloss.JoinHorizontal(lipgloss.Top, side, " ", body)
 	screen = lipgloss.NewStyle().MaxWidth(m.width).Render(screen)
+	if m.toastMsg != "" && time.Now().Before(m.toastExpiresAt) {
+		toast := lipgloss.NewStyle().Foreground(p.ink).Background(p.cyan).Bold(true).Padding(0, 1).Render(m.toastMsg)
+		screen = screen + "\n" + toast
+	}
 	if m.palette {
 		screen = m.renderPalette(p, screen)
 	}
@@ -769,6 +782,11 @@ func (m Model) renderBody(p palette, w, h int) string {
 		bodyContent = wrap.Render(m.archive(p))
 	}
 	content = bodyContent
+	if m.inspecting {
+		if inspector := m.renderInspector(p, contentW); inspector != "" {
+			content += "\n\n" + inspector
+		}
+	}
 	if m.err != nil {
 		content += "\n\n" + lipgloss.NewStyle().Foreground(p.red).MaxWidth(contentW).Render("Error: "+m.err.Error())
 	} else if m.notice != "" {
@@ -1220,6 +1238,84 @@ func empty(v, d string) string {
 		return d
 	}
 	return v
+}
+
+func (m Model) renderInspector(p palette, width int) string {
+	list := m.activeRowList()
+	if list == nil {
+		return ""
+	}
+	id := list.SelectedID(m.state, m.actor)
+	if id == "" {
+		return lipgloss.NewStyle().Foreground(p.muted).Render("No row selected for inspector.")
+	}
+	v := views[m.view]
+	var lines []string
+	headerStyle := lipgloss.NewStyle().Foreground(p.cyan).Bold(true)
+	titleStyle := lipgloss.NewStyle().Foreground(p.text).Bold(true)
+	mutedStyle := lipgloss.NewStyle().Foreground(p.muted)
+
+	lines = append(lines, headerStyle.Render("🔍 INSPECTOR / "+v+" / "+id))
+
+	switch v {
+	case "Tasks", "My work":
+		if t, ok := m.state.Tasks[id]; ok {
+			lines = append(lines, titleStyle.Render("Title: ")+t.Title)
+			lines = append(lines, mutedStyle.Render(fmt.Sprintf("Status: %s  |  Owner: %s  |  Branch: %s", fmtStatus(t.Status), empty(t.Owner, "unassigned"), t.Branch)))
+			lines = append(lines, mutedStyle.Render("Resources: ")+strings.Join(t.Resources, ", "))
+			if !t.LeaseUntil.IsZero() {
+				lines = append(lines, mutedStyle.Render("Lease Expires: ")+t.LeaseUntil.Local().Format("15:04:05 (2006-01-02)"))
+			}
+			if t.Summary != "" {
+				lines = append(lines, titleStyle.Render("Summary: ")+t.Summary)
+			}
+		}
+	case "Inbox":
+		if msg, ok := m.state.Messages[id]; ok {
+			lines = append(lines, titleStyle.Render("Subject: ")+msg.Subject)
+			lines = append(lines, mutedStyle.Render(fmt.Sprintf("From: %s  ->  To: %s  |  Kind: %s  |  Status: %s", msg.From, strings.Join(msg.To, ", "), msg.Kind, fmtStatus(msg.Status))))
+			lines = append(lines, titleStyle.Render("Body: ")+msg.Body)
+		}
+	case "Invocations":
+		if inv, ok := m.state.Invocations[id]; ok {
+			lines = append(lines, titleStyle.Render("Instruction: ")+inv.Instruction)
+			lines = append(lines, mutedStyle.Render(fmt.Sprintf("Target: %s  |  RequestedBy: %s  |  Priority: %s  |  Status: %s", inv.Target, inv.RequestedBy, inv.Priority, fmtStatus(inv.Status))))
+			lines = append(lines, mutedStyle.Render(fmt.Sprintf("Consumer Mode: %s  |  Preferred Runtime: %s", empty(string(inv.ConsumerMode), "EITHER"), empty(inv.PreferredRuntimeID, "automatic"))))
+			if inv.Reason != "" {
+				lines = append(lines, titleStyle.Render("Reason: ")+inv.Reason)
+			}
+		}
+	case "Agents":
+		if ag, ok := m.state.Agents[id]; ok {
+			lines = append(lines, titleStyle.Render("Display Name: ")+empty(ag.DisplayName, ag.ID))
+			lines = append(lines, mutedStyle.Render(fmt.Sprintf("Status: %s  |  Role: %s  |  Type: %s", fmtStatus(ag.Status), string(ag.Role), string(ag.PrincipalType))))
+			lines = append(lines, mutedStyle.Render("Scopes: ")+strings.Join(ag.Scopes, ", "))
+			lines = append(lines, mutedStyle.Render("Capabilities: ")+strings.Join(ag.Capabilities, ", "))
+			lines = append(lines, mutedStyle.Render("Fingerprint: ")+ag.KeyFingerprint)
+		}
+	case "Runtimes":
+		if r, ok := m.state.AgentRuntimes[id]; ok {
+			lines = append(lines, titleStyle.Render("Agent ID: ")+r.AgentID)
+			lines = append(lines, mutedStyle.Render(fmt.Sprintf("Status: %s  |  Health: %s  |  Kind: %s  |  Connector: %s", fmtStatus(r.Status), r.Health, r.Kind, r.Connector)))
+			lines = append(lines, mutedStyle.Render("Host ID: ")+r.HostID)
+		}
+	case "Approvals":
+		if app, ok := m.state.Approvals[id]; ok {
+			lines = append(lines, titleStyle.Render("Action: ")+app.Action)
+			lines = append(lines, mutedStyle.Render(fmt.Sprintf("Tier: %s  |  Status: %s  |  Requester: %s", app.Tier, fmtStatus(app.Status), app.Requester)))
+			lines = append(lines, titleStyle.Render("Reason: ")+app.Reason)
+		}
+	default:
+		lines = append(lines, mutedStyle.Render("ID: ")+id)
+	}
+
+	return lipgloss.NewStyle().
+		Width(max(20, width-2)).
+		BorderLeft(true).
+		BorderStyle(lipgloss.ThickBorder()).
+		BorderForeground(p.cyan).
+		PaddingLeft(1).
+		Render(strings.Join(lines, "\n"))
 }
 
 func truncate(value string, width int) string {

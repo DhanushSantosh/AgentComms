@@ -174,8 +174,8 @@ func (m Model) invocationControlBar(p palette, width int) string {
 type invocationRowSource struct{}
 
 func (invocationRowSource) Columns(width int) []table.Column {
-	status, priority, target, requester := 12, 9, 14, 14
-	instruction := max(18, width-status-priority-target-requester)
+	status, priority, target, requester := 15, 10, 10, 10
+	instruction := max(10, width-status-priority-target-requester)
 	return []table.Column{
 		{Title: "STATUS", Width: status}, {Title: "PRIORITY", Width: priority},
 		{Title: "TARGET", Width: target}, {Title: "REQUESTER", Width: requester},
@@ -192,7 +192,7 @@ func (invocationRowSource) Rows(state model.State, actor string, mine bool) []ta
 			continue
 		}
 		rows = append(rows, table.Row{
-			invocation.Status, invocation.Priority, invocation.Target,
+			fmtStatus(invocation.Status), invocation.Priority, invocation.Target,
 			invocation.RequestedBy, invocation.Instruction,
 		})
 	}
