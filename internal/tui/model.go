@@ -654,10 +654,6 @@ func (m Model) View() tea.View {
 	body := m.renderBody(p, paneW, paneH)
 	screen := lipgloss.JoinHorizontal(lipgloss.Top, side, " ", body)
 	screen = lipgloss.NewStyle().MaxWidth(m.width).Render(screen)
-	if m.toastMsg != "" && time.Now().Before(m.toastExpiresAt) {
-		toast := lipgloss.NewStyle().Foreground(p.ink).Background(p.cyan).Bold(true).Padding(0, 1).Render(m.toastMsg)
-		screen = screen + "\n" + toast
-	}
 	if m.palette {
 		screen = m.renderPalette(p, screen)
 	}
@@ -789,8 +785,10 @@ func (m Model) renderBody(p palette, w, h int) string {
 	}
 	if m.err != nil {
 		content += "\n\n" + lipgloss.NewStyle().Foreground(p.red).MaxWidth(contentW).Render("Error: "+m.err.Error())
+	} else if m.toastMsg != "" && time.Now().Before(m.toastExpiresAt) {
+		content += "\n\n" + lipgloss.NewStyle().Foreground(p.ink).Background(p.cyan).Bold(true).MaxWidth(contentW).Render(" " + m.toastMsg + " ")
 	} else if m.notice != "" {
-		content += "\n\n" + lipgloss.NewStyle().Foreground(p.cyan).MaxWidth(contentW).Render(m.notice)
+		content += "\n\n" + lipgloss.NewStyle().Foreground(p.cyan).MaxWidth(contentW).Render("Notice: "+m.notice)
 	}
 	return pane.Render(meta + "\n" + tabs + "\n\n" + header + "\n\n" + content)
 }
@@ -800,6 +798,9 @@ func (m Model) commandRail(p palette, width int) string {
 	freshness := empty(m.state.Integrity.Connectivity, "LOCAL")
 	hub := navigationHubs[m.activeHubIndex()].Name
 	left := lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("LIVE")
+	if m.toastMsg != "" && time.Now().Before(m.toastExpiresAt) {
+		left = lipgloss.NewStyle().Foreground(p.ink).Background(p.cyan).Bold(true).Render(m.toastMsg)
+	}
 	detail := fmt.Sprintf("  %s / %s  ·  %s  ·  seq %d", hub, views[m.view], freshness, sequence)
 	authority := strings.ToLower(string(m.state.Agents[m.actor].Role))
 	right := "authority " + empty(authority, "unknown")
