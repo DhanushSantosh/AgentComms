@@ -298,7 +298,7 @@ func (m *Model) openView(name string) {
 		if viewName == name {
 			m.view = index
 			m.cursor = index
-			m.notice = "Opened " + name
+			m.notice = ""
 			m.refreshView(name)
 			return
 		}
