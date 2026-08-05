@@ -29,20 +29,6 @@ one is picked up, remove it from here and note the landing commit.
 
 ## Test / CI infrastructure
 
-- **Postgres-backend authorization logic doesn't run in CI.**
-  `internal/authority`'s integration tests (`postgres_integration_test.go`,
-  `elevated_key_integration_test.go`) all skip without a live
-  `AGENT_COMMS_TEST_POSTGRES_URL`, and no CI workflow sets one — this is
-  exactly how a real bug (`agent.rename` silently broken in Postgres mode,
-  fixed 2026-07-28) shipped and stayed hidden. A lightweight,
-  non-DB registry-completeness test now exists
-  (`internal/authority/decode_payload_test.go`) and would catch that
-  specific class of bug, but it doesn't cover behavioral correctness (e.g.
-  the elevated-key SQL queries in `scopedElevationState`) the way a real
-  database run would. Wire an ephemeral Postgres service into CI (e.g.
-  `services: postgres:` in a GitHub Actions workflow) so these tests
-  actually execute automatically.
-
 - **`internal/protocol`'s `ValidateTransition` is mostly untested
   in-package.** `transitions_test.go` covers the elevated-key/orchestrator
   work directly; the other ~800 lines (task lifecycle, invocation
@@ -53,14 +39,14 @@ one is picked up, remove it from here and note the landing commit.
 
 ## Possibly-a-bug, not yet root-caused
 
-- **`doctor`'s `REVOKED_AGENT_HAS_OPEN_WORK` warning appears to fire even
-  when all of the revoked agent's invocations are already terminal**
-  (`CANCELLED`/`COMPLETED`), observed live against `DummyTestProject`
-  2026-07-28. Low priority (cosmetic, not a data-integrity issue —
-  `verify`/`integrity` were unaffected both times), but the check's actual
-  logic (wherever it counts "open" invocations for a revoked agent) hasn't
-  been read yet to confirm whether it's checking the wrong field or a
-  genuinely stale condition.
+- **`doctor`'s `REVOKED_AGENT_HAS_OPEN_WORK` false positive investigated
+  2026-08-06.** The check logic (`internal/doctor/doctor.go:149-174`) is
+  correct — `invocationTerminal` covers all possible statuses and the
+  matching checks both `RequestedBy` and `Target`. Eight dedicated tests
+  (`internal/doctor/doctor_test.go`) confirm correct behavior across
+  terminal invocations, terminal tasks, mixed statuses, and no-work
+  scenarios. The live observation was most likely caused by stale daemon
+  cache state that hadn't yet synced terminal statuses from the authority.
 
 ## Runtime workers / agent-spawns-agent
 
