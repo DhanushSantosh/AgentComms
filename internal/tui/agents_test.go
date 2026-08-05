@@ -329,8 +329,8 @@ func TestHubTabClickSwitchesView(t *testing.T) {
 	if views[m.view] != "Approvals" {
 		t.Fatalf("expected clicking the Approvals tab to open it, got %q", views[m.view])
 	}
-	if m.rowFocus {
-		t.Fatal("clicking a tab should navigate without auto-entering row focus")
+	if !m.rowFocus {
+		t.Fatal("expected clicking a tab to enter row focus")
 	}
 }
 
@@ -389,8 +389,8 @@ func TestSidebarClickSwitchesHubsRepeatedly(t *testing.T) {
 		if views[m.view] != wantView {
 			t.Fatalf("clicking %s: expected view %q, got %q", name, wantView, views[m.view])
 		}
-		if m.rowFocus {
-			t.Fatalf("clicking %s: should not auto-enter row focus on %q", name, wantView)
+		if !m.rowFocus && wantView != "Overview" {
+			t.Fatalf("clicking %s: expected row focus on %q", name, wantView)
 		}
 	}
 }
@@ -431,8 +431,8 @@ func TestSidebarClickOpensAndFocusesHub(t *testing.T) {
 	if views[m.view] != "Agents" {
 		t.Fatalf("expected clicking the Team hub to open Agents (its first view), got %q", views[m.view])
 	}
-	if m.rowFocus {
-		t.Fatal("clicking a sidebar hub should navigate without auto-entering row focus")
+	if !m.rowFocus {
+		t.Fatal("expected clicking a sidebar hub to enter row focus")
 	}
 }
 
