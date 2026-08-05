@@ -151,7 +151,7 @@ func TestAgentControlsAreVisibleBeforeEnteringManageMode(t *testing.T) {
 		"PRINCIPAL",
 		"ROLE",
 		"suspend",
-		"revoke",
+		"rename",
 	} {
 		if !strings.Contains(rendered, expected) {
 			t.Errorf("agent workspace missing %q", expected)

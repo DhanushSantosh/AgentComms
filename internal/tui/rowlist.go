@@ -337,19 +337,23 @@ func (r RowList) View(p palette, st model.State, actor string, w, h int) string 
 		lines = append(lines, renderTableRow(cols, rows[i], styles, i == r.cursor))
 	}
 	id := r.source.RowID(r.cursor, st, actor, r.mine)
-	navHint := lipgloss.NewStyle().Foreground(p.muted).Render("↑/↓ select · [i] inspect · esc back")
-	parts := []string{navHint}
+	navParts := []string{
+		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[↑/↓]") + " " + lipgloss.NewStyle().Foreground(p.muted).Render("select"),
+		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[i]") + " " + lipgloss.NewStyle().Foreground(p.muted).Render("inspect"),
+		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[esc]") + " " + lipgloss.NewStyle().Foreground(p.muted).Render("back"),
+	}
+	parts := []string{strings.Join(navParts, " · ")}
 	for _, act := range r.source.Actions(id, st, actor) {
 		hint := lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("["+act.Key+"]") +
 			" " + lipgloss.NewStyle().Foreground(p.muted).Render(act.Label)
-		candidate := strings.Join(append(parts, hint), "  ")
+		candidate := strings.Join(append(parts, hint), " · ")
 		if lipgloss.Width(candidate) <= w {
 			parts = append(parts, hint)
 		} else {
 			break
 		}
 	}
-	footer := strings.Join(parts, "  ")
+	footer := strings.Join(parts, " · ")
 	return strings.Join(lines, "\n") + "\n" + footer
 }
 
