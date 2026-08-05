@@ -124,7 +124,7 @@ func newRowList(source RowSource) RowList {
 // between View itself and syncActiveRowListDimensions (mouse.go) so the
 // persisted height used for scroll math can never drift from what's
 // actually rendered.
-func visibleRowCount(h int) int { return max(3, h-3) }
+func visibleRowCount(h int) int { return max(3, h-4) }
 
 func (r *RowList) Refresh(st model.State, actor string) {
 	r.clampToRowCount(len(r.source.Rows(st, actor, r.mine)))

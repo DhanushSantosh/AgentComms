@@ -125,7 +125,7 @@ func (runtimeRowSource) Columns(width int) []table.Column {
 	if width < 75 {
 		status, health, kind = 11, 8, 8
 	}
-	agent := max(6, width-status-health-kind)
+	agent := min(20, max(6, width-status-health-kind))
 	return []table.Column{
 		{Title: "STATUS", Width: status}, {Title: "HEALTH", Width: health},
 		{Title: "AGENT", Width: agent}, {Title: "KIND", Width: kind},
