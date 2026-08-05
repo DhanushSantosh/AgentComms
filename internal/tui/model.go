@@ -808,7 +808,13 @@ func (m Model) commandRail(p palette, width int) string {
 	detail := fmt.Sprintf("  %s / %s  ·  %s  ·  seq %d", hub, views[m.view], freshness, sequence)
 	authority := strings.ToLower(string(m.state.Agents[m.actor].Role))
 	right := "authority " + empty(authority, "unknown")
-	gap := max(1, width-lipgloss.Width(left+detail)-lipgloss.Width(right)-4)
+	leftLen := lipgloss.Width(left) + lipgloss.Width(detail)
+	rightLen := lipgloss.Width(right)
+	if leftLen+rightLen > width && width > 40 {
+		detail = fmt.Sprintf("  %s / %s", hub, views[m.view])
+		leftLen = lipgloss.Width(left) + lipgloss.Width(detail)
+	}
+	gap := max(1, width-leftLen-rightLen)
 	return left + lipgloss.NewStyle().Foreground(p.muted).Render(detail) +
 		strings.Repeat(" ", gap) + lipgloss.NewStyle().Foreground(p.amber).Render(right)
 }
