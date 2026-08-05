@@ -761,11 +761,9 @@ func (m Model) renderBody(p palette, w, h int) string {
 	case "Inbox":
 		bodyContent = m.messageList.View(p, m.state, m.actor, listW, listH)
 	case "Agents":
-		bodyContent = m.agentControlBar(p, contentW) + "\n\n" +
-			m.agentList.View(p, m.state, m.actor, listW, listH)
+		bodyContent = m.agentList.View(p, m.state, m.actor, listW, listH)
 	case "Invocations":
-		bodyContent = m.invocationControlBar(p, contentW) + "\n\n" +
-			m.invocationList.View(p, m.state, m.actor, listW, listH) + "\n\n" +
+		bodyContent = m.invocationList.View(p, m.state, m.actor, listW, listH) + "\n\n" +
 			m.invocationDeliveryDetails(p, contentW)
 	case "Runtimes":
 		bodyContent = m.runtimeList.View(p, m.state, m.actor, listW, listH) + "\n\n" +

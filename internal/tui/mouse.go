@@ -75,15 +75,7 @@ func (m Model) bodyPrefixHeight(p palette) int {
 // selected, confirmed by rendering a real Agents screen and comparing
 // byte-for-byte against this formula's prediction.
 func (m Model) rowTableTopY(p palette) int {
-	_, _, contentW, _ := m.bodyLayout()
-	top := m.bodyPrefixHeight(p)
-	switch views[m.view] {
-	case "Agents":
-		top += lipgloss.Height(m.agentControlBar(p, contentW)) + 1
-	case "Invocations":
-		top += lipgloss.Height(m.invocationControlBar(p, contentW)) + 1
-	}
-	return top
+	return m.bodyPrefixHeight(p)
 }
 
 // rowAtY translates a click's absolute screen Y into an absolute row index
