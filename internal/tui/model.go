@@ -931,14 +931,16 @@ func (m Model) formRows(p palette) (rows []string, fieldLine []int) {
 		}
 		rows = append(rows, style.Render(marker)+input.View(), "")
 	}
-	navHint := "Tab / Shift+Tab moves between fields"
+	formFooterParts := []string{}
 	if focusedIsPicker {
-		navHint = "←/→ cycles this field's value · " + navHint
+		formFooterParts = append(formFooterParts, lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[←/→]")+" "+lipgloss.NewStyle().Foreground(p.muted).Render("cycle value"))
 	}
-	rows = append(rows,
-		lipgloss.NewStyle().Foreground(p.muted).Render(navHint),
-		lipgloss.NewStyle().Foreground(p.amber).Render("Enter continues · final Enter reviews changes · Esc cancels"),
+	formFooterParts = append(formFooterParts,
+		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[tab/shift+tab]")+" "+lipgloss.NewStyle().Foreground(p.muted).Render("navigate"),
+		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[enter]")+" "+lipgloss.NewStyle().Foreground(p.muted).Render("submit"),
+		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[esc]")+" "+lipgloss.NewStyle().Foreground(p.muted).Render("cancel"),
 	)
+	rows = append(rows, strings.Join(formFooterParts, " · "))
 	if m.notice != "" {
 		rows = append(rows, lipgloss.NewStyle().Foreground(p.amber).Render(m.notice))
 	}
@@ -994,8 +996,15 @@ func (m Model) overview(p palette) string {
 		top = lipgloss.JoinHorizontal(lipgloss.Top, workforce, "  ", attention)
 	}
 	activity := m.section(p, "LIVE ACTIVITY", "append-only project history", m.chain(p), contentWidth)
-	keys := lipgloss.NewStyle().Foreground(p.muted).Render("[g] agents   [i] invocations   [n] create   [r] refresh   [/] commands")
-	return lipgloss.NewStyle().Foreground(p.cyan).Render(status) + "\n\n" + top + "\n\n" + activity + "\n" + keys
+	keyParts := []string{
+		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[g]") + " " + lipgloss.NewStyle().Foreground(p.muted).Render("agents"),
+		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[i]") + " " + lipgloss.NewStyle().Foreground(p.muted).Render("invocations"),
+		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[n]") + " " + lipgloss.NewStyle().Foreground(p.muted).Render("create"),
+		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[r]") + " " + lipgloss.NewStyle().Foreground(p.muted).Render("refresh"),
+		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[/]") + " " + lipgloss.NewStyle().Foreground(p.muted).Render("commands"),
+	}
+	keys := strings.Join(keyParts, " · ")
+	return lipgloss.NewStyle().Foreground(p.cyan).Render(status) + "\n\n" + top + "\n\n" + activity + "\n\n" + keys
 }
 
 func (m Model) section(p palette, title, subtitle, body string, width int) string {
@@ -1254,7 +1263,12 @@ func (m Model) renderPalette(p palette, under string) string {
 			rows = append(rows, style.Render(marker+match))
 		}
 	}
-	rows = append(rows, "", lipgloss.NewStyle().Foreground(p.muted).Render("Type to filter · Enter open · Esc close"))
+	paletteFooter := strings.Join([]string{
+		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[type]") + " " + lipgloss.NewStyle().Foreground(p.muted).Render("filter"),
+		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[enter]") + " " + lipgloss.NewStyle().Foreground(p.muted).Render("open"),
+		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[esc]") + " " + lipgloss.NewStyle().Foreground(p.muted).Render("close"),
+	}, " · ")
+	rows = append(rows, "", paletteFooter)
 	panel := lipgloss.NewStyle().Width(width).Border(lipgloss.NormalBorder()).
 		BorderForeground(p.cyan).Background(p.ink).Foreground(p.text).Padding(1, 2).
 		Render(strings.Join(rows, "\n"))
