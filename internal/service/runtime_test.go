@@ -279,3 +279,25 @@ func TestSummarizeInvocationDeliveryUsesOneTruthAcrossAdapters(t *testing.T) {
 		t.Fatal("missing invocation was reported as present")
 	}
 }
+
+func TestRuntimeDeletion(t *testing.T) {
+	instance := setup(t)
+	activate(t, instance, "builder", model.PrincipalAgent)
+
+	must(t, instance, "builder", "runtime.register", "runtime-to-delete", model.RuntimeRegistered{
+		AgentID: "builder", Connector: "mcp", MaxConcurrent: 1,
+	})
+	if _, err := instance.Execute("owner", "runtime.delete", "runtime-to-delete", model.RuntimeStatusChanged{Reason: "too early"}); err == nil {
+		t.Fatal("unrevoked runtime was deleted")
+	}
+	must(t, instance, "owner", "runtime.revoke", "runtime-to-delete", model.RuntimeStatusChanged{Reason: "retired"})
+	must(t, instance, "owner", "runtime.delete", "runtime-to-delete", model.RuntimeStatusChanged{Reason: "cleanup"})
+
+	state, err := instance.State()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := state.AgentRuntimes["runtime-to-delete"]; exists {
+		t.Fatalf("deleted runtime still present in state: %+v", state.AgentRuntimes["runtime-to-delete"])
+	}
+}

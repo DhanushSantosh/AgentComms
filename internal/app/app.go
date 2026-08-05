@@ -1044,7 +1044,7 @@ func (c *cli) runtimeCmd() *cobra.Command {
 	heartbeat.Flags().StringVar(&endpointID, "endpoint-id", "", "opaque interactive endpoint ID")
 	heartbeat.Flags().StringSliceVar(&activeInvocations, "active-invocation", nil, "active invocation ID")
 
-	for _, operation := range []string{"drain", "resume", "revoke"} {
+	for _, operation := range []string{"drain", "resume", "revoke", "delete"} {
 		operation := operation
 		var reason string
 		command := &cobra.Command{Use: operation, Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {

@@ -100,6 +100,11 @@ var (
 		Payload: func() any { return model.RuntimeStatusChanged{Reason: "revoked from control room"} },
 		Prompt:  func(id string) string { return "Revoke " + id + "? This runtime cannot reconnect." },
 	}
+	runtimeDelete = RowAction{
+		Key: "x", Label: "delete", EventType: "runtime.delete", Confirm: true,
+		Payload: func() any { return model.RuntimeStatusChanged{Reason: "deleted from control room"} },
+		Prompt:  func(id string) string { return "Delete runtime " + id + "? This removes the runtime record." },
+	}
 	runtimeConfigure = RowAction{
 		Key: "c", Label: "configure", EventType: "runtime.configure",
 		Form: runtimeConfigureForm,
@@ -266,6 +271,9 @@ func (runtimeRowSource) Actions(id string, state model.State, actor string) []Ro
 		}
 		return actions
 	case "REVOKED":
+		if elevated {
+			return []RowAction{runtimeDelete}
+		}
 		return nil
 	case "OFFLINE":
 		actions := []RowAction{runtimeDrain, runtimeConfigure}

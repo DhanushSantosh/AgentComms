@@ -1173,6 +1173,13 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 				if runtime.Status == "REVOKED" {
 					return nil, errors.New("runtime is already revoked")
 				}
+			} else if typ == "runtime.delete" {
+				if !actorElevated(st, actor) && actor != runtime.AgentID {
+					return nil, errors.New("runtime owner, project owner, or orchestrator required to delete a runtime")
+				}
+				if runtime.Status != "REVOKED" {
+					return nil, errors.New("runtime must be revoked before deletion")
+				}
 			} else {
 				if actor != runtime.AgentID && !actorElevated(st, actor) {
 					return nil, errors.New("runtime owner, project owner, or orchestrator required")

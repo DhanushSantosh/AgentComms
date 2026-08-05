@@ -322,6 +322,9 @@ func ApplyEvent(s *model.State, e model.Event) error {
 			runtime.Status = "OFFLINE"
 		case "runtime.revoke":
 			runtime.Status = "REVOKED"
+		case "runtime.delete":
+			delete(s.AgentRuntimes, e.EntityID)
+			return nil
 		}
 		runtime.Reason = p.Reason
 		runtime.LastChangedBy = e.Actor
