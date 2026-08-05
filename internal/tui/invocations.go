@@ -175,7 +175,10 @@ type invocationRowSource struct{}
 
 func (invocationRowSource) Columns(width int) []table.Column {
 	status, priority, target, requester := 15, 10, 10, 10
-	instruction := max(10, width-status-priority-target-requester)
+	if width < 75 {
+		status, priority, target, requester = 11, 8, 8, 8
+	}
+	instruction := max(6, width-status-priority-target-requester)
 	return []table.Column{
 		{Title: "STATUS", Width: status}, {Title: "PRIORITY", Width: priority},
 		{Title: "TARGET", Width: target}, {Title: "REQUESTER", Width: requester},

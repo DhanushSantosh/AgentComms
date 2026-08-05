@@ -92,10 +92,10 @@ type messageRowSource struct{ owner string }
 
 func (messageRowSource) Columns(width int) []table.Column {
 	kind, from, state := 10, 13, 12
-	subj := width - kind - from - state
-	if subj < 15 {
-		subj = 15
+	if width < 75 {
+		kind, from, state = 8, 10, 10
 	}
+	subj := max(8, width-kind-from-state)
 	return []table.Column{
 		{Title: "KIND", Width: kind},
 		{Title: "FROM", Width: from},

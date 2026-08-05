@@ -171,10 +171,10 @@ type taskRowSource struct{}
 
 func (taskRowSource) Columns(width int) []table.Column {
 	status, id, owner, lease := 15, 14, 10, 8
-	res := width - status - id - owner - lease
-	if res < 10 {
-		res = 10
+	if width < 75 {
+		status, id, owner, lease = 11, 10, 8, 6
 	}
+	res := max(6, width-status-id-owner-lease)
 	return []table.Column{
 		{Title: "STATUS", Width: status},
 		{Title: "TASK", Width: id},

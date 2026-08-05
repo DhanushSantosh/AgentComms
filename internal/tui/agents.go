@@ -254,10 +254,10 @@ type agentRowSource struct{}
 
 func (agentRowSource) Columns(width int) []table.Column {
 	state, principal, role, ptype := 13, 16, 13, 8
-	scopes := width - state - principal - role - ptype
-	if scopes < 10 {
-		scopes = 10
+	if width < 75 {
+		state, principal, role, ptype = 11, 12, 10, 6
 	}
+	scopes := max(6, width-state-principal-role-ptype)
 	return []table.Column{
 		{Title: "STATE", Width: state},
 		{Title: "PRINCIPAL", Width: principal},

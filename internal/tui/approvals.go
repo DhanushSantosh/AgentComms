@@ -85,10 +85,10 @@ type approvalRowSource struct{}
 
 func (approvalRowSource) Columns(width int) []table.Column {
 	id, tier, status := 14, 12, 14
-	action := width - id - tier - status
-	if action < 15 {
-		action = 15
+	if width < 75 {
+		id, tier, status = 10, 8, 11
 	}
+	action := max(8, width-id-tier-status)
 	return []table.Column{
 		{Title: "ID", Width: id},
 		{Title: "TIER", Width: tier},

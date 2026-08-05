@@ -152,6 +152,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if resize, ok := msg.(tea.WindowSizeMsg); ok {
 		m.width = resize.Width
 		m.height = resize.Height
+		m.syncActiveRowListDimensions()
 		return m, nil
 	}
 	if _, ok := msg.(fsEventMsg); ok {
@@ -664,6 +665,9 @@ func (m Model) View() tea.View {
 	return v
 }
 func (m Model) sidebarWidth() int {
+	if m.width < 60 {
+		return 14
+	}
 	if m.width < 72 {
 		return 16
 	}

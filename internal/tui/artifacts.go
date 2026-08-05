@@ -37,10 +37,10 @@ type artifactRowSource struct{}
 
 func (artifactRowSource) Columns(width int) []table.Column {
 	sha, size, storage := 20, 12, 10
-	name := width - sha - size - storage
-	if name < 14 {
-		name = 14
+	if width < 75 {
+		sha, size, storage = 12, 8, 8
 	}
+	name := max(8, width-sha-size-storage)
 	return []table.Column{
 		{Title: "SHA256", Width: sha},
 		{Title: "NAME", Width: name},

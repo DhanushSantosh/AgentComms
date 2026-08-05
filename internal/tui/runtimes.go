@@ -122,7 +122,10 @@ type runtimeRowSource struct{ root string }
 // picture (settingsControl/settingsImpact).
 func (runtimeRowSource) Columns(width int) []table.Column {
 	status, health, kind := 14, 10, 10
-	agent := max(12, width-status-health-kind)
+	if width < 75 {
+		status, health, kind = 11, 8, 8
+	}
+	agent := max(6, width-status-health-kind)
 	return []table.Column{
 		{Title: "STATUS", Width: status}, {Title: "HEALTH", Width: health},
 		{Title: "AGENT", Width: agent}, {Title: "KIND", Width: kind},
