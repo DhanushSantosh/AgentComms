@@ -180,23 +180,24 @@ func (m Model) openProjectSettingsForm() (tea.Model, tea.Cmd) {
 
 func (m Model) projectSettings(p palette, width, height int) string {
 	domainWidth := max(24, min(28, width/4))
-	impactWidth := min(31, max(24, width/4))
-	centerWidth := max(32, width-domainWidth-impactWidth-4)
+	mainWidth := max(34, width-domainWidth-3)
 	domains := m.settingsDomainRail(p, domainWidth)
-	control := m.settingsControl(p, centerWidth)
-	impact := m.settingsImpact(p, impactWidth)
+	control := m.settingsControl(p, mainWidth)
 	var content string
-	switch {
-	case width >= 105:
-		content = lipgloss.JoinHorizontal(lipgloss.Top, domains, " ", control, " ", impact)
-	case width >= 72:
-		controlWidth := max(34, width-domainWidth-1)
-		content = lipgloss.JoinHorizontal(lipgloss.Top, domains, " ", m.settingsControl(p, controlWidth)) +
-			"\n\n" + m.settingsImpact(p, width)
-	default:
-		content = m.settingsSelectedDomain(p) + "\n\n" + m.settingsControl(p, width) + "\n\n" + m.settingsImpact(p, width)
+	if width >= 72 {
+		content = lipgloss.JoinHorizontal(lipgloss.Top, domains, "  ", control)
+	} else {
+		content = m.settingsSelectedDomain(p) + "\n\n" + m.settingsControl(p, width)
 	}
-	footer := lipgloss.NewStyle().Foreground(p.muted).Render("↑/↓ domain   [e/enter] manage   [g] agents   [r] runtimes   [h] contrast   [esc] back")
+	footerParts := []string{
+		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[↑/↓]") + " " + lipgloss.NewStyle().Foreground(p.muted).Render("domain"),
+		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[e/enter]") + " " + lipgloss.NewStyle().Foreground(p.muted).Render("manage"),
+		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[g]") + " " + lipgloss.NewStyle().Foreground(p.muted).Render("agents"),
+		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[r]") + " " + lipgloss.NewStyle().Foreground(p.muted).Render("runtimes"),
+		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[h]") + " " + lipgloss.NewStyle().Foreground(p.muted).Render("contrast"),
+		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[esc]") + " " + lipgloss.NewStyle().Foreground(p.muted).Render("back"),
+	}
+	footer := strings.Join(footerParts, " · ")
 	return content + "\n\n" + footer
 }
 
@@ -291,25 +292,22 @@ func (m Model) settingsControl(p palette, width int) string {
 			"", lipgloss.NewStyle().Foreground(p.amber).Render("[e] toggle theme"),
 		)
 	}
-	return lipgloss.NewStyle().Width(width).Border(lipgloss.NormalBorder()).BorderForeground(p.cyan).Padding(1, 2).Render(strings.Join(rows, "\n"))
-}
 
-func (m Model) settingsImpact(p palette, width int) string {
 	role := m.actorAuthority()
 	shared := m.settingsCursor != 5
-	scope, boundary := "LOCAL PREFERENCE", "Saved only for this user."
+	scope, boundary := "LOCAL PREFERENCE", "Saved for this user."
 	color := p.cyan
 	if shared {
-		scope, boundary = "SIGNED GOVERNANCE", "Validated by authority, sequenced, and visible to every connected agent."
+		scope, boundary = "SIGNED GOVERNANCE", "Validated by authority & visible project-wide."
 		color = p.amber
 	}
-	rows := []string{
-		lipgloss.NewStyle().Foreground(color).Bold(true).Render("◈ " + scope),
-		"", settingLine("Actor", m.actor), settingLine("Role", role), "",
-		boundary, "",
-		lipgloss.NewStyle().Foreground(p.muted).Render("Internal data directory\nhidden by default"),
-	}
-	return lipgloss.NewStyle().Width(width).Border(lipgloss.NormalBorder()).BorderForeground(color).Padding(1).Render(strings.Join(rows, "\n"))
+	rows = append(rows, "",
+		lipgloss.NewStyle().Foreground(color).Bold(true).Render("◈ "+scope)+"  "+
+			lipgloss.NewStyle().Foreground(p.muted).Render(fmt.Sprintf("(Actor: %s · Role: %s)", m.actor, role)),
+		lipgloss.NewStyle().Foreground(p.muted).Render(boundary+" Internal data directory hidden by default."),
+	)
+
+	return lipgloss.NewStyle().Width(width).Border(lipgloss.NormalBorder()).BorderForeground(p.cyan).Padding(1, 2).Render(strings.Join(rows, "\n"))
 }
 
 func (m Model) actorAuthority() string {
