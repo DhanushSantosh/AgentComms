@@ -18,4 +18,25 @@ tasks:
     deps: [test, vet]
   build:
     desc: Build the local CLI
-    cmds: ["go build ./cmd/agent-comms"]
+    cmds:
+      - |
+        VERSION=$$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//')
+        if [ -z "$$VERSION" ]; then VERSION="dev"; fi
+        BUILD=$$(git rev-parse --short HEAD 2>/dev/null || echo "dev")
+        go build -trimpath -ldflags="-s -w \
+          -X github.com/DhanushSantosh/AgentComms/internal/app.Version=$$VERSION \
+          -X github.com/DhanushSantosh/AgentComms/internal/buildinfo.Version=$$VERSION \
+          -X github.com/DhanushSantosh/AgentComms/internal/buildinfo.BuildID=$$BUILD" \
+          -o agent-comms ./cmd/agent-comms
+  install:
+    desc: Build and install the CLI to ~/.local/bin
+    cmds:
+      - |
+        VERSION=$$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//')
+        if [ -z "$$VERSION" ]; then VERSION="dev"; fi
+        BUILD=$$(git rev-parse --short HEAD 2>/dev/null || echo "dev")
+        go build -trimpath -ldflags="-s -w \
+          -X github.com/DhanushSantosh/AgentComms/internal/app.Version=$$VERSION \
+          -X github.com/DhanushSantosh/AgentComms/internal/buildinfo.Version=$$VERSION \
+          -X github.com/DhanushSantosh/AgentComms/internal/buildinfo.BuildID=$$BUILD" \
+          -o ~/.local/bin/agent-comms ./cmd/agent-comms

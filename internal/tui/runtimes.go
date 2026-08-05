@@ -121,9 +121,9 @@ type runtimeRowSource struct{ root string }
 // list-plus-detail shape settings.go already uses for one row's full
 // picture (settingsControl/settingsImpact).
 func (runtimeRowSource) Columns(width int) []table.Column {
-	status, health, kind := 14, 10, 10
+	status, health, kind := 14, 10, 14
 	if width < 75 {
-		status, health, kind = 11, 8, 8
+		status, health, kind = 11, 8, 11
 	}
 	agent := min(14, max(6, width-status-health-kind))
 	return []table.Column{
