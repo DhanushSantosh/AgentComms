@@ -4,8 +4,6 @@ import (
 	"strings"
 	"time"
 
-	"charm.land/bubbles/v2/help"
-	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/table"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
@@ -197,19 +195,9 @@ type rowStyles struct {
 
 func rowListStyles(p palette) rowStyles {
 	return rowStyles{
-		Header: lipgloss.NewStyle().Bold(true).Foreground(p.muted).Padding(0, 1),
-		Cell:   lipgloss.NewStyle().Foreground(p.text).Padding(0, 1),
-		// No Padding here: Selected re-styles a row already built from
-		// Header/Cell-rendered, padding-inclusive cells (see cellWidth's
-		// comment) -- adding its own padding on top would widen a selected
-		// row by 2 columns beyond every unselected row's, and every
-		// RowSource.Columns(width) sizes its columns to sum to exactly
-		// `width`, with no slack for that. That extra width was silently
-		// wrapping onto the next physical line, which -- because the
-		// wrapped fragment was Selected's own trailing padding space, not
-		// real text -- showed up as a small, otherwise-blank cyan-colored
-		// block sitting just under whichever row happened to be selected.
-		Selected: lipgloss.NewStyle().Bold(true).Foreground(p.ink).Background(p.cyan),
+		Header:   lipgloss.NewStyle().Bold(true).Foreground(p.muted).Padding(0, 1),
+		Cell:     lipgloss.NewStyle().Foreground(p.text).Padding(0, 1),
+		Selected: lipgloss.NewStyle().Bold(true).Foreground(p.ink).Background(p.cyan).Padding(0, 1),
 	}
 }
 
@@ -232,7 +220,6 @@ func fmtStatus(s string) string {
 		return s
 	}
 }
-
 
 // cellWidth returns how many columns of col.Width are left for the cell's
 // own text after reserving room for the Header/Cell style's Padding(0, 1)
@@ -314,6 +301,10 @@ func renderHeader(cols []table.Column, styles rowStyles) string {
 }
 func renderTableRow(cols []table.Column, values table.Row, styles rowStyles, selected bool) string {
 	cells := make([]string, 0, len(cols))
+	cellStyle := styles.Cell
+	if selected {
+		cellStyle = styles.Selected
+	}
 	for i, col := range cols {
 		if col.Width <= 0 {
 			continue
@@ -324,13 +315,9 @@ func renderTableRow(cols []table.Column, values table.Row, styles rowStyles, sel
 		}
 		w := cellWidth(col.Width)
 		cell := lipgloss.NewStyle().Width(w).MaxWidth(w).Inline(true).Render(ansi.Truncate(text, w, "…"))
-		cells = append(cells, styles.Cell.Render(cell))
+		cells = append(cells, cellStyle.Render(cell))
 	}
-	row := lipgloss.JoinHorizontal(lipgloss.Top, cells...)
-	if selected {
-		return styles.Selected.Render(row)
-	}
-	return row
+	return lipgloss.JoinHorizontal(lipgloss.Top, cells...)
 }
 func (r RowList) View(p palette, st model.State, actor string, w, h int) string {
 	cols := clampColumnsToWidth(r.source.Columns(w), w)
@@ -350,11 +337,16 @@ func (r RowList) View(p palette, st model.State, actor string, w, h int) string 
 		lines = append(lines, renderTableRow(cols, rows[i], styles, i == r.cursor))
 	}
 	id := r.source.RowID(r.cursor, st, actor, r.mine)
-	bindings := make([]key.Binding, 0)
+	var actionHints []string
 	for _, act := range r.source.Actions(id, st, actor) {
-		bindings = append(bindings, key.NewBinding(key.WithKeys(act.Key), key.WithHelp(act.Key, act.Label)))
+		actionHints = append(actionHints, lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render(act.Key)+" "+lipgloss.NewStyle().Foreground(p.muted).Render(act.Label))
 	}
-	footer := lipgloss.NewStyle().Foreground(p.muted).Render("↑/↓ select · [i] inspect · esc back  ") + help.New().ShortHelpView(bindings)
+	actionsStr := strings.Join(actionHints, " · ")
+	footerText := "↑/↓ select · [i] inspect · esc back"
+	if len(actionsStr) > 0 {
+		footerText += "  " + actionsStr
+	}
+	footer := lipgloss.NewStyle().Foreground(p.muted).MaxWidth(w).Render(footerText)
 	return strings.Join(lines, "\n") + "\n" + footer
 }
 
