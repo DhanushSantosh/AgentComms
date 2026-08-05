@@ -197,7 +197,16 @@ func (m Model) projectSettings(p palette, width, height int) string {
 		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[h]") + " " + lipgloss.NewStyle().Foreground(p.muted).Render("contrast"),
 		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[esc]") + " " + lipgloss.NewStyle().Foreground(p.muted).Render("back"),
 	}
-	footer := strings.Join(footerParts, " · ")
+	parts := []string{}
+	for _, part := range footerParts {
+		candidate := strings.Join(append(parts, part), " · ")
+		if lipgloss.Width(candidate) <= width {
+			parts = append(parts, part)
+		} else {
+			break
+		}
+	}
+	footer := strings.Join(parts, " · ")
 	return content + "\n\n" + footer
 }
 
