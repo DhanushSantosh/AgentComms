@@ -182,7 +182,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if hub, ok := m.sidebarHubAt(p, mouse.X, mouse.Y); ok {
 				m.form, m.inputs, m.formSpec, m.confirm, m.rowFocus, m.settingsFocus = "", nil, nil, nil, false, false
 				m.openView(navigationHubs[hub].Views[0])
-				m.focusCurrentView()
 				return m, nil
 			}
 			// Same "always wins, before any mode dispatch" treatment as the
@@ -192,7 +191,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if view, ok := m.hubTabAt(p, mouse.X, mouse.Y); ok {
 				m.form, m.inputs, m.formSpec, m.confirm, m.rowFocus, m.settingsFocus = "", nil, nil, nil, false, false
 				m.openView(view)
-				m.focusCurrentView()
 				return m, nil
 			}
 		}
