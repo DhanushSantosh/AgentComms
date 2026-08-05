@@ -241,7 +241,7 @@ func (m Model) settingsSectionAt(p palette, x, y int) (index int, ok bool) {
 	if contentW < 72 {
 		return 0, false
 	}
-	domainWidth := max(22, min(26, contentW/4))
+	domainWidth := max(24, min(28, contentW/4))
 	left := m.sidebarWidth() + 1
 	if x < left || x >= left+domainWidth {
 		return 0, false
@@ -259,7 +259,7 @@ func (m Model) settingsSectionAt(p palette, x, y int) (index int, ok bool) {
 		if y >= line && y < line+rowHeight {
 			return i, true
 		}
-		line += rowHeight + 1 // the blank line settingsDomainRail leaves after each row
+		line += rowHeight
 	}
 	return 0, false
 }

@@ -179,7 +179,7 @@ func (m Model) openProjectSettingsForm() (tea.Model, tea.Cmd) {
 }
 
 func (m Model) projectSettings(p palette, width, height int) string {
-	domainWidth := max(22, min(26, width/4))
+	domainWidth := max(24, min(28, width/4))
 	impactWidth := min(31, max(24, width/4))
 	centerWidth := max(32, width-domainWidth-impactWidth-4)
 	domains := m.settingsDomainRail(p, domainWidth)
@@ -192,12 +192,12 @@ func (m Model) projectSettings(p palette, width, height int) string {
 	case width >= 72:
 		controlWidth := max(34, width-domainWidth-1)
 		content = lipgloss.JoinHorizontal(lipgloss.Top, domains, " ", m.settingsControl(p, controlWidth)) +
-			"\n" + m.settingsImpact(p, width)
+			"\n\n" + m.settingsImpact(p, width)
 	default:
-		content = m.settingsSelectedDomain(p) + "\n" + m.settingsControl(p, width) + "\n" + m.settingsImpact(p, width)
+		content = m.settingsSelectedDomain(p) + "\n\n" + m.settingsControl(p, width) + "\n\n" + m.settingsImpact(p, width)
 	}
 	footer := lipgloss.NewStyle().Foreground(p.muted).Render("↑/↓ domain   [e/enter] manage   [g] agents   [r] runtimes   [h] contrast   [esc] back")
-	return lipgloss.NewStyle().MaxHeight(height).Render(content + "\n" + footer)
+	return content + "\n\n" + footer
 }
 
 func (m Model) settingsDomainRail(p palette, width int) string {
@@ -209,7 +209,7 @@ func (m Model) settingsDomainRail(p palette, width int) string {
 			marker = "▌ "
 			style = style.Foreground(p.cyan).Bold(true)
 		}
-		rows = append(rows, style.Render(marker+section.name), "")
+		rows = append(rows, style.Render(marker+section.name))
 	}
 	return lipgloss.NewStyle().Width(width).Border(lipgloss.NormalBorder()).BorderForeground(p.muted).Padding(1).Render(strings.Join(rows, "\n"))
 }
