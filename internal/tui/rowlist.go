@@ -354,7 +354,7 @@ func (r RowList) View(p palette, st model.State, actor string, w, h int) string 
 		}
 	}
 	footer := strings.Join(parts, " · ")
-	return strings.Join(lines, "\n") + "\n" + footer
+	return strings.Join(lines, "\n") + "\n\n" + footer
 }
 
 func (m *Model) activeRowList() *RowList {
