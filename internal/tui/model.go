@@ -79,6 +79,7 @@ type Model struct {
 	toastMsg       string
 	toastExpiresAt time.Time
 	lastSeq        uint64
+	scrollOffset   int
 	// lastClickX/Y/At track the previous left click's exact cell and time,
 	// purely to recognize a second click on that same cell within
 	// doubleClickWindow as a double-click (see isDoubleClick) -- bubbletea
@@ -208,6 +209,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.settingsFocus {
 		return m.updateSettings(msg)
 	}
+	if wheel, ok := msg.(tea.MouseWheelMsg); ok {
+		switch wheel.Button {
+		case tea.MouseWheelUp:
+			m.scrollOffset = max(0, m.scrollOffset-3)
+		case tea.MouseWheelDown:
+			m.scrollOffset += 3
+		}
+		return m, nil
+	}
 	switch v := msg.(type) {
 	case tea.KeyPressMsg:
 		k := v.String()
@@ -232,6 +242,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch k {
 		case "q", "ctrl+c":
 			return m, tea.Quit
+		case "pgdown", "ctrl+d":
+			m.scrollOffset += 8
+		case "pgup", "ctrl+u":
+			m.scrollOffset = max(0, m.scrollOffset-8)
 		case "up", "k":
 			m.moveHub(-1)
 		case "down", "j":
@@ -279,6 +293,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) openView(name string) {
+	m.scrollOffset = 0
 	for index, viewName := range views {
 		if viewName == name {
 			m.view = index
@@ -793,6 +808,26 @@ func (m Model) renderBody(p palette, w, h int) string {
 		content += "\n\n" + lipgloss.NewStyle().Foreground(p.ink).Background(p.cyan).Bold(true).MaxWidth(contentW).Render(" " + m.toastMsg + " ")
 	} else if m.notice != "" {
 		content += "\n\n" + lipgloss.NewStyle().Foreground(p.cyan).MaxWidth(contentW).Render("Notice: "+m.notice)
+	}
+	isTable := m.activeRowList() != nil
+	if !isTable {
+		lines := strings.Split(content, "\n")
+		availH := max(22, contentH-4)
+		if len(lines) > availH {
+			maxScroll := len(lines) - availH
+			if m.scrollOffset > maxScroll {
+				m.scrollOffset = maxScroll
+			}
+			if m.scrollOffset < 0 {
+				m.scrollOffset = 0
+			}
+			end := min(len(lines), m.scrollOffset+availH)
+			content = strings.Join(lines[m.scrollOffset:end], "\n")
+			scrollInfo := lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render(
+				fmt.Sprintf(" ⇡⇣ Scroll %d-%d of %d (PgUp/PgDn/Wheel)", m.scrollOffset+1, end, len(lines)),
+			)
+			content += "\n" + scrollInfo
+		}
 	}
 	return pane.Render(meta + "\n" + tabs + "\n\n" + header + "\n\n" + content)
 }
