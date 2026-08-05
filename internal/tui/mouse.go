@@ -13,14 +13,12 @@ import "charm.land/lipgloss/v2"
 func (m Model) rowListDimensions() (w, h int) {
 	_, _, innerW, innerH := m.bodyLayout()
 	switch views[m.view] {
-	case "Agents":
-		return innerW, max(5, innerH-4)
 	case "Invocations":
-		return innerW, max(5, innerH-10)
+		return innerW, max(5, innerH-5)
 	case "Runtimes":
-		return innerW, max(5, innerH-9)
+		return innerW, max(5, innerH-5)
 	case "Contracts & decisions":
-		return innerW, max(5, innerH-6)
+		return innerW, max(5, innerH-4)
 	default:
 		return innerW, innerH
 	}
