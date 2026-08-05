@@ -241,7 +241,7 @@ func (m Model) settingsSectionAt(p palette, x, y int) (index int, ok bool) {
 	if contentW < 72 {
 		return 0, false
 	}
-	domainWidth := min(24, max(18, contentW/4))
+	domainWidth := max(22, min(26, contentW/4))
 	left := m.sidebarWidth() + 1
 	if x < left || x >= left+domainWidth {
 		return 0, false

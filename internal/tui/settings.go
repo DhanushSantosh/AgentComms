@@ -179,7 +179,7 @@ func (m Model) openProjectSettingsForm() (tea.Model, tea.Cmd) {
 }
 
 func (m Model) projectSettings(p palette, width, height int) string {
-	domainWidth := min(24, max(18, width/4))
+	domainWidth := max(22, min(26, width/4))
 	impactWidth := min(31, max(24, width/4))
 	centerWidth := max(32, width-domainWidth-impactWidth-4)
 	domains := m.settingsDomainRail(p, domainWidth)
