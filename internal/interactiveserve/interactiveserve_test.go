@@ -340,6 +340,47 @@ func TestEchoedSurvivesInterleavedCursorMovement(t *testing.T) {
 	}
 }
 
+// TestEchoedFallsBackToInvocationIDWhenFullTextIsShredded guards the fix
+// added for agy: its TUI redraws long text streams with status/UI elements
+// interleaved at points the box-drawing and cursor-movement handling above
+// doesn't cover, so a delivered prompt can come back with most of its
+// content scrambled by redraw artifacts -- while the "Invocation ID:
+// inv-XXXX" line embedded near the top of the prompt (see agyPrompt,
+// adapter_agy.go) survives intact. Without this fallback, that would read
+// as never-delivered and the caller would keep retrying (or time out and
+// refuse to send Enter) even though the target genuinely has the message.
+func TestEchoedFallsBackToInvocationIDWhenFullTextIsShredded(t *testing.T) {
+	original := "You are the autonomous Agent Comms runtime for agent HULK.\n" +
+		"Invocation ID: inv-047\nRequester: owner\nPriority: NORMAL\n\n" +
+		"Instruction:\nCheck system health"
+	// The rest of the message is unrecognizable after a redraw, but the
+	// invocation ID line rendered cleanly.
+	shredded := []byte("### some unrelated status redraw with no other overlap at all ###\ninvocationid inv047\n### more redraw noise ###")
+	if !echoed(shredded, original) {
+		t.Fatal("expected echoed to fall back to matching the invocation ID when the rest of the text was shredded by a redraw")
+	}
+}
+
+// TestEchoedFallbackHasAFalsePositiveRisk documents, rather than fixes, a
+// known tradeoff in the invocation-ID fallback above: because it only
+// requires the ID substring to be present somewhere in buf -- not the rest
+// of the message, and not that it appeared recently -- a buffer that
+// happens to still contain a PREVIOUS delivery's invocation ID (outputTee
+// only resets on a screen-clear, not between deliverToPty calls) would
+// register as "echoed" for a NEW delivery of a message that mentions that
+// same ID, even though the new message was never actually typed at all.
+// This test exists so that risk is visible and intentional, not
+// rediscovered by surprise: if a stricter fallback ever replaces this one
+// (e.g. requiring some minimum overlap with the rest of the text, not just
+// the ID), this test should start failing and can be deleted.
+func TestEchoedFallbackHasAFalsePositiveRisk(t *testing.T) {
+	newMessage := "Invocation ID: inv-047\nInstruction:\nThis text was never actually delivered"
+	staleBufferFromAnEarlierDelivery := []byte("some earlier screen content mentioning inv-047 for an unrelated reason")
+	if !echoed(staleBufferFromAnEarlierDelivery, newMessage) {
+		t.Fatal("known tradeoff regressed: the ID fallback no longer produces this false positive -- update this test's comment, it's no longer describing current behavior")
+	}
+}
+
 func TestIsBusyIgnoresColorCodesAroundMarker(t *testing.T) {
 	styled := "\x1b[90m" + busyMarkers[0] + "\x1b[0m"
 	if !isBusy([]byte(styled)) {

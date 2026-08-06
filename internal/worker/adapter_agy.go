@@ -30,10 +30,23 @@ func validateAgyConfig(config *Config) error {
 	default:
 		return errors.New("agy permission mode must not bypass permissions")
 	}
+	// Unlike claudeAdapter, which uses AgentCommsPath to scope unattended
+	// Bash access to just the Agent Comms binary via
+	// --allowedTools "Bash(<path> *)" -- agy's real CLI (agy --help) has
+	// no equivalent per-tool allowlist flag at all, only the all-or-
+	// nothing --dangerously-skip-permissions and --mode
+	// accept-edits/plan. --claude-allow-agent-comms is a plain bool on
+	// the shared `worker` command, not gated to the claude adapter the
+	// way interactive-serve's own --claude-allow-agent-comms flag is
+	// (app.go's withClaudeAllowAgentComms explicitly refuses a non-claude
+	// wrapped command) -- so without this check, passing it alongside
+	// --adapter agy would resolve and validate AgentCommsPath as a real
+	// executable, giving the impression it scopes something, when
+	// Arguments() below has nothing to actually pass it to. Reject it
+	// outright instead, so misconfiguration fails loud at registration
+	// time rather than silently doing nothing at every invocation.
 	if config.AgentCommsPath != "" {
-		if err := validateExecutablePath(config.AgentCommsPath, "allowed Agent Comms executable"); err != nil {
-			return err
-		}
+		return errors.New("agy has no per-tool permission scoping to apply --claude-allow-agent-comms to; omit that flag for this adapter")
 	}
 	return nil
 }
@@ -43,10 +56,27 @@ func (agyAdapter) Arguments(config Config) []string {
 		"--print",
 		"--output-format", "text",
 	}
-	if config.PermissionMode == "dontAsk" || config.PermissionMode == "auto" {
+	switch config.PermissionMode {
+	case "dontAsk", "auto":
 		arguments = append(arguments, "--dangerously-skip-permissions")
-	} else if config.PermissionMode == "plan" {
+	case "plan":
 		arguments = append(arguments, "--mode", "plan")
+	case "acceptEdits", "accept-edits":
+		// The default (validateAgyConfig falls back to "acceptEdits" when
+		// unset) and the most common case in practice -- must map to a
+		// real flag. agy --help documents --mode as accepting exactly
+		// "(accept-edits, plan)", so this is the one literal value it
+		// understands for this permission level.
+		arguments = append(arguments, "--mode", "accept-edits")
+	case "manual":
+		// No flag: agy's --mode only accepts accept-edits/plan, and
+		// --print runs non-interactively, so there is no way to actually
+		// prompt for per-action approval the way "manual" implies for
+		// claude/opencode -- there's no TTY for agy to ask on. Leaving
+		// both --mode and --dangerously-skip-permissions off falls back
+		// to agy's own CLI default, confirmed live to respond promptly
+		// rather than hang waiting on approval input it could never
+		// receive here.
 	}
 	if config.SessionID != "" {
 		arguments = append(arguments, "--conversation", config.SessionID)

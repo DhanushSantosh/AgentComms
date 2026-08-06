@@ -35,13 +35,17 @@ func Path(projectRoot string) string {
 // to commands run by its shell tool, injected even when the configured
 // shell_environment_policy restricts inherited variables to an include_only
 // list — so it survives a restrictive policy the way an ordinary env var
-// would not. Both are the same identifier accepted by that provider's
-// `resume`/`--session-id` flag.
+// would not. Agy (Antigravity CLI) exports ANTIGRAVITY_CONVERSATION_ID --
+// confirmed by `strings`-ing the installed agy binary, which embeds the
+// literal JS `conversationId: process.env.ANTIGRAVITY_CONVERSATION_ID`
+// alongside `projectId: process.env.ANTIGRAVITY_PROJECT_ID` in a bundled
+// sidecar script; no ANTIGRAVITY_SESSION_ID or AGY_SESSION_ID appears
+// anywhere in the binary at all, despite an earlier version of this
+// function checking for exactly those two guessed names. All three are the
+// same identifier accepted by that provider's `resume`/`--session-id`/
+// `--conversation` flag.
 func Capture() (sessionID, adapter string) {
-	if id := strings.TrimSpace(os.Getenv("ANTIGRAVITY_SESSION_ID")); id != "" {
-		return id, "agy"
-	}
-	if id := strings.TrimSpace(os.Getenv("AGY_SESSION_ID")); id != "" {
+	if id := strings.TrimSpace(os.Getenv("ANTIGRAVITY_CONVERSATION_ID")); id != "" {
 		return id, "agy"
 	}
 	if id := strings.TrimSpace(os.Getenv("CLAUDE_CODE_SESSION_ID")); id != "" {

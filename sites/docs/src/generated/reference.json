@@ -6843,7 +6843,7 @@
         },
         {
           "name": "adapter",
-          "usage": "claude, codex, opencode, claude-live, codex-live, opencode-live, claude-acp, opencode-acp, or codex-acp",
+          "usage": "agy, claude, codex, opencode, claude-live, codex-live, opencode-live, claude-acp, opencode-acp, or codex-acp",
           "default": "claude",
           "type": "string"
         },
