@@ -900,8 +900,23 @@ func TestTaskLockCreatesAndClaimsInOneStep(t *testing.T) {
 	if !bytes.Contains(out.Bytes(), []byte(`"type":"task.claim"`)) {
 		t.Fatalf("expected task lock to emit a task.claim event, got: %s", out.String())
 	}
-	if !bytes.Contains(out.Bytes(), []byte(`"worktree":"`+worktree+`"`)) {
-		t.Fatalf("expected the claim to record the locked worktree, got: %s", out.String())
+	// Decode rather than a raw byte-substring match against worktree: on
+	// Windows, worktree contains backslashes (C:\Users\...), and JSON
+	// escapes those (\ -> \\) in the emitted output, so the raw path never
+	// byte-matches the encoded string -- confirmed live, this exact
+	// assertion failed on windows-latest CI while passing everywhere else.
+	var lockEvent struct {
+		Result struct {
+			Data struct {
+				Worktree string `json:"worktree"`
+			} `json:"data"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &lockEvent); err != nil {
+		t.Fatalf("decode task lock output: %v\n%s", err, out.String())
+	}
+	if lockEvent.Result.Data.Worktree != worktree {
+		t.Fatalf("expected the claim to record worktree %q, got %q (full output: %s)", worktree, lockEvent.Result.Data.Worktree, out.String())
 	}
 
 	run("task", "list")

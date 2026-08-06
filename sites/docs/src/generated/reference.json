@@ -6831,6 +6831,81 @@
       ]
     },
     {
+      "path": "agent-comms runtime verify-adapter",
+      "use": "agent-comms runtime verify-adapter [flags]",
+      "summary": "Check a worker adapter's assumed CLI flags against the real installed binary's --help output",
+      "description": "Statically scans the named adapter's own source file (adapter_\u003cname\u003e.go, under --source-dir) for \"--flag\"-shaped string literals, runs \u003cexecutable\u003e --help, and reports any assumed flag the real binary's own help output never mentions. Generalizes the manual check that caught a real bug this session -- a wrong environment variable name for agy, found by running `strings` on the installed binary by hand -- into a repeatable one for CLI flags specifically (this can't catch environment variable drift; --help never lists those). A dev-time tool: --source-dir must point at a real checkout's internal/worker directory (defaults to that path relative to the current directory, i.e. running from the repo root), not something a distributed binary carries with it.",
+      "flags": [
+        {
+          "name": "actor",
+          "usage": "actor override (credential must match)",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "adapter",
+          "usage": "adapter name (agy, claude, codex, opencode)",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "executable",
+          "usage": "path to the real installed CLI binary",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "json",
+          "usage": "emit a versioned JSON envelope",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "no-color",
+          "usage": "disable ANSI color",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "non-interactive",
+          "usage": "never prompt",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "profile",
+          "usage": "user profile name",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "project",
+          "usage": "target project root",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "quiet",
+          "shorthand": "q",
+          "usage": "suppress non-essential output",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "source-dir",
+          "usage": "path to the agent-comms repo checkout's internal/worker directory",
+          "default": "internal/worker",
+          "type": "string"
+        },
+        {
+          "name": "timeout",
+          "usage": "transaction lock timeout",
+          "default": "10s",
+          "type": "duration"
+        }
+      ]
+    },
+    {
       "path": "agent-comms runtime worker",
       "use": "agent-comms runtime worker [flags]",
       "summary": "Run a governed autonomous Claude or Codex invocation worker",
@@ -7590,7 +7665,7 @@
         },
         {
           "name": "repo",
-          "usage": "repository path (acquires working-directory lock)",
+          "usage": "repository path (acquires working-directory lock; alias for --worktree)",
           "default": "",
           "type": "string"
         },
@@ -7919,6 +7994,81 @@
           "usage": "transaction lock timeout",
           "default": "10s",
           "type": "duration"
+        }
+      ]
+    },
+    {
+      "path": "agent-comms task lock",
+      "use": "agent-comms task lock [flags]",
+      "summary": "Create and claim a minimal task in one step, to hold a working-directory lock for ad hoc work with no pre-existing task",
+      "description": "task create requires a title, summary, repository, branch, and resource list before task claim can acquire a working-directory lock -- real ceremony for a real task, but too much for the single most common shape of work in an interactive multi-agent setup: a human directly asking a live agent to fix something, with no Task tracked yet. `task lock` creates a minimal, throwaway task (auto-generated ID, --note as its title/summary, current branch detected via git if not given) and claims it in the same call, so reaching for a lock is never more work than skipping one. Complete or cancel it like any other task when the work is done (the printed task ID is what you need).",
+      "flags": [
+        {
+          "name": "actor",
+          "usage": "actor override (credential must match)",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "duration",
+          "usage": "lease duration",
+          "default": "4h0m0s",
+          "type": "duration"
+        },
+        {
+          "name": "json",
+          "usage": "emit a versioned JSON envelope",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "no-color",
+          "usage": "disable ANSI color",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "non-interactive",
+          "usage": "never prompt",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "note",
+          "usage": "what you're about to do -- used as the ad hoc task's title/summary",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "profile",
+          "usage": "user profile name",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "project",
+          "usage": "target project root",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "quiet",
+          "shorthand": "q",
+          "usage": "suppress non-essential output",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "timeout",
+          "usage": "transaction lock timeout",
+          "default": "10s",
+          "type": "duration"
+        },
+        {
+          "name": "worktree",
+          "usage": "worktree path to lock (required)",
+          "default": "",
+          "type": "string"
         }
       ]
     },
