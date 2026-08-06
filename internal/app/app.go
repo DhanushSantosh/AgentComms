@@ -296,6 +296,72 @@ func (c *cli) emit(command string, v any, warnings ...string) error {
 	return c.emitWithDelivery(command, v, nil, warnings...)
 }
 
+// emitTable is emit's counterpart for list-shaped output. With --json (or
+// scripting against this command generally), behavior is byte-for-byte
+// identical to emit(command, v) -- the same JSON envelope, so nothing that
+// already parses this command's output breaks. Only the human-facing,
+// non-JSON default differs: emit's own non-JSON fallback still prints
+// pretty-*indented* JSON, not an actual table -- a human doing an ad hoc
+// check has to mentally parse it either way. Confirmed friction all
+// session: reading agent/runtime/invocation state by eye meant piping
+// through `python3 -m json.tool`/`jq` every single time, for exactly this
+// reason. emitTable renders headers/rows as an aligned plain-text table
+// instead.
+func (c *cli) emitTable(command string, v any, headers []string, rows [][]string, warnings ...string) error {
+	if c.json || c.quiet {
+		return c.emit(command, v, warnings...)
+	}
+	if len(c.pendingWarnings) > 0 {
+		warnings = append(append([]string{}, c.pendingWarnings...), warnings...)
+	}
+	renderTable(c.out, headers, rows)
+	for _, w := range warnings {
+		if _, e := fmt.Fprintln(c.err, "warning:", w); e != nil {
+			return e
+		}
+	}
+	return nil
+}
+
+// renderTable writes headers and rows as a plain-text table, columns
+// padded to the widest cell in each column (header included), separated
+// by two spaces. Deliberately no box-drawing characters: those need
+// display-width handling for anything beyond plain ASCII to stay aligned,
+// and this output is meant to copy-paste cleanly into another command or
+// a message, which a bordered table doesn't do as well.
+func renderTable(out io.Writer, headers []string, rows [][]string) {
+	if len(rows) == 0 {
+		fmt.Fprintln(out, "(no rows)")
+		return
+	}
+	widths := make([]int, len(headers))
+	for i, h := range headers {
+		widths[i] = len(h)
+	}
+	for _, row := range rows {
+		for i, cell := range row {
+			if i < len(widths) && len(cell) > widths[i] {
+				widths[i] = len(cell)
+			}
+		}
+	}
+	writeRow := func(cells []string) {
+		parts := make([]string, len(headers))
+		for i := range headers {
+			cell := ""
+			if i < len(cells) {
+				cell = cells[i]
+			}
+			parts[i] = cell + strings.Repeat(" ", widths[i]-len(cell))
+		}
+		fmt.Fprintln(out, strings.TrimRight(strings.Join(parts, "  "), " "))
+	}
+	writeRow(headers)
+	for _, row := range rows {
+		writeRow(row)
+	}
+}
+
 func (c *cli) emitWithDelivery(command string, v, delivery any, warnings ...string) error {
 	if len(c.pendingWarnings) > 0 {
 		warnings = append(append([]string{}, c.pendingWarnings...), warnings...)
@@ -987,7 +1053,13 @@ func (c *cli) agentCmd() *cobra.Command {
 		if e != nil {
 			return e
 		}
-		return c.emit("agent.list", st.Agents)
+		headers := []string{"ID", "STATUS", "ROLE", "TYPE", "SCOPES"}
+		rows := make([][]string, 0, len(st.Agents))
+		for _, id := range service.SortedKeys(st.Agents) {
+			a := st.Agents[id]
+			rows = append(rows, []string{id, a.Status, string(a.Role), string(a.PrincipalType), strings.Join(a.Scopes, ",")})
+		}
+		return c.emitTable("agent.list", st.Agents, headers, rows)
 	}}
 	root.AddCommand(reg, act, suspend, rotate, elevate, rename, revoke, deleteAgent, list)
 	return root
@@ -1117,7 +1189,13 @@ func (c *cli) runtimeCmd() *cobra.Command {
 			}
 			state.AgentRuntimes[id] = runtimeState
 		}
-		return c.emit("runtime.list", state.AgentRuntimes)
+		headers := []string{"ID", "AGENT", "KIND", "STATUS", "HEALTH"}
+		rows := make([][]string, 0, len(state.AgentRuntimes))
+		for _, id := range service.SortedKeys(state.AgentRuntimes) {
+			rt := state.AgentRuntimes[id]
+			rows = append(rows, []string{id, rt.AgentID, string(rt.Kind), rt.Status, rt.Health})
+		}
+		return c.emitTable("runtime.list", state.AgentRuntimes, headers, rows)
 	}}
 	var workerAdapter, workerExecutable, workerModel, workerSessionID, permissionMode, sandbox string
 	var codexAddDirs []string
@@ -1580,7 +1658,13 @@ func (c *cli) invocationCmd() *cobra.Command {
 			}
 			result[id] = invocation
 		}
-		return c.emit("invocation.list", result)
+		headers := []string{"ID", "TARGET", "STATUS", "PRIORITY", "REQUESTED_BY"}
+		rows := make([][]string, 0, len(result))
+		for _, id := range service.SortedKeys(result) {
+			inv := result[id]
+			rows = append(rows, []string{id, inv.Target, inv.Status, inv.Priority, inv.RequestedBy})
+		}
+		return c.emitTable("invocation.list", result, headers, rows)
 	}}
 	list.Flags().String("status", "", "filter by status")
 	list.Flags().String("to", "", "filter by target agent")
