@@ -139,38 +139,6 @@ var (
 	}
 )
 
-func (m Model) invocationControlBar(p palette, width int) string {
-	pending, active, failedDeliveries := 0, 0, 0
-	for _, invocation := range m.state.Invocations {
-		switch invocation.Status {
-		case "PENDING", "NOTIFIED":
-			pending++
-		case "CLAIMED", "RUNNING", "WAITING":
-			active++
-		}
-	}
-	for _, delivery := range m.state.InvocationDeliveries {
-		if delivery.Status == "FAILED" || delivery.Status == "EXHAUSTED" {
-			failedDeliveries++
-		}
-	}
-	mode := "NAVIGATION · Enter to manage selected invocation"
-	color := p.muted
-	if m.rowFocus {
-		mode = "MANAGE MODE · ↑/↓ select · Esc returns to navigation"
-		color = p.cyan
-	}
-	title := lipgloss.NewStyle().Foreground(color).Bold(true).Render(mode)
-	status := lipgloss.NewStyle().Foreground(p.text).Render(
-		fmt.Sprintf("Pending %d   Active %d   Failed deliveries %d", pending, active, failedDeliveries),
-	)
-	actions := lipgloss.NewStyle().Foreground(p.amber).Render(
-		"[n] invoke agent   [r] refresh   [Enter] manage selected",
-	)
-	return lipgloss.NewStyle().Width(width).BorderLeft(true).BorderStyle(lipgloss.ThickBorder()).
-		BorderForeground(color).PaddingLeft(1).Render(title + "\n" + status + "\n" + actions)
-}
-
 type invocationRowSource struct{}
 
 func (invocationRowSource) Columns(width int) []table.Column {

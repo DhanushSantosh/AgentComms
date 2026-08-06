@@ -63,15 +63,14 @@ func (m Model) bodyPrefixHeight(p palette) int {
 }
 
 // rowTableTopY returns the absolute screen row where the active row list's
-// own header row renders -- one above the first data row -- accounting
-// for whichever per-view content (agentControlBar, invocationControlBar)
-// renders before it. The "+1", not "+2", after each control bar's height
-// is deliberate: bodyContent joins them with "\n\n", and a double newline
-// between two strings that don't already end in one contributes exactly
-// one blank line, not two -- getting this wrong here was the exact bug
-// behind a real click landing one row below the row it should have
-// selected, confirmed by rendering a real Agents screen and comparing
-// byte-for-byte against this formula's prediction.
+// own header row renders -- one above the first data row. Every view's
+// per-row-list content (bodyContent) now starts directly with the row
+// list itself -- the per-view control bars that used to render above it
+// (agentControlBar, invocationControlBar) are gone -- so this is just
+// bodyPrefixHeight; kept as its own named function since "where the row
+// list's header renders" and "how tall everything above the row list is"
+// are conceptually different questions that happened to collapse to the
+// same formula, and rowAtY reads better naming the one it actually means.
 func (m Model) rowTableTopY(p palette) int {
 	return m.bodyPrefixHeight(p)
 }

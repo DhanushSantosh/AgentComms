@@ -937,16 +937,13 @@ func TestBodyPrefixMatchesActualRender(t *testing.T) {
 	}
 }
 
-// TestRowTableTopYMatchesActualRender is the regression test for a second,
-// distinct off-by-one found while still chasing an inaccurate click on the
-// Agents table: rowTableTopY added "+2" for the blank line bodyContent's
-// "\n\n" leaves between the control bar and the table, but joining two
-// strings that don't already end in "\n" with "\n\n" only ever contributes
-// one blank line, not two -- the same miscount TestBodyPrefixMatchesActualRender
-// exists to catch, just in a different formula. Renders a real Agents
-// screen and asserts rowTableTopY's prediction agrees with where the
-// table's own header row actually is, rather than trusting the formula by
-// inspection alone.
+// TestRowTableTopYMatchesActualRender guards rowTableTopY (mouse.go)
+// against ever drifting from where the Agents table's own header row
+// actually renders -- it once did, when bodyContent still prepended a
+// per-view control bar above the row list and the formula miscounted the
+// blank line between them. Renders a real Agents screen and asserts
+// rowTableTopY's prediction agrees with the table header's real position,
+// rather than trusting the formula by inspection alone.
 func TestRowTableTopYMatchesActualRender(t *testing.T) {
 	s := newTestService(t)
 	registerAgent(t, s, "alpha", model.RoleAgent, "src")

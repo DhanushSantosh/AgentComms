@@ -7,7 +7,6 @@ import (
 
 	"charm.land/bubbles/v2/table"
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 	"github.com/DhanushSantosh/AgentComms/internal/identity"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 	"github.com/DhanushSantosh/AgentComms/internal/service"
@@ -288,33 +287,6 @@ func (agentRowSource) Actions(id string, st model.State, actor string) []RowActi
 		return nil
 	}
 	return agentActionsFor(a, id, actor, st.Agents[actor].Role)
-}
-
-func (m Model) agentControlBar(p palette, width int) string {
-	selectedID := m.agentList.SelectedID(m.state, m.actor)
-	actions := m.agentList.Actions(selectedID, m.state, m.actor)
-	controls := []string{"[n] register agent"}
-	for _, action := range actions {
-		// Non-breaking spaces within one action's own text so a width-driven
-		// wrap (the outer style below is width-bound) can only break between
-		// separate actions, never split "[key] label" itself across lines --
-		// a real, not cosmetic, bug: more actions than fit on one line used
-		// to wrap mid-label (e.g. "[z]" on one line, "rotate key" on the
-		// next), silently breaking every "[key] label"-shaped substring
-		// match, including in tests.
-		controls = append(controls, "["+action.Key+"] "+strings.ReplaceAll(action.Label, " ", " "))
-	}
-	mode := "NAVIGATION · Enter to manage selected agent"
-	color := p.muted
-	if m.rowFocus {
-		mode = "MANAGE MODE · ↑/↓ select · Esc returns to navigation"
-		color = p.cyan
-	}
-	title := lipgloss.NewStyle().Foreground(color).Bold(true).Render(mode)
-	selected := lipgloss.NewStyle().Foreground(p.text).Render("Selected: " + empty(selectedID, "none"))
-	actionText := lipgloss.NewStyle().Foreground(p.amber).Render(strings.Join(controls, "   "))
-	return lipgloss.NewStyle().Width(width).BorderLeft(true).BorderStyle(lipgloss.ThickBorder()).
-		BorderForeground(color).PaddingLeft(1).Render(title + "\n" + selected + "\n" + actionText)
 }
 
 // openActorSwitchForm lists only actor identities whose private key was
