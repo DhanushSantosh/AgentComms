@@ -76,6 +76,42 @@ one is picked up, remove it from here and note the landing commit.
   important by the user; worth a real design pass before building, not an
   ad hoc addition.
 
+## Interactive-serve / multi-agent delivery
+
+- **`interactive-serve` delivery is raw text typed into a PTY and read back
+  via heuristics, with no structured acknowledgment of exact content.**
+  `interactiveserve/matcher.go`'s `echoed()` decides whether a delivered
+  message actually registered as input before pressing Enter using
+  progressively looser heuristics: an exact normalized substring match,
+  tokenized n-gram sequence matching, then an invocation-ID substring
+  fallback. Each layer was added to fix a real, observed failure (box-
+  drawing wrap characters, interleaved cursor-movement sequences, TUI status
+  headers breaking a delivered message across redraws) — but the underlying
+  design property stays the same no matter how many heuristics are layered
+  on: there is no way to confirm the *exact* content arrived, only that
+  something matching-enough did. Confirmed live 2026-08-06: this exact class
+  of fragility bit twice in one session, from two different angles —
+  `matcher.go`'s own heuristics needed hardening against real TUI redraws,
+  and a live agent's own reply arrived with markdown code spans silently
+  stripped in transit (almost certainly shell command-substitution eating
+  backtick-quoted text somewhere in how the reply's CLI invocation was
+  constructed, a related but distinct fragility of moving text through a
+  shell/terminal rather than a structured channel).
+
+  This project already has a more robust answer for *some* adapters: ACP
+  (Agent Client Protocol, used by `claude-acp`/`opencode-acp`/`codex-acp`)
+  is a structured wire protocol, not text-into-a-pty. Interactive-serve
+  sessions have no equivalent today. Worth a real design pass on whether
+  interactive-serve-managed sessions could offer a structured channel
+  alongside (not necessarily replacing) raw PTY injection, at least for
+  delivering the invocation payload itself — removing this whole class of
+  transcription/echo bugs rather than continuing to patch `echoed()`'s
+  heuristics one observed failure mode at a time. Not scoped or estimated;
+  flagged as a design candidate, not a task, in the joint HENRY/HULK/PETER
+  field-feedback brainstorm
+  ([docs/agent-comms-feedback-2026-08-06.md](agent-comms-feedback-2026-08-06.md#6-raw-pty-text-injection-has-no-structured-acknowledgment-of-exact-content--two-different-symptoms-same-root-cause-hit-live-today)
+  item #6).
+
 ## Cross-reference
 
 - [RFC 0012](rfcs/0012-agent-identity-deletion-and-key-fingerprinting.md) —
