@@ -266,6 +266,20 @@ func TestListenLocalRecoversStaleSocket(t *testing.T) {
 	defer second.Close()
 }
 
+func TestListenLocalRecoversStaleRegularFile(t *testing.T) {
+	requireUnixInteractiveTransport(t)
+	dir := t.TempDir()
+	sockPath := SocketPath(dir, "stale-file-runtime")
+	if err := os.WriteFile(sockPath, []byte("stale content"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	second, err := listenLocal(sockPath)
+	if err != nil {
+		t.Fatalf("expected listenLocal to recover a stale non-socket file: %v", err)
+	}
+	defer second.Close()
+}
+
 // --- matcher: busy/echo heuristics ---------------------------------------
 
 func TestIsBusyDetectsAndIgnoresMarkers(t *testing.T) {
