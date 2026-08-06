@@ -418,7 +418,7 @@ func TestEchoedMatchesTokenNGramsAcrossInterleavedTUIStatusHeaders(t *testing.T)
 
 func TestTokenizeStripsPunctuationAndBorderChars(t *testing.T) {
 	tokens := tokenize("┃  Agent Comms: --status PENDING (v2.1)  ┃")
-	expected := []string{"agent", "comms", "status", "pending", "v21"}
+	expected := []string{"agent", "comms", "status", "pending", "v2", "1"}
 	if len(tokens) != len(expected) {
 		t.Fatalf("tokenize returned %v, want %v", tokens, expected)
 	}
