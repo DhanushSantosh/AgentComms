@@ -256,6 +256,8 @@ func handleConn(conn net.Conn, tee *outputTee, ptmx *os.File, mu *sync.Mutex) {
 	switch req.Kind {
 	case "ping":
 		_ = json.NewEncoder(conn).Encode(Response{OK: true, Busy: isBusy(tee.snapshot())})
+	case "snapshot":
+		_ = json.NewEncoder(conn).Encode(Response{OK: true, Busy: isBusy(tee.snapshot()), OutputSnapshot: string(tee.snapshot())})
 	case "deliver":
 		mu.Lock()
 		evidence, err := deliverToPtyWithEvidence(ptmx, tee, req.Message, idleTimeout, echoTimeout)
