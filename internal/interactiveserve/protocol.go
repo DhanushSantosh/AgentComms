@@ -87,12 +87,16 @@ func listenLocal(sockPath string) (net.Listener, error) {
 	if err := os.Chmod(socketDirectory, 0o700); err != nil {
 		return nil, fmt.Errorf("interactiveserve: secure socket directory: %w", err)
 	}
-	if info, err := os.Lstat(sockPath); err == nil && info.Mode()&os.ModeSocket != 0 {
-		if conn, dialErr := net.Dial("unix", sockPath); dialErr == nil {
+	if _, err := os.Lstat(sockPath); err == nil {
+		var d net.Dialer
+		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		conn, dialErr := d.DialContext(ctx, "unix", sockPath)
+		cancel()
+		if dialErr == nil {
 			_ = conn.Close()
 			return nil, fmt.Errorf("interactiveserve: runtime already has a live interactive-serve session (socket %s is dialable)", sockPath)
 		}
-		if err := os.Remove(sockPath); err != nil {
+		if err := os.Remove(sockPath); err != nil && !os.IsNotExist(err) {
 			return nil, fmt.Errorf("interactiveserve: remove stale socket: %w", err)
 		}
 	}
