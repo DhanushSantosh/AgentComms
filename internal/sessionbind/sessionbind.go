@@ -38,6 +38,12 @@ func Path(projectRoot string) string {
 // would not. Both are the same identifier accepted by that provider's
 // `resume`/`--session-id` flag.
 func Capture() (sessionID, adapter string) {
+	if id := strings.TrimSpace(os.Getenv("ANTIGRAVITY_SESSION_ID")); id != "" {
+		return id, "agy"
+	}
+	if id := strings.TrimSpace(os.Getenv("AGY_SESSION_ID")); id != "" {
+		return id, "agy"
+	}
 	if id := strings.TrimSpace(os.Getenv("CLAUDE_CODE_SESSION_ID")); id != "" {
 		return id, "claude"
 	}

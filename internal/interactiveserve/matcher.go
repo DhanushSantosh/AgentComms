@@ -152,5 +152,22 @@ func normalizeForMatch(s string) string {
 // confirm delivered text was actually registered as input before pressing
 // Enter, rather than trusting a fixed sleep to be long enough.
 func echoed(buf []byte, text string) bool {
-	return strings.Contains(normalizeForMatch(string(buf)), normalizeForMatch(text))
+	normBuf := normalizeForMatch(string(buf))
+	normText := normalizeForMatch(text)
+	if strings.Contains(normBuf, normText) {
+		return true
+	}
+	// Fallback: If text contains an invocation ID (inv-...), check if that unique ID is present in normBuf.
+	// TUIs with line-wrap decorations (like agy/opencode) may break long text streams with UI status elements.
+	if idx := strings.Index(text, "inv-"); idx >= 0 {
+		end := idx + 4
+		for end < len(text) && (text[end] >= '0' && text[end] <= '9' || text[end] >= 'a' && text[end] <= 'z' || text[end] >= 'A' && text[end] <= 'Z') {
+			end++
+		}
+		invID := normalizeForMatch(text[idx:end])
+		if len(invID) > 5 && strings.Contains(normBuf, invID) {
+			return true
+		}
+	}
+	return false
 }
