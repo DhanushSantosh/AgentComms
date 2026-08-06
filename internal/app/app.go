@@ -332,16 +332,25 @@ func (c *cli) emitWithDelivery(command string, v, delivery any, warnings ...stri
 type invocationDeliveryResult = service.InvocationDeliveryResult
 
 func (c *cli) invocationDeliveryOutcome(invocationID, deliveryID string) (invocationDeliveryResult, error) {
-	state, err := c.svc.State()
-	if err != nil {
-		return invocationDeliveryResult{}, err
+	// Retry a few times with short delays to handle the eventual-consistency
+	// window between the event commit and the daemon processing it.
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		state, err := c.svc.State()
+		if err != nil {
+			return invocationDeliveryResult{}, err
+		}
+		localHostID, _ := identity.LoadHostID()
+		result, exists := service.SummarizeInvocationDelivery(state, invocationID, deliveryID, localHostID)
+		if exists {
+			return result, nil
+		}
+		lastErr = errors.New("invocation not found after commit")
+		if attempt < 2 {
+			time.Sleep(100 * time.Millisecond)
+		}
 	}
-	localHostID, _ := identity.LoadHostID()
-	result, exists := service.SummarizeInvocationDelivery(state, invocationID, deliveryID, localHostID)
-	if !exists {
-		return invocationDeliveryResult{}, errors.New("invocation not found after commit")
-	}
-	return result, nil
+	return invocationDeliveryResult{}, lastErr
 }
 
 // captureRuntimeSession opportunistically binds a freshly registered runtime
@@ -878,7 +887,28 @@ func (c *cli) agentCmd() *cobra.Command {
 		if e != nil {
 			return e
 		}
-		return c.emit("agent.register", v)
+		// Surface the profile name and project root so the user knows
+		// where their identity was persisted.
+		type registerResult struct {
+			model.Event
+			ProfileName string `json:"profile_name"`
+			ProjectRoot string `json:"project_root"`
+			ActorSource string `json:"actor_source"`
+		}
+		actorSource := "self-registration"
+		if id != c.actor {
+			actorSource = "sponsored by " + c.actor
+		}
+		cfg, cfgErr := c.svc.Store.Config()
+		if cfgErr != nil {
+			return c.emit("agent.register", v)
+		}
+		return c.emit("agent.register", registerResult{
+			Event:       v,
+			ProfileName: cfg.ProjectID + ":" + id,
+			ProjectRoot: c.svc.Store.Root,
+			ActorSource: actorSource,
+		})
 	}}
 	reg.Flags().String("id", "", "principal ID")
 	_ = reg.MarkFlagRequired("id")
@@ -1308,6 +1338,9 @@ func (c *cli) runInteractiveServe(ctx context.Context, runtimeID string, command
 	}
 	runtimeState, exists := state.AgentRuntimes[runtimeID]
 	if !exists {
+		if !c.quiet {
+			fmt.Fprintf(c.err, "runtime %q not found; auto-registering as INTERACTIVE with agent %q\n", runtimeID, c.actor)
+		}
 		if _, err = c.svc.Execute(c.actor, "runtime.register", runtimeID, model.RuntimeRegistered{
 			AgentID: c.actor, Kind: model.RuntimeKindInteractive,
 			Connector: "INTERACTIVE", HostID: hostID, MaxConcurrent: 1,

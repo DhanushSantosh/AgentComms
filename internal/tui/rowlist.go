@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -343,14 +344,23 @@ func (r RowList) View(p palette, st model.State, actor string, w, h int) string 
 		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[esc]") + " " + lipgloss.NewStyle().Foreground(p.muted).Render("back"),
 	}
 	parts := []string{strings.Join(navParts, " · ")}
-	for _, act := range r.source.Actions(id, st, actor) {
+	actions := r.source.Actions(id, st, actor)
+	hiddenCount := 0
+	for _, act := range actions {
 		hint := lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("["+act.Key+"]") +
 			" " + lipgloss.NewStyle().Foreground(p.muted).Render(act.Label)
 		candidate := strings.Join(append(parts, hint), " · ")
 		if lipgloss.Width(candidate) <= w {
 			parts = append(parts, hint)
 		} else {
-			break
+			hiddenCount++
+		}
+	}
+	if hiddenCount > 0 {
+		moreHint := lipgloss.NewStyle().Foreground(p.muted).Render(fmt.Sprintf("+%d more", hiddenCount))
+		candidate := strings.Join(append(parts, moreHint), " · ")
+		if lipgloss.Width(candidate) <= w {
+			parts = append(parts, moreHint)
 		}
 	}
 	// ansi.Truncate, not a bare join: parts always includes the base
