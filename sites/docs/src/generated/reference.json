@@ -6115,6 +6115,74 @@
       ]
     },
     {
+      "path": "agent-comms runtime delete",
+      "use": "agent-comms runtime delete [flags]",
+      "summary": "",
+      "flags": [
+        {
+          "name": "actor",
+          "usage": "actor override (credential must match)",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "id",
+          "usage": "runtime ID",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "json",
+          "usage": "emit a versioned JSON envelope",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "no-color",
+          "usage": "disable ANSI color",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "non-interactive",
+          "usage": "never prompt",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "profile",
+          "usage": "user profile name",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "project",
+          "usage": "target project root",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "quiet",
+          "shorthand": "q",
+          "usage": "suppress non-essential output",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "reason",
+          "usage": "status-change reason",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "timeout",
+          "usage": "transaction lock timeout",
+          "default": "10s",
+          "type": "duration"
+        }
+      ]
+    },
+    {
       "path": "agent-comms runtime drain",
       "use": "agent-comms runtime drain [flags]",
       "summary": "",
