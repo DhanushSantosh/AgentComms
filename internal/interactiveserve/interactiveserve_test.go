@@ -177,6 +177,28 @@ func TestProtocolRoundTrip(t *testing.T) {
 	}
 }
 
+func TestSnapshotReturnsLivePTYBuffer(t *testing.T) {
+	requireUnixInteractiveTransport(t)
+	dir := t.TempDir()
+	sockPath := SocketPath(dir, "snapshot-test")
+	listener := listenTestSocket(t, sockPath)
+	go serveOneRequest(t, listener, func(req Request) Response {
+		if req.Kind != "snapshot" {
+			return Response{OK: false, Error: "unexpected request kind"}
+		}
+		return Response{OK: true, OutputSnapshot: "live terminal output snapshot"}
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	snapshot, err := Snapshot(ctx, dir, "snapshot-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot != "live terminal output snapshot" {
+		t.Fatalf("got snapshot %q, want %q", snapshot, "live terminal output snapshot")
+	}
+}
+
 func TestProtocolRoundTripSurfacesError(t *testing.T) {
 	requireUnixInteractiveTransport(t)
 	dir := t.TempDir()

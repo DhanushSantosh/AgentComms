@@ -150,6 +150,22 @@ func Alive(ctx context.Context, projectRoot, runtimeID string) bool {
 	return alive
 }
 
+// Snapshot queries the runtime's control socket and returns a string snapshot
+// of its live PTY output buffer.
+func Snapshot(ctx context.Context, projectRoot, runtimeID string) (string, error) {
+	resp, err := call(ctx, SocketPath(projectRoot, runtimeID), Request{Kind: "snapshot"})
+	if err != nil {
+		return "", fmt.Errorf("interactiveserve: snapshot %q: %w", runtimeID, err)
+	}
+	if !resp.OK {
+		if resp.Error != "" {
+			return "", errors.New(resp.Error)
+		}
+		return "", errors.New("interactiveserve: snapshot request failed")
+	}
+	return resp.OutputSnapshot, nil
+}
+
 // Deliver asks runtimeID's owning interactive-serve process to inject
 // message as terminal input, waiting for its busy/echo-gated delivery to
 // finish or fail (see serve.go's deliver for that sequencing). message must

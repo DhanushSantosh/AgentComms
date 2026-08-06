@@ -315,6 +315,18 @@ func (m Model) runtimeDetailPane(p palette, width int) string {
 		settingLine("Session / thread ID", empty(detail.session, "unbound")),
 		settingLine("Config reference", empty(detail.configReference, "—")),
 	}
+	if strings.HasPrefix(detail.ptyState, "live") {
+		snapshot := m.ptySnapshots[id]
+		if strings.TrimSpace(snapshot) != "" {
+			lines := strings.Split(snapshot, "\n")
+			if len(lines) > 8 {
+				lines = lines[len(lines)-8:]
+			}
+			previewHeader := lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("LIVE PTY PREVIEW")
+			previewBody := lipgloss.NewStyle().Foreground(p.muted).Render(strings.Join(lines, "\n"))
+			rows = append(rows, "", previewHeader, previewBody)
+		}
+	}
 	return lipgloss.NewStyle().Foreground(p.text).MaxWidth(width).
 		BorderLeft(true).BorderStyle(lipgloss.ThickBorder()).
 		BorderForeground(p.violet).PaddingLeft(1).Render(strings.Join(rows, "\n"))

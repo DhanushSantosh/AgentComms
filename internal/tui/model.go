@@ -16,6 +16,7 @@ import (
 	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
 	"github.com/DhanushSantosh/AgentComms/internal/doctor"
 	"github.com/DhanushSantosh/AgentComms/internal/identity"
+	"github.com/DhanushSantosh/AgentComms/internal/interactiveserve"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 	"github.com/DhanushSantosh/AgentComms/internal/projectlifecycle"
 	"github.com/DhanushSantosh/AgentComms/internal/service"
@@ -96,6 +97,7 @@ type Model struct {
 	// reports raw clicks with no click-count of its own.
 	lastClickX, lastClickY int
 	lastClickAt            time.Time
+	ptySnapshots           map[string]string
 }
 
 // doubleClickWindow bounds how long after a first click a second click on
@@ -166,12 +168,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.syncActiveRowListDimensions()
 		return m, nil
 	}
-	if _, ok := msg.(fsEventMsg); ok {
-		m.refreshSilent()
-		if m.watcher != nil {
-			return m, watchEventsCmd(m.watcher)
+	if snapMsg, ok := msg.(ptySnapshotMsg); ok {
+		if snapMsg.err == nil {
+			if m.ptySnapshots == nil {
+				m.ptySnapshots = make(map[string]string)
+			}
+			m.ptySnapshots[snapMsg.runtimeID] = snapMsg.snapshot
 		}
 		return m, nil
+	}
+	if _, ok := msg.(fsEventMsg); ok {
+		m.refreshSilent()
+		cmd := m.fetchSelectedRuntimePTYSnapshotCmd()
+		if m.watcher != nil {
+			return m, tea.Batch(watchEventsCmd(m.watcher), cmd)
+		}
+		return m, cmd
 	}
 	// Also handled before any mode dispatch, for the same reason as the
 	// resize above: a sidebar click has to work regardless of what's
@@ -1524,4 +1536,27 @@ func RenderForTest(s *service.Service, actor string, w, h int) (string, error) {
 	m.width = w
 	m.height = h
 	return m.View().Content, nil
+}
+
+type ptySnapshotMsg struct {
+	runtimeID string
+	snapshot  string
+	err       error
+}
+
+func (m Model) fetchSelectedRuntimePTYSnapshotCmd() tea.Cmd {
+	if views[m.view] != "Runtimes" || m.svc == nil || m.svc.Store.Root == "" {
+		return nil
+	}
+	id := m.runtimeList.SelectedID(m.state, m.actor)
+	if id == "" {
+		return nil
+	}
+	root := m.svc.Store.Root
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		defer cancel()
+		snapshot, err := interactiveserve.Snapshot(ctx, root, id)
+		return ptySnapshotMsg{runtimeID: id, snapshot: snapshot, err: err}
+	}
 }
