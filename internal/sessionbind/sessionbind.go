@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/DhanushSantosh/AgentComms/internal/worker"
 )
 
 // Binding records which provider conversation a runtime is bound to.
@@ -53,6 +55,11 @@ func Capture() (sessionID, adapter string) {
 	}
 	if id := strings.TrimSpace(os.Getenv("CODEX_THREAD_ID")); id != "" {
 		return id, "codex"
+	}
+	for envVar, adapterName := range worker.GetRegisteredDeclarativeSessionEnvVars() {
+		if id := strings.TrimSpace(os.Getenv(envVar)); id != "" {
+			return id, adapterName
+		}
 	}
 	return "", ""
 }
