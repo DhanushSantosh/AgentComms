@@ -129,14 +129,6 @@ func isBusy(buf []byte) bool {
 	return false
 }
 
-// normalizeForMatch keeps only letters and digits, lowercased, discarding
-// whitespace, punctuation, and box-drawing/border characters a TUI might
-// render around wrapped text. Confirmed live: OpenCode's compose box renders
-// a "┃" border character at the start of every wrapped line, which a long
-// delivered message reliably wraps across in any reasonably-sized pane, so
-// that border character ends up interleaved into captured output and breaks
-// a literal substring match even though the message is, in fact, sitting
-// right there, correctly delivered.
 func normalizeForMatch(s string) string {
 	s = stripANSI(s)
 	var b strings.Builder
@@ -148,15 +140,48 @@ func normalizeForMatch(s string) string {
 	return b.String()
 }
 
-// echoed reports whether buf contains a normalized match for text — used to
-// confirm delivered text was actually registered as input before pressing
-// Enter, rather than trusting a fixed sleep to be long enough.
+// tokenize converts a string into a slice of lowercase alphanumeric token strings,
+// stripping ANSI escapes, punctuation, whitespace, and TUI border decorations.
+func tokenize(s string) []string {
+	s = stripANSI(s)
+	var tokens []string
+	var current strings.Builder
+	for _, r := range s {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			current.WriteRune(unicode.ToLower(r))
+		} else if current.Len() > 0 {
+			tokens = append(tokens, current.String())
+			current.Reset()
+		}
+	}
+	if current.Len() > 0 {
+		tokens = append(tokens, current.String())
+	}
+	return tokens
+}
+
+// echoed reports whether buf contains a match for text — using an exact
+// normalized substring match, an ordered token n-gram sequence match, or an
+// invocation-ID fallback match when text is fragmented by TUI redraws.
 func echoed(buf []byte, text string) bool {
-	normBuf := normalizeForMatch(string(buf))
+	rawBuf := string(buf)
+	normBuf := normalizeForMatch(rawBuf)
 	normText := normalizeForMatch(text)
 	if strings.Contains(normBuf, normText) {
 		return true
 	}
+
+	// Tokenized N-Gram Matching:
+	// Break text and buf into tokens and check for matching token n-grams in ordered sequence.
+	textTokens := tokenize(text)
+	bufTokens := tokenize(rawBuf)
+
+	if len(textTokens) > 0 && len(bufTokens) > 0 {
+		if matchTokenNGrams(bufTokens, textTokens) {
+			return true
+		}
+	}
+
 	// Fallback: If text contains an invocation ID (inv-...), check if that unique ID is present in normBuf.
 	// TUIs with line-wrap decorations (like agy/opencode) may break long text streams with UI status elements.
 	if idx := strings.Index(text, "inv-"); idx >= 0 {
@@ -170,4 +195,57 @@ func echoed(buf []byte, text string) bool {
 		}
 	}
 	return false
+}
+
+// matchTokenNGrams checks whether token n-grams from targetTokens appear in order within bufTokens.
+func matchTokenNGrams(bufTokens, targetTokens []string) bool {
+	if len(targetTokens) == 0 || len(bufTokens) == 0 {
+		return false
+	}
+	// For short targets (<= 3 tokens), require all tokens to appear in sequence.
+	if len(targetTokens) <= 3 {
+		bufIdx := 0
+		matched := 0
+		for _, targetTok := range targetTokens {
+			for bufIdx < len(bufTokens) {
+				if strings.Contains(bufTokens[bufIdx], targetTok) || strings.Contains(targetTok, bufTokens[bufIdx]) {
+					matched++
+					bufIdx++
+					break
+				}
+				bufIdx++
+			}
+		}
+		return matched == len(targetTokens)
+	}
+
+	// For longer targets, form 2-grams (pairs of consecutive tokens) from target.
+	type nGram struct {
+		t1, t2 string
+	}
+	var targetNGrams []nGram
+	for i := 0; i < len(targetTokens)-1; i++ {
+		targetNGrams = append(targetNGrams, nGram{t1: targetTokens[i], t2: targetTokens[i+1]})
+	}
+
+	if len(targetNGrams) == 0 {
+		return false
+	}
+
+	matchedNGrams := 0
+	bufIdx := 0
+	for _, ng := range targetNGrams {
+		for i := bufIdx; i < len(bufTokens)-1; i++ {
+			if (bufTokens[i] == ng.t1 || strings.Contains(bufTokens[i], ng.t1)) &&
+				(bufTokens[i+1] == ng.t2 || strings.Contains(bufTokens[i+1], ng.t2)) {
+				matchedNGrams++
+				bufIdx = i + 1
+				break
+			}
+		}
+	}
+
+	// If at least 30% of target n-grams match in monotonic order, return true.
+	ratio := float64(matchedNGrams) / float64(len(targetNGrams))
+	return ratio >= 0.30 || matchedNGrams >= 3
 }

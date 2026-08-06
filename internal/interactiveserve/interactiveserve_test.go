@@ -402,6 +402,33 @@ func TestIsBusyIgnoresColorCodesAroundMarker(t *testing.T) {
 	}
 }
 
+func TestEchoedMatchesTokenNGramsAcrossInterleavedTUIStatusHeaders(t *testing.T) {
+	deliveredText := "Agent Comms: new invocation is pending for you. Run agent-comms invocation list to see it."
+	interleavedTUIBuffer := []byte(
+		"Agent Comms: new invocation\n" +
+			"─── [Gemini 2.5 Pro] ─── [status: active] ───\n" +
+			"is pending for you. Run agent-comms\n" +
+			"─── [tokens: 1420] ───\n" +
+			"invocation list to see it.",
+	)
+	if !echoed(interleavedTUIBuffer, deliveredText) {
+		t.Fatal("expected tokenized n-gram matching to match text with interleaved TUI status headers")
+	}
+}
+
+func TestTokenizeStripsPunctuationAndBorderChars(t *testing.T) {
+	tokens := tokenize("┃  Agent Comms: --status PENDING (v2.1)  ┃")
+	expected := []string{"agent", "comms", "status", "pending", "v2", "1"}
+	if len(tokens) != len(expected) {
+		t.Fatalf("tokenize returned %v, want %v", tokens, expected)
+	}
+	for i, tok := range tokens {
+		if tok != expected[i] {
+			t.Fatalf("token[%d] = %q, want %q", i, tok, expected[i])
+		}
+	}
+}
+
 // --- outputTee: the new risk this design introduces (raw tee vs tmux's own
 // rendered screen grid) ---------------------------------------------------
 
