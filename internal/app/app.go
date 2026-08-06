@@ -197,7 +197,8 @@ func (c *cli) root() *cobra.Command {
 			cmd.CommandPath() == "agent-comms claude serve" ||
 			cmd.CommandPath() == "agent-comms claude attach" ||
 			cmd.CommandPath() == "agent-comms codex serve" ||
-			cmd.CommandPath() == "agent-comms codex attach" {
+			cmd.CommandPath() == "agent-comms codex attach" ||
+			cmd.CommandPath() == "agent-comms runtime verify-adapter" {
 			return nil
 		}
 		if cmd.CommandPath() == "agent-comms profile list" ||
@@ -1287,8 +1288,38 @@ func (c *cli) runtimeCmd() *cobra.Command {
 	interactiveShow.Flags().StringVar(&interactiveShowID, "id", "", "runtime ID")
 	_ = interactiveShow.MarkFlagRequired("id")
 
+	var verifyAdapter, verifyExecutable, verifySourceDir string
+	verifyFlags := &cobra.Command{
+		Use:   "verify-adapter",
+		Short: "Check a worker adapter's assumed CLI flags against the real installed binary's --help output",
+		Long: "Statically scans the named adapter's own source file (adapter_<name>.go, under --source-dir) " +
+			"for \"--flag\"-shaped string literals, runs <executable> --help, and reports any assumed " +
+			"flag the real binary's own help output never mentions. Generalizes the manual check that " +
+			"caught a real bug this session -- a wrong environment variable name for agy, found by " +
+			"running `strings` on the installed binary by hand -- into a repeatable one for CLI flags " +
+			"specifically (this can't catch environment variable drift; --help never lists those). " +
+			"A dev-time tool: --source-dir must point at a real checkout's internal/worker directory " +
+			"(defaults to that path relative to the current directory, i.e. running from the repo root), " +
+			"not something a distributed binary carries with it.",
+		Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+			missing, e := runtimeworker.VerifyAdapterFlags(cmd.Context(), verifyAdapter, verifySourceDir, verifyExecutable)
+			if e != nil {
+				return e
+			}
+			return c.emit("runtime.verify-adapter", map[string]any{
+				"adapter": verifyAdapter, "executable": verifyExecutable,
+				"missing_flags": missing, "clean": len(missing) == 0,
+			})
+		},
+	}
+	verifyFlags.Flags().StringVar(&verifyAdapter, "adapter", "", "adapter name (agy, claude, codex, opencode)")
+	_ = verifyFlags.MarkFlagRequired("adapter")
+	verifyFlags.Flags().StringVar(&verifyExecutable, "executable", "", "path to the real installed CLI binary")
+	_ = verifyFlags.MarkFlagRequired("executable")
+	verifyFlags.Flags().StringVar(&verifySourceDir, "source-dir", filepath.Join("internal", "worker"), "path to the agent-comms repo checkout's internal/worker directory")
+
 	root.AddCommand(register, configure, heartbeat, list, workerCommand, bindSession, sessionShow,
-		interactiveServe, interactiveShow)
+		interactiveServe, interactiveShow, verifyFlags)
 	return root
 }
 
