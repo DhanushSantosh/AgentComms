@@ -458,19 +458,24 @@ func (m Model) updateRowList(msg tea.Msg) (tea.Model, tea.Cmd) {
 				double := m.isDoubleClick(mouse.X, mouse.Y, time.Now())
 				list.SetCursor(row, rowCount)
 				if double {
-					id := list.SelectedID(m.state, m.actor)
-					if actions := list.Actions(id, m.state, m.actor); id != "" && len(actions) > 0 {
-						// The row's first action -- activate for a PENDING
-						// agent, suspend for an ACTIVE one, and so on --
-						// matching what "enter into it" means without a
-						// single, universal per-row default action to name.
-						// Safe to fire directly: every genuinely irreversible
-						// action here already requires either a Confirm
-						// prompt or a form (reason/passphrase) before
-						// anything is actually signed, so double-clicking
-						// never itself completes one in a single gesture.
-						return m.triggerRowAction(actions[0], id)
-					}
+					// [i] inspect, not actions[0]: firing the row's first
+					// action -- activate for a PENDING agent, drain for an
+					// ONLINE runtime, and so on -- used to be the double-
+					// click behavior, on the reasoning that a Confirm prompt
+					// or form always intervenes before anything irreversible
+					// actually signs, so it was never unsafe. True, but not
+					// the complaint: "double-click on an ONLINE runtime
+					// starts draining it" is surprising regardless of
+					// whether a prompt catches it, precisely because
+					// double-click has no single, universal meaning across
+					// row types the way it does for opening a file. [i]
+					// does have one -- show more detail about the selected
+					// row -- is always safe (a pure view toggle, no
+					// governed transition involved at all), and is what a
+					// user reaching for "tell me more" by double-clicking
+					// actually expects.
+					m.inspecting = true
+					return m, nil
 				}
 			}
 		}

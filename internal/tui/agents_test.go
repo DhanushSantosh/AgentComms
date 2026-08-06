@@ -233,7 +233,17 @@ func TestRowListCursorAlwaysStaysVisibleWhileScrolling(t *testing.T) {
 // TestDoubleClickRowTriggersFirstAction proves a double-click on a row
 // runs its first available action (activate, for a PENDING agent) -- and
 // that a single click, or two clicks far enough apart, does not.
-func TestDoubleClickRowTriggersFirstAction(t *testing.T) {
+// TestDoubleClickRowTogglesInspect is the regression test for a behavior
+// change, not a bug fix: double-click used to fire the row's first action
+// (e.g. "activate" for a PENDING agent, "drain" for an ONLINE runtime) --
+// safe in the sense that a Confirm prompt or form always intervened before
+// anything irreversible actually signed, but still surprising, since
+// double-click has no single, consistent meaning across row types the way
+// it does for opening a file (docs/agent-comms-feedback-2026-08-06.md item
+// #16). [i] inspect is a pure view toggle with no governed transition
+// involved at all, and is universal across every row type, so double-click
+// now means that instead.
+func TestDoubleClickRowTogglesInspect(t *testing.T) {
 	s := newTestService(t)
 	if _, e := s.Register("candidate", "candidate", model.PrincipalAgent); e != nil {
 		t.Fatal(e)
@@ -264,10 +274,16 @@ func TestDoubleClickRowTriggersFirstAction(t *testing.T) {
 	if m.form != "" {
 		t.Fatalf("a single click should not open a form, got %q", m.form)
 	}
+	if m.inspecting {
+		t.Fatal("a single click should not turn on inspect")
+	}
 
 	m = pressMsg(t, m, click(targetX, targetY))
-	if m.form != "agent.activate" {
-		t.Fatalf("expected double-click to open the activate form (candidate's first action), got form=%q", m.form)
+	if m.form != "" {
+		t.Fatalf("double-click must not open a form (that was the old, surprising behavior), got form=%q", m.form)
+	}
+	if !m.inspecting {
+		t.Fatal("expected double-click to turn on inspect")
 	}
 }
 
