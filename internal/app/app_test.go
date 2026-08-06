@@ -155,6 +155,76 @@ func TestVersionEnvelope(t *testing.T) {
 	}
 }
 
+func TestRenderTableAlignsColumnsAndHandlesEmptyRows(t *testing.T) {
+	var out bytes.Buffer
+	renderTable(&out, []string{"ID", "STATUS"}, [][]string{
+		{"builder", "ACTIVE"},
+		{"a-much-longer-id", "SUSPENDED"},
+	})
+	want := "ID                STATUS\n" +
+		"builder           ACTIVE\n" +
+		"a-much-longer-id  SUSPENDED\n"
+	if out.String() != want {
+		t.Fatalf("got:\n%q\nwant:\n%q", out.String(), want)
+	}
+
+	out.Reset()
+	renderTable(&out, []string{"ID", "STATUS"}, nil)
+	if out.String() != "(no rows)\n" {
+		t.Fatalf("expected the empty-rows placeholder, got %q", out.String())
+	}
+}
+
+// TestAgentListHumanOutputIsATableNotIndentedJSON is the regression test
+// for a real, confirmed-live-all-session friction point: every CLI
+// command's non-JSON output path still printed pretty-*indented* JSON
+// (json.MarshalIndent), not an actual table -- a human doing an ad hoc
+// check still had to mentally parse it either way, and --json continued
+// to be the only way to get genuinely structured output. agent/runtime/
+// invocation list now render as an aligned plain-text table by default;
+// --json is unaffected (still the same Envelope-wrapped JSON any existing
+// script or --json caller already depends on).
+func TestAgentListHumanOutputIsATableNotIndentedJSON(t *testing.T) {
+	project := t.TempDir()
+	cleanupProjectDaemon(t, project)
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
+	var out, stderr bytes.Buffer
+	run := func(jsonMode bool, args ...string) {
+		t.Helper()
+		out.Reset()
+		stderr.Reset()
+		args = append(args, "--project", project)
+		if jsonMode {
+			args = append(args, "--json")
+		}
+		if err := Run(args, &out, &stderr); err != nil {
+			t.Fatalf("%v: %v\n%s", args, err, stderr.String())
+		}
+	}
+	run(true, "init", "--non-interactive", "--owner", "owner", "--mode", "personal")
+	run(true, "agent", "register", "--id", "builder")
+	run(true, "agent", "activate", "--id", "builder", "--role", "AGENT", "--scope", "src")
+
+	run(false, "agent", "list")
+	if strings.HasPrefix(strings.TrimSpace(out.String()), "{") {
+		t.Fatalf("expected table output, not JSON, without --json: %s", out.String())
+	}
+	if !strings.Contains(out.String(), "ID") || !strings.Contains(out.String(), "builder") ||
+		!strings.Contains(out.String(), "ACTIVE") {
+		t.Fatalf("expected a table with builder's row, got: %s", out.String())
+	}
+
+	run(true, "agent", "list")
+	var envelope Envelope
+	if err := json.Unmarshal(out.Bytes(), &envelope); err != nil {
+		t.Fatalf("--json output is not valid JSON: %v\n%s", err, out.String())
+	}
+	if !envelope.OK || envelope.Command != "agent.list" {
+		t.Fatalf("--json behavior changed unexpectedly: %#v", envelope)
+	}
+}
+
 // TestEnsureDaemonReplacesIncompatibleDaemon guards ensureDaemon's
 // replace-on-mismatch path end to end: a running daemon that reports a
 // stale BuildID/ProductVersion must be shut down and replaced with a
