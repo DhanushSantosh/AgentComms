@@ -80,7 +80,16 @@ type Model struct {
 	toastMsg       string
 	toastExpiresAt time.Time
 	lastSeq        uint64
-	scrollOffset   int
+	// staleReads counts consecutive refreshSilent failures in a row (reset
+	// to 0 on any successful read) -- refreshSilent swallows read errors so
+	// a just-shown action result or notice never gets stomped by a routine
+	// background tick, but that used to mean a daemon that went unreachable
+	// left the TUI showing the same last-known-good data indefinitely, with
+	// no signal to the human operator that it might now be stale. See
+	// staleReadThreshold's own comment for why the indicator only appears
+	// after several failures, not the first one.
+	staleReads   int
+	scrollOffset int
 	// lastClickX/Y/At track the previous left click's exact cell and time,
 	// purely to recognize a second click on that same cell within
 	// doubleClickWindow as a double-click (see isDoubleClick) -- bubbletea
@@ -417,11 +426,22 @@ func (m *Model) refresh() {
 // on the next real refresh() call; the last-known-good findings stay
 // displayed in between, the same tradeoff refreshDrafts already makes for
 // the same reason.
+// staleReadThreshold is how many consecutive refreshSilent failures in a
+// row it takes before the TUI admits its data might be stale. Not the
+// first failure: a background file-watch tick fires often enough that one
+// transient blip (a daemon mid-restart, a momentary socket hiccup) would
+// otherwise flash the indicator on and off constantly under perfectly
+// normal operation. Several in a row is a real, sustained problem worth
+// surfacing.
+const staleReadThreshold = 3
+
 func (m *Model) refreshSilent() {
 	st, err := m.svc.State()
 	if err != nil {
+		m.staleReads++
 		return
 	}
+	m.staleReads = 0
 	if m.lastSeq > 0 && st.Integrity.ServerSequence > m.lastSeq {
 		m.toastMsg = fmt.Sprintf("🔔 Event #%d committed in background", st.Integrity.ServerSequence)
 		m.toastExpiresAt = time.Now().Add(4 * time.Second)
@@ -911,7 +931,15 @@ func (m Model) commandRail(p palette, width int) string {
 	freshness := empty(m.state.Integrity.Connectivity, "LOCAL")
 	hub := navigationHubs[m.activeHubIndex()].Name
 	left := lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("LIVE")
-	if m.toastMsg != "" && time.Now().Before(m.toastExpiresAt) {
+	switch {
+	case m.staleReads >= staleReadThreshold:
+		// Takes priority over an in-flight toast: reads have been failing,
+		// so no new toast could have fired recently anyway (toastMsg only
+		// ever gets set inside a *successful* refreshSilent) -- an old one
+		// still fading out is less urgent than "this data might be stale."
+		left = lipgloss.NewStyle().Foreground(p.ink).Background(p.red).Bold(true).
+			Render(fmt.Sprintf("⚠ STALE (%d failed reads)", m.staleReads))
+	case m.toastMsg != "" && time.Now().Before(m.toastExpiresAt):
 		left = lipgloss.NewStyle().Foreground(p.ink).Background(p.cyan).Bold(true).Render(m.toastMsg)
 	}
 	detail := fmt.Sprintf("  %s / %s  ·  %s  ·  seq %d", hub, views[m.view], freshness, sequence)

@@ -11,6 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 	"github.com/DhanushSantosh/AgentComms/internal/protocol"
+	"github.com/DhanushSantosh/AgentComms/internal/service"
 )
 
 func agentLabels(acts []RowAction) []string {
@@ -871,6 +872,55 @@ func TestActorSwitchChangesActorAndRejectsUnknown(t *testing.T) {
 	m = pressKey(t, m, keyEnter())
 	if m.actor != "builder" {
 		t.Fatalf("actor = %q, want builder", m.actor)
+	}
+}
+
+// TestRefreshSilentTracksConsecutiveFailuresAndShowsAStaleIndicator is the
+// regression test for a real gap: refreshSilent swallows every State() read
+// error so a background file-watch tick never stomps a just-shown notice or
+// action result, but that used to mean a daemon that went unreachable left
+// the TUI showing the same last-known-good data indefinitely, with no
+// signal to the human operator that it might now be stale -- the toast
+// notification only ever fires on a *successful* read that advances the
+// sequence, never on a read failure.
+func TestRefreshSilentTracksConsecutiveFailuresAndShowsAStaleIndicator(t *testing.T) {
+	s := newTestService(t)
+	m, e := New(s, "owner")
+	if e != nil {
+		t.Fatal(e)
+	}
+	p := colors(m.highContrast)
+
+	// A service pointed at an uninitialized directory: Store.Config() (the
+	// first thing State() does) fails reliably with no .agent-comms there.
+	m.svc = service.New(t.TempDir())
+
+	for i := 1; i < staleReadThreshold; i++ {
+		m.refreshSilent()
+		if m.staleReads != i {
+			t.Fatalf("after %d failed reads, staleReads = %d, want %d", i, m.staleReads, i)
+		}
+		if strings.Contains(m.commandRail(p, 200), "STALE") {
+			t.Fatalf("after only %d failed reads (below staleReadThreshold=%d), the rail should not show a stale indicator yet", i, staleReadThreshold)
+		}
+	}
+
+	m.refreshSilent()
+	if m.staleReads != staleReadThreshold {
+		t.Fatalf("staleReads = %d, want %d", m.staleReads, staleReadThreshold)
+	}
+	if !strings.Contains(m.commandRail(p, 200), "STALE") {
+		t.Fatalf("expected the command rail to show a stale indicator once staleReads reached the threshold, got: %q", m.commandRail(p, 200))
+	}
+
+	// A successful read resets the counter and clears the indicator.
+	m.svc = s
+	m.refreshSilent()
+	if m.staleReads != 0 {
+		t.Fatalf("expected a successful read to reset staleReads to 0, got %d", m.staleReads)
+	}
+	if strings.Contains(m.commandRail(p, 200), "STALE") {
+		t.Fatal("expected the stale indicator to clear after a successful read")
 	}
 }
 
