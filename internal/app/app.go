@@ -234,6 +234,7 @@ func (c *cli) root() *cobra.Command {
 		} else {
 			c.svc = service.New(root)
 		}
+		_, _ = runtimeworker.LoadProjectAdapters(root)
 		switch cmd.Name() {
 		case "mcp":
 			c.svc.PassphrasePrompt = nonInteractivePassphrasePrompt("an MCP connection")

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/DhanushSantosh/AgentComms/internal/model"
@@ -123,12 +124,29 @@ func defaultPrompt(actor string, invocation model.Invocation, header string) str
 	return body.String()
 }
 
-// RegisterDeclarativeAdapter registers a DeclarativeSpec as a worker adapter.
+var builtInAdapters = map[string]bool{
+	"agy":           true,
+	"claude":        true,
+	"codex":         true,
+	"opencode":      true,
+	"claude-acp":    true,
+	"opencode-acp":  true,
+	"codex-acp":     true,
+	"opencode-live": true,
+	"claude-live":   true,
+	"codex-live":    true,
+}
+
+// RegisterDeclarativeAdapter registers a DeclarativeSpec as a worker adapter, refusing
+// to overwrite built-in adapters.
 func RegisterDeclarativeAdapter(spec DeclarativeSpec) error {
 	if spec.Name == "" {
 		return errors.New("declarative adapter spec missing name")
 	}
 	name := strings.ToLower(strings.TrimSpace(spec.Name))
+	if builtInAdapters[name] {
+		return fmt.Errorf("cannot override built-in adapter %q", spec.Name)
+	}
 	adapters[name] = declarativeAdapter{spec: spec}
 	return nil
 }
@@ -149,14 +167,22 @@ func LoadDeclarativeAdapterFromFile(filePath string) (DeclarativeSpec, error) {
 	return spec, nil
 }
 
-// GetRegisteredDeclarativeSessionEnvVars returns a map of envVarName -> adapterName for registered declarative specs.
+// GetRegisteredDeclarativeSessionEnvVars returns a map of envVarName -> adapterName for registered declarative specs,
+// sorted by adapter name for deterministic precedence.
 func GetRegisteredDeclarativeSessionEnvVars() map[string]string {
 	res := make(map[string]string)
-	for name, a := range adapters {
-		if decl, ok := a.(declarativeAdapter); ok {
+	var names []string
+	for name := range adapters {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		if decl, ok := adapters[name].(declarativeAdapter); ok {
 			for _, envVar := range decl.spec.SessionEnvVars {
 				if envVar != "" {
-					res[envVar] = name
+					if _, exists := res[envVar]; !exists {
+						res[envVar] = name
+					}
 				}
 			}
 		}

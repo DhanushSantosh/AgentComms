@@ -316,10 +316,8 @@ func (m Model) runtimeDetailPane(p palette, width int) string {
 		settingLine("Config reference", empty(detail.configReference, "—")),
 	}
 	if strings.HasPrefix(detail.ptyState, "live") {
-		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-		snapshot, err := interactiveserve.Snapshot(ctx, m.svc.Store.Root, id)
-		cancel()
-		if err == nil && strings.TrimSpace(snapshot) != "" {
+		snapshot := m.ptySnapshots[id]
+		if strings.TrimSpace(snapshot) != "" {
 			lines := strings.Split(snapshot, "\n")
 			if len(lines) > 8 {
 				lines = lines[len(lines)-8:]

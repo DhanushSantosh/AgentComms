@@ -93,3 +93,12 @@ func TestLoadDeclarativeAdaptersFromDir(t *testing.T) {
 		t.Fatalf("custom-cli args = %v", args)
 	}
 }
+
+func TestRegisterDeclarativeAdapterRefusesToOverwriteBuiltIn(t *testing.T) {
+	for _, builtIn := range []string{"agy", "claude", "codex", "opencode", "claude-acp"} {
+		spec := DeclarativeSpec{Name: builtIn, ExecutableName: builtIn}
+		if err := RegisterDeclarativeAdapter(spec); err == nil {
+			t.Fatalf("expected RegisterDeclarativeAdapter to refuse overwriting built-in adapter %q", builtIn)
+		}
+	}
+}
