@@ -868,6 +868,106 @@ func TestInvocationAndRuntimeCLIWorkflow(t *testing.T) {
 	}
 }
 
+// TestTaskLockCreatesAndClaimsInOneStep guards `task lock`, added to close a
+// real gap: `task claim --worktree` only acquires a lock for a task that
+// already exists, and `task create` requires a title, summary, repository,
+// branch, and resource list first -- real ceremony for a real task, but too
+// much for the single most common shape of work in an interactive
+// multi-agent setup (a human directly asking a live agent to fix something,
+// with no Task tracked yet). `task lock` creates a minimal task and claims
+// it in one command.
+func TestTaskLockCreatesAndClaimsInOneStep(t *testing.T) {
+	project := t.TempDir()
+	worktree := t.TempDir()
+	cleanupProjectDaemon(t, project)
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
+	var out, stderr bytes.Buffer
+	run := func(args ...string) {
+		t.Helper()
+		out.Reset()
+		stderr.Reset()
+		args = append(args, "--project", project, "--json")
+		if err := Run(args, &out, &stderr); err != nil {
+			t.Fatalf("%v: %v\n%s", args, err, stderr.String())
+		}
+	}
+	run("init", "--non-interactive", "--owner", "owner", "--mode", "personal")
+	run("agent", "register", "--id", "builder")
+	run("agent", "activate", "--id", "builder", "--role", "AGENT", "--scope", "src")
+
+	run("task", "lock", "--actor", "builder", "--worktree", worktree, "--note", "fixing a bug")
+	if !bytes.Contains(out.Bytes(), []byte(`"type":"task.claim"`)) {
+		t.Fatalf("expected task lock to emit a task.claim event, got: %s", out.String())
+	}
+	if !bytes.Contains(out.Bytes(), []byte(`"worktree":"`+worktree+`"`)) {
+		t.Fatalf("expected the claim to record the locked worktree, got: %s", out.String())
+	}
+
+	run("task", "list")
+	if !bytes.Contains(out.Bytes(), []byte(`"status":"CLAIMED"`)) ||
+		!bytes.Contains(out.Bytes(), []byte(`"title":"fixing a bug"`)) {
+		t.Fatalf("expected a claimed, --note-titled task to show up in task list, got: %s", out.String())
+	}
+}
+
+// TestTaskLockConflictsOnlyForTheSameWorktree is the regression test for a
+// bug found while building task lock: the first implementation used the
+// raw worktree path as the task's Resources entry, which made task.claim's
+// scope-permission check (transitions.go's scopeAllows) fail outright for
+// any actor without a wildcard scope -- a filesystem path essentially never
+// matches a scope tag like "src". Reusing the actor's bare scope tag
+// instead fixed that, but introduced a worse, opposite bug: every ad hoc
+// lock from same-scoped actors then overlapped every other one via the
+// generic write-lease check (overlap()), even across completely unrelated
+// worktrees -- confirmed live, locking a second, entirely different
+// directory was rejected purely because an earlier lock happened to share
+// the "src" scope, nowhere near the same files. The shipped fix scopes each
+// lock's resource under a per-lock, id-unique sub-resource
+// (scope+"/adhoc/"+id): still satisfies scopeAllows's prefix rule, but two
+// separate ad hoc locks' resources can never accidentally overlap each
+// other, leaving the worktree-specific check as the only thing that still
+// can -- which is the one conflict this command is actually meant to catch.
+func TestTaskLockConflictsOnlyForTheSameWorktree(t *testing.T) {
+	project := t.TempDir()
+	sharedWorktree := t.TempDir()
+	otherWorktree := t.TempDir()
+	cleanupProjectDaemon(t, project)
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
+	var out, stderr bytes.Buffer
+	run := func(args ...string) error {
+		t.Helper()
+		out.Reset()
+		stderr.Reset()
+		args = append(args, "--project", project, "--json")
+		return Run(args, &out, &stderr)
+	}
+	must := func(args ...string) {
+		t.Helper()
+		if err := run(args...); err != nil {
+			t.Fatalf("%v: %v\n%s", args, err, stderr.String())
+		}
+	}
+	must("init", "--non-interactive", "--owner", "owner", "--mode", "personal")
+	for _, id := range []string{"agent-a", "agent-b", "agent-c"} {
+		must("agent", "register", "--id", id)
+		must("agent", "activate", "--id", id, "--role", "AGENT", "--scope", "src")
+	}
+
+	must("task", "lock", "--actor", "agent-a", "--worktree", sharedWorktree, "--note", "agent-a working")
+
+	if err := run("task", "lock", "--actor", "agent-b", "--worktree", sharedWorktree, "--note", "agent-b same dir"); err == nil {
+		t.Fatalf("expected agent-b locking the same worktree agent-a already holds to fail, got success: %s", out.String())
+	} else if !strings.Contains(err.Error(), "already leased") {
+		t.Fatalf("expected an 'already leased' worktree-conflict error, got: %v", err)
+	}
+
+	if err := run("task", "lock", "--actor", "agent-c", "--worktree", otherWorktree, "--note", "agent-c different dir"); err != nil {
+		t.Fatalf("expected agent-c locking a different worktree to succeed despite sharing agent-a/b's scope, got: %v\n%s", err, stderr.String())
+	}
+}
+
 // TestInvocationRequestDeliversDirectlyToRegisteredInteractiveSession guards
 // the direct-invocation path decided live this session: requesting an
 // invocation for a runtime with a registered interactive session (see
