@@ -10,15 +10,15 @@ import "charm.land/lipgloss/v2"
 // viewport size -- fixed outside of View(), which can't persist state for
 // the next Update() to read -- can never drift from what's actually
 // rendered.
-func (m Model) rowListDimensions() (w, h int) {
-	_, _, innerW, innerH := m.bodyLayout()
+func (m Model) rowListDimensions(p palette) (w, h int) {
+	_, _, innerW, innerH := m.bodyLayout(p)
 	switch views[m.view] {
 	case "Invocations":
-		return innerW, max(5, innerH-5)
+		return innerW, max(1, innerH-5)
 	case "Runtimes":
-		return innerW, max(5, innerH-5)
+		return innerW, max(1, innerH-5)
 	case "Contracts & decisions":
-		return innerW, max(5, innerH-4)
+		return innerW, max(1, innerH-4)
 	default:
 		return innerW, innerH
 	}
@@ -35,7 +35,7 @@ func (m *Model) syncActiveRowListDimensions() {
 	if list == nil {
 		return
 	}
-	w, h := m.rowListDimensions()
+	w, h := m.rowListDimensions(colors(m.highContrast))
 	list.SetDimensions(w, visibleRowCount(h))
 }
 
@@ -51,7 +51,7 @@ func (m *Model) syncActiveRowListDimensions() {
 // settings click, so this owns computing it correctly rather than trusting
 // each caller to pass the right one.
 func (m Model) bodyPrefixHeight(p palette) int {
-	_, _, contentW, _ := m.bodyLayout()
+	contentW := m.contentWidth()
 	meta := m.commandRail(p, contentW)
 	tabs, _ := m.renderHubTabs(p, contentW)
 	title := views[m.view]
@@ -189,7 +189,7 @@ func (m Model) confirmChoiceAt(p palette, x, y int) (yes, ok bool) {
 // own column ranges (renderHubTabs's tabRange, recomputed fresh here for
 // the same reason sidebarHubAt and rowAtY do).
 func (m Model) hubTabAt(p palette, x, y int) (view string, ok bool) {
-	_, _, contentW, _ := m.bodyLayout()
+	_, _, contentW, _ := m.bodyLayout(p)
 	meta := m.commandRail(p, contentW)
 	top := 1 + lipgloss.Height(meta) // pane's own top padding, then the command rail
 	if y != top {
@@ -226,7 +226,7 @@ func (m Model) hubTabAt(p palette, x, y int) (view string, ok bool) {
 // Confirmed live: at contentW=72 every domain past "Project policy"
 // resolved to the wrong index or nothing at all.
 func (m Model) settingsSectionAt(p palette, x, y int) (index int, ok bool) {
-	_, _, contentW, _ := m.bodyLayout()
+	_, _, contentW, _ := m.bodyLayout(p)
 	if contentW < 72 {
 		return 0, false
 	}
@@ -262,7 +262,13 @@ func (m Model) sidebarHubAt(p palette, x, y int) (hub int, ok bool) {
 	if x >= sidebarW {
 		return 0, false
 	}
-	_, hubLine := m.renderSidebar(p, sidebarW, max(10, m.height))
+	// paneH, not some independently guessed height: renderSidebar switches
+	// between its comfortable and compact layouts based on whether the
+	// rows fit the height it's given, so this must recompute with the
+	// exact same paneH View() actually rendered the sidebar at, or a
+	// click could be hit-tested against the wrong layout entirely.
+	_, paneH, _, _ := m.bodyLayout(p)
+	_, hubLine := m.renderSidebar(p, sidebarW, paneH)
 	line := y - 1 // Padding(1)'s top line
 	for i, l := range hubLine {
 		if l == line {

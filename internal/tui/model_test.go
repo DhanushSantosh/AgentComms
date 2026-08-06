@@ -23,6 +23,75 @@ func TestProjectControlResponsiveViews(t *testing.T) {
 	}
 }
 
+// TestSmallTerminalNeverRendersMoreLinesThanItHas is the regression test
+// for a real bug across several pieces of chrome, not just one: bodyLayout
+// used to floor paneW/paneH/innerW/innerH at comfortable desktop minimums
+// (30/10/30/6) rather than true survival minimums, so on any terminal
+// smaller than that the layout rendered as if it had more room than it
+// actually did. Shrinking those floors surfaced three further, genuinely
+// separate bugs, each confirmed by rendering a real 40x14 screen and
+// counting physical lines against the real height:
+//   - innerH (how much room a row list gets) used a flat "paneH-8" guess
+//     for the chrome above it, rather than bodyPrefixHeight's own precise,
+//     already-measured height -- wrong wherever the chrome actually took
+//     more than 8 lines (any narrow-enough terminal, since the command
+//     rail and hub tabs both wrap there).
+//   - commandRail never truncated its own output to the width it was
+//     given -- only a >40-column fallback shortened it, so below that it
+//     could render longer than its declared width and get wrapped onto
+//     real extra lines once actually embedded in the pane.
+//   - the row list's own footer ("[↑/↓] select · ...") had the same gap:
+//     only the optional per-action hints after the base trio were
+//     width-aware.
+//   - the sidebar had no concept of "not enough room" at all; it always
+//     rendered every hub with blank-line spacing plus trailing keybinding
+//     hints, overflowing on its own at any height below ~21 lines.
+//
+// Each is fixed at its source; this test exists so any of them (or a new
+// one just like them) regressing shows up as a failure here rather than as
+// a user staring at a terminal where the last few rows of a table are
+// permanently below the screen, unreachable by scrolling no matter what.
+func TestSmallTerminalNeverRendersMoreLinesThanItHas(t *testing.T) {
+	s := newTestService(t)
+	for i := 0; i < 10; i++ {
+		registerAgent(t, s, "agent-0"+string(rune('0'+i)), model.RoleAgent, "src")
+	}
+	if _, e := s.Execute("owner", "message.post", "msg-1", model.MessagePosted{Kind: "FYI", To: []string{"owner"}, Subject: "hi"}); e != nil {
+		t.Fatal(e)
+	}
+
+	for _, dims := range [][2]int{{140, 38}, {60, 20}, {40, 14}} {
+		for _, enterView := range []func(*testing.T, Model) Model{enterAgentsView, enterInboxView} {
+			m, e := New(s, "owner")
+			if e != nil {
+				t.Fatal(e)
+			}
+			m.width, m.height = dims[0], dims[1]
+			m = enterView(t, m)
+			lines := strings.Split(m.View().Content, "\n")
+			if len(lines) > dims[1] {
+				t.Errorf("dims=%v: rendered %d lines but the terminal only has %d -- some content is unreachable, not just unscrolled",
+					dims, len(lines), dims[1])
+			}
+		}
+	}
+
+	// Scrolling all the way down at the smallest size must still reach the
+	// last row -- not just avoid overflowing above it.
+	m, e := New(s, "owner")
+	if e != nil {
+		t.Fatal(e)
+	}
+	m.width, m.height = 40, 14
+	m = enterAgentsView(t, m)
+	for i := 0; i < 15; i++ {
+		m = pressKey(t, m, keyText("j"))
+	}
+	if id := m.agentList.SelectedID(m.state, m.actor); id != "owner" {
+		t.Fatalf("scrolling to the end at 40x14 should reach the alphabetically-last agent (owner), got %q", id)
+	}
+}
+
 func TestProjectControlDirectNavigation(t *testing.T) {
 	instance := newTestService(t)
 	view, err := New(instance, "owner")

@@ -19,6 +19,7 @@ import (
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 	"github.com/DhanushSantosh/AgentComms/internal/projectlifecycle"
 	"github.com/DhanushSantosh/AgentComms/internal/service"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/fsnotify/fsnotify"
 )
 
@@ -655,23 +656,57 @@ func colors(high bool) palette {
 	}
 	return palette{lipgloss.Color("#071216"), lipgloss.Color("#0D2024"), lipgloss.Color("#56D6C9"), lipgloss.Color("#E8B85C"), lipgloss.Color("#F07167"), lipgloss.Color("#B9A7E8"), lipgloss.Color("#78918F"), lipgloss.Color("#D7E5E3")}
 }
+// contentWidth is the width-only half of bodyLayout, split out so
+// bodyPrefixHeight (which needs to measure the real command rail/tabs/
+// header at the width they actually render at) can use it without calling
+// bodyLayout itself -- bodyLayout's own innerH now depends on
+// bodyPrefixHeight's measurement, and bodyPrefixHeight depending back on
+// bodyLayout would be a cycle.
+func (m Model) contentWidth() int {
+	paneW := max(10, m.width-m.sidebarWidth()-3)
+	return max(6, paneW-4)
+}
+
 // bodyLayout returns the same pane/content dimensions View, renderBody, and
 // the mouse hit-testing in mouse.go all need -- computed once here so they
 // can never drift apart. paneW/paneH are the body pane's own outer size
 // (what renderBody receives); innerW/innerH are its padded interior, where
 // bodyContent (row tables, forms, prose) actually renders.
-func (m Model) bodyLayout() (paneW, paneH, innerW, innerH int) {
+//
+// innerH is measured, not guessed: it used to be a flat `paneH-8`, sized
+// for whatever a desktop-width command rail and hub tabs happened to take
+// (about 8 lines) -- fine as long as paneH itself was floored well above
+// any real small terminal, which silently covered for it. Once that outer
+// floor came down to track the real terminal, the flat "-8" stopped
+// matching reality: at a narrow contentWidth the command rail and hub
+// tabs genuinely wrap onto more physical lines than 8 accounts for (this
+// view's own hub can have five or six tab labels to fit), so a row list
+// kept being told it had more room than it actually did and rendered
+// rows the terminal had no space left to show -- unreachable by
+// scrolling, the exact thing a "smaller minimum" is supposed to avoid.
+// bodyPrefixHeight already measures this precisely for click math
+// (mouse.go); innerH now reuses that same measurement instead of keeping
+// a second, cruder guess that can silently drift from it.
+func (m Model) bodyLayout(p palette) (paneW, paneH, innerW, innerH int) {
+	// The floors below exist only to keep downstream width/height
+	// arithmetic from going negative (or zero) before the first real
+	// WindowSizeMsg arrives -- they must never exceed what the real
+	// terminal can show. Small floors mean the layout always matches the
+	// truth of what the terminal can actually display, so RowList's own
+	// scrolling is genuinely the only thing standing between the cursor
+	// and the last row, at any size -- nothing renders further down the
+	// page than the terminal has room for.
 	sidebarW := m.sidebarWidth()
-	paneW = max(30, m.width-sidebarW-3)
-	paneH = max(10, m.height)
-	innerW = max(30, paneW-4)
-	innerH = max(6, paneH-8)
+	paneW = max(10, m.width-sidebarW-3)
+	paneH = max(4, m.height)
+	innerW = max(6, paneW-4)
+	innerH = max(1, paneH-m.bodyPrefixHeight(p)-1)
 	return
 }
 func (m Model) View() tea.View {
 	p := colors(m.highContrast)
 	sidebarW := m.sidebarWidth()
-	paneW, paneH, _, _ := m.bodyLayout()
+	paneW, paneH, _, _ := m.bodyLayout(p)
 	side, _ := m.renderSidebar(p, sidebarW, paneH)
 	body := m.renderBody(p, paneW, paneH)
 	screen := lipgloss.JoinHorizontal(lipgloss.Top, side, " ", body)
@@ -703,9 +738,10 @@ func (m Model) sidebarWidth() int {
 func (m Model) renderSidebar(p palette, w, h int) (view string, hubLine []int) {
 	title := lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("● AGENT COMMS")
 	sub := lipgloss.NewStyle().Foreground(p.muted).Render(truncate(m.projectID, max(8, w-2)))
+	activeHub := m.activeHubIndex()
+
 	rows := []string{title, sub, "", lipgloss.NewStyle().Foreground(p.muted).Render("OPERATIONS"), ""}
 	hubLine = make([]int, len(navigationHubs))
-	activeHub := m.activeHubIndex()
 	for i, hub := range navigationHubs {
 		marker := "  "
 		style := lipgloss.NewStyle().Foreground(p.muted)
@@ -726,6 +762,40 @@ func (m Model) renderSidebar(p palette, w, h int) (view string, hubLine []int) {
 		lipgloss.NewStyle().Foreground(p.muted).Render("Enter open  Esc back"),
 		lipgloss.NewStyle().Foreground(p.muted).Render("[/] commands"),
 	)
+	// Padding(1) costs 2 more lines (top+bottom) than rows itself. Unlike
+	// the body's row lists, the sidebar has no scrolling concept of its
+	// own -- it's meant to show the whole nav hierarchy at a glance -- so
+	// when the comfortable layout above doesn't fit a small terminal, drop
+	// every blank spacer line, the active hub's view name (folded into its
+	// own line instead), and the trailing keybinding hints (redundant with
+	// the row list's own footer and the command palette) rather than let
+	// the sidebar render taller than the terminal: that used to push its
+	// own bottom rows past the real screen with nothing able to scroll to
+	// them, the same "content exists but nothing reaches it" failure this
+	// pass through bodyLayout's floors exists to eliminate.
+	if len(rows)+2 > h {
+		rows = []string{truncate(title, max(4, w-2))}
+		hubLine = make([]int, len(navigationHubs))
+		for i, hub := range navigationHubs {
+			marker := "  "
+			style := lipgloss.NewStyle().Foreground(p.muted)
+			if i == activeHub {
+				marker = "▌ "
+				style = style.Foreground(p.cyan).Bold(true)
+			}
+			hubLine[i] = len(rows)
+			// w-4, not w-2: the outer style below adds Padding(1) (1
+			// column each side) on top of marker's own 2 columns -- the
+			// same "forgot the container's own padding" mistake that once
+			// made a row-list cell wrap. No "· <view>" suffix here either
+			// (unlike the comfortable layout's separate expansion line):
+			// the current view is already visible in the body's own
+			// command rail ("<hub> / <view>"), and appending it here is
+			// exactly what made this line long enough to need truncating
+			// in the first place.
+			rows = append(rows, style.Render(marker+truncate(hub.Name, max(1, w-4))))
+		}
+	}
 	return lipgloss.NewStyle().Width(w).Height(h).Padding(1).Background(p.ink).Foreground(p.text).Render(strings.Join(rows, "\n")), hubLine
 }
 func (m Model) renderBody(p palette, w, h int) string {
@@ -738,7 +808,7 @@ func (m Model) renderBody(p palette, w, h int) string {
 	// landing one row above the domain it should have selected in Project
 	// settings. bodyPrefixHeight (mouse.go) mirrors this exact width so
 	// its line-counting and the real render can never disagree again.
-	_, _, contentW, contentH := m.bodyLayout()
+	_, _, contentW, contentH := m.bodyLayout(p)
 	title := views[m.view]
 	if title == "Overview" {
 		title = "PROJECT CONTROL"
@@ -758,7 +828,7 @@ func (m Model) renderBody(p palette, w, h int) string {
 	wrap := lipgloss.NewStyle().MaxWidth(contentW)
 	content := ""
 	bodyContent := ""
-	listW, listH := m.rowListDimensions()
+	listW, listH := m.rowListDimensions(p)
 	switch views[m.view] {
 	case "Overview":
 		bodyContent = wrap.Render(m.overview(p))
@@ -854,8 +924,18 @@ func (m Model) commandRail(p palette, width int) string {
 		leftLen = lipgloss.Width(left) + lipgloss.Width(detail)
 	}
 	gap := max(1, width-leftLen-rightLen)
-	return left + lipgloss.NewStyle().Foreground(p.muted).Render(detail) +
+	rail := left + lipgloss.NewStyle().Foreground(p.muted).Render(detail) +
 		strings.Repeat(" ", gap) + lipgloss.NewStyle().Foreground(p.amber).Render(right)
+	// gap floors at 1: below the width>40 threshold the shortened-detail
+	// fallback above never kicks in, so at a narrow enough width
+	// leftLen+rightLen alone can already exceed width and the assembled
+	// rail overflows it regardless of gap. bodyPrefixHeight assumes this
+	// is exactly one line (lipgloss.Height on the raw string, which has
+	// no embedded "\n" of its own); without truncating here, the pane's
+	// own Width() then wrapped the untruncated overflow onto real extra
+	// physical lines once actually rendered, silently invalidating that
+	// assumption -- the exact bug class the row list's footer had.
+	return ansi.Truncate(rail, width, "…")
 }
 
 // renderHubTabs also returns each tab's [start, end) column range within

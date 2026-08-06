@@ -124,7 +124,7 @@ func newRowList(source RowSource) RowList {
 // between View itself and syncActiveRowListDimensions (mouse.go) so the
 // persisted height used for scroll math can never drift from what's
 // actually rendered.
-func visibleRowCount(h int) int { return max(3, h-4) }
+func visibleRowCount(h int) int { return max(0, h-4) }
 
 func (r *RowList) Refresh(st model.State, actor string) {
 	r.clampToRowCount(len(r.source.Rows(st, actor, r.mine)))
@@ -353,7 +353,15 @@ func (r RowList) View(p palette, st model.State, actor string, w, h int) string 
 			break
 		}
 	}
-	footer := strings.Join(parts, " · ")
+	// ansi.Truncate, not a bare join: parts always includes the base
+	// "[↑/↓] select · [i] inspect · [esc] back" trio unconditionally --
+	// only the per-action hints after it are already width-aware -- so at
+	// a narrow enough w that trio alone still overflowed w and wrapped
+	// onto extra physical lines lipgloss's default (non-Inline) wrapping
+	// added silently. RowList.View's own line-count contract (1 header +
+	// visibleRowCount(h) rows + this footer) assumes exactly one line
+	// here; wrapping broke it the same way an unclamped data cell once did.
+	footer := ansi.Truncate(strings.Join(parts, " · "), w, "…")
 	return strings.Join(lines, "\n") + "\n\n" + footer
 }
 
