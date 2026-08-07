@@ -44,15 +44,15 @@ func Path(projectRoot string) string {
 // neither is real. The actual variable, ANTIGRAVITY_CONVERSATION_ID, was
 // only found by running `strings` on the installed agy binary and locating
 // it embedded in a bundled sidecar script — inspection of the binary's
-// contents, which Google's Antigravity Additional Terms of Service prohibit
-// ("Reverse engineer, decompile, or disassemble any aspect of the
-// Services"). Community discussion on Google's own Antigravity forum
-// (discuss.ai.google.dev) suggests invoking the official agy binary as a
-// documented-flag subprocess is understood differently from that clause,
-// but nothing from Google confirms depending on an undocumented internal
-// env var name specifically is fine, and Google has suspended Antigravity
-// accounts over disputed ToS reads in this exact area. checkAgyEnv below
-// gates this lookup behind an explicit opt-in for that reason: capture agy
+// contents to discover undocumented internal behavior Google never
+// published. Separately, antigravity.google/terms Section 6 prohibits
+// "using the Service in connection with products not provided by us" and
+// names third-party tools accessing the Service as a breach by example
+// (OAuth-hijacking backends) — language broad enough that any third-party
+// wrapper of agy, this one included, sits inside an open compliance
+// question the source of one env var name doesn't resolve either way; see
+// docs/backlog.md for the fuller picture and status. checkAgyEnv below
+// gates this lookup behind an explicit opt-in regardless: capture agy
 // sessions only for an operator who has read that risk and still wants it,
 // never silently by default the way the two documented providers are.
 func Capture() (sessionID, adapter string) {
