@@ -35,7 +35,11 @@ var sessionDiscoveryTimeout = 5 * time.Second
 func discoverSessionID(adapter string, pid int) (string, bool) {
 	switch adapter {
 	case "claude":
-		return discoverClaudeSessionID(pid)
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", false
+		}
+		return discoverClaudeSessionID(home, pid)
 	default:
 		return "", false
 	}
@@ -47,12 +51,16 @@ func discoverSessionID(adapter string, pid int) (string, bool) {
 // -- until it appears or sessionDiscoveryTimeout elapses. A few hundred
 // milliseconds' delay between the child starting and it writing this file
 // is normal, hence the poll rather than a single read.
-func discoverClaudeSessionID(pid int) (string, bool) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", false
-	}
-	path := filepath.Join(home, ".claude", "sessions", strconv.Itoa(pid)+".json")
+//
+// Takes claudeHome explicitly (the caller resolves os.UserHomeDir() once,
+// same pattern claudeserve.go already uses for claudepath.SessionPath)
+// rather than calling os.UserHomeDir() internally -- confirmed live via a
+// real CI failure that t.Setenv("HOME", ...) is silently a no-op for
+// os.UserHomeDir() on Windows (which reads %USERPROFILE%, not $HOME), so a
+// version of this function that resolved its own home directory internally
+// could never be pointed at a test's tempdir on that platform.
+func discoverClaudeSessionID(claudeHome string, pid int) (string, bool) {
+	path := filepath.Join(claudeHome, ".claude", "sessions", strconv.Itoa(pid)+".json")
 	deadline := time.Now().Add(sessionDiscoveryTimeout)
 	for {
 		if raw, readErr := os.ReadFile(path); readErr == nil {

@@ -10,7 +10,6 @@ import (
 
 func TestDiscoverClaudeSessionIDFindsFileWrittenAfterAShortDelay(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
 	sessionsDir := filepath.Join(home, ".claude", "sessions")
 	if err := os.MkdirAll(sessionsDir, 0o700); err != nil {
 		t.Fatal(err)
@@ -34,7 +33,7 @@ func TestDiscoverClaudeSessionIDFindsFileWrittenAfterAShortDelay(t *testing.T) {
 		_ = os.WriteFile(filepath.Join(sessionsDir, "123456.json"), raw, 0o600)
 	}()
 
-	sessionID, ok := discoverClaudeSessionID(pid)
+	sessionID, ok := discoverClaudeSessionID(home, pid)
 	if !ok || sessionID != "e22cbdad-7233-4d6d-8ecc-0c4bffd8c475" {
 		t.Fatalf("expected the session ID to be discovered, got ok=%v id=%q", ok, sessionID)
 	}
@@ -42,13 +41,12 @@ func TestDiscoverClaudeSessionIDFindsFileWrittenAfterAShortDelay(t *testing.T) {
 
 func TestDiscoverClaudeSessionIDTimesOutWhenFileNeverAppears(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
 
 	original := sessionDiscoveryTimeout
 	sessionDiscoveryTimeout = 200 * time.Millisecond
 	t.Cleanup(func() { sessionDiscoveryTimeout = original })
 
-	sessionID, ok := discoverClaudeSessionID(999999)
+	sessionID, ok := discoverClaudeSessionID(home, 999999)
 	if ok || sessionID != "" {
 		t.Fatalf("expected no discovery, got ok=%v id=%q", ok, sessionID)
 	}
@@ -56,7 +54,6 @@ func TestDiscoverClaudeSessionIDTimesOutWhenFileNeverAppears(t *testing.T) {
 
 func TestDiscoverClaudeSessionIDReportsNotOkForMalformedJSON(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
 	sessionsDir := filepath.Join(home, ".claude", "sessions")
 	if err := os.MkdirAll(sessionsDir, 0o700); err != nil {
 		t.Fatal(err)
@@ -65,7 +62,7 @@ func TestDiscoverClaudeSessionIDReportsNotOkForMalformedJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	sessionID, ok := discoverClaudeSessionID(42)
+	sessionID, ok := discoverClaudeSessionID(home, 42)
 	if ok || sessionID != "" {
 		t.Fatalf("expected no discovery for malformed JSON, got ok=%v id=%q", ok, sessionID)
 	}
@@ -82,9 +79,16 @@ func TestDiscoverSessionIDUnknownAdapterReportsNotOk(t *testing.T) {
 	}
 }
 
+// TestDiscoverSessionIDDispatchesClaudeToTheClaudeDiscoverer exercises the
+// dispatcher, which (unlike discoverClaudeSessionID itself) does resolve
+// os.UserHomeDir() internally -- so both HOME (Unix, macOS) and USERPROFILE
+// (Windows; os.UserHomeDir() ignores HOME there) are set, rather than
+// relying on whichever one the OS running the test actually reads. Setting
+// the one the current OS ignores is harmless.
 func TestDiscoverSessionIDDispatchesClaudeToTheClaudeDiscoverer(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	sessionsDir := filepath.Join(home, ".claude", "sessions")
 	if err := os.MkdirAll(sessionsDir, 0o700); err != nil {
 		t.Fatal(err)
