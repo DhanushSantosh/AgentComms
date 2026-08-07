@@ -150,6 +150,48 @@ one is picked up, remove it from here and note the landing commit.
 
 ## Interactive-serve / multi-agent delivery
 
+- **Interactive-serve session pinning.** `--takeover-pid` respawns relied
+  entirely on each wrapped provider CLI's own implicit "resume the most
+  recent conversation in this directory" flag (claude's `--continue`), which
+  races the kill/respawn boundary and, compounded over repeated testing, is
+  what produced ~20 stray/near-empty Claude Code session files in
+  `~/.claude/projects/<project>/`. Investigated 2026-08-07 by asking HULK
+  and PETER directly, from their own live agy/opencode CLI's vantage point,
+  rather than guessing: HULK confirmed agy falls back to the same kind of
+  recency-based lookup absent an explicit ID, "which can pick up the wrong
+  session file or fork a blank session if another process or background
+  check touched the brain directory in between." PETER's answer for
+  opencode was worse — no implicit resume exists at all; every bare
+  relaunch starts a brand new session, full stop, unless `--session <id>` is
+  passed. `claude --help` draws the identical line explicitly:
+  `-c`/`--continue` is recency-based, `-r`/`--resume <id>` is exact.
+
+  Fixed 2026-08-07: `interactiveserve.PinResumeArgs`
+  (`internal/interactiveserve/resume.go`) rewrites a wrapped command's argv
+  to use each adapter's explicit resume-by-ID flag (`--resume` for claude,
+  `--conversation` for agy, `--session` for opencode) whenever `sessionbind`
+  already has a binding on file for that runtime ID, stripping whatever
+  implicit flag was present instead of leaving it to fight the explicit one.
+  `app.pinInteractiveServeArgs` applies this on every `interactive-serve`
+  start, not just takeover ones. To keep that binding populated without
+  requiring an operator to run `runtime bind-session` by hand,
+  `ServeOptions.OnStarted` fires once per spawn with the child's PID, and
+  `app.discoverSessionID` polls Claude Code's own per-PID
+  `~/.claude/sessions/<pid>.json` (confirmed real, written by the `claude`
+  binary itself) to auto-capture and persist the session ID the first time,
+  then re-confirm it on every later respawn.
+
+  **Still open:** agy and opencode have no equivalent auto-discovery yet.
+  Asked HULK and PETER directly whether either CLI writes a per-PID or
+  per-cwd file revealing its own active session/conversation ID the way
+  claude does; neither could point at a concrete one, so `discoverSessionID`
+  stays claude-only rather than guessing at a path that might not exist.
+  Until a real mechanism is confirmed, agy/opencode runtimes only get pinned
+  if an operator runs `runtime bind-session --id <id>` by hand from inside a
+  live session (or, for agy, if `AGENT_COMMS_ALLOW_UNDOCUMENTED_AGY_ENV` is
+  set — see the Compliance section above for why that stays opt-in) — so
+  the fix is real but only fully automatic for claude today.
+
 - **`interactive-serve` delivery is raw text typed into a PTY and read back
   via heuristics, with no structured acknowledgment of exact content.**
   `interactiveserve/matcher.go`'s `echoed()` decides whether a delivered

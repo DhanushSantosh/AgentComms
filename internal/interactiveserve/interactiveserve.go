@@ -66,6 +66,18 @@ type ServeOptions struct {
 	// testing reason as ControlFD.
 	Stdin  io.Reader
 	Stdout io.Writer
+
+	// OnStarted, if set, is called once in its own goroutine right after
+	// the child process starts, with its PID -- never on Serve's own
+	// critical path, so a slow or blocking callback (e.g. one that polls
+	// the filesystem for a session file the child hasn't written yet)
+	// never delays the pty forwarding a human or another agent is waiting
+	// to see. Intended for auto-discovering and persisting the child's own
+	// provider-native session ID (see PinResumeArgs and sessionbind), so a
+	// later --takeover-pid respawn of the same runtime ID can resume this
+	// exact conversation by ID instead of falling back to the wrapped
+	// CLI's own racy "most recent in this directory" behavior.
+	OnStarted func(pid int)
 }
 
 // Serve allocates a real pty, execs Command attached to it, and transparently

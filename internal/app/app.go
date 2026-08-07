@@ -1347,6 +1347,7 @@ func (c *cli) runtimeCmd() *cobra.Command {
 					return fmt.Errorf("take over pid %d: %w", interactiveTakeoverPID, err)
 				}
 			}
+			args = pinInteractiveServeArgs(c.svc.Store.Root, interactiveServeID, args)
 			return c.runInteractiveServe(cmd.Context(), interactiveServeID, args)
 		},
 	}
@@ -1439,6 +1440,24 @@ func (c *cli) launchInteractiveServeInNewTerminal() error {
 	return c.emit("runtime.interactive-serve-launched", map[string]any{"command": full, "working_directory": c.svc.Store.Root})
 }
 
+// pinInteractiveServeArgs rewrites args to explicitly resume a previously
+// pinned session/conversation ID for runtimeID, if sessionbind's local
+// cache has one, in place of whatever implicit "most recent" flag the
+// command line happened to spell out -- this is what makes resuming the
+// exact same conversation deterministic across a --takeover-pid
+// kill/respawn instead of racing each provider CLI's own recency-based
+// lookup. A runtime with no binding yet (its first-ever start) is returned
+// unchanged. Extracted from interactiveServe's RunE (like
+// withClaudeAllowAgentComms below) so this can be tested directly without
+// needing a real pty.
+func pinInteractiveServeArgs(projectRoot, runtimeID string, args []string) []string {
+	binding, ok, err := sessionbind.Load(projectRoot, runtimeID)
+	if err != nil || !ok {
+		return args
+	}
+	return interactiveserve.PinResumeArgs(args, binding.SessionID)
+}
+
 func (c *cli) runInteractiveServe(ctx context.Context, runtimeID string, command []string) (runErr error) {
 	hostID, err := identity.LoadOrCreateHostID()
 	if err != nil {
@@ -1526,6 +1545,15 @@ func (c *cli) runInteractiveServe(ctx context.Context, runtimeID string, command
 	}()
 	code, err := interactiveserve.Serve(serveCtx, interactiveserve.ServeOptions{
 		ProjectRoot: c.svc.Store.Root, RuntimeID: runtimeID, Command: command, Actor: c.actor,
+		OnStarted: func(pid int) {
+			if len(command) == 0 {
+				return
+			}
+			adapter := filepath.Base(command[0])
+			if sessionID, ok := discoverSessionID(adapter, pid); ok {
+				_ = sessionbind.Save(c.svc.Store.Root, runtimeID, sessionID, adapter)
+			}
+		},
 	})
 	if err != nil {
 		return err

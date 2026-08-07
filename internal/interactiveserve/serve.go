@@ -148,6 +148,9 @@ func Serve(ctx context.Context, opts ServeOptions) (int, error) {
 		return 1, fmt.Errorf("interactiveserve: start %q in a pty: %w", opts.Command[0], err)
 	}
 	defer ptmx.Close()
+	if opts.OnStarted != nil {
+		go opts.OnStarted(cmd.Process.Pid)
+	}
 
 	// Printed before the child's own first paint, so it's visible for a
 	// moment even though a full-screen TUI's alt-screen entry will cover it

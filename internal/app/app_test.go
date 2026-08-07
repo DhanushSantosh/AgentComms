@@ -26,6 +26,7 @@ import (
 	"github.com/DhanushSantosh/AgentComms/internal/projectlifecycle"
 	"github.com/DhanushSantosh/AgentComms/internal/runtimeinit"
 	"github.com/DhanushSantosh/AgentComms/internal/service"
+	"github.com/DhanushSantosh/AgentComms/internal/sessionbind"
 	"github.com/DhanushSantosh/AgentComms/internal/store"
 	"github.com/creack/pty"
 )
@@ -1354,6 +1355,54 @@ func TestInvocationRedeliverReachesSessionMissedByRequest(t *testing.T) {
 			t.Fatalf("expected redeliver to reach the now-live session, got:\n%s", text)
 		}
 		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+func TestPinInteractiveServeArgsAppliesAnExistingBinding(t *testing.T) {
+	root := t.TempDir()
+	if err := sessionbind.Save(root, "HENRY", "pinned-session-id", "claude"); err != nil {
+		t.Fatal(err)
+	}
+	got := pinInteractiveServeArgs(root, "HENRY", []string{"claude", "--dangerously-skip-permissions", "--continue"})
+	want := []string{"claude", "--dangerously-skip-permissions", "--resume", "pinned-session-id"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got %v, want %v", got, want)
+		}
+	}
+}
+
+func TestPinInteractiveServeArgsNoOpWithoutAnyBinding(t *testing.T) {
+	root := t.TempDir()
+	in := []string{"claude", "--continue"}
+	got := pinInteractiveServeArgs(root, "HENRY", in)
+	if len(got) != len(in) {
+		t.Fatalf("expected args untouched with no binding on record, got %v", got)
+	}
+	for i := range in {
+		if got[i] != in[i] {
+			t.Fatalf("expected args untouched with no binding on record, got %v", got)
+		}
+	}
+}
+
+func TestPinInteractiveServeArgsOnlyAppliesTheMatchingRuntimesBinding(t *testing.T) {
+	root := t.TempDir()
+	if err := sessionbind.Save(root, "HULK", "hulks-session-id", "agy"); err != nil {
+		t.Fatal(err)
+	}
+	in := []string{"claude", "--continue"}
+	got := pinInteractiveServeArgs(root, "HENRY", in)
+	if len(got) != len(in) {
+		t.Fatalf("expected HENRY's args untouched by HULK's binding, got %v", got)
+	}
+	for i := range in {
+		if got[i] != in[i] {
+			t.Fatalf("expected HENRY's args untouched by HULK's binding, got %v", got)
+		}
 	}
 }
 

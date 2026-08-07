@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"os"
@@ -190,6 +191,80 @@ func TestServeEndToEnd(t *testing.T) {
 	}
 	if _, err := os.Stat(SocketPath(dir, "test-runtime")); err == nil {
 		t.Fatal("expected the socket file to have been removed")
+	}
+}
+
+// TestServeInvokesOnStartedWithChildPID guards the hook interactive-serve's
+// session-pinning wiring depends on (see app.runInteractiveServe): Serve
+// must call OnStarted, off its own critical path, with the real child PID,
+// early enough that a session-discovery poll keyed by that PID has
+// something to find. Never blocking: OnStarted here deliberately sleeps
+// past the point the child has already exited, and Serve must still return
+// on its own instead of waiting for OnStarted to finish.
+func TestServeInvokesOnStartedWithChildPID(t *testing.T) {
+	requireBash(t)
+	_, controlSlave := newControlPty(t)
+
+	dir := t.TempDir()
+	scriptPath := filepath.Join(dir, "fakechild.sh")
+	script := "#!/bin/bash\necho $$ > " + filepath.Join(dir, "pid") + "\nexit 0\n"
+	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	stdinR, stdinW := io.Pipe()
+	t.Cleanup(func() { _ = stdinW.Close() })
+	stdout := &syncBuffer{}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	onStartedPID := make(chan int, 1)
+	type result struct {
+		code int
+		err  error
+	}
+	done := make(chan result, 1)
+	go func() {
+		code, err := Serve(ctx, ServeOptions{
+			ProjectRoot: dir,
+			RuntimeID:   "test-runtime-onstarted",
+			Command:     []string{"bash", scriptPath},
+			ControlFD:   int(controlSlave.Fd()),
+			Stdin:       stdinR,
+			Stdout:      stdout,
+			OnStarted: func(pid int) {
+				time.Sleep(200 * time.Millisecond) // outlast the child; must not block Serve's return
+				onStartedPID <- pid
+			},
+		})
+		done <- result{code, err}
+	}()
+
+	var res result
+	select {
+	case res = <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("Serve did not return")
+	}
+	if res.err != nil {
+		t.Fatalf("Serve returned an error: %v", res.err)
+	}
+
+	var gotPID int
+	select {
+	case gotPID = <-onStartedPID:
+	case <-time.After(2 * time.Second):
+		t.Fatal("OnStarted was never called")
+	}
+
+	rawPID, err := os.ReadFile(filepath.Join(dir, "pid"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantPID := strings.TrimSpace(string(rawPID))
+	if fmt.Sprint(gotPID) != wantPID {
+		t.Fatalf("OnStarted got pid %d, want the child's own reported pid %s", gotPID, wantPID)
 	}
 }
 
