@@ -37,17 +37,26 @@ func Path(projectRoot string) string {
 // to commands run by its shell tool, injected even when the configured
 // shell_environment_policy restricts inherited variables to an include_only
 // list — so it survives a restrictive policy the way an ordinary env var
-// would not. Agy (Antigravity CLI) exports ANTIGRAVITY_CONVERSATION_ID --
-// confirmed by `strings`-ing the installed agy binary, which embeds the
-// literal JS `conversationId: process.env.ANTIGRAVITY_CONVERSATION_ID`
-// alongside `projectId: process.env.ANTIGRAVITY_PROJECT_ID` in a bundled
-// sidecar script; no ANTIGRAVITY_SESSION_ID or AGY_SESSION_ID appears
-// anywhere in the binary at all, despite an earlier version of this
-// function checking for exactly those two guessed names. All three are the
-// same identifier accepted by that provider's `resume`/`--session-id`/
-// `--conversation` flag.
+// would not. Both are publicly documented behavior of their respective CLIs.
+//
+// Agy (Antigravity CLI) has no publicly documented equivalent. An earlier
+// version of this function guessed ANTIGRAVITY_SESSION_ID/AGY_SESSION_ID;
+// neither is real. The actual variable, ANTIGRAVITY_CONVERSATION_ID, was
+// only found by running `strings` on the installed agy binary and locating
+// it embedded in a bundled sidecar script — inspection of the binary's
+// contents, which Google's Antigravity Additional Terms of Service prohibit
+// ("Reverse engineer, decompile, or disassemble any aspect of the
+// Services"). Community discussion on Google's own Antigravity forum
+// (discuss.ai.google.dev) suggests invoking the official agy binary as a
+// documented-flag subprocess is understood differently from that clause,
+// but nothing from Google confirms depending on an undocumented internal
+// env var name specifically is fine, and Google has suspended Antigravity
+// accounts over disputed ToS reads in this exact area. checkAgyEnv below
+// gates this lookup behind an explicit opt-in for that reason: capture agy
+// sessions only for an operator who has read that risk and still wants it,
+// never silently by default the way the two documented providers are.
 func Capture() (sessionID, adapter string) {
-	if id := strings.TrimSpace(os.Getenv("ANTIGRAVITY_CONVERSATION_ID")); id != "" {
+	if id := checkAgyEnv(); id != "" {
 		return id, "agy"
 	}
 	if id := strings.TrimSpace(os.Getenv("CLAUDE_CODE_SESSION_ID")); id != "" {
@@ -62,6 +71,21 @@ func Capture() (sessionID, adapter string) {
 		}
 	}
 	return "", ""
+}
+
+// agyUndocumentedEnvOptIn is the explicit, conscious opt-in required before
+// Capture will read ANTIGRAVITY_CONVERSATION_ID. See the ToS discussion in
+// Capture's doc comment: this env var's name is not published anywhere by
+// Google, only discovered via binary inspection, so this package never acts
+// on it by default the way it does for Claude Code's and Codex's own
+// documented session env vars.
+const agyUndocumentedEnvOptIn = "AGENT_COMMS_ALLOW_UNDOCUMENTED_AGY_ENV"
+
+func checkAgyEnv() string {
+	if strings.TrimSpace(os.Getenv(agyUndocumentedEnvOptIn)) == "" {
+		return ""
+	}
+	return strings.TrimSpace(os.Getenv("ANTIGRAVITY_CONVERSATION_ID"))
 }
 
 func load(path string) (map[string]Binding, error) {

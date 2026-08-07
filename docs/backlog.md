@@ -4,6 +4,57 @@ Deferred, real work items surfaced during development but intentionally not
 built yet — each was a deliberate decision to defer, not an oversight. When
 one is picked up, remove it from here and note the landing commit.
 
+## Compliance / third-party terms of service
+
+- **The `agy` (Google Antigravity) adapter's session-binding env var was
+  discovered via binary inspection, which Antigravity's Additional Terms of
+  Service prohibit; the deeper question of whether *any* automation of the
+  official `agy` CLI is compliant remains genuinely open.** Investigated via
+  deep research 2026-08-07, across every provider integration in the
+  codebase (`internal/worker/adapter_*.go`, `claudeserve`, `codexserve`,
+  `opencodeclient`, `acpclient`, `claudetail`, `sessionbind`,
+  `interactiveserve`). Anthropic (Claude Code), OpenAI (Codex CLI), and
+  opencode are all clean: every integration spawns the vendor's own official
+  CLI binary via its own documented flags (headless `--print`/`-p` mode,
+  `--ask-for-approval never`, `opencode run --format json`), all three
+  vendors document or actively encourage exactly this kind of scripted/
+  multi-agent automation, and no code anywhere extracts, reuses, or hijacks
+  credentials/OAuth tokens.
+
+  Google Antigravity (`agy`) is the exception. `sessionbind.go`'s own
+  original doc comment documented that `ANTIGRAVITY_CONVERSATION_ID` — the
+  env var this project uses to capture an agy runtime's live session ID —
+  was found by running `strings` on the installed `agy` binary and locating
+  it embedded in a bundled JS sidecar script, because neither of the two
+  names an earlier version guessed (`ANTIGRAVITY_SESSION_ID`,
+  `AGY_SESSION_ID`) turned out to be real. Antigravity's Additional Terms of
+  Service explicitly prohibit "Reverse engineer, decompile, or disassemble
+  any aspect of the Services" — `strings` extraction is far short of
+  decompilation, but it was done specifically to discover undocumented
+  internal behavior Google never published, which is the kind of thing that
+  clause exists to stop. Fixed 2026-08-07: `sessionbind.Capture()` now only
+  acts on `ANTIGRAVITY_CONVERSATION_ID` when an operator has explicitly set
+  `AGENT_COMMS_ALLOW_UNDOCUMENTED_AGY_ENV`, unlike Claude Code's and Codex's
+  own vars (`CLAUDE_CODE_SESSION_ID`, `CODEX_THREAD_ID`), which are
+  publicly documented behavior of those CLIs and are read unconditionally.
+
+  The broader question is not something a code fix can close. Real,
+  documented account suspensions for "using third party software/tools to
+  access the Service" are an active, ongoing pattern on Google's own
+  official Antigravity forum (discuss.ai.google.dev) as of February 2026,
+  including at least one thread asking specifically whether invoking the
+  official `agy --print` binary as a subprocess from a third-party tool
+  (exactly this project's `agyAdapter`) is acceptable. Community consensus
+  there — not an official Google answer — is that wrapping the unmodified
+  official binary through its own documented flags reads differently from
+  the explicitly-named prohibited pattern (OAuth-hijacking backends like
+  OpenClaw), but no Google representative has confirmed this, and some
+  banned users maintain they used only the official CLI. Worth pursuing
+  explicit clarification from Google directly rather than resolving this
+  by inference; until then, the `agyAdapter`/`interactive-serve --id ...
+  -- agy` pattern itself carries a real, unresolved enforcement risk that
+  is independent of the env-var fix above.
+
 ## Security / governance
 
 - **Approval self-approval is not prevented.** A human (or any elevated
