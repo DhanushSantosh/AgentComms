@@ -243,6 +243,10 @@ func (r runtimeRowSource) sessionBinding(runtimeID string) (provider, session st
 		return "Claude", binding.SessionID
 	case "codex":
 		return "Codex", binding.SessionID
+	case "agy":
+		return "Antigravity (agy)", binding.SessionID
+	case "opencode":
+		return "OpenCode", binding.SessionID
 	default:
 		return binding.Adapter, binding.SessionID
 	}

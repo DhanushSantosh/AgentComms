@@ -30,6 +30,22 @@ func TestRuntimeSessionBindingReflectsCapturedProviderAndID(t *testing.T) {
 		t.Fatalf("expected the full bound codex provider and thread ID, got provider=%q session=%q", provider, session)
 	}
 
+	if err := sessionbind.Save(source.root, "hulk-runtime-1", "5885f88c-6cdf-4343-ad9d-693e66d41852", "agy"); err != nil {
+		t.Fatal(err)
+	}
+	provider, session = source.sessionBinding("hulk-runtime-1")
+	if provider != "Antigravity (agy)" || session != "5885f88c-6cdf-4343-ad9d-693e66d41852" {
+		t.Fatalf("expected the full bound agy provider and conversation ID, got provider=%q session=%q", provider, session)
+	}
+
+	if err := sessionbind.Save(source.root, "peter-runtime-1", "ses_032d59696ffepgBGk73AiMF00F", "opencode"); err != nil {
+		t.Fatal(err)
+	}
+	provider, session = source.sessionBinding("peter-runtime-1")
+	if provider != "OpenCode" || session != "ses_032d59696ffepgBGk73AiMF00F" {
+		t.Fatalf("expected the full bound opencode provider and session ID, got provider=%q session=%q", provider, session)
+	}
+
 	provider, session = source.sessionBinding("unregistered-runtime")
 	if provider != "—" || session != "unbound" {
 		t.Fatalf("expected unbound for a different runtime, got provider=%q session=%q", provider, session)

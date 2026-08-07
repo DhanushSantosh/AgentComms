@@ -1550,7 +1550,7 @@ func (c *cli) runInteractiveServe(ctx context.Context, runtimeID string, command
 				return
 			}
 			adapter := filepath.Base(command[0])
-			if sessionID, ok := discoverSessionID(adapter, pid); ok {
+			if sessionID, ok := discoverSessionID(adapter, pid, c.svc.Store.Root); ok {
 				_ = sessionbind.Save(c.svc.Store.Root, runtimeID, sessionID, adapter)
 			}
 		},

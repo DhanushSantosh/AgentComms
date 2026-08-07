@@ -82,10 +82,22 @@ func Capture() (sessionID, adapter string) {
 const agyUndocumentedEnvOptIn = "AGENT_COMMS_ALLOW_UNDOCUMENTED_AGY_ENV"
 
 func checkAgyEnv() string {
-	if strings.TrimSpace(os.Getenv(agyUndocumentedEnvOptIn)) == "" {
+	if !AgyUndocumentedEnvAllowed() {
 		return ""
 	}
 	return strings.TrimSpace(os.Getenv("ANTIGRAVITY_CONVERSATION_ID"))
+}
+
+// AgyUndocumentedEnvAllowed reports whether an operator has set the
+// explicit opt-in this package requires before Capture will act on
+// ANTIGRAVITY_CONVERSATION_ID. Exported so other packages that also touch
+// this same undocumented variable -- e.g. app.discoverAgySessionID, which
+// reads it out of a live agy child's own /proc/<pid>/environ rather than
+// the current process's os.Getenv -- gate on the identical opt-in instead
+// of duplicating the env var name and re-deciding the same ToS question
+// independently. See Capture's doc comment for the reasoning.
+func AgyUndocumentedEnvAllowed() bool {
+	return strings.TrimSpace(os.Getenv(agyUndocumentedEnvOptIn)) != ""
 }
 
 func load(path string) (map[string]Binding, error) {

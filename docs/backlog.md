@@ -181,16 +181,44 @@ one is picked up, remove it from here and note the landing commit.
   binary itself) to auto-capture and persist the session ID the first time,
   then re-confirm it on every later respawn.
 
-  **Still open:** agy and opencode have no equivalent auto-discovery yet.
-  Asked HULK and PETER directly whether either CLI writes a per-PID or
-  per-cwd file revealing its own active session/conversation ID the way
-  claude does; neither could point at a concrete one, so `discoverSessionID`
-  stays claude-only rather than guessing at a path that might not exist.
-  Until a real mechanism is confirmed, agy/opencode runtimes only get pinned
-  if an operator runs `runtime bind-session --id <id>` by hand from inside a
-  live session (or, for agy, if `AGENT_COMMS_ALLOW_UNDOCUMENTED_AGY_ENV` is
-  set — see the Compliance section above for why that stays opt-in) — so
-  the fix is real but only fully automatic for claude today.
+  **Live-tested 2026-08-07:** asked HULK and PETER to actually run the fix
+  end to end rather than trust the unit tests alone. HULK bound a real agy
+  session (`runtime bind-session` — correctly refused without the opt-in
+  set, succeeded once it was), confirmed `PinResumeArgs` rewrote its argv to
+  `['agy', '--conversation', '<id>']`, and reported context/session thread
+  retained perfectly across the takeover. PETER confirmed opencode's gap is
+  real (`bind-session` fails, no session env var exists) but found a real
+  fix path in the process: `opencode session list --format json` is
+  discoverable and viable. PETER declined to self-relaunch through
+  `--takeover-pid` on its own PID, correctly reasoning that would kill its
+  own live session — good judgment, not a test failure.
+
+  **agy and opencode auto-discovery, closed 2026-08-07.** Asked HULK and
+  PETER a second, more specific round: is there any per-PID or per-cwd file
+  either CLI writes, the way claude has `~/.claude/sessions/<pid>.json`?
+  Neither found a file, but each found a real, different mechanism instead:
+  HULK confirmed agy carries `ANTIGRAVITY_CONVERSATION_ID` in its own live
+  process environment, readable externally via `/proc/<pid>/environ`
+  (Linux-only; gated behind the same `AGENT_COMMS_ALLOW_UNDOCUMENTED_AGY_ENV`
+  opt-in `sessionbind.Capture` already requires for this same undocumented
+  variable — see `sessionbind.AgyUndocumentedEnvAllowed`). PETER confirmed
+  `opencode session list --format json --max-count 1`, run from the
+  runtime's own cwd, returns exactly the most recent session for the
+  current project (opencode's own `--help` independently confirms
+  `--max-count`: "limit to N most recent sessions," and the command already
+  scopes to the project containing the cwd with no manual directory
+  filtering needed). Both are now wired into `app.discoverSessionID`
+  (`internal/app/sessiondiscovery.go`), so all three interactive adapters
+  auto-pin without an operator running `runtime bind-session` by hand.
+  `runtime bind-session` remains the fallback for any adapter where
+  auto-discovery doesn't fire (agy without the opt-in set, or either CLI
+  briefly unavailable).
+
+  Session IDs are shown per-runtime in the TUI's Runtimes view (detail pane
+  for the selected row, "Session / thread ID" — `internal/tui/runtimes.go`'s
+  `sessionBinding`), which already existed for claude/codex; agy and
+  opencode now get their own provider labels there too ("Antigravity (agy)",
+  "OpenCode") instead of falling through to the raw adapter string.
 
 - **`interactive-serve` delivery is raw text typed into a PTY and read back
   via heuristics, with no structured acknowledgment of exact content.**
