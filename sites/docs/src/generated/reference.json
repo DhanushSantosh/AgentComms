@@ -6398,7 +6398,7 @@
         },
         {
           "name": "takeover-pid",
-          "usage": "gracefully terminate this PID (an existing live session for the same provider conversation) and wait for it to fully exit before starting, so resuming it with the wrapped command's own --continue/--resume flag never collides with a still-live copy",
+          "usage": "gracefully terminate this PID (an existing live session for the same provider conversation) and wait for it to fully exit before starting, so resuming it with the wrapped command's own --continue/--resume flag never collides with a still-live copy; refuses if this process is itself a descendant of pid (e.g. run from an agent's own Bash tool call) -- pair with --launch-terminal instead",
           "default": "0",
           "type": "int"
         },

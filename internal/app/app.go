@@ -1355,7 +1355,7 @@ func (c *cli) runtimeCmd() *cobra.Command {
 	_ = interactiveServe.MarkFlagRequired("id")
 	interactiveServe.Flags().BoolVar(&interactiveClaudeAllowAgentComms, "claude-allow-agent-comms", false, "wrapped command must be claude; scopes unattended Bash permission to this Agent Comms executable only")
 	interactiveServe.Flags().BoolVar(&interactiveLaunchTerminal, "launch-terminal", false, "open a new, dedicated terminal window running this same command instead of using the current one, then exit")
-	interactiveServe.Flags().IntVar(&interactiveTakeoverPID, "takeover-pid", 0, "gracefully terminate this PID (an existing live session for the same provider conversation) and wait for it to fully exit before starting, so resuming it with the wrapped command's own --continue/--resume flag never collides with a still-live copy")
+	interactiveServe.Flags().IntVar(&interactiveTakeoverPID, "takeover-pid", 0, "gracefully terminate this PID (an existing live session for the same provider conversation) and wait for it to fully exit before starting, so resuming it with the wrapped command's own --continue/--resume flag never collides with a still-live copy; refuses if this process is itself a descendant of pid (e.g. run from an agent's own Bash tool call) -- pair with --launch-terminal instead")
 
 	var interactiveShowID string
 	interactiveShow := &cobra.Command{

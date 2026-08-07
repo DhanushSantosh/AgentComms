@@ -3,6 +3,7 @@
 package interactiveserve
 
 import (
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -48,5 +49,59 @@ func TestTakeoverOnAnAlreadyGonePIDSucceeds(t *testing.T) {
 	}
 	if err := Takeover(cmd.Process.Pid, time.Second); err != nil {
 		t.Fatalf("expected Takeover on an already-exited pid to succeed, got: %v", err)
+	}
+}
+
+// TestTakeoverRefusesWhenCallerIsADescendantOfTarget guards the actual fix:
+// confirmed live 2026-08-07, an agent self-relaunching through its own Bash
+// tool (a child of the session being taken over) took its own controlling
+// terminal down with it. os.Getppid() is real, guaranteed ancestry (this
+// test process genuinely is a child of it) without needing to fabricate a
+// fake process tree -- and since the ancestry check runs before Takeover
+// ever sends a real signal, this never actually touches the test's real
+// parent process.
+func TestTakeoverRefusesWhenCallerIsADescendantOfTarget(t *testing.T) {
+	if _, determined := currentProcessIsDescendantOf(os.Getppid()); !determined {
+		t.Skip("ps-based ancestry check unavailable in this environment")
+	}
+	err := Takeover(os.Getppid(), time.Second)
+	if err == nil {
+		t.Fatal("expected Takeover to refuse when the calling process is a descendant of the target")
+	}
+	if !strings.Contains(err.Error(), "--launch-terminal") {
+		t.Fatalf("expected the refusal to mention --launch-terminal, got: %v", err)
+	}
+}
+
+func TestCurrentProcessIsDescendantOfOwnParent(t *testing.T) {
+	descendant, determined := currentProcessIsDescendantOf(os.Getppid())
+	if !determined {
+		t.Skip("ps-based ancestry check unavailable in this environment")
+	}
+	if !descendant {
+		t.Fatal("expected the test process to be recognized as a descendant of its own parent")
+	}
+}
+
+// TestCurrentProcessIsNotDescendantOfItsOwnChild uses a process this test
+// itself just spawned as "obviously unrelated" ground truth -- the test
+// process can never be a descendant of its own child, so this direction is
+// unambiguous without depending on which real processes happen to be
+// running on the machine.
+func TestCurrentProcessIsNotDescendantOfItsOwnChild(t *testing.T) {
+	cmd := exec.Command("sleep", "5")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	}()
+	descendant, determined := currentProcessIsDescendantOf(cmd.Process.Pid)
+	if !determined {
+		t.Skip("ps-based ancestry check unavailable in this environment")
+	}
+	if descendant {
+		t.Fatal("expected the test process not to be a descendant of its own child")
 	}
 }

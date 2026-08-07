@@ -220,6 +220,21 @@ one is picked up, remove it from here and note the landing commit.
   opencode now get their own provider labels there too ("Antigravity (agy)",
   "OpenCode") instead of falling through to the raw adapter string.
 
+  **`--takeover-pid` self-relaunch incident, fixed 2026-08-07.** Once PETER
+  had a real opencode binding to test the pin-and-resume path against
+  live, it self-relaunched by running `--takeover-pid <own-pid>` from
+  inside its own Bash tool call — a subprocess of the very session being
+  taken over. Killing the target took the whole wrapper down (the visible
+  terminal appeared to just end), and the replacement process it tried to
+  start next had no real controlling terminal to attach a pty to (a Bash
+  tool call isn't one), so it died too, silently, leaving nothing running
+  and no clear error explaining why. This exact risk was already named in
+  prose in this doc's "Migrating a live, ordinary session" section, but
+  nothing enforced it. Fixed: `interactiveserve.Takeover` now walks its own
+  parent chain before touching pid at all (`ps -o ppid=`, portable across
+  Linux/macOS) and refuses outright if it finds pid there, pointing at
+  `--launch-terminal` instead of failing silently.
+
 - **`interactive-serve` delivery is raw text typed into a PTY and read back
   via heuristics, with no structured acknowledgment of exact content.**
   `interactiveserve/matcher.go`'s `echoed()` decides whether a delivered

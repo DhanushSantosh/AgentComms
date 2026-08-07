@@ -608,10 +608,21 @@ Find the PID to pass with your shell's own tools (e.g. `ps`) — Agent Comms
 has no notion of "the session I'm currently typing into" to infer it
 automatically. Pairing this with `--launch-terminal` matters: the process
 performing the takeover must not itself be a descendant of the PID it's
-terminating, or it risks being torn down by the same signal. A freshly
-spawned terminal window is never a descendant of the old session, so it's
-always safe there; running `--takeover-pid` directly, from a shell that
-*is* a descendant of the target PID, is not.
+terminating. This is enforced, not just advised — `Takeover` walks its own
+parent chain before touching pid at all and refuses outright if it finds
+pid there, rather than proceeding into a failure with no clear error
+pointing at why. Confirmed live 2026-08-07: an agent self-relaunched
+through its own Bash tool call (a child of the very session being taken
+over, since a tool call is a subprocess of the agent's own CLI process) —
+killing the target took the whole wrapper down, and the replacement process
+it tried to start next had no real controlling terminal to attach a pty to
+(a Bash tool call isn't one), so it died too, silently, with nothing left
+running and no obvious error explaining what happened. A freshly spawned
+terminal window opened via `--launch-terminal` is never a descendant of the
+old session, so it always passes this check cleanly; running
+`--takeover-pid` directly from a shell — or an agent's own tool-call
+subprocess — that *is* a descendant of the target PID now fails fast with
+an explicit error instead.
 
 A `--takeover-pid` that's already gone by the time this runs is treated as
 success, not an error — the common case once `--launch-terminal` has
