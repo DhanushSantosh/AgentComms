@@ -9,6 +9,19 @@ export type Release = {
 
 export const releases: readonly Release[] = [
   {
+    version: "v0.3.0",
+    channel: "BETA",
+    name: "Point and Click",
+    date: "2026-08-08",
+    dateLabel: "8 Aug 2026",
+    highlights: [
+      "Full native mouse support across the TUI, which now scales to a real terminal size instead of requiring a desktop-sized minimum.",
+      "Session-pinned interactive delivery — a restarted session resumes the exact right conversation instead of racing each provider CLI's own guess.",
+      "A declarative JSON adapter system: add a new CLI provider without touching Go.",
+      "A public marketing site, docs site, and nightly beta build channel."
+    ]
+  },
+  {
     version: "v0.2.1",
     channel: "BETA",
     name: "The Missing Bundle",

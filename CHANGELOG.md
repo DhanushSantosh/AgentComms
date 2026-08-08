@@ -5,6 +5,180 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-08 — “Point and Click”
+
+*A TUI you can drive with a mouse from a real-sized terminal, session-pinned
+interactive delivery that survives a restart, a declarative path for adding
+new CLI providers without touching Go, and a public marketing/docs site.*
+
+**Added**
+- Full native mouse support across the TUI — click, scroll, sidebar and
+  hub-tab navigation, double-click-to-act, and Project settings (the one
+  view that was missing it).
+- The TUI now scales down to a real small terminal instead of requiring a
+  desktop-sized minimum: dynamic responsive layout, full body viewport
+  scrolling for non-table views, live PTY preview, a split-pane inspector,
+  rich status indicators, and background toast notifications.
+- `--takeover-pid` safely migrates a live interactive session into
+  `interactive-serve`, and every migrated/resumed session now pins its
+  exact provider session ID (auto-discovered for claude and opencode)
+  instead of racing each provider CLI's own "most recent session" guess —
+  closes a real class of stale/forked-session bugs.
+- A declarative JSON adapter specification system: add a new CLI provider
+  by dropping a spec file under `.agent-comms/adapters/`, no Go changes
+  required.
+- `runtime verify-adapter` checks an adapter's assumed CLI flags against
+  the real installed binary's own `--help` output.
+- `runtime.delete` (protocol, CLI, TUI), `task lock` (create+claim a task
+  in one step), and human-readable table output by default for
+  agent/runtime/invocation list commands.
+- A public marketing site and docs site, a nightly beta build channel, and
+  one-keypress Orchestrator-approval requests from the TUI.
+
+**Fixed**
+- Dozens of TUI layout and rendering bugs, most surfaced by making the TUI
+  usable at real (non-desktop) terminal sizes: sidebar/row-list overflow,
+  click-position drift, footer/keybinding wrapping, and two ANSI/wrap
+  corruption bugs (a truncated escape sequence leaking onto screen; a
+  bordered box that could render wider than the terminal and split its own
+  border mid-line).
+- `interactive-serve --takeover-pid` now refuses outright if the calling
+  process is itself a descendant of the target PID, instead of silently
+  killing its own controlling terminal — confirmed live before the fix.
+- Stale interactive-serve sockets are cleaned up automatically on startup.
+
+**Security**
+- Removed the `agy` (Google Antigravity) worker adapter and all
+  agy-specific integration code, over an unresolved third-party Terms of
+  Service compliance question — never reached a tagged release, so nothing
+  for existing installs to migrate away from. See `docs/backlog.md`'s
+  "Compliance / third-party terms of service" section for the full
+  research record.
+
+Full technical detail is below and in [CHANGELOG.md](https://github.com/DhanushSantosh/AgentComms/blob/main/CHANGELOG.md).
+
+### Added
+
+- **Mouse support and TUI scaling.** Every view now responds to the mouse
+  (click, scroll, sidebar/hub-tab navigation, double-click-to-act), and the
+  TUI no longer requires a desktop-sized terminal — layout, row-list
+  windowing, and column widths are computed from the real terminal size,
+  not a comfortable fixed guess. Also added: a live PTY preview pane
+  (streams a runtime's control-socket snapshot), a split-pane inspector,
+  rich per-row status indicators, background toast notifications, and a
+  one-keypress Orchestrator-approval-request shortcut that chains
+  request+approve+activate into a single confirm.
+- **Session-pinned interactive delivery.** `interactive-serve
+  --takeover-pid` safely migrates a live session in place. Resuming that
+  session (or any interactive-serve restart) now pins the exact provider
+  session/conversation ID via each adapter's own explicit resume-by-ID
+  flag, instead of relying on the wrapped CLI's own implicit "most recent
+  session" behavior — confirmed live to be racy across a kill/respawn
+  boundary for every provider tested. The session ID is auto-discovered
+  and persisted for claude (`~/.claude/sessions/<pid>.json`) and opencode
+  (`opencode session list --format json`) without requiring an operator to
+  run `runtime bind-session` by hand; it's shown per-runtime in the TUI's
+  Runtimes view.
+- **Declarative CLI adapters.** `internal/worker`'s adapter registry now
+  loads `.agent-comms/adapters/*.json` specs at startup, letting a project
+  add a new CLI provider (executable name, argument templates, permission
+  modes, session env vars, busy markers) without writing Go code. Built-in
+  adapters can't be silently overridden by a same-named declarative spec.
+- `runtime verify-adapter` statically scans an adapter's source for
+  `--flag`-shaped literals and diffs them against the real installed
+  binary's own `--help` output, catching flag drift automatically instead
+  of requiring a human to re-run that comparison by hand.
+- `runtime.delete` removes a runtime record outright (protocol, CLI, and
+  TUI), `task lock` creates and claims a minimal task in one governed step,
+  and `agent`/`runtime`/`invocation list` commands print human-readable
+  tables by default instead of requiring `--json` to be legible.
+- Interactive runtimes now default to an `AUTOMATIC` invocation policy on
+  first registration (only when the agent has no policy configured yet —
+  existing configured policies are never touched), so a freshly registered
+  interactive runtime is reachable without a separate manual policy step.
+- `agent-comms runtime interactive-serve --launch-terminal` opens a fresh,
+  dedicated terminal window running the same command instead of requiring
+  it to be typed by hand into a new terminal.
+- A public Next.js marketing site and Astro docs site (landing page,
+  install/download page, releases and changelog pages, full CLI/MCP
+  reference generated from the binary's own `--help` output), deployed to
+  production on every `dev` push. A nightly, unstable build channel
+  (`agentcomms-nightly` on GHCR, versioned `0.0.0-nightly`) for developers
+  sanity-checking `dev`'s current state, separate from tagged Beta
+  releases.
+
+### Fixed
+
+- A long tail of TUI correctness fixes found by making the interface work
+  at real terminal sizes rather than a desktop-sized minimum, including:
+  row lists silently overflowing their own pane with no way to scroll to
+  the hidden rows; click coordinates drifting out of sync with rendered
+  rows after layout changes; Project Settings' domain rail and footer
+  keybindings wrapping or truncating; sidebar clicks breaking after the
+  first one; and toast notifications overlapping the command rail.
+- Two real ANSI/text-wrapping corruption bugs, both confirmed live and now
+  regression-tested: `renderSidebar`'s compact fallback (short terminals)
+  truncated the sidebar title *after* styling it, so the naive rune-based
+  `truncate()` chopped through a color escape code and leaked raw,
+  unterminated codes onto the screen instead of the title. Separately,
+  `settingsControl`'s bordered box relied on lipgloss's own
+  `Width()`-triggered implicit wrap for multi-line content, which
+  confirmably renders several columns wider than requested for specific
+  (width, text) pairs — the widened box then got clipped by the outer
+  screen, splitting its own border mid-line. Fixed with a `wrapText()`
+  helper that pre-wraps content correctly before any styling or box width
+  is applied, rather than trusting the implicit wrap.
+- `interactiveserve.Takeover` now walks its own parent chain before
+  touching the target PID and refuses outright if it would be taking over
+  its own ancestor — confirmed live that an agent self-relaunching through
+  its own Bash tool call (a descendant of the session being taken over)
+  took its own controlling terminal down with it, with no clear error
+  explaining why.
+- Stale interactive-serve sockets and lock files are now cleaned up
+  automatically on startup via a dial-liveness check, instead of requiring
+  manual cleanup after an unclean shutdown.
+- `discoverClaudeSessionID` takes the Claude home directory as an explicit
+  parameter instead of resolving it internally, fixing a real Windows CI
+  failure (`os.UserHomeDir()` reads `%USERPROFILE%` there, not `$HOME`,
+  which had made a test's `t.Setenv("HOME", ...)` silently a no-op).
+  `buildinfo`'s dev build ID now hashes binary content directly instead of
+  path+size+modtime, which could collide or drift without a real content
+  change.
+- `LoadProjectAdapters` errors now surface as warnings instead of being
+  discarded silently, and are wired into CLI startup; declarative adapters
+  can no longer silently override a built-in adapter of the same name; a
+  blocking socket read was removed from the TUI's own `View()` method.
+- An orchestrator-grant approval error message suggested a command that
+  couldn't actually be run as written.
+- `agent-comms init` no longer leaves Agent Comms' own local files
+  unignored when run against a fresh repo with no existing `.gitignore`.
+- Assorted CI/release fixes: missing Cosign `.bundle` uploads for CLI
+  binaries, a Windows build break in `GracePeriod`, Lighthouse performance
+  noise failing docs/landing CI non-deterministically, and a truncated
+  action SHA in the landing job.
+
+### Security
+
+- **Removed the `agy` (Google Antigravity) worker adapter and every
+  agy-specific integration point** — the built-in adapter itself, its
+  session-ID auto-discovery and resume-pinning, and its undocumented
+  environment-variable capture — over a genuinely unresolved question of
+  whether *any* third-party automation of the official `agy` CLI complies
+  with Antigravity's Terms of Service (Section 6's broad "products not
+  provided by us" language, and an active, ongoing pattern of Google
+  suspending accounts for exactly this on its own official forum, neither
+  ever resolved by explicit clarification from Google). This never reached
+  a tagged release, so there is nothing for an existing install to migrate
+  away from. The underlying declarative adapter system can still fully
+  express agy's real CLI shape for a project that wants to add it back at
+  its own discretion — nothing agy-specific is required in this project's
+  own source for that. Full research record and rationale in
+  `docs/backlog.md`'s "Compliance / third-party terms of service" section.
+- A new adapter contract test (`TestAdapterDefaultPermissionModeIsNotANoOp`)
+  catches a real, previously-shipped class of bug: an adapter's `Validate`
+  defaulting an unset `PermissionMode` to a value its own `Arguments()` has
+  no case for, so the default silently behaves as if it were never set.
+
 ## [0.2.1] - 2026-08-02 — “The Missing Bundle”
 
 *A hotfix restoring the Cosign-signed installer bundles that v0.2.0's CLI

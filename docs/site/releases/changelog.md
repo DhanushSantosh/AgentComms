@@ -4,13 +4,35 @@ description: What changed in each tagged release, why it matters, and where to f
 section: Releases
 order: 1
 audience: Everyone
-lastVerified: 2026-08-02
+lastVerified: 2026-08-08
 related: [guide/maintenance, security/releases]
 ---
 
 Every tagged release is signed and dated. This page summarizes what changed and why; the repository's [CHANGELOG.md](https://github.com/DhanushSantosh/AgentComms/blob/main/CHANGELOG.md) carries the exhaustive per-change detail this page intentionally leaves out.
 
 Every release below is **Beta** — before v1.0.0, SemVer's own 0.x.y convention means anything may still change without notice. There is no Stable channel yet; that label only becomes accurate once a 1.x release ships.
+
+## v0.3.0 — "Point and Click" — Beta — 2026-08-08
+
+A TUI you can drive with a mouse from a real-sized terminal, session-pinned interactive delivery that survives a restart, a declarative path for adding new CLI providers without touching Go, and a public marketing/docs site.
+
+**Added**
+
+- Full native mouse support across the TUI — click, scroll, sidebar and hub-tab navigation, double-click-to-act, and Project settings (the one view that was missing it) — plus dynamic responsive layout, so the TUI no longer requires a desktop-sized terminal.
+- `--takeover-pid` safely migrates a live interactive session, and every migrated/resumed session now pins its exact provider session ID (auto-discovered for claude and opencode) instead of racing each provider CLI's own "most recent session" guess.
+- A declarative JSON adapter specification system: add a new CLI provider by dropping a spec file under `.agent-comms/adapters/`, no Go changes required.
+- `runtime.delete`, `task lock`, `runtime verify-adapter`, and human-readable table output by default for agent/runtime/invocation list commands.
+- A public marketing site and docs site, and a nightly beta build channel.
+
+**Fixed**
+
+- A long tail of TUI correctness fixes found by making the interface work at real terminal sizes, including two real ANSI/text-wrapping corruption bugs (a truncated escape sequence leaking onto screen; a bordered box that could render wider than the terminal and split its own border mid-line).
+- `interactive-serve --takeover-pid` now refuses outright if the calling process is itself a descendant of the target PID, instead of silently killing its own controlling terminal.
+- Stale interactive-serve sockets are cleaned up automatically on startup.
+
+**Security**
+
+- Removed the `agy` (Google Antigravity) worker adapter and every agy-specific integration point, over a genuinely unresolved third-party Terms of Service compliance question. This never reached a tagged release, so there is nothing for an existing install to migrate away from. Full research record in the repository's `docs/backlog.md`.
 
 ## v0.2.1 — "The Missing Bundle" — Beta — 2026-08-02
 

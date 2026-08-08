@@ -185,6 +185,7 @@ test("lists every tagged release on the releases page", async ({ page }) => {
   await page.goto("/releases");
 
   await expect(page.getByRole("heading", { level: 1, name: /Nothing ships without a changelog/ })).toBeVisible();
+  await expect(page.getByText("v0.3.0", { exact: true })).toBeVisible();
   await expect(page.getByText("v0.2.1", { exact: true })).toBeVisible();
   await expect(page.getByText("v0.2.0", { exact: true })).toBeVisible();
   await expect(page.getByText("v0.1.0", { exact: true })).toBeVisible();
