@@ -68,22 +68,16 @@ func TestDiscoverClaudeSessionIDReportsNotOkForMalformedJSON(t *testing.T) {
 	}
 }
 
+// TestDiscoverSessionIDUnknownAdapterReportsNotOk covers both a
+// never-wrapped adapter (codex) and agy specifically -- agy support
+// (including its own discoverer) was removed 2026-08-08, so it must now
+// fall through to the same not-ok default as any other unrecognized name.
 func TestDiscoverSessionIDUnknownAdapterReportsNotOk(t *testing.T) {
-	sessionID, ok := discoverSessionID("codex", 1, t.TempDir())
-	if ok || sessionID != "" {
-		t.Fatalf("expected codex (not wrapped by interactive-serve, no discoverer registered) to report not-ok, got ok=%v id=%q", ok, sessionID)
-	}
-}
-
-// TestDiscoverSessionIDDispatchesAgyWithoutOptInReportsNotOk exercises the
-// dispatcher's agy branch specifically (discoverAgySessionID itself is
-// covered directly in sessiondiscovery_agy_test.go): without the opt-in,
-// this must return immediately, not poll out the full timeout.
-func TestDiscoverSessionIDDispatchesAgyWithoutOptInReportsNotOk(t *testing.T) {
-	t.Setenv("AGENT_COMMS_ALLOW_UNDOCUMENTED_AGY_ENV", "")
-	sessionID, ok := discoverSessionID("agy", 1, t.TempDir())
-	if ok || sessionID != "" {
-		t.Fatalf("expected no discovery without the agy opt-in set, got ok=%v id=%q", ok, sessionID)
+	for _, adapter := range []string{"codex", "agy"} {
+		sessionID, ok := discoverSessionID(adapter, 1, t.TempDir())
+		if ok || sessionID != "" {
+			t.Fatalf("expected %s (no discoverer registered) to report not-ok, got ok=%v id=%q", adapter, ok, sessionID)
+		}
 	}
 }
 

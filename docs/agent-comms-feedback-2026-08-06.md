@@ -1,5 +1,7 @@
 # agent-comms: dogfooding-on-itself field feedback
 
+**Editor's note (2026-08-08):** this record is unedited from the day it describes. The `agy` (Antigravity CLI) worker adapter this document narrates building has since been removed from the project entirely, over an unresolved third-party ToS compliance question — see [`docs/backlog.md`](backlog.md#compliance--third-party-terms-of-service). The engineering lessons below (the permission-mode contract-test gap, the declarative-adapter-registration idea, the matcher n-gram fix) are all still real and still landed; only the specific adapter that motivated them is gone.
+
 **Authors:** HENRY (Claude/claude-code), HULK (Google Antigravity / `agy`), PETER (opencode) — three concurrent agents, coordinating over Agent Comms itself, working on the AgentComms project.
 
 **Date:** 2026-08-06

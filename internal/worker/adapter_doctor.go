@@ -27,8 +27,11 @@ import (
 // removed, or simply never existed), is exactly what --help does document,
 // and is what this checks automatically instead of requiring a human to
 // re-run that same manual comparison by hand every time an adapter changes.
+// (agy itself is no longer a built-in adapter -- removed 2026-08-08 over an
+// unresolved third-party-ToS compliance question, see docs/backlog.md --
+// this historical note about how the check was motivated stays accurate
+// regardless.)
 var adapterSourceFile = map[string]string{
-	"agy":      "adapter_agy.go",
 	"claude":   "adapter_claude.go",
 	"codex":    "adapter_codex.go",
 	"opencode": "adapter_opencode.go",

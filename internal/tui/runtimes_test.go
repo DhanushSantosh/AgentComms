@@ -30,12 +30,16 @@ func TestRuntimeSessionBindingReflectsCapturedProviderAndID(t *testing.T) {
 		t.Fatalf("expected the full bound codex provider and thread ID, got provider=%q session=%q", provider, session)
 	}
 
+	// agy support was removed 2026-08-08; a stale local binding from before
+	// that (or any other adapter this view has no dedicated label for) must
+	// still display honestly via the raw adapter string, not error out or
+	// disappear.
 	if err := sessionbind.Save(source.root, "hulk-runtime-1", "5885f88c-6cdf-4343-ad9d-693e66d41852", "agy"); err != nil {
 		t.Fatal(err)
 	}
 	provider, session = source.sessionBinding("hulk-runtime-1")
-	if provider != "Antigravity (agy)" || session != "5885f88c-6cdf-4343-ad9d-693e66d41852" {
-		t.Fatalf("expected the full bound agy provider and conversation ID, got provider=%q session=%q", provider, session)
+	if provider != "agy" || session != "5885f88c-6cdf-4343-ad9d-693e66d41852" {
+		t.Fatalf("expected the raw adapter string for an unmapped/removed adapter, got provider=%q session=%q", provider, session)
 	}
 
 	if err := sessionbind.Save(source.root, "peter-runtime-1", "ses_032d59696ffepgBGk73AiMF00F", "opencode"); err != nil {

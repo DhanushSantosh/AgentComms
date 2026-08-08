@@ -6844,7 +6844,7 @@
         },
         {
           "name": "adapter",
-          "usage": "adapter name (agy, claude, codex, opencode)",
+          "usage": "adapter name (claude, codex, opencode)",
           "default": "",
           "type": "string"
         },
@@ -6918,7 +6918,7 @@
         },
         {
           "name": "adapter",
-          "usage": "agy, claude, codex, opencode, claude-live, codex-live, opencode-live, claude-acp, opencode-acp, or codex-acp",
+          "usage": "claude, codex, opencode, claude-live, codex-live, opencode-live, claude-acp, opencode-acp, or codex-acp",
           "default": "claude",
           "type": "string"
         },

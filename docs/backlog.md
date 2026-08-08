@@ -6,6 +6,30 @@ one is picked up, remove it from here and note the landing commit.
 
 ## Compliance / third-party terms of service
 
+- **RESOLVED 2026-08-08: `agy` (Google Antigravity) support removed from the
+  project entirely**, rather than pursued further by inference or by
+  waiting on clarification from Google (the "worth pursuing" note at the
+  end of this entry was never acted on). Removed: the built-in worker
+  adapter (`internal/worker/adapter_agy.go`, deleted), its `builtInAdapters`
+  entry, its declarative-Prompt() special case, `sessionbind`'s
+  `ANTIGRAVITY_CONVERSATION_ID` capture (`AgyUndocumentedEnvAllowed`,
+  `AGENT_COMMS_ALLOW_UNDOCUMENTED_AGY_ENV`, all deleted, not just gated),
+  `interactiveserve.PinResumeArgs`'s agy resume-flag mapping, and
+  `app.discoverSessionID`'s `/proc/<pid>/environ` auto-discovery for it. The
+  generic `interactive-serve -- <any CLI>` wrapping capability itself is
+  untouched and unaffected — nothing agy-specific was needed for that to
+  work, since it wraps whatever executable it's given regardless.
+  Deliberately kept technically reachable, not walled off: the declarative
+  JSON adapter system (`internal/worker/declarative.go`) can fully replicate
+  agy's real argument shape (confirmed by
+  `TestDeclarativeAdapterAgyEquivalence`, which predates this removal and
+  still passes), and "agy" is no longer a blocked built-in name
+  (`TestRegisterDeclarativeAdapterAcceptsAgy`) -- a project that wants this
+  can add its own `.agent-comms/adapters/agy.json` spec, entirely at its own
+  discretion and risk, with zero agy-specific code shipped by this project
+  itself. The rest of this entry is kept verbatim below as the research
+  record that led here.
+
 - **The `agy` (Google Antigravity) adapter — both its own design and one
   implementation detail — sits inside a genuinely open compliance question;
   the deeper question of whether *any* third-party automation of the

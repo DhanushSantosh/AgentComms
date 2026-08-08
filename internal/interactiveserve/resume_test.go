@@ -22,10 +22,11 @@ func TestPinResumeArgsStripsShortContinueFlag(t *testing.T) {
 }
 
 func TestPinResumeArgsAppendsExplicitFlagWhenNoImplicitOnePresent(t *testing.T) {
-	// agy has no implicit "continue" flag at all in resumeSpecs, so a bare
-	// `agy` invocation should just gain --conversation <id>.
-	got := PinResumeArgs([]string{"agy"}, "conv-1")
-	want := []string{"agy", "--conversation", "conv-1"}
+	// A bare `opencode` invocation (no --continue/-c typed at all) has
+	// nothing for the implicit-flag stripping loop to find, but should
+	// still gain the explicit --session <id> unconditionally.
+	got := PinResumeArgs([]string{"opencode"}, "sess-1")
+	want := []string{"opencode", "--session", "sess-1"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %v, want %v", got, want)
 	}

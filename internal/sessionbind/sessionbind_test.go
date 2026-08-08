@@ -71,54 +71,6 @@ func TestCaptureReadsCodexThreadEnv(t *testing.T) {
 	}
 }
 
-// TestCaptureReadsAntigravityConversationEnv covers agy the same way
-// TestCaptureReadsClaudeSessionEnv and TestCaptureReadsCodexThreadEnv
-// already do for claude/codex -- this had no coverage at all when the agy
-// env var check was added, and the variable it originally checked
-// (ANTIGRAVITY_SESSION_ID, with an AGY_SESSION_ID fallback) turned out not
-// to be real: `strings`-ing the installed agy binary found neither name
-// anywhere, but did find the literal JS
-// `conversationId: process.env.ANTIGRAVITY_CONVERSATION_ID` in a bundled
-// sidecar script. Unlike the claude/codex vars, this one is not published by
-// Google anywhere, so Capture only acts on it with the explicit opt-in set
-// (see Capture's doc comment for the ToS reasoning) -- this test sets it.
-func TestCaptureReadsAntigravityConversationEnv(t *testing.T) {
-	clearProviderEnv(t)
-	t.Setenv(agyUndocumentedEnvOptIn, "1")
-	t.Setenv("ANTIGRAVITY_CONVERSATION_ID", "b4b6b7f0-6b8b-4b8b-8b8b-6b8b4b8b6b8b")
-	sessionID, adapter := Capture()
-	if sessionID != "b4b6b7f0-6b8b-4b8b-8b8b-6b8b4b8b6b8b" || adapter != "agy" {
-		t.Fatalf("unexpected capture: session=%q adapter=%q", sessionID, adapter)
-	}
-}
-
-// TestCaptureIgnoresAntigravityConversationEnvWithoutOptIn is the opt-in
-// gate's actual guarantee: ANTIGRAVITY_CONVERSATION_ID alone, without
-// agyUndocumentedEnvOptIn also set, must never be acted on -- this is what
-// keeps agy session capture from happening silently by default the way
-// TestCaptureReadsAntigravityConversationEnv confirms it does happen once
-// an operator has consciously opted in.
-func TestCaptureIgnoresAntigravityConversationEnvWithoutOptIn(t *testing.T) {
-	clearProviderEnv(t)
-	t.Setenv("ANTIGRAVITY_CONVERSATION_ID", "b4b6b7f0-6b8b-4b8b-8b8b-6b8b4b8b6b8b")
-	sessionID, adapter := Capture()
-	if sessionID != "" || adapter != "" {
-		t.Fatalf("expected no capture without opt-in, got session=%q adapter=%q", sessionID, adapter)
-	}
-}
-
-func TestCapturePrefersAgyOverClaudeAndCodexWhenBothPresent(t *testing.T) {
-	clearProviderEnv(t)
-	t.Setenv(agyUndocumentedEnvOptIn, "1")
-	t.Setenv("ANTIGRAVITY_CONVERSATION_ID", "b4b6b7f0-6b8b-4b8b-8b8b-6b8b4b8b6b8b")
-	t.Setenv("CLAUDE_CODE_SESSION_ID", "3c48b78d-184f-4c66-ae96-4d7294075d36")
-	t.Setenv("CODEX_THREAD_ID", "019e5408-3ef4-7db3-b584-03ad8f399199")
-	sessionID, adapter := Capture()
-	if sessionID != "b4b6b7f0-6b8b-4b8b-8b8b-6b8b4b8b6b8b" || adapter != "agy" {
-		t.Fatalf("expected agy to win when all three are set, got session=%q adapter=%q", sessionID, adapter)
-	}
-}
-
 func TestCapturePrefersClaudeWhenBothPresent(t *testing.T) {
 	clearProviderEnv(t)
 	t.Setenv("CLAUDE_CODE_SESSION_ID", "3c48b78d-184f-4c66-ae96-4d7294075d36")
@@ -145,7 +97,6 @@ func TestCaptureReportsNothingWithoutProviderEnv(t *testing.T) {
 func clearProviderEnv(t *testing.T) {
 	t.Helper()
 	for _, name := range []string{
-		"ANTIGRAVITY_CONVERSATION_ID", agyUndocumentedEnvOptIn,
 		"CLAUDE_CODE_SESSION_ID", "CODEX_THREAD_ID",
 	} {
 		t.Setenv(name, "")

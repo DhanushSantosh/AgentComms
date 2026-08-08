@@ -8,18 +8,17 @@ import "path/filepath"
 //
 // The implicit mode is what interactive-serve's --takeover-pid respawn has
 // relied on since it was built, and it is unsafe across a kill/respawn
-// boundary: confirmed live 2026-08-07 by asking HULK (running agy) and
-// PETER (running opencode) directly, from their own CLI's vantage point,
-// rather than guessing. HULK: "without an explicit ID on SIGTERM/takeover
-// respawn, agy falls back to recency-based session lookup, which can pick
-// up the wrong session file or fork a blank session if another process or
-// background check touched the brain directory in between." PETER, for
-// opencode, is worse: there is no implicit resume at all -- a bare relaunch
-// always starts a brand new session, full stop, unless --session is passed.
-// Claude Code's own --help draws the same line explicitly: -c/--continue is
-// "the most recent conversation in the current directory" (recency-based),
-// while -r/--resume takes an exact session ID. See docs/backlog.md's
-// "Interactive-serve session pinning" entry for the fuller writeup.
+// boundary: confirmed live 2026-08-07 by asking PETER (running opencode)
+// directly, from its own CLI's vantage point, rather than guessing --
+// opencode has no implicit resume at all, a bare relaunch always starts a
+// brand new session, full stop, unless --session is passed. Claude Code's
+// own --help draws the same line explicitly: -c/--continue is "the most
+// recent conversation in the current directory" (recency-based), while
+// -r/--resume takes an exact session ID. See docs/backlog.md's
+// "Interactive-serve session pinning" entry for the fuller writeup. (An agy
+// entry lived here too, briefly -- removed 2026-08-08 along with the rest
+// of agy support, over an unresolved third-party ToS compliance question;
+// same doc.)
 type resumeSpec struct {
 	// implicitFlags are argv tokens meaning "resume the most recent
 	// session" -- stripped when an explicit sessionID is being pinned in
@@ -39,7 +38,6 @@ type resumeSpec struct {
 // shape nothing exercises yet.
 var resumeSpecs = map[string]resumeSpec{
 	"claude":   {implicitFlags: []string{"--continue", "-c"}, explicitFlag: "--resume"},
-	"agy":      {explicitFlag: "--conversation"},
 	"opencode": {implicitFlags: []string{"--continue", "-c"}, explicitFlag: "--session"},
 }
 

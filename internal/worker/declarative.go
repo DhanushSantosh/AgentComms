@@ -92,9 +92,6 @@ func (d declarativeAdapter) Arguments(config Config) []string {
 }
 
 func (d declarativeAdapter) Prompt(actor string, invocation model.Invocation) string {
-	if d.spec.Name == "agy" {
-		return agyPrompt(actor, invocation)
-	}
 	return defaultPrompt(actor, invocation, d.spec.PromptHeader)
 }
 
@@ -125,7 +122,6 @@ func defaultPrompt(actor string, invocation model.Invocation, header string) str
 }
 
 var builtInAdapters = map[string]bool{
-	"agy":           true,
 	"claude":        true,
 	"codex":         true,
 	"opencode":      true,

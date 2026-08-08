@@ -95,10 +95,23 @@ func TestLoadDeclarativeAdaptersFromDir(t *testing.T) {
 }
 
 func TestRegisterDeclarativeAdapterRefusesToOverwriteBuiltIn(t *testing.T) {
-	for _, builtIn := range []string{"agy", "claude", "codex", "opencode", "claude-acp"} {
+	for _, builtIn := range []string{"claude", "codex", "opencode", "claude-acp"} {
 		spec := DeclarativeSpec{Name: builtIn, ExecutableName: builtIn}
 		if err := RegisterDeclarativeAdapter(spec); err == nil {
 			t.Fatalf("expected RegisterDeclarativeAdapter to refuse overwriting built-in adapter %q", builtIn)
 		}
+	}
+}
+
+// TestRegisterDeclarativeAdapterAcceptsAgy confirms agy is no longer a
+// built-in name -- removed 2026-08-08 over an unresolved third-party ToS
+// compliance question (see docs/backlog.md) -- so it's now available for a
+// project to define its own declarative spec under, exactly like any other
+// non-built-in CLI provider. TestDeclarativeAdapterAgyEquivalence already
+// proves the declarative system can fully replicate its real argument
+// shape; this confirms the name itself is actually free to register.
+func TestRegisterDeclarativeAdapterAcceptsAgy(t *testing.T) {
+	if err := RegisterDeclarativeAdapter(DeclarativeSpec{Name: "agy", ExecutableName: "agy"}); err != nil {
+		t.Fatalf("expected agy to be registrable now that it isn't built-in, got: %v", err)
 	}
 }

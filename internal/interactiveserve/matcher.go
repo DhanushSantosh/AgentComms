@@ -183,7 +183,7 @@ func echoed(buf []byte, text string) bool {
 	}
 
 	// Fallback: If text contains an invocation ID (inv-...), check if that unique ID is present in normBuf.
-	// TUIs with line-wrap decorations (like agy/opencode) may break long text streams with UI status elements.
+	// TUIs with line-wrap decorations (like opencode) may break long text streams with UI status elements.
 	if idx := strings.Index(text, "inv-"); idx >= 0 {
 		end := idx + 4
 		for end < len(text) && (text[end] >= '0' && text[end] <= '9' || text[end] >= 'a' && text[end] <= 'z' || text[end] >= 'A' && text[end] <= 'Z') {

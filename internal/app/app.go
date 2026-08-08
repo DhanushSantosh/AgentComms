@@ -1259,7 +1259,7 @@ func (c *cli) runtimeCmd() *cobra.Command {
 	}
 	workerCommand.Flags().String("id", "", "registered runtime ID")
 	_ = workerCommand.MarkFlagRequired("id")
-	workerCommand.Flags().StringVar(&workerAdapter, "adapter", "claude", "agy, claude, codex, opencode, claude-live, codex-live, opencode-live, claude-acp, opencode-acp, or codex-acp")
+	workerCommand.Flags().StringVar(&workerAdapter, "adapter", "claude", "claude, codex, opencode, claude-live, codex-live, opencode-live, claude-acp, opencode-acp, or codex-acp")
 	workerCommand.Flags().StringVar(&workerExecutable, "executable", "", "absolute agent executable path")
 	workerCommand.Flags().StringVar(&workerModel, "model", "", "agent model override")
 	workerCommand.Flags().StringVar(&workerSessionID, "session-id", "", "existing Claude or Codex conversation UUID to resume")
@@ -1394,7 +1394,7 @@ func (c *cli) runtimeCmd() *cobra.Command {
 			})
 		},
 	}
-	verifyFlags.Flags().StringVar(&verifyAdapter, "adapter", "", "adapter name (agy, claude, codex, opencode)")
+	verifyFlags.Flags().StringVar(&verifyAdapter, "adapter", "", "adapter name (claude, codex, opencode)")
 	_ = verifyFlags.MarkFlagRequired("adapter")
 	verifyFlags.Flags().StringVar(&verifyExecutable, "executable", "", "path to the real installed CLI binary")
 	_ = verifyFlags.MarkFlagRequired("executable")

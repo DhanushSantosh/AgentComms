@@ -20,7 +20,6 @@ import (
 // at all).
 var permissionSignatureByAdapter = map[string]func(Config) string{
 	"claude":   func(c Config) string { return strings.Join(claudeAdapter{}.Arguments(c), "\x00") },
-	"agy":      func(c Config) string { return strings.Join(agyAdapter{}.Arguments(c), "\x00") },
 	"opencode": func(c Config) string { return opencodePermissionEnv(c.PermissionMode) },
 }
 
