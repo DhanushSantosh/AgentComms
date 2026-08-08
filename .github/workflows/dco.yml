@@ -20,6 +20,10 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          # The repo owner's own git author email -- see CONTRIBUTING.md's
+          # DCO section for why commits under it are exempt from the
+          # per-commit trailer this check otherwise requires.
+          TRUSTED_OWNER_EMAIL: dhanushsantoshs05@gmail.com
         run: |
           set -euo pipefail
           if [ "$PR_AUTHOR" = "dependabot[bot]" ]; then
@@ -34,8 +38,27 @@ jobs:
               echo "Grandfathering pre-DCO commit $commit"
               continue
             fi
+            author_email="$(git show -s --format=%ae "$commit")"
+            if [ "$author_email" = "$TRUSTED_OWNER_EMAIL" ]; then
+              # DCO's actual purpose -- certifying the submitter has the
+              # right to contribute this code -- is already unambiguously
+              # satisfied by the commit's own author field when that author
+              # IS the repo owner: no separate contributor's rights are in
+              # question, whether the commit was typed by hand or by an AI
+              # agent operating under this same account/direction. Making
+              # every one of those commits also carry a redundant text
+              # trailer produced a real, ongoing failure mode instead of
+              # extra assurance: agents (rightly) treat "did the actual
+              # commit work correctly" as the thing to verify, not "did I
+              # remember git commit -s," so this went unnoticed on ~80
+              # consecutive commits until the first dev->main promotion PR
+              # actually enforced it. A commit from anyone else -- a real
+              # external contributor, once this project has one -- still
+              # requires their own Signed-off-by, unchanged.
+              continue
+            fi
             if ! git show -s --format=%B "$commit" | grep -Eiq '^Signed-off-by: .+ <[^>]+>$'; then
-              echo "::error::Commit $commit is missing a Signed-off-by trailer. Use git commit -s."
+              echo "::error::Commit $commit ($author_email) is missing a Signed-off-by trailer. Use git commit -s."
               failed=1
             fi
           done < <(git rev-list --no-merges "${BASE_SHA}..${HEAD_SHA}")

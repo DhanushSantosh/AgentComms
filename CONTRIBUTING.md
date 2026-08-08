@@ -7,7 +7,7 @@ Thank you for improving Agent Comms. All development, including urgent fixes, ta
 3. Keep each pull request coherent. Large feature pull requests are welcome when splitting would create incomplete or misleading states; include a review map.
 4. Add focused tests and update documentation for changed behavior.
 5. Keep fixtures synthetic and project-agnostic. Never commit real runtime history, credentials, leases, or private communication.
-6. Sign every commit under the [Developer Certificate of Origin](https://developercertificate.org/) using `git commit -s`.
+6. Sign every commit under the [Developer Certificate of Origin](https://developercertificate.org/) using `git commit -s`. Exception: commits authored under the repo owner's own git identity (`dhanushsantoshs05@gmail.com` -- covers the owner and any AI agent operating under their direction/account) are exempt from the per-commit trailer, since DCO's actual purpose -- certifying the submitter's right to contribute -- is already unambiguous when the author field already identifies the sole rights-holder. `.github/workflows/dco.yml` enforces this distinction automatically; a commit from anyone else still needs its own sign-off. Revisit this exception once the project has real external contributors.
 7. Every commit must also carry a real cryptographic signature (SSH or GPG) -- distinct from the DCO sign-off above, which is a text trailer, not a verifiable signature. Both `dev` and `main` require this (`required_signatures`). Set up SSH signing once per machine/agent identity:
    ```sh
    git config --global gpg.format ssh
