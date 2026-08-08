@@ -114,30 +114,51 @@ func validateConfig(config Config) (Config, error) {
 	return config, nil
 }
 
-// EnsureRuntimeHidden keeps local runtime state out of the host repository's
-// untracked-file surface without changing the shared project .gitignore.
+// runtimeIgnoreRules are the project-root entries that keep Agent Comms'
+// own bootstrap file and runtime directory out of the host repository's
+// tracked/untracked-file surface.
+var runtimeIgnoreRules = []string{"/.agents", "/.agent-comms/"}
+
+// EnsureRuntimeHidden adds runtimeIgnoreRules to the project's .gitignore
+// if the project root is a Git repository, creating the file if the
+// project doesn't already have one -- so a freshly `git init`'d directory
+// with no .gitignore yet still never shows Agent Comms' own bootstrap file
+// or runtime directory as untracked after `init` runs. A prior version of
+// this only wrote to the local, per-clone .git/info/exclude and only
+// covered /.agent-comms/, which meant .agents always showed up untracked
+// and the exclusion never traveled with the repo for other clones/
+// collaborators; both gaps are why this now edits the real .gitignore.
 func (s *Store) EnsureRuntimeHidden() error {
-	excludePath := filepath.Join(s.Root, ".git", "info", "exclude")
-	content, err := os.ReadFile(excludePath)
-	if os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(s.Root, ".git")); err != nil {
 		return nil
 	}
-	if err != nil {
-		return fmt.Errorf("read Git exclude file: %w", err)
+	gitignorePath := filepath.Join(s.Root, ".gitignore")
+	content, err := os.ReadFile(gitignorePath)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("read .gitignore: %w", err)
 	}
-	const rule = "/.agent-comms/"
+	existing := map[string]bool{}
 	for _, line := range strings.Split(string(content), "\n") {
-		if strings.TrimSpace(line) == rule {
-			return nil
+		existing[strings.TrimSpace(line)] = true
+	}
+	var missing []string
+	for _, rule := range runtimeIgnoreRules {
+		if !existing[rule] {
+			missing = append(missing, rule)
 		}
+	}
+	if len(missing) == 0 {
+		return nil
 	}
 	if len(content) > 0 && content[len(content)-1] != '\n' {
 		content = append(content, '\n')
 	}
-	content = append(content, rule...)
-	content = append(content, '\n')
-	if err = os.WriteFile(excludePath, content, 0o644); err != nil {
-		return fmt.Errorf("hide runtime from Git status: %w", err)
+	for _, rule := range missing {
+		content = append(content, rule...)
+		content = append(content, '\n')
+	}
+	if err = os.WriteFile(gitignorePath, content, 0o644); err != nil {
+		return fmt.Errorf("update .gitignore: %w", err)
 	}
 	return nil
 }

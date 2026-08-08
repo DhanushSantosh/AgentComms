@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/DhanushSantosh/AgentComms/internal/worker"
 )
 
 // Binding records which provider conversation a runtime is bound to.
@@ -35,14 +37,23 @@ func Path(projectRoot string) string {
 // to commands run by its shell tool, injected even when the configured
 // shell_environment_policy restricts inherited variables to an include_only
 // list — so it survives a restrictive policy the way an ordinary env var
-// would not. Both are the same identifier accepted by that provider's
-// `resume`/`--session-id` flag.
+// would not. Both are publicly documented behavior of their respective CLIs.
+//
+// (This package previously also captured agy/Antigravity sessions via an
+// undocumented env var found only by running `strings` on the installed
+// binary -- removed 2026-08-08 along with the rest of agy support, over an
+// unresolved third-party ToS compliance question; see docs/backlog.md.)
 func Capture() (sessionID, adapter string) {
 	if id := strings.TrimSpace(os.Getenv("CLAUDE_CODE_SESSION_ID")); id != "" {
 		return id, "claude"
 	}
 	if id := strings.TrimSpace(os.Getenv("CODEX_THREAD_ID")); id != "" {
 		return id, "codex"
+	}
+	for envVar, adapterName := range worker.GetRegisteredDeclarativeSessionEnvVars() {
+		if id := strings.TrimSpace(os.Getenv(envVar)); id != "" {
+			return id, adapterName
+		}
 	}
 	return "", ""
 }

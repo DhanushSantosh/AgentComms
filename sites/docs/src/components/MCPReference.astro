@@ -1,0 +1,73 @@
+---
+type Schema = { type?: string; enum?: string[]; minimum?: number; maximum?: number; default?: unknown; description?: string };
+type Tool = { name: string; description: string; inputSchema: { properties: Record<string, Schema>; required: string[] } };
+const { tools } = Astro.props as { tools: Tool[] };
+---
+
+<section class="tool-catalog">
+  <div class="tool-catalog__head"><span>{tools.length} tools</span><span>MCP 2025-06-18</span></div>
+  {tools.map((tool) => (
+    <details class="tool-entry">
+      <summary><code>{tool.name}</code><span>{tool.description}</span><span class="tool-entry__count">{Object.keys(tool.inputSchema.properties).length} fields</span></summary>
+      <div class="tool-entry__body">
+        {Object.keys(tool.inputSchema.properties).length === 0 ? (
+          <p>No arguments.</p>
+        ) : (
+          <div class="schema-table">
+            {Object.entries(tool.inputSchema.properties).map(([name, schema]) => (
+              <div class="schema-row">
+                <code>{name}</code>
+                <span>{schema.type ?? "value"}{tool.inputSchema.required.includes(name) ? " · required" : " · optional"}</span>
+                <small>{schema.enum ? schema.enum.join(" | ") : [schema.minimum !== undefined ? `min ${schema.minimum}` : "", schema.maximum !== undefined ? `max ${schema.maximum}` : ""].filter(Boolean).join(" · ")}</small>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </details>
+  ))}
+</section>
+
+<style>
+  .tool-catalog {
+    border-bottom: 1px solid var(--line);
+    margin-top: 2.5rem;
+  }
+  .tool-catalog__head {
+    border-bottom: 1px solid var(--line-strong);
+    color: var(--steel);
+    display: flex;
+    font-family: var(--font-mono);
+    font-size: 0.62rem;
+    justify-content: space-between;
+    letter-spacing: 0.07em;
+    padding: 0.7rem 0;
+    text-transform: uppercase;
+  }
+  .tool-entry { border-top: 1px solid var(--line); }
+  .tool-entry summary {
+    align-items: baseline;
+    cursor: pointer;
+    display: grid;
+    gap: 1rem;
+    grid-template-columns: minmax(9rem, 0.6fr) 1.4fr auto;
+    padding: 0.8rem 0.2rem;
+  }
+  .tool-entry summary::-webkit-details-marker { display: none; }
+  .tool-entry summary code { color: var(--brand-strong); font-size: 0.72rem; }
+  .tool-entry summary span { color: var(--muted); font-size: 0.75rem; line-height: 1.45; }
+  .tool-entry__count { color: var(--steel) !important; font-family: var(--font-mono); font-size: 0.58rem !important; text-transform: uppercase; }
+  .tool-entry__body { background: var(--surface-raised); border: 1px solid var(--line); border-left: 3px solid var(--receipt); box-shadow: 0.4rem 0.4rem 0 var(--signal-soft); margin-bottom: 0.7rem; padding: 0.8rem 1rem; }
+  .tool-entry__body > p { margin: 0; }
+  .schema-table { border-top: 1px solid var(--line); }
+  .schema-row { border-bottom: 1px solid var(--line); display: grid; gap: 0.7rem; grid-template-columns: minmax(8rem, 0.6fr) 1fr 1fr; padding: 0.55rem 0; }
+  .schema-row code { color: var(--ink); font-size: 0.7rem; }
+  .schema-row span, .schema-row small { color: var(--muted); font-size: 0.68rem; }
+  .schema-row small { color: var(--steel); font-family: var(--font-mono); }
+  @media (max-width: 40rem) {
+    .tool-entry summary { grid-template-columns: 1fr auto; }
+    .tool-entry summary span:not(.tool-entry__count) { grid-column: 1 / -1; }
+    .schema-row { grid-template-columns: 1fr 1fr; }
+    .schema-row small { grid-column: 1 / -1; }
+  }
+</style>

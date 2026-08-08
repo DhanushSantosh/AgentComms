@@ -22,7 +22,7 @@ error, or event that surfaced the problem.
 | 6 | Messages and tasks loosely coupled | Medium — no structured "done" signal | ✅ Phase 4 — `message resolve` auto-completes linked BLOCKED task |
 | 7 | No structured environment/state registry | Medium — stale prose instead of live state | ✅ Phase 4 — `env set/get/delete/list` with typed persisted events |
 | 8 | Manually invented message IDs, untested collision behavior | Low–Medium | ✅ Phase 1 — auto-generated `msg-<timestamp>` when `--id` omitted |
-| 9 | No wake/notification integration | Medium — pure-pull model | ⏳ Phase 5 — deferred; requires host-agent runtime integration |
+| 9 | No wake/notification integration | Medium — pure-pull model | ✅ Resolved for `INTERACTIVE` runtimes — `interactiveserve.NotifyInvocation` wakes a live PTY session directly; `WORKER` runtimes remain pull-only |
 
 ---
 
@@ -198,6 +198,16 @@ arbitrarily long time with no signal that they have.
 **Proposed fix:** A wake flag on urgent-kind messages that integrates with however the receiving
 agent's runtime schedules its next invocation (e.g., surfaced through whatever wake/cron
 mechanism the host agent runtime already exposes), rather than requiring the recipient to poll.
+
+**Resolution (confirmed live 2026-08-06):** `interactiveserve.NotifyInvocation`
+(`internal/interactiveserve/interactiveserve.go`) wakes another agent's already-open
+`interactive-serve` PTY session directly and delivers a bounded notification about a pending
+invocation — three concurrent agents (HENRY/`claude-code`, HULK/`agy`, PETER/`opencode`) were each
+interrupted mid-turn by exactly this mechanism while dispatching invocations to each other in one
+session. This closes the gap for `INTERACTIVE`-kind runtimes specifically. It does not extend to
+`WORKER`-kind runtimes (`runtime worker`, batch/poll-based) — those still learn about new work only
+on their next poll, with no equivalent wake path. Choosing between the two runtime kinds for a
+latency-sensitive agent should account for this difference.
 
 ---
 

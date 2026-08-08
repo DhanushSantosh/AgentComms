@@ -262,12 +262,28 @@ func ApplyEvent(s *model.State, e model.Event) error {
 		delivery.Error = p.Error
 		s.InvocationDeliveries[p.DeliveryID] = delivery
 	case *model.RuntimeRegistered:
+		kind := effectiveRuntimeKind(p.Kind, p.Connector)
 		s.AgentRuntimes[e.EntityID] = model.AgentRuntime{
-			ID: e.EntityID, AgentID: p.AgentID, Kind: effectiveRuntimeKind(p.Kind, p.Connector),
+			ID: e.EntityID, AgentID: p.AgentID, Kind: kind,
 			Connector: p.Connector, ConfigReference: p.ConfigReference, HostID: p.HostID,
 			Status: "OFFLINE", Health: "UNKNOWN",
 			MaxConcurrent: p.MaxConcurrent, Scopes: p.Scopes, Capabilities: p.Capabilities,
 			RegisteredAt: e.Time, LastChangedBy: e.Actor,
+		}
+		if _, configured := s.InvocationPolicies[p.AgentID]; !configured {
+			if kind == model.RuntimeKindInteractive || p.Connector == "INTERACTIVE" {
+				s.InvocationPolicies[p.AgentID] = model.InvocationPolicy{
+					AgentID: p.AgentID, Mode: "AUTOMATIC",
+					DefaultConsumerMode: model.ConsumerModeEither,
+					AllowedConsumerModes: []model.ConsumerMode{
+						model.ConsumerModeInteractiveOnly,
+						model.ConsumerModeWorkerOnly,
+						model.ConsumerModeEither,
+					},
+					RequireHumanForSensitive: true,
+					UpdatedBy: e.Actor, UpdatedAt: e.Time,
+				}
+			}
 		}
 	case *model.RuntimeConfigured:
 		runtime := s.AgentRuntimes[e.EntityID]
@@ -322,6 +338,9 @@ func ApplyEvent(s *model.State, e model.Event) error {
 			runtime.Status = "OFFLINE"
 		case "runtime.revoke":
 			runtime.Status = "REVOKED"
+		case "runtime.delete":
+			delete(s.AgentRuntimes, e.EntityID)
+			return nil
 		}
 		runtime.Reason = p.Reason
 		runtime.LastChangedBy = e.Actor

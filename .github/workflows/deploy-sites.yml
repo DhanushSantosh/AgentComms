@@ -1,0 +1,49 @@
+name: deploy-sites
+on:
+  push:
+    branches: [dev]
+    paths: ['sites/**']
+  workflow_dispatch: {}
+permissions:
+  contents: read
+concurrency:
+  group: deploy-sites-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        site: [landing, docs]
+        include:
+          - site: landing
+            project_id: prj_jWXYbvtwJfukT0LsD0Neq4g6ioEN
+          - site: docs
+            project_id: prj_7BAQcgWuAqaLfUr54F8eiZq0yZeb
+    env:
+      VERCEL_ORG_ID: team_2cM7s1JXUBtYKXGzcArdtbeQ
+      VERCEL_PROJECT_ID: ${{ matrix.project_id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+        with: {fetch-depth: 0}
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with: {go-version: '1.26.5'}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22', cache: npm}
+      - run: npm ci
+      - name: Build and deploy to production
+        working-directory: sites/${{ matrix.site }}
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          DOCS_SITE_URL: https://agentcomms-docs.vercel.app
+          PUBLIC_MARKETING_SITE_URL: https://agentcomms-cli.vercel.app
+          NEXT_PUBLIC_DOCS_URL: https://agentcomms-docs.vercel.app
+          NEXT_PUBLIC_SITE_URL: https://agentcomms-cli.vercel.app
+        run: |
+          set -euo pipefail
+          npx vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
+          npx vercel build --prod --token="$VERCEL_TOKEN"
+          url=$(npx vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN")
+          echo "Deployed dev/${{ matrix.site }} -> $url"

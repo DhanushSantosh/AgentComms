@@ -20,7 +20,7 @@ var artifactAddForm = &ActionForm{
 	Fields: []FormField{
 		{Label: "File path", Placeholder: "/path/to/file", Required: true},
 	},
-	Dispatch: func(m Model, values []string) (tea.Model, tea.Cmd) {
+	Dispatch: func(m Model, values []string, _ string) (tea.Model, tea.Cmd) {
 		_, err := m.svc.AddArtifact(m.actor, values[0])
 		if err != nil {
 			m.err = err
@@ -37,10 +37,10 @@ type artifactRowSource struct{}
 
 func (artifactRowSource) Columns(width int) []table.Column {
 	sha, size, storage := 20, 12, 10
-	name := width - sha - size - storage
-	if name < 14 {
-		name = 14
+	if width < 75 {
+		sha, size, storage = 12, 8, 8
 	}
+	name := max(8, width-sha-size-storage)
 	return []table.Column{
 		{Title: "SHA256", Width: sha},
 		{Title: "NAME", Width: name},

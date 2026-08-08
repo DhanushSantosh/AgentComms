@@ -1,0 +1,219 @@
+---
+type Flag = { name: string; shorthand?: string; usage: string; default?: string; type: string };
+type Command = { path: string; use: string; summary: string; description?: string; example?: string; flags: Flag[] };
+const { commands } = Astro.props as { commands: Command[] };
+---
+
+<section class="reference-catalog" data-command-catalog>
+  <label class="reference-filter">
+    <span>Filter commands</span>
+    <input type="search" placeholder="Try invocation, runtime, or --json" data-reference-filter />
+  </label>
+  <p class="reference-count"><span data-reference-count>{commands.length}</span> visible commands</p>
+  <div class="reference-list">
+    {commands.map((command) => (
+      <details class="reference-entry" data-reference-entry data-search={`${command.path} ${command.summary} ${command.flags.map((flag) => flag.name).join(" ")}`}>
+        <summary>
+          <code>{command.path}</code>
+          <span>{command.summary}</span>
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4.5 6 3.5 3.5L11.5 6" /></svg>
+        </summary>
+        <div class="reference-entry__body">
+          {command.description && <p>{command.description}</p>}
+          <p class="usage"><span>Usage</span><code>{command.use}</code></p>
+          {command.example && <><h3>Example</h3><pre><code>{command.example}</code></pre></>}
+          {command.flags.length > 0 && (
+            <>
+              <h3>Flags</h3>
+              <div class="flag-table">
+                {command.flags.map((flag) => (
+                  <div class="flag-row">
+                    <code>{flag.shorthand ? `-${flag.shorthand}, ` : ""}--{flag.name}</code>
+                    <span>{flag.usage}</span>
+                    <small>{flag.type}{flag.default ? ` · default ${flag.default}` : ""}</small>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      </details>
+    ))}
+  </div>
+</section>
+
+<script>
+  const catalog = document.querySelector("[data-command-catalog]");
+  const filter = catalog?.querySelector<HTMLInputElement>("[data-reference-filter]");
+  const count = catalog?.querySelector("[data-reference-count]");
+  const entries = Array.from(catalog?.querySelectorAll<HTMLElement>("[data-reference-entry]") ?? []);
+  filter?.addEventListener("input", () => {
+    const query = filter.value.trim().toLowerCase();
+    let visible = 0;
+    for (const entry of entries) {
+      const matches = !query || entry.dataset.search?.toLowerCase().includes(query);
+      entry.hidden = !matches;
+      if (matches) visible += 1;
+    }
+    if (count) count.textContent = String(visible);
+  });
+</script>
+
+<style>
+  .reference-catalog {
+    border-top: 1px solid var(--line);
+    margin-top: 2.5rem;
+    padding-top: 1.2rem;
+  }
+
+  .reference-filter {
+    display: grid;
+    gap: 0.45rem;
+  }
+
+  .reference-filter span,
+  .reference-count {
+    color: var(--steel);
+    font-family: var(--font-mono);
+    font-size: 0.62rem;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+  }
+
+  .reference-filter input {
+    background: var(--surface-raised);
+    border: 1px solid var(--chrome);
+    border-left: 4px solid var(--brand);
+    border-radius: 0;
+    color: var(--ink);
+    font-size: 0.86rem;
+    padding: 0.85rem 0.95rem;
+  }
+
+  .reference-count {
+    margin: 0.65rem 0 1rem;
+  }
+
+  .reference-entry {
+    border-top: 1px solid var(--line);
+  }
+
+  .reference-entry:last-child {
+    border-bottom: 1px solid var(--line);
+  }
+
+  .reference-entry[hidden] {
+    display: none;
+  }
+
+  .reference-entry summary {
+    align-items: start;
+    cursor: pointer;
+    display: grid;
+    gap: 0.8rem;
+    grid-template-columns: minmax(13rem, 0.75fr) 1.25fr 1rem;
+    padding: 0.85rem 0.25rem;
+  }
+
+  .reference-entry summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .reference-entry summary:hover code {
+    color: var(--brand-strong);
+  }
+
+  .reference-entry summary code {
+    background: transparent;
+    border: 0;
+    color: var(--ink);
+    font-size: 0.72rem;
+    padding: 0;
+  }
+
+  .reference-entry summary span {
+    color: var(--muted);
+    font-size: 0.76rem;
+    line-height: 1.45;
+  }
+
+  .reference-entry summary svg {
+    fill: none;
+    height: 1rem;
+    stroke: var(--steel);
+    transition: transform 150ms ease;
+    width: 1rem;
+  }
+
+  .reference-entry[open] summary svg {
+    transform: rotate(180deg);
+  }
+
+  .reference-entry__body {
+    background: var(--surface-raised);
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--signal);
+    box-shadow: 0.4rem 0.4rem 0 var(--receipt-soft);
+    margin-bottom: 0.75rem;
+    padding: 1rem 1.1rem;
+  }
+
+  .reference-entry__body > p:first-child {
+    margin-top: 0;
+  }
+
+  .usage {
+    align-items: baseline;
+    display: flex;
+    gap: 0.8rem;
+  }
+
+  .usage span,
+  .reference-entry__body h3 {
+    color: var(--steel);
+    font-family: var(--font-mono);
+    font-size: 0.62rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .flag-table {
+    border-top: 1px solid var(--line);
+  }
+
+  .flag-row {
+    border-bottom: 1px solid var(--line);
+    display: grid;
+    gap: 0.7rem;
+    grid-template-columns: minmax(9rem, 0.8fr) 1.2fr;
+    padding: 0.65rem 0;
+  }
+
+  .flag-row code {
+    align-self: start;
+  }
+
+  .flag-row span {
+    font-size: 0.76rem;
+  }
+
+  .flag-row small {
+    color: var(--steel);
+    font-family: var(--font-mono);
+    font-size: 0.59rem;
+    grid-column: 2;
+  }
+
+  @media (max-width: 38rem) {
+    .reference-entry summary,
+    .flag-row {
+      grid-template-columns: 1fr auto;
+    }
+
+    .reference-entry summary span,
+    .flag-row span,
+    .flag-row small {
+      grid-column: 1 / -1;
+    }
+  }
+</style>

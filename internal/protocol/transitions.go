@@ -63,6 +63,15 @@ func hasHumanApproval(st model.State, action string) bool {
 // exact command instead of duplicating the "agent.activate:"+id format.
 func OrchestratorGrantApprovalAction(id string) string { return "agent.activate:" + id }
 
+// OrchestratorGrantApprovalID is a suggested approval.request --id for
+// OrchestratorGrantApprovalAction(id)'s HUMAN-tier approval record.
+// Approval IDs are freely chosen by the caller -- the server never
+// generates one -- so this exists only so the "run this command" text in
+// error messages and docs is copy-pasteable as-is instead of silently
+// omitting the required --id flag (a real gap this once had: the
+// suggested command failed with "required flag(s) \"id\" not set").
+func OrchestratorGrantApprovalID(id string) string { return "grant-orchestrator-" + id }
+
 // RequiresElevatedKey reports whether actor/typ/id/payload is one of the
 // transitions that must be signed with the actor's passphrase-protected
 // elevated key (internal/identity.ElevatedActor) rather than its everyday
@@ -356,14 +365,14 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 		// Close that gap with a real two-step control: granting ORCHESTRATOR
 		// additionally requires a pre-existing, separately-approved,
 		// HUMAN-tier approval record for this exact grant. Anyone (including
-		// an agent) may "apply" via `approval request --tier HUMAN --action
+		// an agent) may "apply" via `approval request --id <id> --tier HUMAN --action
 		// agent.activate:<id>`, but the approval itself must be granted in a
 		// distinct, later action — giving a human a real request to see and
 		// manually approve (e.g. in the TUI) before the grant can proceed,
 		// rather than a single self-contained command completing the whole
 		// escalation unattended.
 		if activation.Role == model.RoleOrchestrator && !hasHumanApproval(st, OrchestratorGrantApprovalAction(id)) {
-			return nil, fmt.Errorf("granting the orchestrator role to %s requires an approved HUMAN-tier approval first: run `approval request --tier HUMAN --action %s`, then have a human approve it separately", id, OrchestratorGrantApprovalAction(id))
+			return nil, fmt.Errorf("granting the orchestrator role to %s requires an approved HUMAN-tier approval first: run `approval request --id %s --tier HUMAN --action %s`, then have a human approve it separately", id, OrchestratorGrantApprovalID(id), OrchestratorGrantApprovalAction(id))
 		}
 	}
 	if typ == "agent.elevate-key" {
@@ -1163,6 +1172,13 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 				}
 				if runtime.Status == "REVOKED" {
 					return nil, errors.New("runtime is already revoked")
+				}
+			} else if typ == "runtime.delete" {
+				if !actorElevated(st, actor) && actor != runtime.AgentID {
+					return nil, errors.New("runtime owner, project owner, or orchestrator required to delete a runtime")
+				}
+				if runtime.Status != "REVOKED" {
+					return nil, errors.New("runtime must be revoked before deletion")
 				}
 			} else {
 				if actor != runtime.AgentID && !actorElevated(st, actor) {

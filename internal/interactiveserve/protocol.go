@@ -23,11 +23,12 @@ type Request struct {
 
 // Response is the single message shape returned for a Request.
 type Response struct {
-	OK           bool       `json:"ok"`
-	Error        string     `json:"error,omitempty"`
-	Busy         bool       `json:"busy,omitempty"` // set on "ping" responses
-	TextEchoedAt *time.Time `json:"text_echoed_at,omitempty"`
-	EnterSentAt  *time.Time `json:"enter_sent_at,omitempty"`
+	OK             bool       `json:"ok"`
+	Error          string     `json:"error,omitempty"`
+	Busy           bool       `json:"busy,omitempty"` // set on "ping" responses
+	TextEchoedAt   *time.Time `json:"text_echoed_at,omitempty"`
+	EnterSentAt    *time.Time `json:"enter_sent_at,omitempty"`
+	OutputSnapshot string     `json:"output_snapshot,omitempty"` // set on "snapshot" responses
 }
 
 const (
@@ -87,12 +88,16 @@ func listenLocal(sockPath string) (net.Listener, error) {
 	if err := os.Chmod(socketDirectory, 0o700); err != nil {
 		return nil, fmt.Errorf("interactiveserve: secure socket directory: %w", err)
 	}
-	if info, err := os.Lstat(sockPath); err == nil && info.Mode()&os.ModeSocket != 0 {
-		if conn, dialErr := net.Dial("unix", sockPath); dialErr == nil {
+	if _, err := os.Lstat(sockPath); err == nil {
+		var d net.Dialer
+		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		conn, dialErr := d.DialContext(ctx, "unix", sockPath)
+		cancel()
+		if dialErr == nil {
 			_ = conn.Close()
 			return nil, fmt.Errorf("interactiveserve: runtime already has a live interactive-serve session (socket %s is dialable)", sockPath)
 		}
-		if err := os.Remove(sockPath); err != nil {
+		if err := os.Remove(sockPath); err != nil && !os.IsNotExist(err) {
 			return nil, fmt.Errorf("interactiveserve: remove stale socket: %w", err)
 		}
 	}

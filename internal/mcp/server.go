@@ -43,6 +43,9 @@ type callParams struct {
 	Arguments map[string]any `json:"arguments"`
 }
 
+// ProtocolVersion is the MCP protocol version advertised by this server.
+const ProtocolVersion = "2025-06-18"
+
 // tool builds one MCP tool descriptor. required defaults to a nil slice
 // (Go's zero value for a variadic called with no arguments), which
 // json.Marshal renders as "required":null — invalid per JSON Schema, which
@@ -205,7 +208,7 @@ func handle(s *service.Service, resolution identity.ActorResolution, serverVersi
 	r := response{JSONRPC: "2.0", ID: q.ID}
 	switch q.Method {
 	case "initialize":
-		r.Result = map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{"tools": map[string]any{}}, "serverInfo": map[string]any{"name": "agent-comms", "version": serverVersion}}
+		r.Result = map[string]any{"protocolVersion": ProtocolVersion, "capabilities": map[string]any{"tools": map[string]any{}}, "serverInfo": map[string]any{"name": "agent-comms", "version": serverVersion}}
 	case "tools/list":
 		r.Result = map[string]any{"tools": tools()}
 	case "tools/call":

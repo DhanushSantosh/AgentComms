@@ -1,5 +1,7 @@
 # Agent invocation protocol
 
+> The compact user-facing guides now start at [Agent integration](site/agents/integrations.md). This file remains the deep technical appendix and compatibility target.
+
 Agent Comms separates durable messages, runtime notifications, and execution
 claims. Posting a message never grants execution authority by itself.
 
@@ -560,6 +562,72 @@ transparently forwards the wrapper's own stdin/stdout so the terminal shows
 wrapper, no multiplexer to install. The `--` before the wrapped command is
 required (not optional): everything after it is passed through untouched as
 the command and its own arguments.
+
+Add `--launch-terminal` to skip manually opening a terminal and retyping the
+command yourself: it re-execs this exact invocation (minus the flag itself)
+inside a freshly opened, dedicated window via `internal/terminallaunch`,
+then exits, leaving the current terminal free. This is a convenience over
+the manual step only — the session still needs a real, dedicated terminal
+for the same reason the plain command always has (see "genuine, structural
+limit" below); nothing about that requirement changes. It tries a short
+list of known terminal programs per OS (`gnome-terminal`, `konsole`,
+`kitty`, `foot`, `alacritty`, `xterm`, etc. on Linux; `Terminal.app` via
+`osascript` on macOS; Windows Terminal or a detached console on Windows)
+and fails with a clear error naming everything it tried if none are
+available, rather than silently doing nothing.
+
+### Migrating a live, ordinary session into interactive-serve
+
+Resuming a specific provider conversation (`claude --resume <id>`, `claude
+--continue`, `codex resume --last`, and equivalents) after the `--` works
+exactly like any other wrapped argument — but only when the session being
+resumed is actually finished. Confirmed live: pointing a *second*,
+`interactive-serve`-wrapped process at the same provider session ID as an
+*already-running*, ordinary session collided — two processes attached to
+one provider-side session lock, and killing either one disrupted the other.
+This is a provider session-file collision, entirely outside Agent Comms'
+own resource-leasing model; nothing here can protect a session ID it
+doesn't know about.
+
+`--takeover-pid <pid>` closes this gap for the one case it's actually
+needed: turning a live session you're already sitting in into a dedicated,
+wakeable `interactive-serve` runtime, in place, without ever having two
+processes attached to the same session at once. Given a PID, it sends
+`SIGTERM`, waits up to the same grace period `interactive-serve` itself
+uses for a forwarded shutdown signal, escalates to `SIGKILL` if it hasn't
+exited, and only then proceeds — so the target session is fully, confirmed
+gone *before* the wrapped command's own resume flag ever runs:
+
+```sh
+agent-comms --actor DAMON runtime interactive-serve --id DAMON \
+  --launch-terminal --takeover-pid 48213 \
+  --claude-allow-agent-comms -- claude --continue
+```
+
+Find the PID to pass with your shell's own tools (e.g. `ps`) — Agent Comms
+has no notion of "the session I'm currently typing into" to infer it
+automatically. Pairing this with `--launch-terminal` matters: the process
+performing the takeover must not itself be a descendant of the PID it's
+terminating. This is enforced, not just advised — `Takeover` walks its own
+parent chain before touching pid at all and refuses outright if it finds
+pid there, rather than proceeding into a failure with no clear error
+pointing at why. Confirmed live 2026-08-07: an agent self-relaunched
+through its own Bash tool call (a child of the very session being taken
+over, since a tool call is a subprocess of the agent's own CLI process) —
+killing the target took the whole wrapper down, and the replacement process
+it tried to start next had no real controlling terminal to attach a pty to
+(a Bash tool call isn't one), so it died too, silently, with nothing left
+running and no obvious error explaining what happened. A freshly spawned
+terminal window opened via `--launch-terminal` is never a descendant of the
+old session, so it always passes this check cleanly; running
+`--takeover-pid` directly from a shell — or an agent's own tool-call
+subprocess — that *is* a descendant of the target PID now fails fast with
+an explicit error instead.
+
+A `--takeover-pid` that's already gone by the time this runs is treated as
+success, not an error — the common case once `--launch-terminal` has
+already forwarded it to a freshly spawned process that handles the real
+work.
 
 Wrapping `claude` this way hits its own permission mode: by default every
 CLI call Claude makes (including `agent-comms invocation claim/start/

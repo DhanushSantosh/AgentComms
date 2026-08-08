@@ -7,7 +7,6 @@ import (
 
 	"charm.land/bubbles/v2/table"
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 	"github.com/DhanushSantosh/AgentComms/internal/identity"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 	"github.com/DhanushSantosh/AgentComms/internal/service"
@@ -21,7 +20,7 @@ var agentRegisterForm = &ActionForm{
 		{Label: "Display name", Placeholder: ""},
 		{Label: "Principal type", Options: []string{"AGENT", "HUMAN"}},
 	},
-	Dispatch: func(m Model, v []string) (tea.Model, tea.Cmd) {
+	Dispatch: func(m Model, v []string, _ string) (tea.Model, tea.Cmd) {
 		id := strings.TrimSpace(v[0])
 		pt := strings.ToUpper(strings.TrimSpace(v[2]))
 		if pt == "" {
@@ -40,15 +39,44 @@ var agentRegisterForm = &ActionForm{
 }
 var activateForm = &ActionForm{
 	Title: "Activate agent",
-	Hint:  "Assign a role, capabilities, and write scopes before this principal can act.",
+	Hint:  "Assign a role, capabilities, and write scopes before this principal can act. Granting Orchestrator additionally requires your elevated-key passphrase, if one is registered.",
 	Fields: []FormField{
 		{Label: "Role", Options: []string{"AGENT", "OBSERVER", "ORCHESTRATOR", "OWNER"}, Required: true},
 		{Label: "Capabilities (comma-separated)", Placeholder: "go,test"},
 		{Label: "Scopes (comma-separated)", Placeholder: "src"},
+		{Label: "Elevated-key passphrase (Orchestrator grants only)", Mask: true},
 	},
-	Build: func(v []string) (any, error) {
-		role := strings.ToUpper(strings.TrimSpace(v[0]))
-		return model.AgentActivated{Role: model.Role(role), Capabilities: splitCSV(v[1]), Scopes: splitCSV(v[2])}, nil
+	CollectsPassphrase: true,
+	// A plain Build+ConfirmIf can't see whether an Orchestrator grant
+	// already has its required HUMAN-tier approval (ConfirmIf only gets the
+	// built payload, not id or state), so this needs the full Dispatch
+	// escape hatch: activate directly when no approval is needed or one
+	// already exists, otherwise offer one confirm that chains
+	// request+approve+activate as three separate signed events using the
+	// passphrase already typed into this form.
+	Dispatch: func(m Model, v []string, passphrase string) (tea.Model, tea.Cmd) {
+		id := m.formTaskID
+		role := model.Role(strings.ToUpper(strings.TrimSpace(v[0])))
+		payload := model.AgentActivated{Role: role, Capabilities: splitCSV(v[1]), Scopes: splitCSV(v[2])}
+		if role == model.RoleOrchestrator && !hasApprovedOrchestratorGrant(m.state, id) {
+			m.form, m.inputs, m.formSpec = "", nil, nil
+			m.confirm = &confirmState{
+				prompt: "Granting " + id + " the Orchestrator role needs a HUMAN-tier approval first. " +
+					"Request and approve it now, then activate?",
+				typ: "agent.activate", id: id, payload: payload, passphrase: passphrase,
+				chainOrchestratorApproval: true,
+			}
+			return m, nil
+		}
+		_, err := m.svc.ExecuteWithPassphrase(m.actor, "agent.activate", id, payload, passphrase)
+		if err != nil {
+			m.err = err
+			return m, nil
+		}
+		m.form, m.inputs, m.err, m.formSpec = "", nil, nil, nil
+		m.notice = "Applied agent.activate to " + id
+		m.refresh()
+		return m, nil
 	},
 }
 var invocationPolicyForm = &ActionForm{
@@ -141,17 +169,47 @@ var (
 		Key: "d", Label: "delete", EventType: "agent.delete",
 		Form: &ActionForm{
 			Title: "Delete revoked agent",
-			Hint:  "Permanently removes this identity from active use; its signed history remains in the event log.",
+			Hint:  "Permanently removes this identity from active use; its signed history remains in the event log. Requires your elevated-key passphrase, if one is registered.",
 			Fields: []FormField{
 				{Label: "Reason", Placeholder: "duplicate registration, decommissioned, etc.", Required: true},
+				{Label: "Elevated-key passphrase", Mask: true},
 			},
-			Build: func(v []string) (any, error) { return model.AgentDeleted{Reason: v[0]}, nil },
+			CollectsPassphrase: true,
+			Build:              func(v []string) (any, error) { return model.AgentDeleted{Reason: v[0]}, nil },
 			ConfirmIf: func(any) (bool, string) {
 				return true, "Permanently delete this revoked agent? This cannot be reversed."
 			},
 		},
 	}
 )
+
+// revokeActionFor mirrors protocol.RequiresElevatedKey's agent.revoke branch:
+// revoking a different Orchestrator or HUMAN principal needs the actor's
+// elevated key, exactly as sensitive as granting the role in the first
+// place, so it gets a form with a masked passphrase field instead of the
+// plain one-keypress confirm every other revoke uses. id == actor is never
+// elevated (self-revocation is not an escalation) and always takes the
+// plain path.
+func revokeActionFor(a model.Agent, id, actor string) RowAction {
+	if id == actor || (a.Role != model.RoleOrchestrator && a.PrincipalType != model.PrincipalHuman) {
+		return actRevoke
+	}
+	return RowAction{
+		Key: "x", Label: "revoke", EventType: "agent.revoke",
+		Form: &ActionForm{
+			Title: "Revoke agent",
+			Hint:  "This principal holds Orchestrator role or HUMAN standing, so revoking it requires your elevated-key passphrase, if one is registered.",
+			Fields: []FormField{
+				{Label: "Elevated-key passphrase", Mask: true},
+			},
+			CollectsPassphrase: true,
+			Build: func(v []string) (any, error) {
+				return model.RuntimeStatusChanged{Reason: "revoked from control room"}, nil
+			},
+			ConfirmIf: func(any) (bool, string) { return true, "Revoke " + id + "? This cannot be reversed." },
+		},
+	}
+}
 
 // agentActionsFor mirrors service.go's elevated() gate: activate, suspend,
 // rename, revoke, and delete all require the viewing actor to hold Owner or
@@ -170,13 +228,14 @@ func agentActionsFor(a model.Agent, id, actor string, role model.Role) []RowActi
 	elevated := role == model.RoleOwner || role == model.RoleOrchestrator
 	var acts []RowAction
 	if elevated {
+		revoke := revokeActionFor(a, id, actor)
 		switch a.Status {
 		case "PENDING":
-			acts = append(acts, actActivate, actRename, actRevoke)
+			acts = append(acts, actActivate, actRename, revoke)
 		case "ACTIVE":
-			acts = append(acts, actSuspend, actRename, actRevoke)
+			acts = append(acts, actSuspend, actRename, revoke)
 		case "SUSPENDED":
-			acts = append(acts, actRename, actRevoke)
+			acts = append(acts, actRename, revoke)
 		case "REVOKED":
 			acts = append(acts, actDelete)
 		}
@@ -193,11 +252,11 @@ func agentActionsFor(a model.Agent, id, actor string, role model.Role) []RowActi
 type agentRowSource struct{}
 
 func (agentRowSource) Columns(width int) []table.Column {
-	state, principal, role, ptype := 11, 16, 13, 8
-	scopes := width - state - principal - role - ptype
-	if scopes < 10 {
-		scopes = 10
+	state, principal, role, ptype := 13, 16, 13, 8
+	if width < 75 {
+		state, principal, role, ptype = 11, 12, 10, 6
 	}
+	scopes := max(6, width-state-principal-role-ptype)
 	return []table.Column{
 		{Title: "STATE", Width: state},
 		{Title: "PRINCIPAL", Width: principal},
@@ -211,7 +270,7 @@ func (s agentRowSource) Rows(st model.State, actor string, mine bool) []table.Ro
 	rows := make([]table.Row, 0, len(ids))
 	for _, id := range ids {
 		a := st.Agents[id]
-		rows = append(rows, table.Row{a.Status, id, string(a.Role), string(a.PrincipalType), strings.Join(a.Scopes, ",")})
+		rows = append(rows, table.Row{fmtStatus(a.Status), id, string(a.Role), string(a.PrincipalType), strings.Join(a.Scopes, ",")})
 	}
 	return rows
 }
@@ -228,33 +287,6 @@ func (agentRowSource) Actions(id string, st model.State, actor string) []RowActi
 		return nil
 	}
 	return agentActionsFor(a, id, actor, st.Agents[actor].Role)
-}
-
-func (m Model) agentControlBar(p palette, width int) string {
-	selectedID := m.agentList.SelectedID(m.state, m.actor)
-	actions := m.agentList.Actions(selectedID, m.state, m.actor)
-	controls := []string{"[n] register agent"}
-	for _, action := range actions {
-		// Non-breaking spaces within one action's own text so a width-driven
-		// wrap (the outer style below is width-bound) can only break between
-		// separate actions, never split "[key] label" itself across lines --
-		// a real, not cosmetic, bug: more actions than fit on one line used
-		// to wrap mid-label (e.g. "[z]" on one line, "rotate key" on the
-		// next), silently breaking every "[key] label"-shaped substring
-		// match, including in tests.
-		controls = append(controls, "["+action.Key+"] "+strings.ReplaceAll(action.Label, " ", " "))
-	}
-	mode := "NAVIGATION · Enter to manage selected agent"
-	color := p.muted
-	if m.rowFocus {
-		mode = "MANAGE MODE · ↑/↓ select · Esc returns to navigation"
-		color = p.cyan
-	}
-	title := lipgloss.NewStyle().Foreground(color).Bold(true).Render(mode)
-	selected := lipgloss.NewStyle().Foreground(p.text).Render("Selected: " + empty(selectedID, "none"))
-	actionText := lipgloss.NewStyle().Foreground(p.amber).Render(strings.Join(controls, "   "))
-	return lipgloss.NewStyle().Width(width).BorderLeft(true).BorderStyle(lipgloss.ThickBorder()).
-		BorderForeground(color).PaddingLeft(1).Render(title + "\n" + selected + "\n" + actionText)
 }
 
 // openActorSwitchForm lists only actor identities whose private key was
@@ -286,7 +318,7 @@ func actorSwitchForm(current string, options []string) *ActionForm {
 		Title:  "Switch actor",
 		Hint:   hint,
 		Fields: []FormField{{Label: "Actor ID", Placeholder: current, Required: true}},
-		Dispatch: func(m Model, v []string) (tea.Model, tea.Cmd) {
+		Dispatch: func(m Model, v []string, _ string) (tea.Model, tea.Cmd) {
 			candidate := strings.TrimSpace(v[0])
 			found := false
 			for _, o := range options {

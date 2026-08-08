@@ -100,6 +100,11 @@ var (
 		Payload: func() any { return model.RuntimeStatusChanged{Reason: "revoked from control room"} },
 		Prompt:  func(id string) string { return "Revoke " + id + "? This runtime cannot reconnect." },
 	}
+	runtimeDelete = RowAction{
+		Key: "x", Label: "delete", EventType: "runtime.delete", Confirm: true,
+		Payload: func() any { return model.RuntimeStatusChanged{Reason: "deleted from control room"} },
+		Prompt:  func(id string) string { return "Delete runtime " + id + "? This removes the runtime record." },
+	}
 	runtimeConfigure = RowAction{
 		Key: "c", Label: "configure", EventType: "runtime.configure",
 		Form: runtimeConfigureForm,
@@ -116,8 +121,11 @@ type runtimeRowSource struct{ root string }
 // list-plus-detail shape settings.go already uses for one row's full
 // picture (settingsControl/settingsImpact).
 func (runtimeRowSource) Columns(width int) []table.Column {
-	status, health, kind := 11, 10, 12
-	agent := max(12, width-status-health-kind)
+	status, health, kind := 14, 10, 14
+	if width < 75 {
+		status, health, kind = 11, 8, 11
+	}
+	agent := min(14, max(6, width-status-health-kind))
 	return []table.Column{
 		{Title: "STATUS", Width: status}, {Title: "HEALTH", Width: health},
 		{Title: "AGENT", Width: agent}, {Title: "KIND", Width: kind},
@@ -133,7 +141,7 @@ func (runtimeRowSource) Rows(state model.State, _ string, _ bool) []table.Row {
 		if kind == "" {
 			kind = model.RuntimeKindWorker
 		}
-		rows = append(rows, table.Row{runtime.Status, runtime.Health, runtime.AgentID, string(kind)})
+		rows = append(rows, table.Row{fmtStatus(runtime.Status), runtime.Health, runtime.AgentID, string(kind)})
 	}
 	return rows
 }
@@ -235,6 +243,8 @@ func (r runtimeRowSource) sessionBinding(runtimeID string) (provider, session st
 		return "Claude", binding.SessionID
 	case "codex":
 		return "Codex", binding.SessionID
+	case "opencode":
+		return "OpenCode", binding.SessionID
 	default:
 		return binding.Adapter, binding.SessionID
 	}
@@ -266,6 +276,9 @@ func (runtimeRowSource) Actions(id string, state model.State, actor string) []Ro
 		}
 		return actions
 	case "REVOKED":
+		if elevated {
+			return []RowAction{runtimeDelete}
+		}
 		return nil
 	case "OFFLINE":
 		actions := []RowAction{runtimeDrain, runtimeConfigure}
@@ -303,6 +316,18 @@ func (m Model) runtimeDetailPane(p palette, width int) string {
 		settingLine("Provider", detail.provider),
 		settingLine("Session / thread ID", empty(detail.session, "unbound")),
 		settingLine("Config reference", empty(detail.configReference, "—")),
+	}
+	if strings.HasPrefix(detail.ptyState, "live") {
+		snapshot := m.ptySnapshots[id]
+		if strings.TrimSpace(snapshot) != "" {
+			lines := strings.Split(snapshot, "\n")
+			if len(lines) > 8 {
+				lines = lines[len(lines)-8:]
+			}
+			previewHeader := lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("LIVE PTY PREVIEW")
+			previewBody := lipgloss.NewStyle().Foreground(p.muted).Render(strings.Join(lines, "\n"))
+			rows = append(rows, "", previewHeader, previewBody)
+		}
 	}
 	return lipgloss.NewStyle().Foreground(p.text).MaxWidth(width).
 		BorderLeft(true).BorderStyle(lipgloss.ThickBorder()).

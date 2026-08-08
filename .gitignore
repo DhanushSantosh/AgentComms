@@ -1,5 +1,16 @@
 .tools/
 dist/
+/.agents
+/.agent-comms/
 /agent-comms
 /agent-comms.exe
 /agent-comms-*.exe
+node_modules/
+.env.local
+*.tsbuildinfo
+.playwright-cli/
+output/
+sites/*/.astro/
+sites/*/.next/
+sites/*/dist/
+sites/*/output/

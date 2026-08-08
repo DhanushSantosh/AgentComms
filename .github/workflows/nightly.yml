@@ -21,7 +21,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: "1.26.5"
           cache: true
@@ -29,3 +29,65 @@ jobs:
       - run: go test -race -count=1 ./...
         if: runner.os != 'Windows'
       - run: go vet ./...
+
+  # Dev-only unstable channel, distinct from signed-release AND from the
+  # real "Beta" pre-1.0 tagged releases users actually install: builds
+  # straight from dev's latest commit for developers to sanity-check
+  # current work, gated only on deep-test passing -- no CHANGELOG
+  # requirement, no protected `release` environment approval, since this is
+  # explicitly not a real numbered version. Pushed as a public OCI artifact
+  # to GHCR (ghcr.io/<owner>/agentcomms-nightly:latest), not a GitHub
+  # Release -- a Release would sit in the same list real tagged releases do
+  # (sorted by publish date, easy to mistake for one) and an Actions
+  # artifact needs a GitHub login to fetch at all. A public GHCR package is
+  # pullable with a single unauthenticated `oras pull`, closest to
+  # install.sh's ergonomics this channel should have. The `:latest` tag is
+  # overwritten every run -- ordinary registry behavior, not subject to the
+  # git-level v* tag-protection ruleset real release tags have.
+  publish-nightly:
+    needs: deep-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      id-token: write
+      attestations: write
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with: {go-version: '1.26.5', cache: true}
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2.0.1
+      - name: Build and sign nightly binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir dist
+          for target in windows/amd64 windows/arm64 linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
+            GOOS=${target%/*}; GOARCH=${target#*/}; ext=""; [ "$GOOS" = windows ] && ext=.exe
+            for command in agent-comms agent-comms-daemon agent-comms-server; do
+              name="${command}-${GOOS}-${GOARCH}${ext}"
+              CGO_ENABLED=0 GOOS=$GOOS GOARCH=$GOARCH go build -trimpath -ldflags="-s -w -X github.com/DhanushSantosh/AgentComms/internal/app.Version=0.0.0-nightly -X github.com/DhanushSantosh/AgentComms/internal/buildinfo.Version=0.0.0-nightly -X github.com/DhanushSantosh/AgentComms/internal/buildinfo.BuildID=${GITHUB_SHA}" -o "dist/$name" "./cmd/$command"
+            done
+          done
+          cd dist
+          sha256sum agent-comms-* > checksums.txt
+          for asset in agent-comms-*; do cosign sign-blob --yes --bundle "${asset}.bundle" "$asset"; done
+      - uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
+        with: {path: dist, format: spdx-json, output-file: dist/sbom.spdx.json}
+      - uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with: {subject-path: 'dist/agent-comms-*'}
+      - name: Push nightly artifact to GHCR
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          owner="$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')"
+          echo "$GH_TOKEN" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          cd dist
+          oras push "ghcr.io/${owner}/agentcomms-nightly:latest" \
+            --annotation "org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
+            --annotation "org.opencontainers.image.revision=${GITHUB_SHA}" \
+            --annotation "org.opencontainers.image.description=Unstable nightly build from dev -- not a numbered release, not for regular users" \
+            *

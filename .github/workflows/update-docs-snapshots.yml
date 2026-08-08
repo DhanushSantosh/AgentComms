@@ -1,0 +1,25 @@
+name: update-docs-snapshots
+on:
+  workflow_dispatch: {}
+permissions: {contents: read}
+jobs:
+  update:
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+        with: {fetch-depth: 0}
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with: {go-version: '1.26.5', cache: true}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22', cache: npm}
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+        working-directory: sites/docs
+      - run: npm run test:e2e:update --workspace @agent-comms/docs
+        continue-on-error: true
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: docs-visual-snapshots
+          path: sites/docs/tests/visual.spec.ts-snapshots
+          if-no-files-found: error

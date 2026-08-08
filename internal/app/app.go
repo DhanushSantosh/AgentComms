@@ -41,6 +41,7 @@ import (
 	"github.com/DhanushSantosh/AgentComms/internal/service"
 	"github.com/DhanushSantosh/AgentComms/internal/sessionbind"
 	"github.com/DhanushSantosh/AgentComms/internal/store"
+	"github.com/DhanushSantosh/AgentComms/internal/terminallaunch"
 	tuiterm "github.com/DhanushSantosh/AgentComms/internal/tui"
 	runtimeworker "github.com/DhanushSantosh/AgentComms/internal/worker"
 	"github.com/google/uuid"
@@ -196,7 +197,8 @@ func (c *cli) root() *cobra.Command {
 			cmd.CommandPath() == "agent-comms claude serve" ||
 			cmd.CommandPath() == "agent-comms claude attach" ||
 			cmd.CommandPath() == "agent-comms codex serve" ||
-			cmd.CommandPath() == "agent-comms codex attach" {
+			cmd.CommandPath() == "agent-comms codex attach" ||
+			cmd.CommandPath() == "agent-comms runtime verify-adapter" {
 			return nil
 		}
 		if cmd.CommandPath() == "agent-comms profile list" ||
@@ -231,6 +233,9 @@ func (c *cli) root() *cobra.Command {
 			c.svc = service.NewTolerant(root)
 		} else {
 			c.svc = service.New(root)
+		}
+		if _, err := runtimeworker.LoadProjectAdapters(root); err != nil {
+			c.pendingWarnings = append(c.pendingWarnings, fmt.Sprintf("project adapters: %v", err))
 		}
 		switch cmd.Name() {
 		case "mcp":
@@ -291,6 +296,72 @@ func (c *cli) emit(command string, v any, warnings ...string) error {
 	return c.emitWithDelivery(command, v, nil, warnings...)
 }
 
+// emitTable is emit's counterpart for list-shaped output. With --json (or
+// scripting against this command generally), behavior is byte-for-byte
+// identical to emit(command, v) -- the same JSON envelope, so nothing that
+// already parses this command's output breaks. Only the human-facing,
+// non-JSON default differs: emit's own non-JSON fallback still prints
+// pretty-*indented* JSON, not an actual table -- a human doing an ad hoc
+// check has to mentally parse it either way. Confirmed friction all
+// session: reading agent/runtime/invocation state by eye meant piping
+// through `python3 -m json.tool`/`jq` every single time, for exactly this
+// reason. emitTable renders headers/rows as an aligned plain-text table
+// instead.
+func (c *cli) emitTable(command string, v any, headers []string, rows [][]string, warnings ...string) error {
+	if c.json || c.quiet {
+		return c.emit(command, v, warnings...)
+	}
+	if len(c.pendingWarnings) > 0 {
+		warnings = append(append([]string{}, c.pendingWarnings...), warnings...)
+	}
+	renderTable(c.out, headers, rows)
+	for _, w := range warnings {
+		if _, e := fmt.Fprintln(c.err, "warning:", w); e != nil {
+			return e
+		}
+	}
+	return nil
+}
+
+// renderTable writes headers and rows as a plain-text table, columns
+// padded to the widest cell in each column (header included), separated
+// by two spaces. Deliberately no box-drawing characters: those need
+// display-width handling for anything beyond plain ASCII to stay aligned,
+// and this output is meant to copy-paste cleanly into another command or
+// a message, which a bordered table doesn't do as well.
+func renderTable(out io.Writer, headers []string, rows [][]string) {
+	if len(rows) == 0 {
+		fmt.Fprintln(out, "(no rows)")
+		return
+	}
+	widths := make([]int, len(headers))
+	for i, h := range headers {
+		widths[i] = len(h)
+	}
+	for _, row := range rows {
+		for i, cell := range row {
+			if i < len(widths) && len(cell) > widths[i] {
+				widths[i] = len(cell)
+			}
+		}
+	}
+	writeRow := func(cells []string) {
+		parts := make([]string, len(headers))
+		for i := range headers {
+			cell := ""
+			if i < len(cells) {
+				cell = cells[i]
+			}
+			parts[i] = cell + strings.Repeat(" ", widths[i]-len(cell))
+		}
+		fmt.Fprintln(out, strings.TrimRight(strings.Join(parts, "  "), " "))
+	}
+	writeRow(headers)
+	for _, row := range rows {
+		writeRow(row)
+	}
+}
+
 func (c *cli) emitWithDelivery(command string, v, delivery any, warnings ...string) error {
 	if len(c.pendingWarnings) > 0 {
 		warnings = append(append([]string{}, c.pendingWarnings...), warnings...)
@@ -331,16 +402,25 @@ func (c *cli) emitWithDelivery(command string, v, delivery any, warnings ...stri
 type invocationDeliveryResult = service.InvocationDeliveryResult
 
 func (c *cli) invocationDeliveryOutcome(invocationID, deliveryID string) (invocationDeliveryResult, error) {
-	state, err := c.svc.State()
-	if err != nil {
-		return invocationDeliveryResult{}, err
+	// Retry a few times with short delays to handle the eventual-consistency
+	// window between the event commit and the daemon processing it.
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		state, err := c.svc.State()
+		if err != nil {
+			return invocationDeliveryResult{}, err
+		}
+		localHostID, _ := identity.LoadHostID()
+		result, exists := service.SummarizeInvocationDelivery(state, invocationID, deliveryID, localHostID)
+		if exists {
+			return result, nil
+		}
+		lastErr = errors.New("invocation not found after commit")
+		if attempt < 2 {
+			time.Sleep(100 * time.Millisecond)
+		}
 	}
-	localHostID, _ := identity.LoadHostID()
-	result, exists := service.SummarizeInvocationDelivery(state, invocationID, deliveryID, localHostID)
-	if !exists {
-		return invocationDeliveryResult{}, errors.New("invocation not found after commit")
-	}
-	return result, nil
+	return invocationDeliveryResult{}, lastErr
 }
 
 // captureRuntimeSession opportunistically binds a freshly registered runtime
@@ -877,7 +957,28 @@ func (c *cli) agentCmd() *cobra.Command {
 		if e != nil {
 			return e
 		}
-		return c.emit("agent.register", v)
+		// Surface the profile name and project root so the user knows
+		// where their identity was persisted.
+		type registerResult struct {
+			model.Event
+			ProfileName string `json:"profile_name"`
+			ProjectRoot string `json:"project_root"`
+			ActorSource string `json:"actor_source"`
+		}
+		actorSource := "self-registration"
+		if id != c.actor {
+			actorSource = "sponsored by " + c.actor
+		}
+		cfg, cfgErr := c.svc.Store.Config()
+		if cfgErr != nil {
+			return c.emit("agent.register", v)
+		}
+		return c.emit("agent.register", registerResult{
+			Event:       v,
+			ProfileName: cfg.ProjectID + ":" + id,
+			ProjectRoot: c.svc.Store.Root,
+			ActorSource: actorSource,
+		})
 	}}
 	reg.Flags().String("id", "", "principal ID")
 	_ = reg.MarkFlagRequired("id")
@@ -952,7 +1053,13 @@ func (c *cli) agentCmd() *cobra.Command {
 		if e != nil {
 			return e
 		}
-		return c.emit("agent.list", st.Agents)
+		headers := []string{"ID", "STATUS", "ROLE", "TYPE", "SCOPES"}
+		rows := make([][]string, 0, len(st.Agents))
+		for _, id := range service.SortedKeys(st.Agents) {
+			a := st.Agents[id]
+			rows = append(rows, []string{id, a.Status, string(a.Role), string(a.PrincipalType), strings.Join(a.Scopes, ",")})
+		}
+		return c.emitTable("agent.list", st.Agents, headers, rows)
 	}}
 	root.AddCommand(reg, act, suspend, rotate, elevate, rename, revoke, deleteAgent, list)
 	return root
@@ -1043,7 +1150,7 @@ func (c *cli) runtimeCmd() *cobra.Command {
 	heartbeat.Flags().StringVar(&endpointID, "endpoint-id", "", "opaque interactive endpoint ID")
 	heartbeat.Flags().StringSliceVar(&activeInvocations, "active-invocation", nil, "active invocation ID")
 
-	for _, operation := range []string{"drain", "resume", "revoke"} {
+	for _, operation := range []string{"drain", "resume", "revoke", "delete"} {
 		operation := operation
 		var reason string
 		command := &cobra.Command{Use: operation, Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
@@ -1082,7 +1189,13 @@ func (c *cli) runtimeCmd() *cobra.Command {
 			}
 			state.AgentRuntimes[id] = runtimeState
 		}
-		return c.emit("runtime.list", state.AgentRuntimes)
+		headers := []string{"ID", "AGENT", "KIND", "STATUS", "HEALTH"}
+		rows := make([][]string, 0, len(state.AgentRuntimes))
+		for _, id := range service.SortedKeys(state.AgentRuntimes) {
+			rt := state.AgentRuntimes[id]
+			rows = append(rows, []string{id, rt.AgentID, string(rt.Kind), rt.Status, rt.Health})
+		}
+		return c.emitTable("runtime.list", state.AgentRuntimes, headers, rows)
 	}}
 	var workerAdapter, workerExecutable, workerModel, workerSessionID, permissionMode, sandbox string
 	var codexAddDirs []string
@@ -1205,6 +1318,8 @@ func (c *cli) runtimeCmd() *cobra.Command {
 
 	var interactiveServeID string
 	var interactiveClaudeAllowAgentComms bool
+	var interactiveLaunchTerminal bool
+	var interactiveTakeoverPID int
 	interactiveServe := &cobra.Command{
 		Use:   "interactive-serve --id <runtimeID> -- <command> [args...]",
 		Short: "Own a real pty running <command>, dialable by other runtimes for direct invocation delivery",
@@ -1220,12 +1335,27 @@ func (c *cli) runtimeCmd() *cobra.Command {
 					return err
 				}
 			}
+			if interactiveLaunchTerminal {
+				// --takeover-pid, if set, stays in the re-exec'd argv
+				// (stripLaunchTerminalFlag only removes --launch-terminal)
+				// and is handled for real by the freshly spawned process
+				// below -- this process never touches the target pid.
+				return c.launchInteractiveServeInNewTerminal()
+			}
+			if interactiveTakeoverPID > 0 {
+				if err := interactiveserve.Takeover(interactiveTakeoverPID, interactiveserve.GracePeriod); err != nil {
+					return fmt.Errorf("take over pid %d: %w", interactiveTakeoverPID, err)
+				}
+			}
+			args = pinInteractiveServeArgs(c.svc.Store.Root, interactiveServeID, args)
 			return c.runInteractiveServe(cmd.Context(), interactiveServeID, args)
 		},
 	}
 	interactiveServe.Flags().StringVar(&interactiveServeID, "id", "", "runtime ID")
 	_ = interactiveServe.MarkFlagRequired("id")
 	interactiveServe.Flags().BoolVar(&interactiveClaudeAllowAgentComms, "claude-allow-agent-comms", false, "wrapped command must be claude; scopes unattended Bash permission to this Agent Comms executable only")
+	interactiveServe.Flags().BoolVar(&interactiveLaunchTerminal, "launch-terminal", false, "open a new, dedicated terminal window running this same command instead of using the current one, then exit")
+	interactiveServe.Flags().IntVar(&interactiveTakeoverPID, "takeover-pid", 0, "gracefully terminate this PID (an existing live session for the same provider conversation) and wait for it to fully exit before starting, so resuming it with the wrapped command's own --continue/--resume flag never collides with a still-live copy; refuses if this process is itself a descendant of pid (e.g. run from an agent's own Bash tool call) -- pair with --launch-terminal instead")
 
 	var interactiveShowID string
 	interactiveShow := &cobra.Command{
@@ -1240,9 +1370,92 @@ func (c *cli) runtimeCmd() *cobra.Command {
 	interactiveShow.Flags().StringVar(&interactiveShowID, "id", "", "runtime ID")
 	_ = interactiveShow.MarkFlagRequired("id")
 
+	var verifyAdapter, verifyExecutable, verifySourceDir string
+	verifyFlags := &cobra.Command{
+		Use:   "verify-adapter",
+		Short: "Check a worker adapter's assumed CLI flags against the real installed binary's --help output",
+		Long: "Statically scans the named adapter's own source file (adapter_<name>.go, under --source-dir) " +
+			"for \"--flag\"-shaped string literals, runs <executable> --help, and reports any assumed " +
+			"flag the real binary's own help output never mentions. Generalizes the manual check that " +
+			"caught a real bug this session -- a wrong environment variable name for agy, found by " +
+			"running `strings` on the installed binary by hand -- into a repeatable one for CLI flags " +
+			"specifically (this can't catch environment variable drift; --help never lists those). " +
+			"A dev-time tool: --source-dir must point at a real checkout's internal/worker directory " +
+			"(defaults to that path relative to the current directory, i.e. running from the repo root), " +
+			"not something a distributed binary carries with it.",
+		Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+			missing, e := runtimeworker.VerifyAdapterFlags(cmd.Context(), verifyAdapter, verifySourceDir, verifyExecutable)
+			if e != nil {
+				return e
+			}
+			return c.emit("runtime.verify-adapter", map[string]any{
+				"adapter": verifyAdapter, "executable": verifyExecutable,
+				"missing_flags": missing, "clean": len(missing) == 0,
+			})
+		},
+	}
+	verifyFlags.Flags().StringVar(&verifyAdapter, "adapter", "", "adapter name (claude, codex, opencode)")
+	_ = verifyFlags.MarkFlagRequired("adapter")
+	verifyFlags.Flags().StringVar(&verifyExecutable, "executable", "", "path to the real installed CLI binary")
+	_ = verifyFlags.MarkFlagRequired("executable")
+	verifyFlags.Flags().StringVar(&verifySourceDir, "source-dir", filepath.Join("internal", "worker"), "path to the agent-comms repo checkout's internal/worker directory")
+
 	root.AddCommand(register, configure, heartbeat, list, workerCommand, bindSession, sessionShow,
-		interactiveServe, interactiveShow)
+		interactiveServe, interactiveShow, verifyFlags)
 	return root
+}
+
+// stripLaunchTerminalFlag removes the --launch-terminal flag (in either its
+// bare or --launch-terminal=<value> form) from args, so re-execing the same
+// invocation inside a freshly opened terminal doesn't recurse into another
+// launch instead of actually serving.
+func stripLaunchTerminalFlag(args []string) []string {
+	out := make([]string, 0, len(args))
+	for _, a := range args {
+		if a == "--launch-terminal" || strings.HasPrefix(a, "--launch-terminal=") {
+			continue
+		}
+		out = append(out, a)
+	}
+	return out
+}
+
+// launchInteractiveServeInNewTerminal re-execs the exact command line the
+// operator just typed -- minus --launch-terminal itself -- inside a freshly
+// opened, dedicated terminal window via internal/terminallaunch, then
+// returns immediately. This exists only to remove the manual "open a
+// terminal, cd here, retype the long command" step; the resulting session
+// still needs a real, dedicated window for the same reason the plain
+// command always has (see docs/agent-invocations.md's interactive-serve
+// section) -- this does not, and structurally cannot, relax that.
+func (c *cli) launchInteractiveServeInNewTerminal() error {
+	executable, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("resolve agent-comms executable: %w", err)
+	}
+	full := append([]string{executable}, stripLaunchTerminalFlag(os.Args[1:])...)
+	if err := terminallaunch.Open(c.svc.Store.Root, full); err != nil {
+		return fmt.Errorf("open a new terminal window: %w -- run this command yourself instead: %s", err, strings.Join(full, " "))
+	}
+	return c.emit("runtime.interactive-serve-launched", map[string]any{"command": full, "working_directory": c.svc.Store.Root})
+}
+
+// pinInteractiveServeArgs rewrites args to explicitly resume a previously
+// pinned session/conversation ID for runtimeID, if sessionbind's local
+// cache has one, in place of whatever implicit "most recent" flag the
+// command line happened to spell out -- this is what makes resuming the
+// exact same conversation deterministic across a --takeover-pid
+// kill/respawn instead of racing each provider CLI's own recency-based
+// lookup. A runtime with no binding yet (its first-ever start) is returned
+// unchanged. Extracted from interactiveServe's RunE (like
+// withClaudeAllowAgentComms below) so this can be tested directly without
+// needing a real pty.
+func pinInteractiveServeArgs(projectRoot, runtimeID string, args []string) []string {
+	binding, ok, err := sessionbind.Load(projectRoot, runtimeID)
+	if err != nil || !ok {
+		return args
+	}
+	return interactiveserve.PinResumeArgs(args, binding.SessionID)
 }
 
 func (c *cli) runInteractiveServe(ctx context.Context, runtimeID string, command []string) (runErr error) {
@@ -1256,6 +1469,9 @@ func (c *cli) runInteractiveServe(ctx context.Context, runtimeID string, command
 	}
 	runtimeState, exists := state.AgentRuntimes[runtimeID]
 	if !exists {
+		if !c.quiet {
+			fmt.Fprintf(c.err, "runtime %q not found; auto-registering as INTERACTIVE with agent %q\n", runtimeID, c.actor)
+		}
 		if _, err = c.svc.Execute(c.actor, "runtime.register", runtimeID, model.RuntimeRegistered{
 			AgentID: c.actor, Kind: model.RuntimeKindInteractive,
 			Connector: "INTERACTIVE", HostID: hostID, MaxConcurrent: 1,
@@ -1329,6 +1545,15 @@ func (c *cli) runInteractiveServe(ctx context.Context, runtimeID string, command
 	}()
 	code, err := interactiveserve.Serve(serveCtx, interactiveserve.ServeOptions{
 		ProjectRoot: c.svc.Store.Root, RuntimeID: runtimeID, Command: command, Actor: c.actor,
+		OnStarted: func(pid int) {
+			if len(command) == 0 {
+				return
+			}
+			adapter := filepath.Base(command[0])
+			if sessionID, ok := discoverSessionID(adapter, pid, c.svc.Store.Root); ok {
+				_ = sessionbind.Save(c.svc.Store.Root, runtimeID, sessionID, adapter)
+			}
+		},
 	})
 	if err != nil {
 		return err
@@ -1461,7 +1686,13 @@ func (c *cli) invocationCmd() *cobra.Command {
 			}
 			result[id] = invocation
 		}
-		return c.emit("invocation.list", result)
+		headers := []string{"ID", "TARGET", "STATUS", "PRIORITY", "REQUESTED_BY"}
+		rows := make([][]string, 0, len(result))
+		for _, id := range service.SortedKeys(result) {
+			inv := result[id]
+			rows = append(rows, []string{id, inv.Target, inv.Status, inv.Priority, inv.RequestedBy})
+		}
+		return c.emitTable("invocation.list", result, headers, rows)
 	}}
 	list.Flags().String("status", "", "filter by status")
 	list.Flags().String("to", "", "filter by target agent")
@@ -1670,6 +1901,20 @@ func (c *cli) invocationPolicyCmd() *cobra.Command {
 	return root
 }
 
+// gitBranch best-effort detects path's current git branch for `task lock`'s
+// auto-filled Branch field -- task.create requires a non-empty branch, and
+// an ad hoc lock has no natural one to ask the caller for. Returns "" on
+// any failure (not a git repo, git not on PATH, detached HEAD reporting
+// "HEAD" is passed through as-is rather than treated as a failure, since
+// it's still a real, if unusual, answer).
+func gitBranch(path string) string {
+	out, err := exec.Command("git", "-C", path, "rev-parse", "--abbrev-ref", "HEAD").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
 func consumerModes(values []string) []model.ConsumerMode {
 	result := make([]model.ConsumerMode, 0, len(values))
 	for _, value := range values {
@@ -1741,7 +1986,18 @@ func (c *cli) taskCmd() *cobra.Command {
 	claim := &cobra.Command{Use: "claim", RunE: func(cmd *cobra.Command, args []string) error {
 		id, _ := cmd.Flags().GetString("id")
 		lease := time.Now().UTC().Add(leaseDuration)
-		v, e := c.svc.Execute(c.actor, "task.claim", id, model.TaskClaimed{LeaseUntil: lease, Worktree: claimWorktree})
+		// --repo and --worktree are two names for the same lock, kept as
+		// separate flags because that's how the original working-directory-
+		// lock request (docs/agent-comms-feedback.md #1) phrased it ("task
+		// claim <task-id> --repo <path> --branch <name>"). --repo used to be
+		// declared and parsed but never actually reached TaskClaimed's
+		// Worktree field -- passing it silently acquired no lock at all
+		// despite its own help text ("acquires a working-directory lock").
+		worktree := claimWorktree
+		if worktree == "" {
+			worktree = claimRepo
+		}
+		v, e := c.svc.Execute(c.actor, "task.claim", id, model.TaskClaimed{LeaseUntil: lease, Worktree: worktree})
 		if e != nil {
 			return e
 		}
@@ -1750,7 +2006,7 @@ func (c *cli) taskCmd() *cobra.Command {
 	claim.Flags().String("id", "", "task ID")
 	_ = claim.MarkFlagRequired("id")
 	claim.Flags().DurationVar(&leaseDuration, "duration", 4*time.Hour, "lease duration")
-	claim.Flags().StringVar(&claimRepo, "repo", "", "repository path (acquires working-directory lock)")
+	claim.Flags().StringVar(&claimRepo, "repo", "", "repository path (acquires working-directory lock; alias for --worktree)")
 	claim.Flags().StringVar(&claimWorktree, "worktree", "", "worktree path (acquires working-directory lock)")
 	start := simpleStatus(c, "task", "start")
 	var progress string
@@ -1789,7 +2045,82 @@ func (c *cli) taskCmd() *cobra.Command {
 		}
 		return c.emit("task.list", st.Tasks)
 	}}
-	root.AddCommand(create, offer, claim, start, renew, block, review, complete, cancel, handoff, takeover, list)
+	var lockWorktree, lockNote string
+	var lockDuration time.Duration
+	lock := &cobra.Command{
+		Use:   "lock",
+		Short: "Create and claim a minimal task in one step, to hold a working-directory lock for ad hoc work with no pre-existing task",
+		Long: "task create requires a title, summary, repository, branch, and resource list before " +
+			"task claim can acquire a working-directory lock -- real ceremony for a real task, but too " +
+			"much for the single most common shape of work in an interactive multi-agent setup: a human " +
+			"directly asking a live agent to fix something, with no Task tracked yet. `task lock` creates " +
+			"a minimal, throwaway task (auto-generated ID, --note as its title/summary, current branch " +
+			"detected via git if not given) and claims it in the same call, so reaching for a lock is " +
+			"never more work than skipping one. Complete or cancel it like any other task when the work " +
+			"is done (the printed task ID is what you need).",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if lockWorktree == "" {
+				return errors.New("--worktree is required")
+			}
+			// task.claim's scopeAllows check requires every task Resource to
+			// be covered by the claiming actor's own Scopes -- it's a
+			// permission check, unrelated to the separate Worktree-based
+			// conflict check below that's the actual point of this command.
+			// Using the raw worktree path as the resource (the first thing
+			// tried here) fails that check for any actor without a wildcard
+			// scope, since a filesystem path essentially never matches a
+			// scope tag like "src" -- confirmed live. Reusing the actor's
+			// own first registered scope instead means the check always
+			// trivially passes for whoever is actually running this command,
+			// which is exactly the property an ad hoc, no-fuss lock needs.
+			st, e := c.svc.State()
+			if e != nil {
+				return fmt.Errorf("read state: %w", e)
+			}
+			agent, ok := st.Agents[c.actor]
+			if !ok || len(agent.Scopes) == 0 {
+				return fmt.Errorf("actor %q has no registered scopes to lock a task under", c.actor)
+			}
+			id := fmt.Sprintf("adhoc-%s-%d", c.actor, time.Now().UnixNano())
+			note := strings.TrimSpace(lockNote)
+			if note == "" {
+				note = "Ad hoc working-directory lock (no pre-existing task)"
+			}
+			branch := gitBranch(lockWorktree)
+			if branch == "" {
+				branch = "unknown"
+			}
+			// A bare scope tag ("src") as the resource, not scope+"/"+id,
+			// would make every ad hoc lock from same-scoped actors overlap
+			// with every other one via the generic write-lease check
+			// (transitions.go's overlap()), even across completely
+			// unrelated worktrees -- confirmed live: locking a second,
+			// entirely different directory was rejected purely because an
+			// earlier lock happened to share the "src" scope, nowhere near
+			// the same files. Scoping it under a per-lock, id-unique
+			// sub-resource still satisfies scopeAllows's own
+			// prefix-with-"/" rule, but two separate ad hoc locks' resource
+			// strings can now never accidentally overlap each other -- the
+			// worktree check right below is the only thing that still can,
+			// which is the one conflict this command actually means to catch.
+			if _, e := c.svc.Execute(c.actor, "task.create", id, model.TaskCreated{
+				Title: note, Summary: note, Repository: "local", Branch: branch,
+				Worktree: lockWorktree, Resources: []string{agent.Scopes[0] + "/adhoc/" + id},
+			}); e != nil {
+				return fmt.Errorf("create ad hoc task: %w", e)
+			}
+			lease := time.Now().UTC().Add(lockDuration)
+			v, e := c.svc.Execute(c.actor, "task.claim", id, model.TaskClaimed{LeaseUntil: lease, Worktree: lockWorktree})
+			if e != nil {
+				return fmt.Errorf("claim ad hoc task %s: %w", id, e)
+			}
+			return c.emit("task.lock", v)
+		},
+	}
+	lock.Flags().StringVar(&lockWorktree, "worktree", "", "worktree path to lock (required)")
+	lock.Flags().StringVar(&lockNote, "note", "", "what you're about to do -- used as the ad hoc task's title/summary")
+	lock.Flags().DurationVar(&lockDuration, "duration", 4*time.Hour, "lease duration")
+	root.AddCommand(create, offer, claim, start, renew, block, review, complete, cancel, handoff, takeover, list, lock)
 	return root
 }
 func simpleStatus(c *cli, domain, sub string) *cobra.Command {

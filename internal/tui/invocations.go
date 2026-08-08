@@ -113,7 +113,7 @@ var (
 			Title:  "Redeliver invocation",
 			Hint:   "Creates a new audited delivery attempt for one explicit runtime.",
 			Fields: []FormField{{Label: "Runtime ID", Placeholder: "reviewer-interactive", Required: true}},
-			Dispatch: func(m Model, values []string) (tea.Model, tea.Cmd) {
+			Dispatch: func(m Model, values []string, _ string) (tea.Model, tea.Cmd) {
 				invocationID := m.formTaskID
 				invocation := m.state.Invocations[invocationID]
 				runtimeState, exists := m.state.AgentRuntimes[values[0]]
@@ -139,43 +139,14 @@ var (
 	}
 )
 
-func (m Model) invocationControlBar(p palette, width int) string {
-	pending, active, failedDeliveries := 0, 0, 0
-	for _, invocation := range m.state.Invocations {
-		switch invocation.Status {
-		case "PENDING", "NOTIFIED":
-			pending++
-		case "CLAIMED", "RUNNING", "WAITING":
-			active++
-		}
-	}
-	for _, delivery := range m.state.InvocationDeliveries {
-		if delivery.Status == "FAILED" || delivery.Status == "EXHAUSTED" {
-			failedDeliveries++
-		}
-	}
-	mode := "NAVIGATION · Enter to manage selected invocation"
-	color := p.muted
-	if m.rowFocus {
-		mode = "MANAGE MODE · ↑/↓ select · Esc returns to navigation"
-		color = p.cyan
-	}
-	title := lipgloss.NewStyle().Foreground(color).Bold(true).Render(mode)
-	status := lipgloss.NewStyle().Foreground(p.text).Render(
-		fmt.Sprintf("Pending %d   Active %d   Failed deliveries %d", pending, active, failedDeliveries),
-	)
-	actions := lipgloss.NewStyle().Foreground(p.amber).Render(
-		"[n] invoke agent   [r] refresh   [Enter] manage selected",
-	)
-	return lipgloss.NewStyle().Width(width).BorderLeft(true).BorderStyle(lipgloss.ThickBorder()).
-		BorderForeground(color).PaddingLeft(1).Render(title + "\n" + status + "\n" + actions)
-}
-
 type invocationRowSource struct{}
 
 func (invocationRowSource) Columns(width int) []table.Column {
-	status, priority, target, requester := 12, 9, 14, 14
-	instruction := max(18, width-status-priority-target-requester)
+	status, priority, target, requester := 15, 10, 10, 10
+	if width < 75 {
+		status, priority, target, requester = 11, 8, 8, 8
+	}
+	instruction := max(6, width-status-priority-target-requester)
 	return []table.Column{
 		{Title: "STATUS", Width: status}, {Title: "PRIORITY", Width: priority},
 		{Title: "TARGET", Width: target}, {Title: "REQUESTER", Width: requester},
@@ -192,7 +163,7 @@ func (invocationRowSource) Rows(state model.State, actor string, mine bool) []ta
 			continue
 		}
 		rows = append(rows, table.Row{
-			invocation.Status, invocation.Priority, invocation.Target,
+			fmtStatus(invocation.Status), invocation.Priority, invocation.Target,
 			invocation.RequestedBy, invocation.Instruction,
 		})
 	}

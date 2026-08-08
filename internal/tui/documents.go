@@ -64,10 +64,10 @@ type documentRowSource struct{}
 
 func (documentRowSource) Columns(width int) []table.Column {
 	status, version, author := 12, 8, 13
-	id := width - status - version - author
-	if id < 14 {
-		id = 14
+	if width < 75 {
+		status, version, author = 10, 6, 10
 	}
+	id := max(8, width-status-version-author)
 	return []table.Column{
 		{Title: "STATUS", Width: status},
 		{Title: "DOCUMENT", Width: id},

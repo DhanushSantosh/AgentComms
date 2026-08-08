@@ -39,6 +39,29 @@ var (
 	}
 )
 
+// approveActionFor mirrors protocol.RequiresElevatedKey's approval.approve
+// branch: completing a HUMAN-tier approval needs the actor's elevated key,
+// so it gets a form with a masked passphrase field instead of the plain
+// one-keypress approve every other (ORCHESTRATOR-tier) approval uses --
+// keeping the fast path fast for the common case.
+func approveActionFor(a model.Approval) RowAction {
+	if a.Tier != "HUMAN" {
+		return appApprove
+	}
+	return RowAction{
+		Key: "y", Label: "approve", EventType: "approval.approve",
+		Form: &ActionForm{
+			Title: "Approve (HUMAN tier)",
+			Hint:  "This is a HUMAN-tier approval; completing it requires your elevated-key passphrase, if one is registered.",
+			Fields: []FormField{
+				{Label: "Elevated-key passphrase", Mask: true},
+			},
+			CollectsPassphrase: true,
+			Build:              func(v []string) (any, error) { return model.ApprovalResponse{}, nil },
+		},
+	}
+}
+
 // approvalActionsFor mirrors service.go's elevated() gate (approval.approve
 // and approval.reject both require Owner or Orchestrator role) plus the
 // HUMAN-tier check on approve (an AGENT principal can never approve a
@@ -52,7 +75,7 @@ func approvalActionsFor(a model.Approval, role model.Role, pt model.PrincipalTyp
 	}
 	var acts []RowAction
 	if a.Tier != "HUMAN" || pt == model.PrincipalHuman {
-		acts = append(acts, appApprove)
+		acts = append(acts, approveActionFor(a))
 	}
 	acts = append(acts, appReject)
 	return acts
@@ -61,11 +84,11 @@ func approvalActionsFor(a model.Approval, role model.Role, pt model.PrincipalTyp
 type approvalRowSource struct{}
 
 func (approvalRowSource) Columns(width int) []table.Column {
-	id, tier, status := 14, 12, 10
-	action := width - id - tier - status
-	if action < 15 {
-		action = 15
+	id, tier, status := 14, 12, 14
+	if width < 75 {
+		id, tier, status = 10, 8, 11
 	}
+	action := max(8, width-id-tier-status)
 	return []table.Column{
 		{Title: "ID", Width: id},
 		{Title: "TIER", Width: tier},
@@ -81,7 +104,7 @@ func (s approvalRowSource) Rows(st model.State, actor string, mine bool) []table
 	rows := make([]table.Row, 0, len(ids))
 	for _, id := range ids {
 		a := st.Approvals[id]
-		rows = append(rows, table.Row{id, a.Tier, a.Status, a.Action})
+		rows = append(rows, table.Row{id, a.Tier, fmtStatus(a.Status), a.Action})
 	}
 	return rows
 }

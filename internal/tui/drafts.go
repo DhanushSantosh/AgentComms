@@ -20,7 +20,7 @@ var draftSaveForm = &ActionForm{
 		{Label: "Kind (document/message/artifact)", Placeholder: "document", Required: true},
 		{Label: "Content", Placeholder: "", Required: true},
 	},
-	Dispatch: func(m Model, values []string) (tea.Model, tea.Cmd) {
+	Dispatch: func(m Model, values []string, _ string) (tea.Model, tea.Cmd) {
 		kind := strings.ToLower(strings.TrimSpace(values[1]))
 		raw := []byte(values[2])
 		if !json.Valid(raw) {
@@ -64,7 +64,11 @@ func (m Model) draftsView(p palette) string {
 			padTo(d.Kind, 11)+" "+padTo(d.ID, 30)+" "+d.UpdatedAt.Local().Format("2006-01-02 15:04:05"),
 		))
 	}
-	rows = append(rows, "", lipgloss.NewStyle().Foreground(p.amber).Render("[n] save draft   [r] refresh"))
+	draftFooterParts := []string{
+		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[n]") + " " + lipgloss.NewStyle().Foreground(p.muted).Render("save draft"),
+		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[r]") + " " + lipgloss.NewStyle().Foreground(p.muted).Render("refresh"),
+	}
+	rows = append(rows, "", strings.Join(draftFooterParts, " · "))
 	return strings.Join(rows, "\n")
 }
 

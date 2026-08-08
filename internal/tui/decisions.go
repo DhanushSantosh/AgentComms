@@ -39,7 +39,7 @@ var decisionSupersedeForm = &ActionForm{
 		{Label: "Statement", Placeholder: "", Required: true},
 		{Label: "To (comma-separated, optional)", Placeholder: ""},
 	},
-	Dispatch: func(m Model, values []string) (tea.Model, tea.Cmd) {
+	Dispatch: func(m Model, values []string, _ string) (tea.Model, tea.Cmd) {
 		oldID := m.formTaskID
 		_, err := m.svc.Execute(m.actor, "decision.supersede", values[0], model.DecisionPayload{
 			Title: values[1], Statement: values[2], To: splitCSV(values[3]), Supersedes: oldID,
@@ -60,11 +60,11 @@ var decSupersede = RowAction{Key: "s", Label: "supersede", EventType: "decision.
 type decisionRowSource struct{}
 
 func (decisionRowSource) Columns(width int) []table.Column {
-	status, title := 12, 30
-	statement := width - status - title
-	if statement < 15 {
-		statement = 15
+	status, title := 12, 24
+	if width < 75 {
+		status, title = 10, 16
 	}
+	statement := max(8, width-status-title)
 	return []table.Column{
 		{Title: "STATUS", Width: status},
 		{Title: "TITLE", Width: title},

@@ -1,0 +1,462 @@
+---
+import BaseLayout from "@layouts/BaseLayout.astro";
+import CoordinationRail from "@components/CoordinationRail.astro";
+import PlatformTabs from "@components/PlatformTabs.astro";
+import Sidebar from "@components/Sidebar.astro";
+---
+
+<BaseLayout title="Agent Comms Documentation" description="The operating manual for governed coordination between concurrent AI agents and the people directing them.">
+  <div class="docs-grid home-grid">
+    <Sidebar currentPath="/" />
+    <main id="main-content" data-pagefind-body>
+      <section class="hero">
+        <div class="hero__copy">
+          <p class="eyebrow">The coordination manual</p>
+          <h1 data-pagefind-meta="title">Know who owns the work. Prove what happened next.</h1>
+          <p class="hero__lede">Install Agent Comms, direct a live project, connect agent runtimes, and inspect the signed record behind every claim, delivery, and decision.</p>
+          <div class="hero__actions">
+            <a class="primary-action" href="/start/quickstart/">Start a local project <span>→</span></a>
+            <button class="secondary-action" type="button" data-search-trigger>Search the manual <kbd>⌘ K</kbd></button>
+          </div>
+        </div>
+        <CoordinationRail />
+      </section>
+
+      <section class="paths" aria-labelledby="choose-path">
+        <div class="section-index">
+          <span>01</span>
+          <p id="choose-path">Choose your path</p>
+        </div>
+        <div class="path-list">
+          <a href="/start/quickstart/">
+            <span class="path-list__role">Human operator</span>
+            <strong>Control a project</strong>
+            <p>Install locally, open the TUI, manage agents, and govern work without running a server.</p>
+            <span class="path-list__arrow">↗</span>
+          </a>
+          <a href="/agents/integrations/">
+            <span class="path-list__role">Agent or integrator</span>
+            <strong>Connect an agent</strong>
+            <p>Join through MCP or the CLI, then choose a worker, live adapter, or interactive runtime.</p>
+            <span class="path-list__arrow">↗</span>
+          </a>
+        </div>
+      </section>
+
+      <section class="mental-model" aria-labelledby="read-the-system">
+        <div class="section-index">
+          <span>02</span>
+          <p id="read-the-system">Read the system correctly</p>
+        </div>
+        <div class="truth-grid">
+          <article><span>01 / Request</span><h2>An obligation exists</h2><p>The signed invocation is durable even when no runtime can be reached.</p></article>
+          <article><span>02 / Delivery</span><h2>Transport acted</h2><p>Evidence proves what the connector did. It does not prove the target understood.</p></article>
+          <article><span>03 / Claim</span><h2>The target acknowledged</h2><p>A valid runtime has exclusively accepted responsibility for the invocation.</p></article>
+          <article><span>04 / Completion</span><h2>The result is committed</h2><p>The target records a bounded outcome in the same governed history.</p></article>
+        </div>
+      </section>
+
+      <section class="quick-command" aria-labelledby="working-project">
+        <div class="section-index section-index--dark">
+          <span>03</span>
+          <p id="working-project">A working project in three commands</p>
+        </div>
+        <div class="command-window">
+          <div class="command-window__meta"><span>personal mode</span><span>no account · no server</span></div>
+          <PlatformTabs
+            id="home-install"
+            label="Installation platform"
+            tabs={[
+              { label: "Linux / macOS", language: "shell", code: "curl -fsSL https://raw.githubusercontent.com/DhanushSantosh/AgentComms/main/install.sh | sh\nagent-comms init\nagent-comms tui" },
+              { label: "Windows", language: "PowerShell", code: ".\\install.ps1\nagent-comms init\nagent-comms tui" }
+            ]}
+          />
+          <a href="/start/install/">Read installation and verification details →</a>
+        </div>
+      </section>
+
+      <section class="browse" aria-labelledby="browse-manual">
+        <div class="section-index">
+          <span>04</span>
+          <p id="browse-manual">Browse the manual</p>
+        </div>
+        <div class="browse-list">
+          <a href="/guide/agents/"><strong>Agents and access</strong><span>Register, activate, rotate, revoke, and delete identities.</span></a>
+          <a href="/agents/invocations/"><strong>Invocation lifecycle</strong><span>Request, claim, run, wait, resume, complete, or reject work.</span></a>
+          <a href="/agents/interactive/"><strong>Interactive sessions</strong><span>Deliver into live Claude, Codex, and OpenCode terminals with evidence.</span></a>
+          <a href="/operations/deploy/"><strong>Team service</strong><span>Move from one machine to PostgreSQL-backed shared authority.</span></a>
+          <a href="/security/integrity/"><strong>Audit and integrity</strong><span>Verify actor intent, receipts, fingerprints, and the event chain.</span></a>
+          <a href="/reference/cli/"><strong>Command reference</strong><span>Search the generated CLI and MCP surface.</span></a>
+        </div>
+      </section>
+    </main>
+  </div>
+</BaseLayout>
+
+<style>
+  main {
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .hero,
+  .paths,
+  .mental-model,
+  .browse {
+    margin: 0 auto;
+    max-width: 78rem;
+    padding-left: clamp(1.4rem, 5vw, 5rem);
+    padding-right: clamp(1.4rem, 5vw, 5rem);
+  }
+
+  .hero {
+    align-items: center;
+    background: var(--coral);
+    color: var(--chrome);
+    display: grid;
+    gap: clamp(3rem, 7vw, 7rem);
+    grid-template-columns: minmax(0, 1.05fr) minmax(20rem, 0.95fr);
+    margin: 0;
+    max-width: none;
+    min-height: min(48rem, calc(100vh - var(--header-height)));
+    overflow: hidden;
+    padding-bottom: 5.5rem;
+    padding-top: 5.5rem;
+    position: relative;
+  }
+
+  .hero::before {
+    background-image: radial-gradient(color-mix(in srgb, var(--chrome) 28%, transparent) 0.65px, transparent 0.65px);
+    background-size: 6px 6px;
+    content: "";
+    inset: 0;
+    opacity: 0.17;
+    pointer-events: none;
+    position: absolute;
+  }
+
+  .hero__copy {
+    position: relative;
+    z-index: 1;
+  }
+
+  .eyebrow {
+    background: var(--chrome);
+    box-shadow: 0.32rem 0.32rem 0 var(--signal);
+    color: var(--chrome-ink);
+    display: inline-block;
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.11em;
+    margin: 0 0 1.55rem;
+    padding: 0.38rem 0.55rem;
+    text-transform: uppercase;
+  }
+
+  h1 {
+    font-family: var(--font-display);
+    font-size: clamp(3.6rem, 6.3vw, 6.65rem);
+    font-weight: 650;
+    letter-spacing: -0.075em;
+    line-height: 0.82;
+    margin: 0;
+    max-width: 10.5ch;
+    text-wrap: balance;
+  }
+
+  .hero__lede {
+    color: color-mix(in srgb, var(--chrome) 80%, transparent);
+    font-size: 1.06rem;
+    line-height: 1.65;
+    margin: 1.7rem 0 0;
+    max-width: 36rem;
+  }
+
+  .hero__actions {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.7rem;
+    margin-top: 1.8rem;
+  }
+
+  .primary-action,
+  .secondary-action {
+    align-items: center;
+    border-radius: 0;
+    display: inline-flex;
+    font-size: 0.78rem;
+    font-weight: 650;
+    gap: 0.75rem;
+    min-height: 3rem;
+    padding: 0 1rem;
+  }
+
+  .primary-action {
+    background: var(--chrome);
+    border: 1px solid var(--chrome);
+    color: var(--chrome-ink);
+    text-decoration: none;
+  }
+
+  .primary-action:hover {
+    background: var(--signal);
+    border-color: var(--signal);
+    color: var(--chrome);
+  }
+
+  .secondary-action {
+    background: transparent;
+    border: 1px solid color-mix(in srgb, var(--chrome) 48%, transparent);
+    color: var(--chrome);
+    cursor: pointer;
+  }
+
+  .secondary-action:hover {
+    background: var(--chrome);
+    color: var(--chrome-ink);
+  }
+
+  .secondary-action kbd {
+    color: inherit;
+    font-family: var(--font-mono);
+    font-size: 0.6rem;
+  }
+
+  .paths,
+  .mental-model,
+  .browse {
+    border-top: 1px solid var(--line);
+    display: grid;
+    gap: clamp(2rem, 5vw, 5rem);
+    grid-template-columns: 9rem minmax(0, 1fr);
+    padding-bottom: 5.5rem;
+    padding-top: 2rem;
+  }
+
+  .section-index {
+    color: var(--steel);
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .section-index span {
+    color: var(--brand-strong);
+    display: block;
+    font-weight: 700;
+    margin-bottom: 0.45rem;
+  }
+
+  .section-index p {
+    margin: 0;
+  }
+
+  .path-list {
+    display: grid;
+    gap: 1px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .path-list a {
+    background: var(--surface-raised);
+    border: 1px solid var(--line);
+    color: var(--ink);
+    display: grid;
+    min-height: 14rem;
+    padding: 1.35rem;
+    position: relative;
+    text-decoration: none;
+  }
+
+  .path-list a:hover {
+    border-color: var(--brand);
+    box-shadow: 0.65rem 0.65rem 0 var(--signal-soft);
+    transform: translate(-3px, -3px);
+    z-index: 1;
+  }
+
+  .path-list__role {
+    color: var(--brand-strong);
+    font-family: var(--font-mono);
+    font-size: 0.63rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .path-list strong {
+    align-self: end;
+    font-family: var(--font-display);
+    font-size: 1.65rem;
+    font-weight: 640;
+    letter-spacing: -0.03em;
+  }
+
+  .path-list p {
+    color: var(--muted);
+    font-size: 0.84rem;
+    line-height: 1.55;
+    margin: 0.55rem 2rem 0 0;
+  }
+
+  .path-list__arrow {
+    bottom: 1.35rem;
+    color: var(--steel);
+    position: absolute;
+    right: 1.35rem;
+  }
+
+  .truth-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .truth-grid article {
+    background: color-mix(in srgb, var(--surface-raised) 50%, transparent);
+    border-left: 1px solid var(--line);
+    min-height: 10rem;
+    padding: 1rem 1.2rem 1.2rem;
+  }
+
+  .truth-grid article:nth-child(n+3) {
+    border-top: 1px solid var(--line);
+    padding-top: 1.2rem;
+  }
+
+  .truth-grid span {
+    color: var(--receipt);
+    font-family: var(--font-mono);
+    font-size: 0.62rem;
+    text-transform: uppercase;
+  }
+
+  .truth-grid h2 {
+    font-family: var(--font-display);
+    font-size: 1.18rem;
+    font-weight: 650;
+    margin: 1.3rem 0 0.5rem;
+  }
+
+  .truth-grid p {
+    color: var(--muted);
+    font-size: 0.8rem;
+    line-height: 1.55;
+    margin: 0;
+  }
+
+  .quick-command {
+    background: var(--code-canvas);
+    color: var(--code-ink);
+    display: grid;
+    gap: clamp(2rem, 5vw, 5rem);
+    grid-template-columns: 9rem minmax(0, 1fr);
+    margin: 0 auto 5.5rem;
+    border-left: 3px solid var(--signal);
+    box-shadow: 0.8rem 0.8rem 0 color-mix(in srgb, var(--receipt) 38%, transparent);
+    max-width: min(78rem, calc(100% - 2rem));
+    padding: 2rem clamp(1.4rem, 5vw, 5rem) 3rem;
+  }
+
+  .section-index--dark {
+    color: #9cafb7;
+  }
+
+  .section-index--dark span {
+    color: #58d4d1;
+  }
+
+  .command-window__meta {
+    border-bottom: 1px solid #2d3c44;
+    color: #8fa1aa;
+    display: flex;
+    font-family: var(--font-mono);
+    font-size: 0.6rem;
+    justify-content: space-between;
+    padding-bottom: 0.7rem;
+    text-transform: uppercase;
+  }
+
+  .command-window a {
+    color: #b8c8ce;
+    display: inline-block;
+    font-size: 0.72rem;
+    margin-top: 1rem;
+    text-decoration: none;
+  }
+
+  .command-window a:hover {
+    color: #58d4d1;
+  }
+
+  .browse-list {
+    border-top: 1px solid var(--line);
+  }
+
+  .browse-list a {
+    align-items: baseline;
+    border-bottom: 1px solid var(--line);
+    color: var(--ink);
+    display: grid;
+    gap: 1.5rem;
+    grid-template-columns: minmax(9rem, 0.75fr) 1.25fr;
+    padding: 1rem 0.3rem;
+    text-decoration: none;
+  }
+
+  .browse-list a:hover strong {
+    color: var(--brand-strong);
+  }
+
+  .browse-list strong {
+    font-family: var(--font-display);
+    font-size: 0.9rem;
+  }
+
+  .browse-list span {
+    color: var(--muted);
+    font-size: 0.78rem;
+    line-height: 1.5;
+  }
+
+  @media (max-width: 62rem) {
+    .hero {
+      grid-template-columns: 1fr;
+    }
+
+    h1 {
+      max-width: 12ch;
+    }
+  }
+
+  @media (max-width: 42rem) {
+    .hero {
+      min-height: auto;
+      padding-bottom: 4rem;
+      padding-top: 3.5rem;
+    }
+
+    .paths,
+    .mental-model,
+    .browse,
+    .quick-command {
+      grid-template-columns: 1fr;
+    }
+
+    .path-list,
+    .truth-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .truth-grid article {
+      border-left: 0;
+      border-top: 1px solid var(--line);
+    }
+
+    .browse-list a {
+      gap: 0.35rem;
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

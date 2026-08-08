@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -39,10 +40,6 @@ const echoTimeout = 10 * time.Second
 // another agent finishes a potentially long turn.
 const directDeliveryIdleTimeout = 250 * time.Millisecond
 
-// gracePeriod bounds how long Serve waits for the child to exit on its own
-// after being sent a forwarded signal before it is killed outright.
-const gracePeriod = 3 * time.Second
-
 // Serve allocates a real pty, execs opts.Command attached to it, and
 // transparently forwards opts.ControlFD/Stdin/Stdout so the invoking
 // terminal shows the child's native UI unmediated — the same experience as
@@ -57,6 +54,44 @@ const gracePeriod = 3 * time.Second
 // special-casing needed. The signal handling here is for the other case:
 // something sends SIGINT/SIGTERM to the wrapper process itself directly.
 //
+// claudeSessionInheritanceKeys are environment variables Claude Code's own
+// CLI sets to mark "this process is a subordinate child of another live
+// session" (CLAUDE_CODE_CHILD_SESSION) and to identify that parent session
+// (CLAUDE_CODE_SESSION_ID, CLAUDE_CODE_BRIDGE_SESSION_ID). The child Serve
+// execs is meant to become a fresh, independent, top-level interactive
+// session in its own right — if Serve is invoked from inside an
+// already-running Claude Code session (an agent spinning up its own, or
+// another runtime's, interactive-serve), the wrapped `claude` process would
+// otherwise inherit these unchanged and conclude it is itself a child,
+// disabling its own transcript persistence entirely. Confirmed live: a
+// `claude` child spawned this way showed "Transcript saving is off —
+// inherited CLAUDE_CODE_CHILD_SESSION marker" in its own status line.
+var claudeSessionInheritanceKeys = []string{
+	"CLAUDE_CODE_CHILD_SESSION",
+	"CLAUDE_CODE_SESSION_ID",
+	"CLAUDE_CODE_BRIDGE_SESSION_ID",
+}
+
+// childEnviron returns os.Environ() with claudeSessionInheritanceKeys
+// removed, so the wrapped command never inherits a stale parent-session
+// identity it never asked for.
+func childEnviron() []string {
+	exclude := make(map[string]bool, len(claudeSessionInheritanceKeys))
+	for _, k := range claudeSessionInheritanceKeys {
+		exclude[k] = true
+	}
+	env := os.Environ()
+	filtered := make([]string, 0, len(env))
+	for _, kv := range env {
+		key, _, _ := strings.Cut(kv, "=")
+		if exclude[key] {
+			continue
+		}
+		filtered = append(filtered, kv)
+	}
+	return filtered
+}
+
 // Serve returns the child's exit code and never calls os.Exit itself — the
 // caller must do that only after Serve has returned, so pending cleanup
 // (terminal-mode restore, socket removal) always runs first. Calling
@@ -95,13 +130,14 @@ func Serve(ctx context.Context, opts ServeOptions) (int, error) {
 	defer func() { _ = os.Remove(sockPath) }()
 
 	cmd := exec.Command(opts.Command[0], opts.Command[1:]...)
+	cmd.Env = childEnviron()
 	if opts.Actor != "" {
 		// Appended, not prepended: os/exec keeps only the last value for a
 		// duplicate key, so this deliberately overrides any AGENT_COMMS_ACTOR
 		// already present in the wrapper's own environment (e.g. one set by
 		// hand in the shell) with the identity actually resolved for this
 		// invocation -- the explicit, resolved value should win.
-		cmd.Env = append(os.Environ(), "AGENT_COMMS_ACTOR="+opts.Actor)
+		cmd.Env = append(cmd.Env, "AGENT_COMMS_ACTOR="+opts.Actor)
 	}
 	w, h, sizeErr := term.GetSize(fd)
 	if sizeErr != nil {
@@ -112,6 +148,9 @@ func Serve(ctx context.Context, opts ServeOptions) (int, error) {
 		return 1, fmt.Errorf("interactiveserve: start %q in a pty: %w", opts.Command[0], err)
 	}
 	defer ptmx.Close()
+	if opts.OnStarted != nil {
+		go opts.OnStarted(cmd.Process.Pid)
+	}
 
 	// Printed before the child's own first paint, so it's visible for a
 	// moment even though a full-screen TUI's alt-screen entry will cover it
@@ -167,14 +206,14 @@ func Serve(ctx context.Context, opts ServeOptions) (int, error) {
 	return exitCodeFor(cmd, waitErr), nil
 }
 
-// forwardAndWait forwards sig to cmd's process, waits up to gracePeriod for
+// forwardAndWait forwards sig to cmd's process, waits up to GracePeriod for
 // it to exit on its own, and kills it outright if it hasn't.
 func forwardAndWait(cmd *exec.Cmd, sig os.Signal, waitDone <-chan error) error {
 	_ = cmd.Process.Signal(sig)
 	select {
 	case err := <-waitDone:
 		return err
-	case <-time.After(gracePeriod):
+	case <-time.After(GracePeriod):
 		_ = cmd.Process.Kill()
 		return <-waitDone
 	}
@@ -220,6 +259,8 @@ func handleConn(conn net.Conn, tee *outputTee, ptmx *os.File, mu *sync.Mutex) {
 	switch req.Kind {
 	case "ping":
 		_ = json.NewEncoder(conn).Encode(Response{OK: true, Busy: isBusy(tee.snapshot())})
+	case "snapshot":
+		_ = json.NewEncoder(conn).Encode(Response{OK: true, Busy: isBusy(tee.snapshot()), OutputSnapshot: string(tee.snapshot())})
 	case "deliver":
 		mu.Lock()
 		evidence, err := deliverToPtyWithEvidence(ptmx, tee, req.Message, idleTimeout, echoTimeout)

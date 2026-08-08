@@ -177,6 +177,28 @@ func TestProtocolRoundTrip(t *testing.T) {
 	}
 }
 
+func TestSnapshotReturnsLivePTYBuffer(t *testing.T) {
+	requireUnixInteractiveTransport(t)
+	dir := t.TempDir()
+	sockPath := SocketPath(dir, "snapshot-test")
+	listener := listenTestSocket(t, sockPath)
+	go serveOneRequest(t, listener, func(req Request) Response {
+		if req.Kind != "snapshot" {
+			return Response{OK: false, Error: "unexpected request kind"}
+		}
+		return Response{OK: true, OutputSnapshot: "live terminal output snapshot"}
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	snapshot, err := Snapshot(ctx, dir, "snapshot-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot != "live terminal output snapshot" {
+		t.Fatalf("got snapshot %q, want %q", snapshot, "live terminal output snapshot")
+	}
+}
+
 func TestProtocolRoundTripSurfacesError(t *testing.T) {
 	requireUnixInteractiveTransport(t)
 	dir := t.TempDir()
@@ -266,6 +288,20 @@ func TestListenLocalRecoversStaleSocket(t *testing.T) {
 	defer second.Close()
 }
 
+func TestListenLocalRecoversStaleRegularFile(t *testing.T) {
+	requireUnixInteractiveTransport(t)
+	dir := t.TempDir()
+	sockPath := SocketPath(dir, "stale-file-runtime")
+	if err := os.WriteFile(sockPath, []byte("stale content"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	second, err := listenLocal(sockPath)
+	if err != nil {
+		t.Fatalf("expected listenLocal to recover a stale non-socket file: %v", err)
+	}
+	defer second.Close()
+}
+
 // --- matcher: busy/echo heuristics ---------------------------------------
 
 func TestIsBusyDetectsAndIgnoresMarkers(t *testing.T) {
@@ -340,10 +376,78 @@ func TestEchoedSurvivesInterleavedCursorMovement(t *testing.T) {
 	}
 }
 
+// TestEchoedFallsBackToInvocationIDWhenFullTextIsShredded guards the fix
+// added for agy: its TUI redraws long text streams with status/UI elements
+// interleaved at points the box-drawing and cursor-movement handling above
+// doesn't cover, so a delivered prompt can come back with most of its
+// content scrambled by redraw artifacts -- while the "Invocation ID:
+// inv-XXXX" line embedded near the top of the prompt (see agyPrompt,
+// adapter_agy.go) survives intact. Without this fallback, that would read
+// as never-delivered and the caller would keep retrying (or time out and
+// refuse to send Enter) even though the target genuinely has the message.
+func TestEchoedFallsBackToInvocationIDWhenFullTextIsShredded(t *testing.T) {
+	original := "You are the autonomous Agent Comms runtime for agent HULK.\n" +
+		"Invocation ID: inv-047\nRequester: owner\nPriority: NORMAL\n\n" +
+		"Instruction:\nCheck system health"
+	// The rest of the message is unrecognizable after a redraw, but the
+	// invocation ID line rendered cleanly.
+	shredded := []byte("### some unrelated status redraw with no other overlap at all ###\ninvocationid inv047\n### more redraw noise ###")
+	if !echoed(shredded, original) {
+		t.Fatal("expected echoed to fall back to matching the invocation ID when the rest of the text was shredded by a redraw")
+	}
+}
+
+// TestEchoedFallbackHasAFalsePositiveRisk documents, rather than fixes, a
+// known tradeoff in the invocation-ID fallback above: because it only
+// requires the ID substring to be present somewhere in buf -- not the rest
+// of the message, and not that it appeared recently -- a buffer that
+// happens to still contain a PREVIOUS delivery's invocation ID (outputTee
+// only resets on a screen-clear, not between deliverToPty calls) would
+// register as "echoed" for a NEW delivery of a message that mentions that
+// same ID, even though the new message was never actually typed at all.
+// This test exists so that risk is visible and intentional, not
+// rediscovered by surprise: if a stricter fallback ever replaces this one
+// (e.g. requiring some minimum overlap with the rest of the text, not just
+// the ID), this test should start failing and can be deleted.
+func TestEchoedFallbackHasAFalsePositiveRisk(t *testing.T) {
+	newMessage := "Invocation ID: inv-047\nInstruction:\nThis text was never actually delivered"
+	staleBufferFromAnEarlierDelivery := []byte("some earlier screen content mentioning inv-047 for an unrelated reason")
+	if !echoed(staleBufferFromAnEarlierDelivery, newMessage) {
+		t.Fatal("known tradeoff regressed: the ID fallback no longer produces this false positive -- update this test's comment, it's no longer describing current behavior")
+	}
+}
+
 func TestIsBusyIgnoresColorCodesAroundMarker(t *testing.T) {
 	styled := "\x1b[90m" + busyMarkers[0] + "\x1b[0m"
 	if !isBusy([]byte(styled)) {
 		t.Fatal("expected isBusy to detect a marker wrapped in color escape codes")
+	}
+}
+
+func TestEchoedMatchesTokenNGramsAcrossInterleavedTUIStatusHeaders(t *testing.T) {
+	deliveredText := "Agent Comms: new invocation is pending for you. Run agent-comms invocation list to see it."
+	interleavedTUIBuffer := []byte(
+		"Agent Comms: new invocation\n" +
+			"─── [Gemini 2.5 Pro] ─── [status: active] ───\n" +
+			"is pending for you. Run agent-comms\n" +
+			"─── [tokens: 1420] ───\n" +
+			"invocation list to see it.",
+	)
+	if !echoed(interleavedTUIBuffer, deliveredText) {
+		t.Fatal("expected tokenized n-gram matching to match text with interleaved TUI status headers")
+	}
+}
+
+func TestTokenizeStripsPunctuationAndBorderChars(t *testing.T) {
+	tokens := tokenize("┃  Agent Comms: --status PENDING (v2.1)  ┃")
+	expected := []string{"agent", "comms", "status", "pending", "v2", "1"}
+	if len(tokens) != len(expected) {
+		t.Fatalf("tokenize returned %v, want %v", tokens, expected)
+	}
+	for i, tok := range tokens {
+		if tok != expected[i] {
+			t.Fatalf("token[%d] = %q, want %q", i, tok, expected[i])
+		}
 	}
 }
 

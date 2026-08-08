@@ -1,0 +1,480 @@
+.page {
+  --download-feedback-duration: 520ms;
+  --download-loop-brief: 3.8s;
+  --download-loop-medium: 5.6s;
+  --download-loop-long: 9s;
+  --download-reveal-delay-secondary: 150ms;
+  --download-reveal-delay-tertiary: 280ms;
+  --download-reveal-duration: 920ms;
+  --download-scan-duration: 1.6s;
+  background: var(--ice);
+  color: var(--ink);
+  min-width: 0;
+  overflow: hidden;
+}
+
+.downloadDesk {
+  background:
+    linear-gradient(90deg, transparent calc(50% - 0.5px), color-mix(in srgb, var(--ink) 9%, transparent) 50%, transparent calc(50% + 0.5px)),
+    var(--ice);
+  min-height: 100svh;
+  padding: 2rem var(--gutter) clamp(6rem, 10vw, 10rem);
+}
+
+.intro {
+  border-bottom: 1px solid var(--line-light);
+  padding-bottom: clamp(3rem, 6vw, 6rem);
+}
+
+.releaseLine {
+  align-items: center;
+  display: flex;
+  font-family: var(--mono);
+  font-size: 0.52rem;
+  font-weight: 700;
+  justify-content: space-between;
+  letter-spacing: 0.08em;
+}
+
+.releaseLine span:last-child {
+  color: var(--steel);
+}
+
+.introGrid {
+  align-items: end;
+  display: grid;
+  gap: clamp(3rem, 9vw, 10rem);
+  grid-template-columns: minmax(0, 1.45fr) minmax(20rem, 0.55fr);
+  margin-top: clamp(2.8rem, 6vw, 6rem);
+}
+
+.intro h1 {
+  font-family: var(--display);
+  font-size: clamp(4.8rem, 9vw, 10rem);
+  font-weight: 630;
+  letter-spacing: -0.082em;
+  line-height: 0.76;
+  margin: 0;
+}
+
+.intro h1 em {
+  color: var(--coral);
+  font-style: normal;
+}
+
+.introNote {
+  border-left: 1px solid var(--ink);
+  padding-left: 1.4rem;
+}
+
+.introNote p {
+  color: color-mix(in srgb, var(--ink) 76%, transparent);
+  font-size: clamp(0.88rem, 1.2vw, 1.02rem);
+  line-height: 1.65;
+  margin: 0 0 1.5rem;
+}
+
+.introNote a {
+  align-items: center;
+  border-bottom: 1px solid var(--ink);
+  color: inherit;
+  display: flex;
+  font-family: var(--mono);
+  font-size: 0.53rem;
+  font-weight: 700;
+  justify-content: space-between;
+  padding-bottom: 0.65rem;
+  text-decoration: none;
+  text-transform: uppercase;
+}
+
+.buildPicker {
+  display: grid;
+  gap: clamp(3rem, 7vw, 7rem);
+  grid-template-columns: minmax(11rem, 0.38fr) minmax(0, 1.62fr);
+  margin-top: clamp(5rem, 9vw, 9rem);
+  scroll-margin-top: calc(var(--header-height) + 2rem);
+}
+
+.buildIndex {
+  align-self: start;
+  position: sticky;
+  top: calc(var(--header-height) + 2rem);
+}
+
+.buildIndex > p {
+  color: var(--steel);
+  font-family: var(--mono);
+  font-size: 0.5rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  margin: 0 0 1rem;
+}
+
+.buildIndex ol {
+  border-top: 1px solid var(--line-light);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.buildIndex li {
+  border-bottom: 1px solid var(--line-light);
+}
+
+.buildIndex li a {
+  align-items: center;
+  color: inherit;
+  display: flex;
+  font-size: 0.76rem;
+  font-weight: 720;
+  gap: 1rem;
+  padding: 1rem 0;
+  text-decoration: none;
+}
+
+.buildIndex li a:hover { color: var(--coral); padding-left: 0.35rem; }
+.buildIndex li span { color: var(--steel); font-family: var(--mono); font-size: 0.48rem; }
+
+.releaseStatus {
+  align-items: start;
+  background: var(--lilac);
+  display: grid;
+  gap: 0.8rem;
+  grid-template-columns: auto 1fr;
+  margin-top: 2rem;
+  padding: 1rem;
+}
+
+.releaseStatus > span {
+  align-items: center;
+  border: 1px solid var(--ink);
+  display: flex;
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  height: 1.3rem;
+  justify-content: center;
+  width: 1.3rem;
+}
+
+.releaseStatus p { font-size: 0.62rem; line-height: 1.5; margin: 0; }
+.releaseStatus strong { display: block; font-size: 0.65rem; margin-bottom: 0.3rem; }
+
+.platformShelf { border-top: 1px solid var(--ink); }
+
+.platform {
+  border-bottom: 1px solid var(--ink);
+  display: grid;
+  gap: clamp(1.8rem, 3vw, 2.8rem);
+  grid-template-columns: 1fr;
+  overflow: hidden;
+  padding: clamp(2.5rem, 5vw, 4.5rem) 0;
+  position: relative;
+  scroll-margin-top: calc(var(--header-height) + 2rem);
+}
+
+.platform::after {
+  background: var(--cyan);
+  content: "";
+  height: 2px;
+  left: 0;
+  position: absolute;
+  right: 0;
+  top: 0;
+  transform: scaleX(0);
+  transform-origin: left;
+}
+
+.platform > header {
+  align-items: end;
+  display: grid;
+  gap: 0 1rem;
+  grid-template-columns: auto minmax(10rem, 1fr) auto;
+}
+
+.platform > header > span {
+  align-items: center;
+  background: var(--ink);
+  color: var(--ice);
+  display: flex;
+  font-family: var(--mono);
+  font-size: 0.52rem;
+  height: 2rem;
+  justify-content: center;
+  width: 2rem;
+}
+
+.platform > header p,
+.platform > header small {
+  color: var(--steel);
+  font-family: var(--mono);
+  font-size: 0.48rem;
+  margin: 0;
+  text-transform: uppercase;
+}
+
+.platform > header h2 {
+  font-family: var(--display);
+  font-size: clamp(3rem, 5vw, 5rem);
+  font-weight: 620;
+  letter-spacing: -0.068em;
+  line-height: 0.86;
+  margin: 0.35rem 0 0;
+}
+
+.platform > header small { align-self: end; grid-column: 3; justify-self: end; line-height: 1.5; }
+
+.installCommand {
+  align-items: center;
+  background: var(--ice);
+  border: 1px solid var(--ink);
+  box-shadow: 0.45rem 0.45rem 0 var(--cyan);
+  color: var(--ink);
+  display: grid;
+  grid-template-columns: 4rem minmax(0, 1fr) auto;
+  min-height: 6.4rem;
+  position: relative;
+}
+
+.installCommand::before {
+  align-items: center;
+  align-self: stretch;
+  background: var(--cyan);
+  border-right: 1px solid var(--ink);
+  content: "$";
+  display: flex;
+  font-family: var(--mono);
+  font-size: 1.05rem;
+  font-weight: 700;
+  justify-content: center;
+}
+
+.installCommand pre { margin: 0; overflow-x: auto; padding: 1.25rem 1.4rem; white-space: pre; }
+.installCommand code { font-family: var(--mono); font-size: clamp(0.82rem, 1vw, 0.96rem); font-weight: 520; line-height: 1.65; }
+.installCommand button { align-items: center; align-self: stretch; background: var(--lilac); border: 0; border-left: 1px solid var(--ink); color: var(--ink); cursor: pointer; display: flex; flex-direction: column-reverse; font-family: var(--mono); font-size: 0.48rem; font-weight: 700; gap: 0.55rem; justify-content: center; min-width: 5.4rem; padding: 0.7rem; text-transform: uppercase; white-space: nowrap; }
+.installCommand button > span { display: block; }
+.installCommand button b { display: block; height: 1.4rem; position: relative; width: 1.4rem; }
+.installCommand button b::before,
+.installCommand button b::after { border: 1px solid currentColor; content: ""; height: 0.72rem; position: absolute; width: 0.62rem; }
+.installCommand button b::before { left: 0.18rem; top: 0.18rem; }
+.installCommand button b::after { background: var(--lilac); left: 0.48rem; top: 0.48rem; }
+.installCommand button:hover,
+.installCommand button:hover { background: var(--coral); color: var(--ink); }
+.installCommand button:hover b::after { background: var(--coral); transform: translate(0.1rem, 0.1rem); }
+.installCommand button[data-copy-state="success"] { background: var(--cyan); color: var(--ink); }
+.installCommand button[data-copy-state="success"] b::after { background: var(--cyan); }
+.installCommand button[data-copy-state="failure"] { background: var(--coral); border-color: var(--coral); color: var(--ink); }
+.installCommand button:focus-visible { outline: 3px solid var(--lilac); outline-offset: -4px; }
+
+.nightly {
+  align-items: center;
+  border-top: 1px dashed var(--line-light);
+  display: grid;
+  gap: clamp(1.4rem, 3vw, 2.4rem);
+  grid-template-columns: minmax(18rem, 0.85fr) minmax(20rem, 1.15fr);
+  margin-top: clamp(2rem, 3.5vw, 3rem);
+  padding-top: clamp(2rem, 3.5vw, 3rem);
+}
+
+.nightly > div:first-child > p:first-child {
+  color: var(--steel);
+  font-family: var(--mono);
+  font-size: 0.5rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  margin: 0 0 0.6rem;
+  text-transform: uppercase;
+}
+
+.nightly h2 {
+  font-family: var(--display);
+  font-size: clamp(1.4rem, 2.2vw, 1.9rem);
+  font-weight: 620;
+  letter-spacing: -0.02em;
+  margin: 0 0 0.6rem;
+}
+
+.nightly > div:first-child > p:last-child {
+  color: color-mix(in srgb, var(--ink) 66%, transparent);
+  font-size: 0.82rem;
+  line-height: 1.55;
+  margin: 0;
+}
+
+.nightly > div:first-child code { font-family: var(--mono); }
+
+.nightly .installCommand { box-shadow: 0.35rem 0.35rem 0 var(--steel); }
+
+@media (max-width: 60rem) {
+  .nightly { grid-template-columns: 1fr; }
+}
+
+.handoff > header > p,
+.handoff li > span {
+  font-family: var(--mono);
+  font-size: 0.5rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  margin: 0 0 0.8rem;
+  text-transform: uppercase;
+}
+
+.handoff {
+  background: var(--ink);
+  color: var(--ice);
+  display: grid;
+  gap: clamp(2.5rem, 4vw, 5rem);
+  grid-template-columns: minmax(18rem, 0.62fr) minmax(28rem, 1.05fr) minmax(15rem, 0.45fr);
+  padding: clamp(3.5rem, 5vw, 4.5rem) var(--gutter);
+}
+
+.handoff > header > p,
+.handoff li > span { color: var(--cyan); }
+
+.handoff h2 {
+  font-family: var(--display);
+  font-size: clamp(2.8rem, 4.2vw, 4.6rem);
+  font-weight: 620;
+  letter-spacing: -0.066em;
+  line-height: 0.88;
+  margin: 0;
+}
+
+.handoff ol {
+  border-top: 1px solid var(--line-dark);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.handoff li {
+  border-bottom: 1px solid var(--line-dark);
+  padding: 0.9rem 0;
+}
+
+.handoff li p {
+  color: var(--steel-light);
+  font-size: 0.7rem;
+  line-height: 1.5;
+  margin: 0 0 0.7rem;
+}
+
+.handoff li code {
+  background: color-mix(in srgb, var(--ice) 7%, transparent);
+  display: block;
+  font-family: var(--mono);
+  font-size: 0.56rem;
+  padding: 0.6rem 0.75rem;
+}
+
+.handoff li code b { color: var(--cyan); }
+
+.handoff aside {
+  align-self: end;
+  border-top: 1px solid var(--coral);
+  padding-top: 1rem;
+}
+
+.handoff aside p {
+  color: var(--coral);
+  font-family: var(--mono);
+  font-size: 0.48rem;
+  margin: 0 0 0.7rem;
+  text-transform: uppercase;
+}
+
+.handoff aside strong { font-size: 0.7rem; line-height: 1.55; }
+
+.supportLinks {
+  background: var(--coral);
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  padding: 0 var(--gutter);
+}
+
+.supportLinks a {
+  border-left: 1px solid color-mix(in srgb, var(--ink) 25%, transparent);
+  color: inherit;
+  display: grid;
+  gap: 0.35rem;
+  grid-template-columns: 1fr auto;
+  padding: 2rem;
+  text-decoration: none;
+}
+
+.supportLinks a:last-child { border-right: 1px solid color-mix(in srgb, var(--ink) 25%, transparent); }
+.supportLinks a:hover { background: var(--ink); color: var(--ice); }
+.supportLinks span { font-size: 0.74rem; font-weight: 760; }
+.supportLinks i { color: color-mix(in srgb, currentColor 68%, transparent); font-family: var(--mono); font-size: 0.48rem; font-style: normal; grid-column: 1; text-transform: uppercase; }
+.supportLinks b { grid-column: 2; grid-row: 1 / span 2; }
+
+.downloadDesk ::selection { background: var(--ink); color: var(--ice); }
+.handoff ::selection { background: var(--cyan); color: var(--ink); }
+.supportLinks ::selection { background: var(--ice); color: var(--ink); }
+
+:global(.motion-ready) :is(.intro, .buildPicker, .handoff, .supportLinks):not(:global(.is-revealed)) > *,
+:global(.motion-ready) .platform:not(:global(.is-revealed)) > * {
+  opacity: 0;
+  transform: translateY(1.4rem);
+}
+
+:global(.motion-ready) :is(.intro, .buildPicker, .handoff, .supportLinks):global(.is-revealed) > *,
+:global(.motion-ready) .platform:global(.is-revealed) > * {
+  opacity: 1;
+  transform: none;
+  transition: opacity var(--download-reveal-duration) var(--ease-authority), transform var(--download-reveal-duration) var(--ease-authority);
+}
+
+:global(.motion-ready) :is(.intro, .buildPicker, .platform, .handoff, .supportLinks):global(.is-revealed) > :nth-child(2) { transition-delay: var(--download-reveal-delay-secondary); }
+:global(.motion-ready) :is(.intro, .buildPicker, .platform, .handoff, .supportLinks):global(.is-revealed) > :nth-child(3) { transition-delay: var(--download-reveal-delay-tertiary); }
+
+@media (prefers-reduced-motion: no-preference) {
+  .intro:global(.is-active) h1 em { animation: headline-signal var(--download-loop-long) ease-in-out infinite; }
+  .buildPicker:global(.is-active) .releaseStatus > span { animation: warning-ping var(--download-loop-medium) ease-in-out infinite; }
+  .platform:global(.is-active)::after { animation: platform-scan var(--download-scan-duration) var(--ease-authority) both; }
+  .platform:global(.is-active) > header > span { animation: platform-index var(--download-loop-medium) ease-in-out infinite; }
+  .platform:global(.is-active) .installCommand::before { animation: prompt-ready var(--download-loop-medium) ease-in-out infinite; }
+  .handoff:global(.is-active) li code b { animation: handoff-cursor var(--download-loop-brief) ease-in-out infinite; }
+  .handoff:global(.is-active) li:nth-child(2) code b { animation-delay: var(--download-reveal-delay-tertiary); }
+  .handoff:global(.is-active) li:nth-child(3) code b { animation-delay: var(--download-feedback-duration); }
+  .installCommand button[data-copy-state="success"] { animation: copy-confirm var(--download-feedback-duration) var(--ease-authority) both; }
+}
+
+@keyframes headline-signal { 0%, 82%, 100% { color: var(--coral); } 88% { color: var(--ink); } 92% { color: var(--cyan); } }
+@keyframes warning-ping { 0%, 72%, 100% { background: transparent; color: var(--ink); } 82%, 90% { background: var(--ink); color: var(--lilac); } }
+@keyframes platform-scan { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes platform-index { 0%, 76%, 100% { background: var(--ink); color: var(--ice); } 85%, 92% { background: var(--cyan); color: var(--ink); } }
+@keyframes prompt-ready { 0%, 72%, 100% { background: var(--cyan); } 84%, 91% { background: var(--coral); } }
+@keyframes handoff-cursor { 0%, 66%, 100% { color: var(--cyan); } 78%, 88% { color: var(--coral); } }
+@keyframes copy-confirm { 0% { transform: scale(0.94); } 70% { transform: scale(1.04); } 100% { transform: scale(1); } }
+
+@media (max-width: 72rem) {
+  .introGrid,
+  .handoff { gap: 3rem; grid-template-columns: 1fr 1fr; }
+
+  .handoff aside { grid-column: 2; }
+}
+
+@media (max-width: 48rem) {
+  .downloadDesk { background: var(--ice); padding-top: 1.5rem; }
+  .introGrid,
+  .buildPicker,
+  .handoff { grid-template-columns: 1fr; }
+  .handoff { gap: 2.25rem; padding-bottom: 3rem; padding-top: 3rem; }
+  .introGrid { gap: 2.5rem; }
+  .intro h1 { font-size: clamp(4rem, 20vw, 6rem); line-height: 0.8; }
+  .buildIndex { position: static; }
+  .buildIndex ol { display: grid; grid-template-columns: repeat(2, 1fr); }
+  .buildIndex li a { justify-content: center; }
+  .buildIndex li span { display: none; }
+  .platform { scroll-margin-top: var(--header-height); }
+  .platform > header { align-items: start; grid-template-columns: auto 1fr; }
+  .platform > header small { grid-column: 2; justify-self: start; margin-top: 1rem; }
+  .installCommand { grid-template-columns: 3rem minmax(0, 1fr); }
+  .installCommand button { border-left: 0; border-top: 1px solid var(--ink); grid-column: 1 / -1; min-height: 3.5rem; width: 100%; }
+  .handoff aside { grid-column: auto; }
+  .supportLinks { grid-template-columns: 1fr; }
+  .supportLinks a,
+  .supportLinks a:last-child { border-bottom: 1px solid color-mix(in srgb, var(--ink) 25%, transparent); border-left: 0; border-right: 0; padding-left: 0; padding-right: 0; }
+  :global(.motion-ready) :is(.intro, .buildPicker, .platform, .handoff, .supportLinks):not(:global(.is-revealed)) > * { transform: translateY(0.7rem); }
+}

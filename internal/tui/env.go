@@ -30,7 +30,7 @@ var envUpdateForm = &ActionForm{
 	Fields: []FormField{
 		{Label: "Value", Placeholder: "", Required: true},
 	},
-	Dispatch: func(m Model, values []string) (tea.Model, tea.Cmd) {
+	Dispatch: func(m Model, values []string, _ string) (tea.Model, tea.Cmd) {
 		key := m.formTaskID
 		_, err := m.svc.Execute(m.actor, "env.set", key, model.EnvSetPayload{Key: key, Value: values[0]})
 		if err != nil {
@@ -65,11 +65,11 @@ var (
 type envRowSource struct{}
 
 func (envRowSource) Columns(width int) []table.Column {
-	key, updatedBy, updatedAt := 24, 16, 20
-	value := width - key - updatedBy - updatedAt
-	if value < 12 {
-		value = 12
+	key, updatedBy, updatedAt := 20, 14, 18
+	if width < 80 {
+		key, updatedBy, updatedAt = 14, 10, 12
 	}
+	value := max(8, width-key-updatedBy-updatedAt)
 	return []table.Column{
 		{Title: "KEY", Width: key},
 		{Title: "VALUE", Width: value},

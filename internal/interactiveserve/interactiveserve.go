@@ -66,6 +66,18 @@ type ServeOptions struct {
 	// testing reason as ControlFD.
 	Stdin  io.Reader
 	Stdout io.Writer
+
+	// OnStarted, if set, is called once in its own goroutine right after
+	// the child process starts, with its PID -- never on Serve's own
+	// critical path, so a slow or blocking callback (e.g. one that polls
+	// the filesystem for a session file the child hasn't written yet)
+	// never delays the pty forwarding a human or another agent is waiting
+	// to see. Intended for auto-discovering and persisting the child's own
+	// provider-native session ID (see PinResumeArgs and sessionbind), so a
+	// later --takeover-pid respawn of the same runtime ID can resume this
+	// exact conversation by ID instead of falling back to the wrapped
+	// CLI's own racy "most recent in this directory" behavior.
+	OnStarted func(pid int)
 }
 
 // Serve allocates a real pty, execs Command attached to it, and transparently
@@ -148,6 +160,22 @@ func Probe(ctx context.Context, projectRoot, runtimeID string) (alive, busy bool
 func Alive(ctx context.Context, projectRoot, runtimeID string) bool {
 	alive, _ := Probe(ctx, projectRoot, runtimeID)
 	return alive
+}
+
+// Snapshot queries the runtime's control socket and returns a string snapshot
+// of its live PTY output buffer.
+func Snapshot(ctx context.Context, projectRoot, runtimeID string) (string, error) {
+	resp, err := call(ctx, SocketPath(projectRoot, runtimeID), Request{Kind: "snapshot"})
+	if err != nil {
+		return "", fmt.Errorf("interactiveserve: snapshot %q: %w", runtimeID, err)
+	}
+	if !resp.OK {
+		if resp.Error != "" {
+			return "", errors.New(resp.Error)
+		}
+		return "", errors.New("interactiveserve: snapshot request failed")
+	}
+	return resp.OutputSnapshot, nil
 }
 
 // Deliver asks runtimeID's owning interactive-serve process to inject

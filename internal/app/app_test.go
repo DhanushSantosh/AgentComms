@@ -26,6 +26,7 @@ import (
 	"github.com/DhanushSantosh/AgentComms/internal/projectlifecycle"
 	"github.com/DhanushSantosh/AgentComms/internal/runtimeinit"
 	"github.com/DhanushSantosh/AgentComms/internal/service"
+	"github.com/DhanushSantosh/AgentComms/internal/sessionbind"
 	"github.com/DhanushSantosh/AgentComms/internal/store"
 	"github.com/creack/pty"
 )
@@ -152,6 +153,76 @@ func TestVersionEnvelope(t *testing.T) {
 	}
 	if !v.OK || v.APIVersion != APIVersion {
 		t.Fatalf("bad envelope: %#v", v)
+	}
+}
+
+func TestRenderTableAlignsColumnsAndHandlesEmptyRows(t *testing.T) {
+	var out bytes.Buffer
+	renderTable(&out, []string{"ID", "STATUS"}, [][]string{
+		{"builder", "ACTIVE"},
+		{"a-much-longer-id", "SUSPENDED"},
+	})
+	want := "ID                STATUS\n" +
+		"builder           ACTIVE\n" +
+		"a-much-longer-id  SUSPENDED\n"
+	if out.String() != want {
+		t.Fatalf("got:\n%q\nwant:\n%q", out.String(), want)
+	}
+
+	out.Reset()
+	renderTable(&out, []string{"ID", "STATUS"}, nil)
+	if out.String() != "(no rows)\n" {
+		t.Fatalf("expected the empty-rows placeholder, got %q", out.String())
+	}
+}
+
+// TestAgentListHumanOutputIsATableNotIndentedJSON is the regression test
+// for a real, confirmed-live-all-session friction point: every CLI
+// command's non-JSON output path still printed pretty-*indented* JSON
+// (json.MarshalIndent), not an actual table -- a human doing an ad hoc
+// check still had to mentally parse it either way, and --json continued
+// to be the only way to get genuinely structured output. agent/runtime/
+// invocation list now render as an aligned plain-text table by default;
+// --json is unaffected (still the same Envelope-wrapped JSON any existing
+// script or --json caller already depends on).
+func TestAgentListHumanOutputIsATableNotIndentedJSON(t *testing.T) {
+	project := t.TempDir()
+	cleanupProjectDaemon(t, project)
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
+	var out, stderr bytes.Buffer
+	run := func(jsonMode bool, args ...string) {
+		t.Helper()
+		out.Reset()
+		stderr.Reset()
+		args = append(args, "--project", project)
+		if jsonMode {
+			args = append(args, "--json")
+		}
+		if err := Run(args, &out, &stderr); err != nil {
+			t.Fatalf("%v: %v\n%s", args, err, stderr.String())
+		}
+	}
+	run(true, "init", "--non-interactive", "--owner", "owner", "--mode", "personal")
+	run(true, "agent", "register", "--id", "builder")
+	run(true, "agent", "activate", "--id", "builder", "--role", "AGENT", "--scope", "src")
+
+	run(false, "agent", "list")
+	if strings.HasPrefix(strings.TrimSpace(out.String()), "{") {
+		t.Fatalf("expected table output, not JSON, without --json: %s", out.String())
+	}
+	if !strings.Contains(out.String(), "ID") || !strings.Contains(out.String(), "builder") ||
+		!strings.Contains(out.String(), "ACTIVE") {
+		t.Fatalf("expected a table with builder's row, got: %s", out.String())
+	}
+
+	run(true, "agent", "list")
+	var envelope Envelope
+	if err := json.Unmarshal(out.Bytes(), &envelope); err != nil {
+		t.Fatalf("--json output is not valid JSON: %v\n%s", err, out.String())
+	}
+	if !envelope.OK || envelope.Command != "agent.list" {
+		t.Fatalf("--json behavior changed unexpectedly: %#v", envelope)
 	}
 }
 
@@ -868,6 +939,121 @@ func TestInvocationAndRuntimeCLIWorkflow(t *testing.T) {
 	}
 }
 
+// TestTaskLockCreatesAndClaimsInOneStep guards `task lock`, added to close a
+// real gap: `task claim --worktree` only acquires a lock for a task that
+// already exists, and `task create` requires a title, summary, repository,
+// branch, and resource list first -- real ceremony for a real task, but too
+// much for the single most common shape of work in an interactive
+// multi-agent setup (a human directly asking a live agent to fix something,
+// with no Task tracked yet). `task lock` creates a minimal task and claims
+// it in one command.
+func TestTaskLockCreatesAndClaimsInOneStep(t *testing.T) {
+	project := t.TempDir()
+	worktree := t.TempDir()
+	cleanupProjectDaemon(t, project)
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
+	var out, stderr bytes.Buffer
+	run := func(args ...string) {
+		t.Helper()
+		out.Reset()
+		stderr.Reset()
+		args = append(args, "--project", project, "--json")
+		if err := Run(args, &out, &stderr); err != nil {
+			t.Fatalf("%v: %v\n%s", args, err, stderr.String())
+		}
+	}
+	run("init", "--non-interactive", "--owner", "owner", "--mode", "personal")
+	run("agent", "register", "--id", "builder")
+	run("agent", "activate", "--id", "builder", "--role", "AGENT", "--scope", "src")
+
+	run("task", "lock", "--actor", "builder", "--worktree", worktree, "--note", "fixing a bug")
+	if !bytes.Contains(out.Bytes(), []byte(`"type":"task.claim"`)) {
+		t.Fatalf("expected task lock to emit a task.claim event, got: %s", out.String())
+	}
+	// Decode rather than a raw byte-substring match against worktree: on
+	// Windows, worktree contains backslashes (C:\Users\...), and JSON
+	// escapes those (\ -> \\) in the emitted output, so the raw path never
+	// byte-matches the encoded string -- confirmed live, this exact
+	// assertion failed on windows-latest CI while passing everywhere else.
+	var lockEvent struct {
+		Result struct {
+			Data struct {
+				Worktree string `json:"worktree"`
+			} `json:"data"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &lockEvent); err != nil {
+		t.Fatalf("decode task lock output: %v\n%s", err, out.String())
+	}
+	if lockEvent.Result.Data.Worktree != worktree {
+		t.Fatalf("expected the claim to record worktree %q, got %q (full output: %s)", worktree, lockEvent.Result.Data.Worktree, out.String())
+	}
+
+	run("task", "list")
+	if !bytes.Contains(out.Bytes(), []byte(`"status":"CLAIMED"`)) ||
+		!bytes.Contains(out.Bytes(), []byte(`"title":"fixing a bug"`)) {
+		t.Fatalf("expected a claimed, --note-titled task to show up in task list, got: %s", out.String())
+	}
+}
+
+// TestTaskLockConflictsOnlyForTheSameWorktree is the regression test for a
+// bug found while building task lock: the first implementation used the
+// raw worktree path as the task's Resources entry, which made task.claim's
+// scope-permission check (transitions.go's scopeAllows) fail outright for
+// any actor without a wildcard scope -- a filesystem path essentially never
+// matches a scope tag like "src". Reusing the actor's bare scope tag
+// instead fixed that, but introduced a worse, opposite bug: every ad hoc
+// lock from same-scoped actors then overlapped every other one via the
+// generic write-lease check (overlap()), even across completely unrelated
+// worktrees -- confirmed live, locking a second, entirely different
+// directory was rejected purely because an earlier lock happened to share
+// the "src" scope, nowhere near the same files. The shipped fix scopes each
+// lock's resource under a per-lock, id-unique sub-resource
+// (scope+"/adhoc/"+id): still satisfies scopeAllows's prefix rule, but two
+// separate ad hoc locks' resources can never accidentally overlap each
+// other, leaving the worktree-specific check as the only thing that still
+// can -- which is the one conflict this command is actually meant to catch.
+func TestTaskLockConflictsOnlyForTheSameWorktree(t *testing.T) {
+	project := t.TempDir()
+	sharedWorktree := t.TempDir()
+	otherWorktree := t.TempDir()
+	cleanupProjectDaemon(t, project)
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
+	var out, stderr bytes.Buffer
+	run := func(args ...string) error {
+		t.Helper()
+		out.Reset()
+		stderr.Reset()
+		args = append(args, "--project", project, "--json")
+		return Run(args, &out, &stderr)
+	}
+	must := func(args ...string) {
+		t.Helper()
+		if err := run(args...); err != nil {
+			t.Fatalf("%v: %v\n%s", args, err, stderr.String())
+		}
+	}
+	must("init", "--non-interactive", "--owner", "owner", "--mode", "personal")
+	for _, id := range []string{"agent-a", "agent-b", "agent-c"} {
+		must("agent", "register", "--id", id)
+		must("agent", "activate", "--id", id, "--role", "AGENT", "--scope", "src")
+	}
+
+	must("task", "lock", "--actor", "agent-a", "--worktree", sharedWorktree, "--note", "agent-a working")
+
+	if err := run("task", "lock", "--actor", "agent-b", "--worktree", sharedWorktree, "--note", "agent-b same dir"); err == nil {
+		t.Fatalf("expected agent-b locking the same worktree agent-a already holds to fail, got success: %s", out.String())
+	} else if !strings.Contains(err.Error(), "already leased") {
+		t.Fatalf("expected an 'already leased' worktree-conflict error, got: %v", err)
+	}
+
+	if err := run("task", "lock", "--actor", "agent-c", "--worktree", otherWorktree, "--note", "agent-c different dir"); err != nil {
+		t.Fatalf("expected agent-c locking a different worktree to succeed despite sharing agent-a/b's scope, got: %v\n%s", err, stderr.String())
+	}
+}
+
 // TestInvocationRequestDeliversDirectlyToRegisteredInteractiveSession guards
 // the direct-invocation path decided live this session: requesting an
 // invocation for a runtime with a registered interactive session (see
@@ -1172,6 +1358,54 @@ func TestInvocationRedeliverReachesSessionMissedByRequest(t *testing.T) {
 	}
 }
 
+func TestPinInteractiveServeArgsAppliesAnExistingBinding(t *testing.T) {
+	root := t.TempDir()
+	if err := sessionbind.Save(root, "HENRY", "pinned-session-id", "claude"); err != nil {
+		t.Fatal(err)
+	}
+	got := pinInteractiveServeArgs(root, "HENRY", []string{"claude", "--dangerously-skip-permissions", "--continue"})
+	want := []string{"claude", "--dangerously-skip-permissions", "--resume", "pinned-session-id"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got %v, want %v", got, want)
+		}
+	}
+}
+
+func TestPinInteractiveServeArgsNoOpWithoutAnyBinding(t *testing.T) {
+	root := t.TempDir()
+	in := []string{"claude", "--continue"}
+	got := pinInteractiveServeArgs(root, "HENRY", in)
+	if len(got) != len(in) {
+		t.Fatalf("expected args untouched with no binding on record, got %v", got)
+	}
+	for i := range in {
+		if got[i] != in[i] {
+			t.Fatalf("expected args untouched with no binding on record, got %v", got)
+		}
+	}
+}
+
+func TestPinInteractiveServeArgsOnlyAppliesTheMatchingRuntimesBinding(t *testing.T) {
+	root := t.TempDir()
+	if err := sessionbind.Save(root, "HULK", "hulks-session-id", "agy"); err != nil {
+		t.Fatal(err)
+	}
+	in := []string{"claude", "--continue"}
+	got := pinInteractiveServeArgs(root, "HENRY", in)
+	if len(got) != len(in) {
+		t.Fatalf("expected HENRY's args untouched by HULK's binding, got %v", got)
+	}
+	for i := range in {
+		if got[i] != in[i] {
+			t.Fatalf("expected HENRY's args untouched by HULK's binding, got %v", got)
+		}
+	}
+}
+
 func TestWithClaudeAllowAgentCommsRejectsNonClaudeCommand(t *testing.T) {
 	executablePath := func() (string, error) { return "/usr/bin/agent-comms", nil }
 	if _, err := withClaudeAllowAgentComms([]string{"bash"}, executablePath); err == nil {
@@ -1208,6 +1442,34 @@ func TestWithClaudeAllowAgentCommsAppendsScopedAllowedTools(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("got %v, want %v", got, want)
 		}
+	}
+}
+
+func TestStripLaunchTerminalFlag(t *testing.T) {
+	cases := []struct {
+		name string
+		in   []string
+		want []string
+	}{
+		{"bare form", []string{"runtime", "interactive-serve", "--id", "x", "--launch-terminal", "--", "claude"},
+			[]string{"runtime", "interactive-serve", "--id", "x", "--", "claude"}},
+		{"equals form", []string{"runtime", "interactive-serve", "--launch-terminal=true", "--id", "x"},
+			[]string{"runtime", "interactive-serve", "--id", "x"}},
+		{"absent", []string{"runtime", "interactive-serve", "--id", "x"},
+			[]string{"runtime", "interactive-serve", "--id", "x"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := stripLaunchTerminalFlag(c.in)
+			if len(got) != len(c.want) {
+				t.Fatalf("got %v, want %v", got, c.want)
+			}
+			for i := range c.want {
+				if got[i] != c.want[i] {
+					t.Fatalf("got %v, want %v", got, c.want)
+				}
+			}
+		})
 	}
 }
 

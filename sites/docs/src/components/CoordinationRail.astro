@@ -1,0 +1,172 @@
+---
+const stages = [
+  { state: "REQUESTED", detail: "Signed obligation", tone: "signal" },
+  { state: "DELIVERED", detail: "Transport evidence", tone: "receipt" },
+  { state: "CLAIMED", detail: "Target acknowledged", tone: "signal" },
+  { state: "RUNNING", detail: "Runtime owns work", tone: "signal" },
+  { state: "COMPLETED", detail: "Result committed", tone: "complete" }
+];
+---
+
+<div class="coordination-rail" aria-label="Invocation lifecycle">
+  <div class="rail-head">
+    <span>INV-7F2A</span>
+    <span>project / agent</span>
+  </div>
+  <ol>
+    {stages.map((stage, index) => (
+      <li class={`tone-${stage.tone}`}>
+        <span class="track"><span class="node"></span></span>
+        <span class="ordinal">{String(index + 1).padStart(2, "0")}</span>
+        <span class="state">{stage.state}</span>
+        <span class="detail">{stage.detail}</span>
+      </li>
+    ))}
+  </ol>
+  <div class="rail-foot">
+    <span>head 000142</span>
+    <span class="verified">chain verified</span>
+  </div>
+</div>
+
+<style>
+  .coordination-rail {
+    background: var(--chrome);
+    border: 1px solid color-mix(in srgb, var(--chrome-ink) 30%, transparent);
+    box-shadow: 12px 12px 0 var(--signal);
+    max-width: 33rem;
+    padding: 0.85rem 1rem;
+    position: relative;
+  }
+
+  .coordination-rail::before {
+    background: var(--signal);
+    content: "";
+    height: 2px;
+    left: -1px;
+    position: absolute;
+    right: 66%;
+    top: -1px;
+  }
+
+  .rail-head,
+  .rail-foot {
+    color: var(--chrome-muted);
+    display: flex;
+    font-family: var(--font-mono);
+    font-size: 0.6rem;
+    justify-content: space-between;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .rail-head {
+    border-bottom: 1px solid var(--chrome-line);
+    padding: 0.1rem 0 0.7rem;
+  }
+
+  ol {
+    list-style: none;
+    margin: 0;
+    padding: 0.85rem 0 0.55rem;
+  }
+
+  li {
+    align-items: center;
+    display: grid;
+    grid-template-columns: 1.2rem 1.6rem minmax(7.5rem, 0.8fr) 1fr;
+    min-height: 2.8rem;
+  }
+
+  .track {
+    align-self: stretch;
+    display: grid;
+    place-items: center;
+    position: relative;
+  }
+
+  .track::before,
+  .track::after {
+    background: var(--chrome-line);
+    content: "";
+    height: 50%;
+    left: calc(50% - 0.5px);
+    position: absolute;
+    width: 1px;
+  }
+
+  .track::before { top: 0; }
+  .track::after { bottom: 0; }
+  li:first-child .track::before,
+  li:last-child .track::after { display: none; }
+
+  .node {
+    background: var(--chrome);
+    border: 1.5px solid var(--signal);
+    border-radius: 50%;
+    height: 0.55rem;
+    position: relative;
+    width: 0.55rem;
+    z-index: 1;
+  }
+
+  .tone-receipt .node {
+    border-color: var(--receipt);
+    box-shadow: 0 0 0 4px var(--receipt-soft);
+  }
+
+  .tone-complete .node {
+    background: var(--signal);
+  }
+
+  .ordinal,
+  .state,
+  .detail {
+    font-family: var(--font-mono);
+    overflow-wrap: anywhere;
+  }
+
+  .ordinal {
+    color: var(--chrome-muted);
+    font-size: 0.58rem;
+  }
+
+  .state {
+    color: var(--chrome-ink);
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+  }
+
+  .tone-receipt .state {
+    color: var(--receipt);
+  }
+
+  .detail {
+    color: var(--chrome-muted);
+    font-size: 0.63rem;
+  }
+
+  .rail-foot {
+    border-top: 1px solid var(--chrome-line);
+    padding-top: 0.7rem;
+  }
+
+  .verified {
+    color: var(--signal);
+  }
+
+  @media (max-width: 34rem) {
+    .coordination-rail {
+      box-shadow: 7px 7px 0 var(--signal);
+    }
+
+    li {
+      grid-template-columns: 1rem 1.4rem minmax(0, 1fr);
+    }
+
+    .detail {
+      display: none;
+    }
+  }
+</style>

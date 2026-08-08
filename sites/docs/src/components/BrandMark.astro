@@ -1,0 +1,71 @@
+---
+const { compact = false } = Astro.props;
+---
+
+<a class:list={["brand", { "brand--compact": compact }]} href="/" aria-label="Agent Comms documentation home">
+  <svg class="brand__mark" viewBox="0 0 42 30" aria-hidden="true">
+    <path d="M3 5h15l5 5h16M3 15h36M3 25h15l5-5h16" />
+    <circle cx="3" cy="5" r="2" />
+    <circle cx="3" cy="15" r="2" />
+    <circle cx="3" cy="25" r="2" />
+  </svg>
+  <span class="brand__name">Agent Comms</span>
+  <span class="brand__division">Docs</span>
+</a>
+
+<style>
+  .brand {
+    align-items: center;
+    color: var(--chrome-ink);
+    display: inline-flex;
+    gap: 0.65rem;
+    min-width: max-content;
+    text-decoration: none;
+  }
+
+  .brand__mark {
+    fill: none;
+    height: 1.55rem;
+    overflow: visible;
+    stroke: currentColor;
+    stroke-linecap: square;
+    stroke-width: 1.8;
+    width: 2.2rem;
+  }
+
+  .brand__mark circle {
+    fill: var(--signal);
+    stroke: none;
+  }
+
+  .brand__name {
+    font-family: var(--font-display);
+    font-size: 0.96rem;
+    font-weight: 760;
+    letter-spacing: -0.035em;
+  }
+
+  .brand__division {
+    border-left: 1px solid color-mix(in srgb, var(--chrome-ink) 35%, transparent);
+    color: color-mix(in srgb, var(--chrome-ink) 72%, transparent);
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.09em;
+    padding-left: 0.65rem;
+    text-transform: uppercase;
+  }
+
+  @media (max-width: 29rem) {
+    .brand__division {
+      display: none;
+    }
+
+    .brand__name {
+      font-size: 0.78rem;
+    }
+
+    .brand--compact .brand__name {
+      display: none;
+    }
+  }
+</style>
