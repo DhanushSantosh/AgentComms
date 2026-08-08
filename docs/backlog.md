@@ -288,11 +288,37 @@ one is picked up, remove it from here and note the landing commit.
   place that truncated an already-`.Render()`'d string instead. Confirmed
   live down to a 24x8 terminal, and against a real revert of the fix that
   the new regression test (`TestSidebarTitleSurvivesCompactFallback`)
-  actually fails without it. The rest of the responsive-layout work already
-  in place (`bodyLayout`'s real floors, `bodyPrefixHeight`'s measured
-  chrome height, per-row-source `Columns(width)` breakpoints) held up fine
-  under the same sweep — this was the one genuine corruption bug, not a
-  sign of a deeper structural gap.
+  actually fails without it. (Correction to what was written here at the
+  time: this was called "the one genuine corruption bug, not a sign of a
+  deeper structural gap" — a second, separate bug in the same sweep turned
+  up right after, below.)
+
+- **Overview page-level scroll couldn't reach its own trailing content,
+  fixed 2026-08-08.** Reported directly: "I scrolled down as far as I could
+  and still can't see the end of the page." Root cause in `renderBody`'s
+  scroll window for every non-table view (Overview, Blockers, Audit &
+  health, Activity, Archive search): `availH := max(22, contentH-4)`
+  floored the available height at a comfortable desktop constant instead of
+  the real terminal size — unlike `visibleRowCount`'s identically-shaped
+  `max(0, h-4)` for row-list views, which got this right. On any terminal
+  short enough that `contentH-4` fell under 22, the page believed it had
+  more room than it actually did, so even scrolling all the way to the
+  reported `maxScroll` still rendered past the real screen edge: content
+  existed but its own trailing lines (Overview's `"[g] agents · ..."`
+  key-hint row) were permanently unreachable, confirmed live at 80x16.
+  Fixed by flooring at 0 like every other survival floor in this file, plus
+  reserving exactly one line of the budget for the scroll indicator itself
+  (only when it's actually shown) instead of leaving that unaccounted for.
+  Separately also found and removed a redundant `-4` stacked on top of
+  `contentH`, which is already `bodyPrefixHeight`'s *precise* measurement
+  of everything above the content area — subtracting further was
+  needlessly shrinking the usable window past what the exact math already
+  gave for free, the same "flat guess instead of trusting the precise
+  measurement" mistake fixed once already for `innerH` itself. Confirmed
+  by driving real PgDn key presses in a test
+  (`TestOverviewScrollReachesTrueEndOnASmallTerminal`) until the page's own
+  trailing content was actually reached, not just by checking a
+  fixed-size snapshot.
 
 ## Cross-reference
 

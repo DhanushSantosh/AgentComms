@@ -19,9 +19,17 @@ import (
 // sequence looks like.
 var wellFormedANSISequence = regexp.MustCompile("\x1b\\[[0-9;]*[A-Za-z]")
 
+// TestProjectControlResponsiveViews checks sizes roomy enough that every
+// Overview section is guaranteed visible without scrolling -- 80x24 used to
+// be in this list too, back when the page-level scroll window's height
+// floor (see renderBody's own history, fixed alongside
+// TestOverviewScrollReachesTrueEndOnASmallTerminal) silently claimed more
+// room than a terminal that size actually has. At 80x24 LIVE ACTIVITY
+// genuinely doesn't fit without scrolling now -- correct, not a
+// regression, and covered separately by the scroll-based test.
 func TestProjectControlResponsiveViews(t *testing.T) {
 	s := newTestService(t)
-	for _, size := range [][2]int{{140, 40}, {100, 30}, {80, 24}} {
+	for _, size := range [][2]int{{140, 40}, {100, 30}} {
 		v, e := RenderForTest(s, "owner", size[0], size[1])
 		if e != nil {
 			t.Fatal(e)
@@ -57,6 +65,49 @@ func TestSidebarTitleSurvivesCompactFallback(t *testing.T) {
 		if stripped := wellFormedANSISequence.ReplaceAllString(v, ""); strings.ContainsRune(stripped, '\x1b') {
 			t.Errorf("%dx%d: rendered output contains a malformed/unterminated ANSI escape sequence", size[0], size[1])
 		}
+	}
+}
+
+// TestOverviewScrollReachesTrueEndOnASmallTerminal is the regression test
+// for a second, related bug: renderBody's page-level scroll window for
+// every non-table view (Overview, Blockers, Audit & health, Activity,
+// Archive search) floored its available height at a comfortable desktop
+// constant (22) instead of the real terminal size -- unlike
+// visibleRowCount's identical-shaped max(0, h-4) for row-list views, which
+// got this right. On a terminal short enough that contentH-4 fell under 22,
+// the page believed it had more room than it did, so even scrolling all the
+// way to the reported maxScroll still rendered past the real screen edge:
+// content existed but its own trailing lines (here, the "[g] agents ..."
+// key-hint row Overview always ends with) were permanently unreachable, no
+// matter how far down a user scrolled -- confirmed live at 80x16 before the
+// fix. This drives real PgDn key presses (not just fixed-size snapshots
+// like TestSmallTerminalNeverRendersMoreLinesThanItHas covers) and checks
+// both halves: the render never exceeds the terminal's real height at any
+// scroll position, and scrolling eventually reaches genuinely the last line
+// of content rather than getting stuck short of it.
+func TestOverviewScrollReachesTrueEndOnASmallTerminal(t *testing.T) {
+	s := newTestService(t)
+	m, e := New(s, "owner")
+	if e != nil {
+		t.Fatal(e)
+	}
+	m.width, m.height = 80, 16
+
+	reachedEnd := false
+	for i := 0; i < 50; i++ {
+		lines := strings.Split(m.View().Content, "\n")
+		if len(lines) > m.height {
+			t.Fatalf("press %d: rendered %d lines but the terminal only has %d", i, len(lines), m.height)
+		}
+		if strings.Contains(m.View().Content, "[g]") {
+			reachedEnd = true
+			break
+		}
+		updated, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyPgDown}))
+		m = updated.(Model)
+	}
+	if !reachedEnd {
+		t.Fatal("scrolling never reached Overview's own trailing content -- some of it is permanently unreachable")
 	}
 }
 

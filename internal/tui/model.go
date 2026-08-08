@@ -932,16 +932,43 @@ func (m Model) renderBody(p palette, w, h int) string {
 	isTable := m.activeRowList() != nil
 	if !isTable {
 		lines := strings.Split(content, "\n")
-		availH := max(22, contentH-4)
+		// contentH directly, not contentH-4: contentH (bodyLayout's innerH)
+		// already IS the precise remaining room for content, computed from
+		// bodyPrefixHeight's own exact measurement of everything above it
+		// (top padding, command rail, hub tabs, both blank lines, the
+		// header) plus bottom padding -- subtracting another 4 here was
+		// double-counting overhead already accounted for once, the same
+		// "flat guess instead of trusting the precise measurement" mistake
+		// TestSmallTerminalNeverRendersMoreLinesThanItHas's own history
+		// already fixed once for innerH itself (see that test's comment).
+		// Also floored at 0, not a comfortable desktop constant like the 22
+		// this used to floor at: that let this page-level scroll window
+		// claim more vertical room than a small terminal actually had, so
+		// even scrolling all the way to maxScroll still rendered past the
+		// real screen edge -- content existed but nothing could reach the
+		// last few lines of it, the exact failure bodyLayout's own floors
+		// (see its doc comment) were already built to rule out everywhere
+		// else. Confirmed live: Overview (and every other non-table view
+		// routed through this same branch -- Blockers, Audit & health,
+		// Activity, Archive search) hit this on any short-enough terminal,
+		// matching visibleRowCount's identical max(0, h-4) survival floor
+		// for row-list views instead (that "-4" is a different, legitimate
+		// one: RowList.View's own header + footer rows, neither of which
+		// bodyPrefixHeight measures).
+		availH := max(0, contentH)
 		if len(lines) > availH {
-			maxScroll := len(lines) - availH
+			// One line of availH's own budget goes to the scroll indicator
+			// appended below the window -- reserved only here, since it's
+			// only ever added when scrolling is actually needed.
+			windowH := max(1, availH-1)
+			maxScroll := len(lines) - windowH
 			if m.scrollOffset > maxScroll {
 				m.scrollOffset = maxScroll
 			}
 			if m.scrollOffset < 0 {
 				m.scrollOffset = 0
 			}
-			end := min(len(lines), m.scrollOffset+availH)
+			end := min(len(lines), m.scrollOffset+windowH)
 			content = strings.Join(lines[m.scrollOffset:end], "\n")
 			scrollInfo := lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render(
 				fmt.Sprintf(" ⇡⇣ Scroll %d-%d of %d (PgUp/PgDn/Wheel)", m.scrollOffset+1, end, len(lines)),
