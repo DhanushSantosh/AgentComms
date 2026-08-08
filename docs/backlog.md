@@ -269,6 +269,31 @@ one is picked up, remove it from here and note the landing commit.
   ([docs/agent-comms-feedback-2026-08-06.md](agent-comms-feedback-2026-08-06.md#6-raw-pty-text-injection-has-no-structured-acknowledgment-of-exact-content--two-different-symptoms-same-root-cause-hit-live-today)
   item #6).
 
+## TUI
+
+- **Sidebar title corruption on a short terminal, fixed 2026-08-08.** Asked
+  to make the TUI dynamically scalable rather than requiring a minimum
+  terminal size, found the real bug behind it: `renderSidebar`'s compact
+  fallback layout (the branch that drops spacer lines and keybinding hints
+  once the full sidebar can't fit, `len(rows)+2 > h` — kicks in around
+  height 23-25 depending on hub count) truncated the sidebar's title
+  *after* it had already been styled. `truncate()` slices runes with no
+  notion of ANSI escape codes, so it chopped straight through the middle of
+  a 24-bit color sequence as readily as through the visible text, leaking a
+  raw, unterminated code like `[1;38;2;0;25…` onto the screen in place of
+  "● AGENT COMMS" — exactly what made a shorter terminal look broken rather
+  than gracefully smaller. Fixed by truncating the plain, unstyled title
+  text first and applying the style afterward, the same order every other
+  `truncate()` call site in this package already used — this was the one
+  place that truncated an already-`.Render()`'d string instead. Confirmed
+  live down to a 24x8 terminal, and against a real revert of the fix that
+  the new regression test (`TestSidebarTitleSurvivesCompactFallback`)
+  actually fails without it. The rest of the responsive-layout work already
+  in place (`bodyLayout`'s real floors, `bodyPrefixHeight`'s measured
+  chrome height, per-row-source `Columns(width)` breakpoints) held up fine
+  under the same sweep — this was the one genuine corruption bug, not a
+  sign of a deeper structural gap.
+
 ## Cross-reference
 
 - [RFC 0012](rfcs/0012-agent-identity-deletion-and-key-fingerprinting.md) —

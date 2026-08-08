@@ -767,8 +767,22 @@ func (m Model) sidebarWidth() int {
 // back by mouse.go's sidebarHubAt, recomputed fresh from the same (m, p, w)
 // a click arrived under, since View() has no way to hand this to the
 // Update() call that handles the click.
+// sidebarTitleText is the sidebar's brand line, kept as plain text
+// (unstyled) so it can be truncated correctly wherever it needs to be --
+// truncate() slices runes with no notion of ANSI escape codes, so running
+// it on an already-.Render()'d string chops through the middle of a color
+// code as readily as through the visible text, leaking a raw, unterminated
+// escape sequence onto the screen. Confirmed live: below the height where
+// the sidebar's compact fallback layout kicks in (see the len(rows)+2 > h
+// branch below), the title rendered as literal garbage like
+// "[1;38;2;0;25…" instead of "● AGENT COMMS" -- exactly this mistake, once,
+// at the one call site that truncated the pre-styled string instead of
+// this plain one.
+const sidebarTitleText = "● AGENT COMMS"
+
 func (m Model) renderSidebar(p palette, w, h int) (view string, hubLine []int) {
-	title := lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("● AGENT COMMS")
+	titleStyle := lipgloss.NewStyle().Foreground(p.cyan).Bold(true)
+	title := titleStyle.Render(sidebarTitleText)
 	sub := lipgloss.NewStyle().Foreground(p.muted).Render(truncate(m.projectID, max(8, w-2)))
 	activeHub := m.activeHubIndex()
 
@@ -806,7 +820,7 @@ func (m Model) renderSidebar(p palette, w, h int) (view string, hubLine []int) {
 	// them, the same "content exists but nothing reaches it" failure this
 	// pass through bodyLayout's floors exists to eliminate.
 	if len(rows)+2 > h {
-		rows = []string{truncate(title, max(4, w-2))}
+		rows = []string{titleStyle.Render(truncate(sidebarTitleText, max(4, w-2)))}
 		hubLine = make([]int, len(navigationHubs))
 		for i, hub := range navigationHubs {
 			marker := "  "

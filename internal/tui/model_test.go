@@ -1,12 +1,23 @@
 package tui
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 )
+
+// wellFormedANSISequence matches a complete CSI escape sequence (ESC '['
+// followed by parameter bytes and a final letter) -- stripping every
+// well-formed occurrence and checking for a leftover ESC byte is how
+// TestSidebarTitleSurvivesCompactFallback distinguishes real corruption
+// from an ordinary, valid 24-bit color code: a naive substring check like
+// `strings.Contains(v, "[38;2;")` would flag literally every colored line
+// lipgloss ever renders, since that is exactly what a well-formed truecolor
+// sequence looks like.
+var wellFormedANSISequence = regexp.MustCompile("\x1b\\[[0-9;]*[A-Za-z]")
 
 func TestProjectControlResponsiveViews(t *testing.T) {
 	s := newTestService(t)
@@ -19,6 +30,32 @@ func TestProjectControlResponsiveViews(t *testing.T) {
 			if !strings.Contains(v, want) {
 				t.Errorf("%dx%d missing %q", size[0], size[1], want)
 			}
+		}
+	}
+}
+
+// TestSidebarTitleSurvivesCompactFallback is the regression test for a real
+// bug: renderSidebar's compact fallback (len(rows)+2 > h, the branch that
+// drops spacer lines and keybinding hints on a short terminal) truncated
+// the sidebar's title AFTER it had already been styled -- truncate() slices
+// runes with no notion of ANSI escape codes, so it chopped straight through
+// the middle of a 24-bit color escape sequence as readily as through the
+// visible "● AGENT COMMS" text, leaking a raw, unterminated code like
+// "[1;38;2;0;25…" onto the screen in place of the title. Confirmed live at
+// 60x22 in the real project before the fix; every size here is well below
+// the ~23-25 row threshold where the fallback kicks in.
+func TestSidebarTitleSurvivesCompactFallback(t *testing.T) {
+	s := newTestService(t)
+	for _, size := range [][2]int{{60, 22}, {45, 18}, {30, 12}, {24, 8}} {
+		v, e := RenderForTest(s, "owner", size[0], size[1])
+		if e != nil {
+			t.Fatal(e)
+		}
+		if !strings.Contains(v, "AGENT COM") {
+			t.Errorf("%dx%d: sidebar title missing or corrupted, got:\n%s", size[0], size[1], v)
+		}
+		if stripped := wellFormedANSISequence.ReplaceAllString(v, ""); strings.ContainsRune(stripped, '\x1b') {
+			t.Errorf("%dx%d: rendered output contains a malformed/unterminated ANSI escape sequence", size[0], size[1])
 		}
 	}
 }
