@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"charm.land/lipgloss/v2"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 )
 
@@ -30,6 +31,51 @@ func TestSettingsWorkspaceIsResponsiveAndActionable(t *testing.T) {
 	view.width = 140
 	if rendered := view.View().Content; !strings.Contains(rendered, "hidden by default") {
 		t.Fatal("wide settings workspace exposed no hidden-storage guidance")
+	}
+}
+
+// TestSettingsControlNeverExceedsRequestedWidth is the regression test for
+// a real, reported bug: "this UI is breaking" on Project settings.
+// settingsControl's own bordered box relied on lipgloss's Width()-triggered
+// implicit wrap for its multi-line content, which is confirmably wrong for
+// specific (width, text) pairs -- e.g. the Environment domain's own
+// description rendered several columns *wider* than requested at widths
+// 47-49 specifically (correct at every other width from 40-56 tested
+// around it), because of how lipgloss handles a hyphenated word landing
+// near a wrap boundary. The widened box then got clipped by the outer
+// screen's own MaxWidth(m.width), splitting its own border mid-line --
+// exactly the visual corruption reported. Fixed by having wrapText
+// pre-wrap every long plain-text line before any styling or box width is
+// applied (see wrapText's own doc comment), rather than trusting the box's
+// own implicit wrap.
+//
+// Sweeps every domain (each has different, differently-shaped description
+// text) across a wide range of widths -- not just the one exact size
+// reported live -- since the underlying lipgloss quirk is sensitive to the
+// specific (width, text) pairing, not a single fixed threshold.
+func TestSettingsControlNeverExceedsRequestedWidth(t *testing.T) {
+	s := newTestService(t)
+	m, e := New(s, "owner")
+	if e != nil {
+		t.Fatal(e)
+	}
+	for index, name := range views {
+		if name == "Project settings" {
+			m.view, m.cursor = index, index
+		}
+	}
+	for width := 40; width <= 160; width += 3 {
+		for _, height := range []int{18, 22, 26, 30, 38} {
+			for domain := range settingsSections {
+				m.width, m.height, m.settingsCursor = width, height, domain
+				rendered := m.View().Content
+				for _, line := range strings.Split(rendered, "\n") {
+					if w := lipgloss.Width(line); w > width {
+						t.Fatalf("width=%d height=%d domain=%d: a rendered line is %d columns wide, exceeding the terminal", width, height, domain, w)
+					}
+				}
+			}
+		}
 	}
 }
 

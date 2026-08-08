@@ -6,8 +6,67 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 )
+
+// TestWrapTextNeverExceedsWidth guards wrapText's actual reason for
+// existing: lipgloss's own Width()-triggered implicit wrap on a multi-line
+// block confirmably rendered several columns *wider* than requested for
+// this exact string at widths 47-49 specifically (correct at every other
+// width from 40-56 tested around it) -- a hyphenated word landing near a
+// wrap boundary, not something this project's code controls. Sweeps every
+// width in that range plus this test's own found-live 60x22 case, since
+// the failure is sensitive to the specific (width, text) pairing rather
+// than a single fixed threshold.
+func TestWrapTextNeverExceedsWidth(t *testing.T) {
+	text := "Plain-text, project-scoped configuration values -- never store secrets here."
+	// wrapText only ever breaks *between* words, never mid-word (no
+	// hyphenation) -- a single word longer than width can never be made to
+	// fit on its own line no matter what, so the "never exceeds width"
+	// guarantee only holds once width is at least as wide as the longest
+	// word. "project-scoped" (15) is the longest word in this text; the
+	// sweep starts there rather than claiming a guarantee wrapText was
+	// never designed to make for smaller widths.
+	longestWord := 0
+	for _, word := range strings.Fields(text) {
+		if w := lipgloss.Width(word); w > longestWord {
+			longestWord = w
+		}
+	}
+	for width := longestWord; width <= 80; width++ {
+		wrapped := wrapText(text, width)
+		for _, line := range strings.Split(wrapped, "\n") {
+			if w := lipgloss.Width(line); w > width {
+				t.Fatalf("width=%d: wrapped line is %d columns wide: %q", width, w, line)
+			}
+		}
+	}
+}
+
+// TestWrapTextPreservesAllWords confirms wrapping never drops or corrupts
+// content -- only reflows it -- by checking every original word reappears,
+// in order, once the wrapped lines are rejoined.
+func TestWrapTextPreservesAllWords(t *testing.T) {
+	text := "Validated by authority & visible project-wide. Internal data directory hidden by default."
+	wrapped := wrapText(text, 30)
+	got := strings.Fields(strings.ReplaceAll(wrapped, "\n", " "))
+	want := strings.Fields(text)
+	if len(got) != len(want) {
+		t.Fatalf("word count changed: got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("word %d: got %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestWrapTextNoOpForShortText(t *testing.T) {
+	if got := wrapText("short", 40); got != "short" {
+		t.Fatalf("expected text under width to pass through unchanged, got %q", got)
+	}
+}
 
 // wellFormedANSISequence matches a complete CSI escape sequence (ESC '['
 // followed by parameter bytes and a final letter) -- stripping every

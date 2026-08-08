@@ -230,10 +230,18 @@ func (m Model) settingsSelectedDomain(p palette) string {
 }
 
 func (m Model) settingsControl(p palette, width int) string {
+	// 2 columns of border (left+right) + 4 of Padding(1, 2)'s horizontal
+	// component (2 each side) = 6 -- the room the box itself consumes
+	// before any of its own content. wrapText below wraps every
+	// possibly-long plain-text line to this budget explicitly, rather than
+	// leaning on the final Width(width) box to wrap its own multi-line
+	// content correctly (see wrapText's own doc comment for the confirmed
+	// lipgloss bug that made it not safe to rely on for this).
+	innerWidth := max(1, width-6)
 	section := settingsSections[m.settingsCursor]
 	rows := []string{
 		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render(section.label + " / " + section.name),
-		lipgloss.NewStyle().Foreground(p.muted).Render(section.summary), "",
+		lipgloss.NewStyle().Foreground(p.muted).Render(wrapText(section.summary, innerWidth)), "",
 	}
 	settings := model.EffectiveProjectSettings(m.state.ProjectSettings)
 	switch m.settingsCursor {
@@ -258,7 +266,7 @@ func (m Model) settingsControl(p palette, width int) string {
 			settingLine("Active principals", strconv.Itoa(activeAgents)),
 			settingLine("Invocation policies", strconv.Itoa(policies)),
 			settingLine("Your authority", m.actorAuthority()),
-			"", "Manage activation, suspension, roles, scopes, keys, and per-agent invocation trust.",
+			"", wrapText("Manage activation, suspension, roles, scopes, keys, and per-agent invocation trust.", innerWidth),
 			"", lipgloss.NewStyle().Foreground(p.amber).Render("[e] open agent administration"),
 		)
 	case 2:
@@ -271,7 +279,7 @@ func (m Model) settingsControl(p palette, width int) string {
 		rows = append(rows,
 			settingLine("Registered", strconv.Itoa(len(m.state.AgentRuntimes))),
 			settingLine("Online", strconv.Itoa(online)),
-			"Connectors use configuration references; secret values are never entered in this screen.",
+			wrapText("Connectors use configuration references; secret values are never entered in this screen.", innerWidth),
 			"", lipgloss.NewStyle().Foreground(p.amber).Render("[e] open runtime administration"),
 		)
 	case 3:
@@ -281,12 +289,12 @@ func (m Model) settingsControl(p palette, width int) string {
 			settingLine("Server sequence", strconv.FormatUint(m.state.Integrity.ServerSequence, 10)),
 			settingLine("Cache sequence", strconv.FormatUint(m.state.Integrity.CacheSequence, 10)),
 			settingLine("Chain verified", enabledLabel(m.state.Integrity.Verified)),
-			"", "Internal runtime storage is hidden by default. Use Audit & health for diagnostics.",
+			"", wrapText("Internal runtime storage is hidden by default. Use Audit & health for diagnostics.", innerWidth),
 		)
 	case 4:
 		rows = append(rows,
 			settingLine("Keys set", strconv.Itoa(len(m.state.Env))),
-			"Plain-text, project-scoped configuration values -- never store secrets here.",
+			wrapText("Plain-text, project-scoped configuration values -- never store secrets here.", innerWidth),
 			"", lipgloss.NewStyle().Foreground(p.amber).Render("[e] open environment administration"),
 		)
 	case 5:
@@ -297,7 +305,7 @@ func (m Model) settingsControl(p palette, width int) string {
 		rows = append(rows,
 			settingLine("Theme", theme),
 			settingLine("Scope", "this user"),
-			"Interface choices do not create events or affect other collaborators.",
+			wrapText("Interface choices do not create events or affect other collaborators.", innerWidth),
 			"", lipgloss.NewStyle().Foreground(p.amber).Render("[e] toggle theme"),
 		)
 	}
@@ -313,7 +321,7 @@ func (m Model) settingsControl(p palette, width int) string {
 	rows = append(rows, "",
 		lipgloss.NewStyle().Foreground(color).Bold(true).Render("◈ "+scope)+"  "+
 			lipgloss.NewStyle().Foreground(p.muted).Render(fmt.Sprintf("(Actor: %s · Role: %s)", m.actor, role)),
-		lipgloss.NewStyle().Foreground(p.muted).Render(boundary+" Internal data directory hidden by default."),
+		lipgloss.NewStyle().Foreground(p.muted).Render(wrapText(boundary+" Internal data directory hidden by default.", innerWidth)),
 	)
 
 	return lipgloss.NewStyle().Width(width).Border(lipgloss.NormalBorder()).BorderForeground(p.cyan).Padding(1, 2).Render(strings.Join(rows, "\n"))

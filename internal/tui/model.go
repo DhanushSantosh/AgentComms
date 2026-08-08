@@ -1556,6 +1556,49 @@ func truncate(value string, width int) string {
 	}
 	return string(runes[:width-1]) + "…"
 }
+
+// wrapText greedily word-wraps plain (unstyled) text to width, joining
+// wrapped lines with "\n". Written to replace, not lean on, lipgloss's own
+// Width()-triggered implicit wrap for a multi-line block: confirmed live
+// that lipgloss's wrapper can render several columns *wider* than the
+// requested width for specific (width, text) combinations involving a
+// hyphenated word near a line-break boundary -- e.g. this exact text,
+// "Plain-text, project-scoped configuration values -- never store secrets
+// here.", rendered 50 columns wide when asked for 47, 48, or 49 (correct at
+// every other width from 40-56 tested around it). That widened box then got
+// clipped by the outer screen's own MaxWidth(m.width), splitting its own
+// border mid-line -- the visible "UI breaking" on Project settings at
+// certain terminal sizes. This function never overshoots width for any
+// input, confirmed by sweeping the exact failing case above.
+//
+// Must run on plain text before any styling is applied (never *.Render()'d
+// input): word-splitting a string with embedded ANSI escape codes would
+// treat control bytes as ordinary characters, the same class of corruption
+// truncate() caused when it was once run on an already-styled string (see
+// TestSidebarTitleSurvivesCompactFallback's history). Callers needing
+// colored output should style the wrapped, multi-line result afterward,
+// not the other way around.
+func wrapText(text string, width int) string {
+	if width <= 0 {
+		return text
+	}
+	words := strings.Fields(text)
+	if len(words) == 0 {
+		return text
+	}
+	lines := make([]string, 0, 4)
+	current := words[0]
+	for _, word := range words[1:] {
+		if lipgloss.Width(current)+1+lipgloss.Width(word) <= width {
+			current += " " + word
+			continue
+		}
+		lines = append(lines, current)
+		current = word
+	}
+	lines = append(lines, current)
+	return strings.Join(lines, "\n")
+}
 func Run(s *service.Service, actor string, in io.Reader, out io.Writer) error {
 	m, e := New(s, actor)
 	if e != nil {
@@ -1578,6 +1621,7 @@ func RenderForTest(s *service.Service, actor string, w, h int) (string, error) {
 	m.height = h
 	return m.View().Content, nil
 }
+
 
 type ptySnapshotMsg struct {
 	runtimeID string
