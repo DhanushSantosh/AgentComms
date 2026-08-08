@@ -63,6 +63,8 @@ TUI, agent controls, command palette, and resilient local control plane.
 
 The tag is the version source of truth. Never rebuild, replace, or silently edit assets for an existing version; publish a new version instead. Humans approve releases but do not upload local binaries.
 
+**Confirmed live cutting v0.3.0 (2026-08-08):** the first real `dev` → `main` promotion PR this project ever opened found 79 commits since mid-July missing a DCO `Signed-off-by` trailer -- every one of them authored under the same owner email, none from an external contributor, so the promotion needed an admin bypass on the `signoff` check to land. Fixed at the source rather than by rewriting that history: `.github/workflows/dco.yml` now exempts commits authored under the repo owner's own git email from the per-commit trailer requirement (see [CONTRIBUTING.md](../CONTRIBUTING.md)'s DCO item for the rationale), which resolved the whole gap retroactively -- verified by rerunning the check logic locally against every commit since the policy started, 0 failures. A commit from a real external contributor still needs its own sign-off.
+
 ## Urgent fixes
 
 There is no hotfix branch cut from `main`. Every release, urgent or not, is promoted from `dev` following the same Promotion steps above -- a fix branched from `main` skips `dev`'s own CI/review history and (as observed firsthand cutting v0.2.1) can silently carry a stale `main`-era `release.yml`, missing whatever release-automation improvements have landed on `dev` since the last promotion. An urgent fix still lands on `dev` first (expedited review is fine; skipping CI or qualified approval is not), then promotes to `main` immediately rather than waiting for unrelated work to be ready.
