@@ -2,10 +2,12 @@ package doctor_test
 
 import (
 	"context"
+	"runtime"
 	"testing"
 	"time"
 
 	"github.com/DhanushSantosh/AgentComms/internal/doctor"
+	"github.com/DhanushSantosh/AgentComms/internal/identity"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 	"github.com/DhanushSantosh/AgentComms/internal/service"
 	"github.com/DhanushSantosh/AgentComms/internal/testsupport"
@@ -243,5 +245,36 @@ func TestRevokedAgentHasOpenWork_MultipleTerminalStatuses(t *testing.T) {
 	}
 	if _, found := findFinding(findings, "REVOKED_AGENT_HAS_OPEN_WORK"); found {
 		t.Fatal("REVOKED_AGENT_HAS_OPEN_WORK should not fire when all invocations are terminal (mixed statuses)")
+	}
+}
+
+// TestInteractiveRuntimeUnsupportedOnWindows covers both directions of the
+// same check in one OS-portable test (this suite runs on all three CI
+// platforms per .github/workflows/ci.yml): the finding must fire on
+// Windows, where interactive-serve/--takeover-pid can never come online
+// (internal/interactiveserve/serve_windows.go, takeover_windows.go), and
+// must not fire anywhere else.
+func TestInteractiveRuntimeUnsupportedOnWindows(t *testing.T) {
+	s := setup(t)
+	activateAgent(t, s, "alpha")
+	hostID, err := identity.LoadHostID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	must(t, s, "owner", "runtime.register", "rt-1", model.RuntimeRegistered{
+		AgentID: "alpha", Kind: model.RuntimeKindInteractive, Connector: "INTERACTIVE",
+		HostID: hostID, MaxConcurrent: 1,
+	})
+
+	findings, err := doctor.Findings(context.Background(), s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, found := findFinding(findings, "INTERACTIVE_RUNTIME_UNSUPPORTED_ON_WINDOWS")
+	if runtime.GOOS == "windows" && !found {
+		t.Fatal("INTERACTIVE_RUNTIME_UNSUPPORTED_ON_WINDOWS should fire for an interactive runtime on Windows")
+	}
+	if runtime.GOOS != "windows" && found {
+		t.Fatal("INTERACTIVE_RUNTIME_UNSUPPORTED_ON_WINDOWS should not fire outside Windows")
 	}
 }

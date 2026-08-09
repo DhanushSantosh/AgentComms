@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"runtime"
 	"strings"
 	"time"
 
@@ -108,6 +109,12 @@ func Findings(ctx context.Context, svc *service.Service) ([]Finding, error) {
 			}
 		}
 		if kind != model.RuntimeKindInteractive {
+			continue
+		}
+		if runtime.GOOS == "windows" {
+			add("WARNING", "INTERACTIVE_RUNTIME_UNSUPPORTED_ON_WINDOWS",
+				fmt.Sprintf("runtime %s is interactive, but interactive-serve/--takeover-pid is not supported on Windows", id),
+				"Live PTY session takeover requires a real pty (github.com/creack/pty has no Windows implementation here); it can never come online on this host. Use a WORKER-kind runtime (claude-live/codex-live/opencode-live) for autonomous delivery instead.")
 			continue
 		}
 		if runtimeState.Connector != "INTERACTIVE" || runtimeState.HostID == "" {

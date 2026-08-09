@@ -4,11 +4,23 @@ description: Wrap a real Claude, Codex, or OpenCode terminal so the daemon can w
 section: Agent integration
 order: 5
 audience: Operators
-lastVerified: 2026-08-01
+lastVerified: 2026-08-09
 related: [agents/delivery, agents/invocations]
 ---
 
 `interactive-serve` owns a real PTY and runs the provider inside it. The terminal remains the provider's native UI while Agent Comms supervises registration, heartbeat, endpoint publication, delivery serialization, and clean offline state.
+
+> [!WARNING]
+> `interactive-serve` and `--takeover-pid` are **not supported on Windows**.
+> Both require a real pty, and this project's pty dependency
+> (`github.com/creack/pty`) has no Windows implementation — the command
+> fails immediately with an explicit error rather than doing something
+> unreliable. This is not a regression: the tmux-backed design
+> `interactive-serve` replaced never worked on Windows either. For
+> autonomous or supervised delivery on Windows, use `runtime worker
+> --adapter claude|codex|opencode` or a `-live` adapter instead — those
+> spawn the provider CLI headlessly and don't need a PTY. Tracking issue:
+> [#17](https://github.com/DhanushSantosh/AgentComms/issues/17).
 
 Resuming a specific provider conversation (`resume --last`, `--continue`,
 `--resume <id>`, and equivalents) after the `--` works like any other

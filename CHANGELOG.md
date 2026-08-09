@@ -5,6 +5,13 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 
 ## [Unreleased]
 
+### Fixed
+- `agent-comms doctor` now warns (`INTERACTIVE_RUNTIME_UNSUPPORTED_ON_WINDOWS`)
+  when an INTERACTIVE-kind runtime is registered on Windows, where
+  `interactive-serve`/`--takeover-pid` can never come online (no ConPTY
+  backing for `github.com/creack/pty` yet). Docs now surface this
+  limitation up front instead of only via a runtime error — see #17.
+
 ## [0.3.0] - 2026-08-08 — “Point and Click”
 
 *A TUI you can drive with a mouse from a real-sized terminal, session-pinned
