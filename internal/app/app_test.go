@@ -404,6 +404,35 @@ func TestInitRejectsInvalidModeBeforeWritingRuntime(t *testing.T) {
 		t.Fatalf("invalid mode wrote a runtime: %v", statErr)
 	}
 }
+// TestUnknownFlagStillEmitsJSONError guards a real, confirmed-live bug
+// found during a hands-on Windows compatibility pass: an unknown flag
+// (e.g. a typo) fails inside cobra's own flag parsing, before
+// PersistentPreRunE ever runs -- so c.json, which that function binds,
+// was never set to true even though --json was right there in argv.
+// Run's error branch used to check only c.json, so the JSON envelope was
+// silently never written; main.go separately assumes Run already handled
+// printing whenever --json is literally present in os.Args, so neither
+// layer printed anything at all, on any platform (confirmed live on both
+// Git Bash and a genuine native PowerShell console, ruling out a
+// redirection artifact). Falling back to a raw scan of args
+// (ContainsJSONFlag) closes the gap.
+func TestUnknownFlagStillEmitsJSONError(t *testing.T) {
+	project := t.TempDir()
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
+	var out, stderr bytes.Buffer
+	err := Run([]string{"decision", "create", "--project", project, "--id", "d1", "--this-flag-does-not-exist", "x", "--json"}, &out, &stderr)
+	if err == nil {
+		t.Fatal("expected an unknown flag to produce an error")
+	}
+	if stderr.Len() == 0 {
+		t.Fatal("expected an unknown flag with --json to still emit a JSON-formatted error, got no output at all")
+	}
+	if !bytes.Contains(stderr.Bytes(), []byte(`"ok":false`)) || !bytes.Contains(stderr.Bytes(), []byte(`"error"`)) {
+		t.Fatalf("expected a valid JSON error envelope, got: %s", stderr.String())
+	}
+}
+
 func TestCompletion(t *testing.T) {
 	var out, err bytes.Buffer
 	if e := Run([]string{"completion", "powershell"}, &out, &err); e != nil {

@@ -115,6 +115,23 @@ type ExitError struct {
 
 func (e *ExitError) Error() string { return e.Err.Error() }
 
+// ContainsJSONFlag reports whether --json is literally present in args.
+// Used both here (to still emit a JSON-formatted error when a cobra-level
+// parse failure happens before c.json's normal flag binding runs) and by
+// cmd/agent-comms/main.go (to avoid double-printing a plain-text error
+// alongside one Run already emitted as JSON) -- kept as one canonical
+// implementation shared by both, rather than two copies that could drift
+// out of sync with each other about what counts as "the --json flag was
+// requested."
+func ContainsJSONFlag(args []string) bool {
+	for _, arg := range args {
+		if arg == "--json" {
+			return true
+		}
+	}
+	return false
+}
+
 type cli struct {
 	out, err                             io.Writer
 	json, nonInteractive, noColor, quiet bool
@@ -175,7 +192,18 @@ func Run(args []string, stdout, stderr io.Writer) error {
 	root.SilenceErrors = true
 	e := root.Execute()
 	if e != nil {
-		if c.json {
+		// c.json is bound by cobra's normal flag parsing, which a
+		// pre-execution parse failure (an unknown flag, in particular)
+		// short-circuits before that binding ever happens -- confirmed
+		// live: `decision create --summary <invalid-flag> --json` left
+		// c.json false despite --json being right there in argv, and
+		// printed nothing at all on any platform tested, because
+		// main.go's own containsJSONFlag(os.Args[1:]) check separately
+		// assumes this branch already handled it whenever --json is
+		// literally present. Falling back to a raw scan of args here
+		// closes that gap without either layer needing to trust the
+		// other's assumption about who's responsible.
+		if c.json || ContainsJSONFlag(args) {
 			body := Envelope{APIVersion: APIVersion, OK: false, Command: c.cmd, Error: &ErrorBody{Code: errorCode(e), Message: e.Error()}}
 			_ = json.NewEncoder(stderr).Encode(body)
 		}

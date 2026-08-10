@@ -9,7 +9,7 @@ import (
 
 func main() {
 	if err := app.Run(os.Args[1:], os.Stdout, os.Stderr); err != nil {
-		if _, ok := err.(*app.ExitError); !ok || !containsJSONFlag(os.Args[1:]) {
+		if _, ok := err.(*app.ExitError); !ok || !app.ContainsJSONFlag(os.Args[1:]) {
 			fmt.Fprintln(os.Stderr, err)
 		}
 		if e, ok := err.(*app.ExitError); ok {
@@ -17,13 +17,4 @@ func main() {
 		}
 		os.Exit(1)
 	}
-}
-
-func containsJSONFlag(args []string) bool {
-	for _, arg := range args {
-		if arg == "--json" {
-			return true
-		}
-	}
-	return false
 }
