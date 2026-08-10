@@ -24,6 +24,29 @@ func fakeCLI(t *testing.T, dir, name, helpOutput string) string {
 	return path
 }
 
+// fakeSubcommandCLI writes a throwaway executable script that prints
+// subHelp when invoked as "<name> <subcommand> --help" and bareHelp for
+// every other invocation (including bare "<name> --help") -- standing in
+// for a real CLI like codex/opencode, whose subcommand-scoped flags
+// (`codex exec`, `opencode run`) never appear in the bare --help at all.
+func fakeSubcommandCLI(t *testing.T, dir, name, bareHelp, subcommand, subHelp string) string {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("fakeSubcommandCLI writes a POSIX shell script")
+	}
+	path := filepath.Join(dir, name)
+	script := "#!/bin/sh\n" +
+		"if [ \"$1\" = \"" + subcommand + "\" ]; then\n" +
+		"cat <<'EOF'\n" + subHelp + "\nEOF\n" +
+		"else\n" +
+		"cat <<'EOF'\n" + bareHelp + "\nEOF\n" +
+		"fi\n"
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
 func writeAdapterSource(t *testing.T, dir, filename, content string) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(dir, filename), []byte(content), 0o644); err != nil {
@@ -118,6 +141,54 @@ func fixtureArguments() []string {
 	}
 	if len(missing) != 1 || missing[0] != "--nonexistent-flag" {
 		t.Fatalf("expected exactly [--nonexistent-flag] missing, got %v", missing)
+	}
+}
+
+// TestVerifyAdapterFlagsChecksSubcommandHelpWhenAdapterHasOne is the
+// regression test for issue #18: verify-adapter reported real, currently
+// supported flags of `codex exec` and `opencode run`
+// (--color/--ephemeral/--ignore-user-config, --format) as "missing" purely
+// because it only ever checked the bare `<executable> --help`, which never
+// lists a subcommand's own flags at all -- confirmed live against the real
+// installed binaries, not assumed. adapterHelpSubcommand plus this test's
+// fake CLI (which only documents "--subcommand-only-flag" under `fixture
+// sub --help`, never under bare `fixture --help`) reproduces that exact
+// shape without depending on any real provider CLI being installed.
+func TestVerifyAdapterFlagsChecksSubcommandHelpWhenAdapterHasOne(t *testing.T) {
+	dir := t.TempDir()
+	writeAdapterSource(t, dir, "adapter_fixture.go", `package worker
+func fixtureArguments() []string {
+	return []string{"--print", "sub", "--subcommand-only-flag"}
+}
+`)
+	orig := adapterSourceFile["fixture"]
+	adapterSourceFile["fixture"] = "adapter_fixture.go"
+	origSub, hadSub := adapterHelpSubcommand["fixture"]
+	adapterHelpSubcommand["fixture"] = "sub"
+	defer func() {
+		if orig == "" {
+			delete(adapterSourceFile, "fixture")
+		} else {
+			adapterSourceFile["fixture"] = orig
+		}
+		if hadSub {
+			adapterHelpSubcommand["fixture"] = origSub
+		} else {
+			delete(adapterHelpSubcommand, "fixture")
+		}
+	}()
+
+	executable := fakeSubcommandCLI(t, dir, "fake-cli",
+		"Usage:\n  --print   run once\n",
+		"sub",
+		"Usage: fixture sub\n  --subcommand-only-flag   only documented here\n",
+	)
+	missing, err := VerifyAdapterFlags(context.Background(), "fixture", dir, executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(missing) != 0 {
+		t.Fatalf("expected --subcommand-only-flag to be found via the subcommand's own --help, got missing: %v", missing)
 	}
 }
 

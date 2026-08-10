@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strings"
 )
 
 // adapterSourceFile maps a cliAdapter's registered name to the source file
@@ -37,6 +38,25 @@ var adapterSourceFile = map[string]string{
 	"opencode": "adapter_opencode.go",
 }
 
+// adapterHelpSubcommand names the subcommand an adapter's own Arguments()
+// routes its real, adapter-relevant flags through, when it uses one --
+// DocumentedFlags checks this subcommand's own --help in addition to the
+// bare executable's, since a subcommand's flags never appear in the
+// top-level --help at all. Confirmed live 2026-08-10, filed as issue #18
+// and investigated rather than patched over: codex's --color/--ephemeral/
+// --ignore-user-config and opencode's --format are all real, currently
+// supported flags of `codex exec`/`opencode run` respectively --
+// verify-adapter reported them as "missing" purely because it only ever
+// checked the bare `<executable> --help`, which never lists
+// subcommand-scoped flags at all (confirmed by checking `codex exec --help`
+// and `opencode run --help` directly). claude has no entry here: every
+// flag its adapter uses is a genuine top-level `claude` flag, which is
+// exactly why claude already reported clean without this.
+var adapterHelpSubcommand = map[string]string{
+	"codex":    "exec",
+	"opencode": "run",
+}
+
 var flagLiteralPattern = regexp.MustCompile(`--[a-zA-Z][a-zA-Z0-9-]*`)
 
 // AssumedFlags statically scans an adapter's own source file for
@@ -63,12 +83,19 @@ func AssumedFlags(adapterName, sourceDir string) ([]string, error) {
 	return dedupeSorted(flagLiteralPattern.FindAllString(string(content), -1)), nil
 }
 
-// DocumentedFlags runs executable --help and extracts every "--flag"-shaped
-// token from its output -- a real CLI's own advertised flag surface.
-func DocumentedFlags(ctx context.Context, executable string) ([]string, error) {
-	output, err := exec.CommandContext(ctx, executable, "--help").CombinedOutput()
+// DocumentedFlags runs "executable [subcommand...] --help" and extracts
+// every "--flag"-shaped token from its output -- a real CLI's own
+// advertised flag surface for that exact invocation. subcommand is
+// typically empty (bare `<executable> --help`) or one adapterHelpSubcommand
+// entry (e.g. `codex exec --help`) -- a subcommand's own flags never
+// appear in the bare executable's top-level --help at all, confirmed live
+// as the real cause of two false "missing flag" reports (issue #18), not
+// assumed.
+func DocumentedFlags(ctx context.Context, executable string, subcommand ...string) ([]string, error) {
+	args := append(append([]string{}, subcommand...), "--help")
+	output, err := exec.CommandContext(ctx, executable, args...).CombinedOutput()
 	if err != nil && len(output) == 0 {
-		return nil, fmt.Errorf("run %s --help: %w", executable, err)
+		return nil, fmt.Errorf("run %s %s: %w", executable, strings.Join(args, " "), err)
 	}
 	// Some CLIs exit non-zero even for --help (cobra's own default
 	// convention does not, but not every provider CLI follows it); the
@@ -91,7 +118,9 @@ func dedupeSorted(values []string) []string {
 }
 
 // VerifyAdapterFlags reports every flag an adapter's own source assumes
-// exists but the real, installed binary's --help output never mentions.
+// exists but the real, installed binary's --help output (bare, plus its
+// adapterHelpSubcommand entry's own --help, when it has one) never
+// mentions.
 //
 // Not exhaustive: a flag genuinely supported but undocumented in --help
 // would show up as a false positive (missing here doesn't necessarily mean
@@ -108,6 +137,15 @@ func VerifyAdapterFlags(ctx context.Context, adapterName, sourceDir, executable 
 	documented, err := DocumentedFlags(ctx, executable)
 	if err != nil {
 		return nil, err
+	}
+	if subcommand, ok := adapterHelpSubcommand[adapterName]; ok {
+		// A real subcommand invocation failing here (binary too old to have
+		// it, transient error) shouldn't fail the whole check -- fall back to
+		// bare --help alone rather than erroring the audit out entirely.
+		subDocumented, subErr := DocumentedFlags(ctx, executable, subcommand)
+		if subErr == nil {
+			documented = append(documented, subDocumented...)
+		}
 	}
 	present := make(map[string]bool, len(documented))
 	for _, f := range documented {
