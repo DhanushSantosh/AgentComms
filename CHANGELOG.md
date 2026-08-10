@@ -11,6 +11,13 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
   `interactive-serve`/`--takeover-pid` can never come online (no ConPTY
   backing for `github.com/creack/pty` yet). Docs now surface this
   limitation up front instead of only via a runtime error — see #17.
+- `install.ps1`'s cosign prerequisite check no longer rejects a real,
+  correctly installed cosign: it now also recognizes
+  `cosign-windows-amd64.exe`, cosign's actual upstream release/winget
+  asset name, instead of only the bare `cosign` name that no documented
+  Windows install method for cosign actually produces. Previously this
+  blocked every Windows install that followed the documented steps
+  exactly — see #16.
 
 ## [0.3.0] - 2026-08-08 — “Point and Click”
 

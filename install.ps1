@@ -17,7 +17,19 @@ $asset = $release.assets | Where-Object name -eq $name
 $checks = $release.assets | Where-Object name -eq 'checksums.txt'
 $bundle = $release.assets | Where-Object name -eq "$name.bundle"
 if (-not $asset -or -not $checks -or -not $bundle) { throw 'Release is missing a binary, checksum, or Cosign bundle.' }
-if (-not (Get-Command cosign -ErrorAction SilentlyContinue)) { throw 'cosign is required to verify Agent Comms. Install it from https://docs.sigstore.dev/cosign/system_config/installation/' }
+# cosign publishes no windows-arm64 binary -- only cosign-windows-amd64.exe,
+# which every real Windows install path (winget's Sigstore.Cosign package,
+# which links to it under this same name; the direct GitHub-release
+# download, which is literally named this) leaves on PATH unrenamed. A
+# bare `cosign`/`cosign.exe` only exists if the user manually renamed it,
+# an undocumented step neither cosign's nor our own docs mention -- so
+# probe for both names rather than failing real installs that have cosign
+# but not under that exact name.
+$cosign = Get-Command cosign -ErrorAction SilentlyContinue
+if (-not $cosign) { $cosign = Get-Command cosign-windows-amd64.exe -ErrorAction SilentlyContinue }
+if (-not $cosign) {
+  throw 'cosign is required to verify Agent Comms. Install it from https://docs.sigstore.dev/cosign/system_config/installation/ -- on Windows this produces a binary named cosign-windows-amd64.exe, which this script also looks for on PATH under that exact name.'
+}
 $tmp = Join-Path ([IO.Path]::GetTempPath()) ("agent-comms-" + [guid]::NewGuid())
 New-Item -ItemType Directory $tmp | Out-Null
 try {
@@ -27,7 +39,7 @@ try {
   $expected = ((Get-Content (Join-Path $tmp 'checksums.txt')) | Where-Object { $_ -match "\s$name$" }).Split()[0]
   $actual = (Get-FileHash (Join-Path $tmp $name) -Algorithm SHA256).Hash.ToLowerInvariant()
   if ($actual -ne $expected) { throw 'SHA-256 verification failed.' }
-  & cosign verify-blob --bundle (Join-Path $tmp "$name.bundle") --certificate-identity-regexp '^https://github.com/DhanushSantosh/AgentComms/.github/workflows/release.yml@refs/tags/' --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' (Join-Path $tmp $name)
+  & $cosign.Source verify-blob --bundle (Join-Path $tmp "$name.bundle") --certificate-identity-regexp '^https://github.com/DhanushSantosh/AgentComms/.github/workflows/release.yml@refs/tags/' --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' (Join-Path $tmp $name)
   if ($LASTEXITCODE -ne 0) { throw 'Cosign verification failed.' }
   New-Item -ItemType Directory -Force $InstallDir | Out-Null
   $target = Join-Path $InstallDir 'agent-comms.exe'
