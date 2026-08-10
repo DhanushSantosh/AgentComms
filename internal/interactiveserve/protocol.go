@@ -4,9 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net"
-	"os"
-	"path/filepath"
 	"time"
 )
 
@@ -43,10 +40,12 @@ const (
 
 // call dials socketPath, sends req, and returns the decoded response. Every
 // exported client function in this package (Alive, Deliver) is a thin
-// wrapper around this.
+// wrapper around this. The actual dial is platform-split (dialLocal, in
+// protocol_unix.go/protocol_windows.go) since Windows uses a named pipe
+// rather than a unix domain socket -- see listenLocal's doc comment in
+// protocol_windows.go for why.
 func call(ctx context.Context, socketPath string, req Request) (Response, error) {
-	dialer := net.Dialer{Timeout: dialTimeout}
-	conn, err := dialer.DialContext(ctx, "unix", socketPath)
+	conn, err := dialLocal(ctx, socketPath)
 	if err != nil {
 		return Response{}, err
 	}
@@ -70,44 +69,4 @@ func call(ctx context.Context, socketPath string, req Request) (Response, error)
 		return Response{}, fmt.Errorf("interactiveserve: read response: %w", err)
 	}
 	return resp, nil
-}
-
-// listenLocal binds sockPath, refusing to start if another live process
-// already owns it and cleaning up a stale leftover from a crashed one.
-// Mirrors the exact sequence internal/daemon/listener_unix.go's ListenLocal
-// already proves out for this project's daemon control socket, kept local
-// here rather than cross-imported since these are otherwise unrelated
-// subsystems. Pure Go, nothing platform-specific — lives here (no build
-// tag) rather than in serve.go so it stays testable on every platform even
-// though only the unix-only Serve ever actually calls it in production.
-func listenLocal(sockPath string) (net.Listener, error) {
-	socketDirectory := filepath.Dir(sockPath)
-	if err := os.MkdirAll(socketDirectory, 0o700); err != nil {
-		return nil, fmt.Errorf("interactiveserve: prepare socket directory: %w", err)
-	}
-	if err := os.Chmod(socketDirectory, 0o700); err != nil {
-		return nil, fmt.Errorf("interactiveserve: secure socket directory: %w", err)
-	}
-	if _, err := os.Lstat(sockPath); err == nil {
-		var d net.Dialer
-		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-		conn, dialErr := d.DialContext(ctx, "unix", sockPath)
-		cancel()
-		if dialErr == nil {
-			_ = conn.Close()
-			return nil, fmt.Errorf("interactiveserve: runtime already has a live interactive-serve session (socket %s is dialable)", sockPath)
-		}
-		if err := os.Remove(sockPath); err != nil && !os.IsNotExist(err) {
-			return nil, fmt.Errorf("interactiveserve: remove stale socket: %w", err)
-		}
-	}
-	listener, err := net.Listen("unix", sockPath)
-	if err != nil {
-		return nil, err
-	}
-	if err := os.Chmod(sockPath, 0o600); err != nil {
-		_ = listener.Close()
-		return nil, err
-	}
-	return listener, nil
 }

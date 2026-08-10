@@ -32,7 +32,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"path/filepath"
 	"strings"
 	"time"
 )
@@ -89,40 +88,19 @@ type ServeOptions struct {
 // removal) always runs first. Implemented in serve.go (unix); see
 // serve_windows.go for why this is unix-only.
 
-// maxUnixSocketPathLen is a conservative safety margin under the real,
-// hard OS limits on AF_UNIX socket paths — 108 bytes total on Linux
-// (sockaddr_un.sun_path, including the null terminator) and 104 on macOS/
-// BSD. Confirmed live: a path nested under a project root plus
-// ".agent-comms/cache/interactive-sockets/<runtimeID>.sock" reliably blows
-// through this for realistic project paths, not just unusually deep test
-// temp dirs — this is a real constraint to design around, not a rare edge
-// case.
-const maxUnixSocketPathLen = 100
-
-// SocketPath returns the deterministic control-socket path for runtimeID
-// within a project. There is no separate registry file: "is a runtime live"
-// is simply "can I dial this path." Deliberately does NOT nest under
-// projectRoot itself (unlike every other local-routing-metadata file in this
-// project, e.g. sessionbind's bindings file) — a unix domain socket path has
-// a hard OS length limit far shorter than an ordinary file path, so this
-// hashes projectRoot into a short, deterministic name under a shared
-// per-user runtime directory instead. That directory is deliberately
-// independent of TMPDIR because the daemon and an interactive provider may
-// inherit different process environments. The runtime ID is kept
-// human-readable only when it is a safe filename component; unsafe or long
-// values are hashed rather than truncated, avoiding traversal and prefix
-// collisions.
+// SocketPath returns the deterministic control-socket address for runtimeID
+// within a project — a unix domain socket path on unix, a named pipe
+// address (`\\.\pipe\...`) on Windows (see controlAddress in
+// socket_address_unix.go/socket_address_windows.go). There is no separate
+// registry file: "is a runtime live" is simply "can I dial this address."
+// The runtime ID is kept human-readable only when it is a safe filename/
+// pipe-name component; unsafe or long values are hashed rather than
+// truncated, avoiding traversal and prefix collisions.
 func SocketPath(projectRoot, runtimeID string) string {
 	projectHash := sha256.Sum256([]byte(projectRoot))
-	runtimeComponent := safeRuntimeComponent(runtimeID)
-	name := fmt.Sprintf("%s-%s.sock", hex.EncodeToString(projectHash[:4]), runtimeComponent)
-	path := filepath.Join(socketRootDir(), name)
-	if len(path) <= maxUnixSocketPathLen {
-		return path
-	}
 	runtimeHash := sha256.Sum256([]byte(runtimeID))
-	name = fmt.Sprintf("%s-%s.sock", hex.EncodeToString(projectHash[:4]), hex.EncodeToString(runtimeHash[:8]))
-	return filepath.Join(socketRootDir(), name)
+	runtimeComponent := safeRuntimeComponent(runtimeID)
+	return controlAddress(projectHash, runtimeHash, runtimeComponent)
 }
 
 func safeRuntimeComponent(runtimeID string) string {

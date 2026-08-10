@@ -12,10 +12,20 @@ import (
 	"time"
 )
 
-func requireUnixInteractiveTransport(t *testing.T) {
+// requireUnixSocketFilesystemSemantics skips tests that depend on unix
+// domain sockets being ordinary filesystem entries (a real, statable
+// directory with POSIX permission bits; a path that can be a "stale
+// regular file" left behind). Named pipes, Windows' equivalent transport
+// (protocol_windows.go), share none of that: they live in the kernel's
+// `\\.\pipe\` namespace, not the filesystem, so these specific scenarios
+// don't translate. Most of this file's transport tests are NOT guarded by
+// this — they exercise listenLocal/dialLocal generically via SocketPath
+// and run unmodified on both platforms, now that Serve/interactive-serve
+// itself works on Windows too (see serve_windows.go).
+func requireUnixSocketFilesystemSemantics(t *testing.T) {
 	t.Helper()
 	if runtime.GOOS == "windows" {
-		t.Skip("interactive PTY transport is not supported on Windows")
+		t.Skip("this scenario is specific to unix domain sockets' filesystem semantics; Windows named pipes have no equivalent")
 	}
 }
 
@@ -45,18 +55,34 @@ func TestSocketPathIsIndependentOfProcessTempDirectory(t *testing.T) {
 	}
 }
 
+// TestSocketPathConfinesUnsafeRuntimeIDToSharedDirectory confirms an unsafe
+// runtime ID (path traversal characters, in this case) never survives into
+// the returned control address literally — it's always hashed first
+// (safeRuntimeComponent). What "confined" means differs by platform: on
+// unix, SocketPath returns a real filesystem path, so confinement means it
+// stays nested under socketRootDir(); on Windows, it returns a `\\.\pipe\`
+// address, which was never a filesystem path to begin with (see
+// socket_address_windows.go) — there, confinement means the traversal
+// characters simply don't appear in the pipe name, which
+// safeRuntimeComponent already guarantees platform-independently.
 func TestSocketPathConfinesUnsafeRuntimeIDToSharedDirectory(t *testing.T) {
 	path := SocketPath("/projects/shared", "../../another-user/socket")
+	if strings.Contains(path, "..") {
+		t.Fatalf("unsafe runtime ID's traversal characters survived into the control address: %q", path)
+	}
+	if runtime.GOOS == "windows" {
+		if !strings.HasPrefix(path, `\\.\pipe\agent-comms-interactive-`) {
+			t.Fatalf("expected a well-formed named pipe address, got %q", path)
+		}
+		return
+	}
 	if filepath.Dir(path) != socketRootDir() {
 		t.Fatalf("unsafe runtime ID escaped the socket directory: %q", path)
-	}
-	if strings.Contains(filepath.Base(path), "..") {
-		t.Fatalf("unsafe runtime ID remained in socket filename: %q", path)
 	}
 }
 
 func TestNotifyInvocationCrossesDifferentTempDirectoryEnvironments(t *testing.T) {
-	requireUnixInteractiveTransport(t)
+	requireUnixSocketFilesystemSemantics(t)
 	firstTempDirectory := t.TempDir()
 	secondTempDirectory := t.TempDir()
 	projectRoot := t.TempDir()
@@ -85,7 +111,6 @@ func TestNotifyInvocationCrossesDifferentTempDirectoryEnvironments(t *testing.T)
 }
 
 func TestAliveReportsFalseForUnknownRuntime(t *testing.T) {
-	requireUnixInteractiveTransport(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	if Alive(ctx, t.TempDir(), "no-such-runtime") {
@@ -94,7 +119,6 @@ func TestAliveReportsFalseForUnknownRuntime(t *testing.T) {
 }
 
 func TestDeliverFailsClosedWhenNothingListening(t *testing.T) {
-	requireUnixInteractiveTransport(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	if err := Deliver(ctx, t.TempDir(), "no-such-runtime", "hello"); err == nil {
@@ -113,7 +137,6 @@ func TestDeliverRejectsEmbeddedNewlines(t *testing.T) {
 }
 
 func TestNotifyInvocationMentionsIDAndTarget(t *testing.T) {
-	requireUnixInteractiveTransport(t)
 	dir := t.TempDir()
 	sockPath := SocketPath(dir, "opencode-runtime")
 	listener := listenTestSocket(t, sockPath)
@@ -135,7 +158,6 @@ func TestNotifyInvocationMentionsIDAndTarget(t *testing.T) {
 }
 
 func TestProbeReportsBusyLiveRuntime(t *testing.T) {
-	requireUnixInteractiveTransport(t)
 	dir := t.TempDir()
 	sockPath := SocketPath(dir, "busy-runtime")
 	listener := listenTestSocket(t, sockPath)
@@ -156,7 +178,6 @@ func TestProbeReportsBusyLiveRuntime(t *testing.T) {
 // --- protocol round-trip -----------------------------------------------
 
 func TestProtocolRoundTrip(t *testing.T) {
-	requireUnixInteractiveTransport(t)
 	dir := t.TempDir()
 	sockPath := SocketPath(dir, "protocol-round-trip")
 	listener := listenTestSocket(t, sockPath)
@@ -178,7 +199,6 @@ func TestProtocolRoundTrip(t *testing.T) {
 }
 
 func TestSnapshotReturnsLivePTYBuffer(t *testing.T) {
-	requireUnixInteractiveTransport(t)
 	dir := t.TempDir()
 	sockPath := SocketPath(dir, "snapshot-test")
 	listener := listenTestSocket(t, sockPath)
@@ -200,7 +220,6 @@ func TestSnapshotReturnsLivePTYBuffer(t *testing.T) {
 }
 
 func TestProtocolRoundTripSurfacesError(t *testing.T) {
-	requireUnixInteractiveTransport(t)
 	dir := t.TempDir()
 	sockPath := SocketPath(dir, "protocol-error")
 	listener := listenTestSocket(t, sockPath)
@@ -219,7 +238,6 @@ func TestProtocolRoundTripSurfacesError(t *testing.T) {
 }
 
 func TestCallHonorsContextDeadlineAfterConnecting(t *testing.T) {
-	requireUnixInteractiveTransport(t)
 	dir := t.TempDir()
 	sockPath := SocketPath(dir, "deadline")
 	listener := listenTestSocket(t, sockPath)
@@ -247,7 +265,7 @@ func TestCallHonorsContextDeadlineAfterConnecting(t *testing.T) {
 // --- stale-socket detection ----------------------------------------------
 
 func TestListenLocalRefusesWhenAlreadyLive(t *testing.T) {
-	requireUnixInteractiveTransport(t)
+	requireUnixSocketFilesystemSemantics(t)
 	dir, err := os.MkdirTemp("/tmp", "agent-comms-interactive-")
 	if err != nil {
 		t.Fatal(err)
@@ -269,7 +287,6 @@ func TestListenLocalRefusesWhenAlreadyLive(t *testing.T) {
 }
 
 func TestListenLocalRecoversStaleSocket(t *testing.T) {
-	requireUnixInteractiveTransport(t)
 	dir := t.TempDir()
 	sockPath := SocketPath(dir, "stale-runtime")
 	first, err := listenLocal(sockPath)
@@ -289,7 +306,7 @@ func TestListenLocalRecoversStaleSocket(t *testing.T) {
 }
 
 func TestListenLocalRecoversStaleRegularFile(t *testing.T) {
-	requireUnixInteractiveTransport(t)
+	requireUnixSocketFilesystemSemantics(t)
 	dir := t.TempDir()
 	sockPath := SocketPath(dir, "stale-file-runtime")
 	if err := os.WriteFile(sockPath, []byte("stale content"), 0o600); err != nil {

@@ -248,13 +248,15 @@ func TestRevokedAgentHasOpenWork_MultipleTerminalStatuses(t *testing.T) {
 	}
 }
 
-// TestInteractiveRuntimeUnsupportedOnWindows covers both directions of the
-// same check in one OS-portable test (this suite runs on all three CI
-// platforms per .github/workflows/ci.yml): the finding must fire on
-// Windows, where interactive-serve/--takeover-pid can never come online
-// (internal/interactiveserve/serve_windows.go, takeover_windows.go), and
-// must not fire anywhere else.
-func TestInteractiveRuntimeUnsupportedOnWindows(t *testing.T) {
+// TestInteractiveRuntimeValidOnEveryPlatform confirms doctor treats a
+// correctly configured INTERACTIVE runtime identically on every platform,
+// including Windows -- interactive-serve/--takeover-pid have real,
+// verified implementations on all three (RFC 0014; see
+// internal/interactiveserve/serve_windows.go, takeover_windows.go), so a
+// runtime that is otherwise valid should produce no findings anywhere, not
+// just on unix as an earlier, now-removed Windows-specific WARNING here
+// once assumed.
+func TestInteractiveRuntimeValidOnEveryPlatform(t *testing.T) {
 	s := setup(t)
 	activateAgent(t, s, "alpha")
 	hostID, err := identity.LoadHostID()
@@ -270,11 +272,14 @@ func TestInteractiveRuntimeUnsupportedOnWindows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, found := findFinding(findings, "INTERACTIVE_RUNTIME_UNSUPPORTED_ON_WINDOWS")
-	if runtime.GOOS == "windows" && !found {
-		t.Fatal("INTERACTIVE_RUNTIME_UNSUPPORTED_ON_WINDOWS should fire for an interactive runtime on Windows")
-	}
-	if runtime.GOOS != "windows" && found {
-		t.Fatal("INTERACTIVE_RUNTIME_UNSUPPORTED_ON_WINDOWS should not fire outside Windows")
+	for _, code := range []string{
+		"INTERACTIVE_RUNTIME_MISMATCH",
+		"INTERACTIVE_RUNTIME_FOREIGN_HOST",
+		"INTERACTIVE_SOCKET_UNAVAILABLE",
+		"INTERACTIVE_RUNTIME_UNSUPPORTED_ON_WINDOWS", // removed check; must never reappear
+	} {
+		if _, found := findFinding(findings, code); found {
+			t.Fatalf("expected no %s finding for a valid interactive runtime on %s, got: %+v", code, runtime.GOOS, findings)
+		}
 	}
 }

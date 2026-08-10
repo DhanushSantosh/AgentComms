@@ -2,15 +2,68 @@
 
 ## Status
 
-Proposed. Not built. Scoped from issue
-[#17](https://github.com/DhanushSantosh/AgentComms/issues/17) after a
-hands-on Windows compatibility pass (2026-08-09/10) confirmed `Serve()`
-(`internal/interactiveserve/serve_windows.go`) and `Takeover()`
-(`takeover_windows.go`) are the only two paths that hard-fail on Windows,
-by design, pending exactly this RFC. Per `docs/rfcs/README.md` and
-`docs/development-workflow.md`'s design-proposal rule ("platform support"
-is an explicit RFC trigger), implementation does not begin until this is
-reviewed and accepted.
+**Implemented on `dev`, 2026-08-10.** `internal/interactiveserve/
+serve_windows.go` and `takeover_windows.go` now have real implementations;
+the design below was largely built as proposed, with three real corrections
+live testing forced during implementation — recorded here rather than
+silently edited into the original proposal, matching this project's own
+convention (see RFC 0010's Status section) for keeping the proposal-vs-
+built record honest:
+
+1. **`protocol.go`'s control socket needed a real Windows-specific
+   implementation after all — the "maybe `net.Listen(\"unix\", ...)` already
+   works unmodified" question this RFC left open resolved to "no."**
+   `net.Listen`/`net.Dial("unix", ...)` do work for connectivity on Windows
+   10+, confirmed live — but `os.Chmod(sockPath, 0o600)` is a silent no-op
+   there, so the owner-only permission guarantee `protocol_unix.go`'s
+   `listenLocal` depends on does not carry over. Windows now uses a named
+   pipe (`github.com/Microsoft/go-winio`, the same owner-only SDDL
+   descriptor `internal/daemon/listener_windows.go` already established) —
+   see `protocol_windows.go`. A further finding while building this: unlike
+   a unix domain socket, `CreateNamedPipe` allows unlimited concurrent
+   server instances for the same pipe name by default (confirmed via
+   go-winio's own source), which would have silently permitted two
+   `interactive-serve` processes to both attach to one runtime's pipe — the
+   exact double-attachment collision `Takeover`'s doc comment describes as
+   a real, confirmed problem. Closed with an explicit `LockFileEx(...,
+   LOCKFILE_EXCLUSIVE_LOCK|LOCKFILE_FAIL_IMMEDIATELY)` guard reusing
+   `internal/projectlifecycle/lock_windows.go`'s exact idiom — live-tested
+   (`TestServeSecondInstanceRefusesWhileFirstIsLive`) and confirmed to
+   correctly refuse a second instance.
+2. **`ConPty.Read` never returns `io.EOF` when the attached process
+   exits** — confirmed live, not assumed: the pseudo-console's pipe stays
+   open until `Close()` is called explicitly, unlike a real unix pty (EIO
+   on slave-close). `Serve` detects child exit via the process handle,
+   gives the output-copy goroutine a bounded grace period
+   (`outputDrainGrace`, 1s) to finish naturally, then force-closes the
+   ConPTY as a fallback — verified live in both timing outcomes (natural
+   finish and forced fallback) to still capture full output correctly,
+   including ConPTY's own trailing teardown escape sequences.
+3. **`GenerateConsoleCtrlEvent` — this RFC's proposed mechanism for both
+   `Takeover`'s graceful-stop step and `Serve`'s own signal-forwarding —
+   does not reliably work and was dropped, not tuned.** Tested live, twice,
+   from a genuinely separate process against an ordinary
+   `CREATE_NEW_PROCESS_GROUP` target proven to receive signals via its own
+   `signal.Notify(os.Interrupt)` handler (not inferred from a target that
+   merely didn't respond): the direct call fails outright
+   (`ERROR_INVALID_PARAMETER`), and the documented
+   `FreeConsole`+`AttachConsole` workaround also fails outright
+   (`AttachConsole` itself returns `ERROR_INVALID_PARAMETER`) — tested from
+   both Git Bash and a genuine native PowerShell console, ruling out a
+   terminal-emulator confound. Writing a raw Ctrl-C byte into the ConPTY's
+   own input channel (bypassing `GenerateConsoleCtrlEvent` entirely) was
+   also tested and also did not deliver an interrupt. **Both `Takeover`
+   and `Serve`'s own child-shutdown path use `TerminateProcess` directly
+   instead — no graceful-signal step.** This is a real, deliberate
+   reduction from the unix implementation's SIGTERM-then-SIGKILL courtesy,
+   not an oversight; see `takeover_windows.go`'s and `serve_windows.go`'s
+   doc comments for the full reasoning. `TerminateProcess` itself was
+   reliable in every test performed.
+
+Per `docs/rfcs/README.md` and `docs/development-workflow.md`'s design-
+proposal rule, this RFC was reviewed and accepted before implementation
+began; the rest of this document is retained as the original proposal and
+verification record, updated only where the corrections above apply.
 
 ## Context
 
@@ -74,10 +127,10 @@ pattern `internal/projectlifecycle/lock_windows.go` already uses for
 | `pty.StartWithSize` (`creack/pty`) | No Windows implementation | `conpty.New` + `Spawn` (`charmbracelet/x/conpty`) |
 | `term.MakeRaw`/`Restore`/`GetSize` (`charmbracelet/x/term`) | None — already cross-platform | No change; this project's own TUI already proves this works on Windows |
 | `SIGWINCH` on terminal resize | No POSIX signals on Windows at all | Poll `term.GetSize` on an interval (proposed: 250ms) and call `ConPty.Resize` on change. See "Unresolved questions" — event-based resize via `ReadConsoleInputW`'s `WINDOW_BUFFER_SIZE_EVENT` is a documented alternative, not adopted here as the default because it requires taking over the console's input-event loop, a bigger surface than a resize poll. |
-| `syscall.Kill(pid, SIGTERM)` → `SIGKILL` escalation (`takeover.go`, `forwardAndWait` in `serve.go`) | No POSIX signals | `windows.GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, pid)` for graceful shutdown, escalating to `windows.TerminateProcess` after `GracePeriod` — requires the child spawned with `CREATE_NEW_PROCESS_GROUP`, which this project's `detachedProcAttr()` (`claudeserve`/`codexserve`/`opencodeclient`'s `detach_windows.go`) already sets for the same reason elsewhere. |
-| `ps -o ppid= -p <pid>` process-ancestry walk (`currentProcessIsDescendantOf` in `takeover.go`) | No `ps` on Windows | `CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)` + `Process32First`/`Process32Next`, walking `th32ParentProcessID` the same bounded-depth way `currentProcessIsDescendantOf` already does — a small, self-contained syscall wrapper, no new dependency. |
-| `net.Listen("unix", sockPath)` / `net.Dial("unix", ...)` (`protocol.go`'s `listenLocal`/`call`) | Believed **not** actually blocked | Go's `net` package has supported `AF_UNIX` on Windows 10+ since Go 1.9/1.20-era stdlib work ([golang/go#26072](https://github.com/golang/go/issues/26072)). `protocol.go` carries no build tag today and may already work unmodified on Windows. **This must be confirmed empirically in the first implementation PR**, not assumed from this research pass. If it doesn't hold up (historically Windows' `AF_UNIX` has had rough edges around cleanup and `SO_REUSEADDR` semantics), fall back to `github.com/Microsoft/go-winio` named pipes — this project already has a proven, working pattern for exactly that in `internal/daemon/listener_windows.go` and `internal/daemonclient/dial_windows.go`, including the owner-only SDDL security descriptor (`"D:P(A;;GA;;;OW)"`) worth reusing verbatim if this path is taken. |
-| `socket_root_windows.go`'s `socketRootDir()` (`os.TempDir()+"agent-comms-interactive"`) | Already exists, currently dead code since `Serve` never runs | No change needed — becomes live once `Serve` is implemented. |
+| `syscall.Kill(pid, SIGTERM)` → `SIGKILL` escalation (`takeover.go`, `forwardAndWait` in `serve.go`) | No POSIX signals | **Corrected during implementation, see Status:** `windows.GenerateConsoleCtrlEvent` — both directly and via the documented `AttachConsole` workaround — does not reliably deliver to an unrelated or ConPTY-attached process; confirmed live, not assumed. Shipped as `windows.TerminateProcess` directly, no graceful-signal step, spawned with `CREATE_NEW_PROCESS_GROUP` regardless (matching this project's `detachedProcAttr()` convention elsewhere, even though the signal escalation it would have enabled isn't used). |
+| `ps -o ppid= -p <pid>` process-ancestry walk (`currentProcessIsDescendantOf` in `takeover.go`) | No `ps` on Windows | `CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)` + `Process32First`/`Process32Next`, walking `th32ParentProcessID` the same bounded-depth way `currentProcessIsDescendantOf` already does — a small, self-contained syscall wrapper, no new dependency. Live-tested in both directions (`TestCurrentProcessIsDescendantOfOwnParent`, `TestCurrentProcessIsNotDescendantOfItsOwnChild`). |
+| `net.Listen("unix", sockPath)` / `net.Dial("unix", ...)` (`protocol.go`'s `listenLocal`/`call`) | **Corrected during implementation, see Status:** connectivity works, but `os.Chmod` is a silent no-op | `github.com/Microsoft/go-winio` named pipes, reusing `internal/daemon/listener_windows.go`'s exact owner-only SDDL descriptor, plus a `LockFileEx`-guarded mutual-exclusion marker (`protocol_windows.go`) since `winio.ListenPipe` alone permits unlimited concurrent instances of the same pipe name. |
+| `socket_root_windows.go`'s `socketRootDir()` (`os.TempDir()+"agent-comms-interactive"`) | Already existed, was dead code since `Serve` never ran | Repurposed to hold `protocol_windows.go`'s lock-marker files rather than socket files — a named pipe address isn't a filesystem path, so `SocketPath`'s Windows branch (`socket_address_windows.go`) doesn't use this directory at all; only the lock guard does. |
 | `isBusy`/`echoed`/`outputTee` (`matcher.go`) | None — pure string/byte logic, no build tag | No change. The busy-marker heuristic (`"esc to interrupt"` etc.) and ANSI-stripping are provider-UI-dependent, not OS-dependent, and already apply identically once the byte stream is flowing from a ConPTY instead of a unix pty. |
 | `AGENT_COMMS_ACTOR`/Claude-session-marker env stripping (`childEnviron` in `serve.go`) | None — pure string logic | No change; reuse as-is for the Windows child's environment. |
 
@@ -226,26 +279,29 @@ This RFC covers `Serve()` and `Takeover()` only — bringing
 
 ## Unresolved questions
 
-- **Does `charmbracelet/x/conpty`'s pre-v1 API stability hold up in
-  practice?** It's the right ecosystem fit, but v0.2.0 with no documented
-  `Wait`/exit-code call means the implementation carries some of that
-  weight itself via raw Windows process APIs. If this proves genuinely
-  awkward or buggy during implementation, revisit `UserExistsError/conpty`
-  or `qsocket/conpty-go` as the fallback choice — not a reason to block
-  this RFC, but a real risk to track, not hand-wave past.
-- **Does the existing `AF_UNIX`-based control socket actually work
-  unmodified on Windows**, or does this RFC's implementation need the
-  go-winio named-pipe fallback from day one? Named in the table above and
-  the test plan as the first thing to resolve empirically, deliberately
-  left open here rather than guessed at.
-- **Is a 250ms resize poll good enough**, or does it read as visibly
-  laggy against a human actually dragging a terminal window's edge? Only
-  answerable by building it and trying it; the event-based alternative is
-  documented above as the fallback if not.
-- **Minimum supported Windows build**: this RFC states Windows 10 1809 as
-  ConPTY's own floor, but this project's actual supported-platform
-  statement (`README.md`, `docs/site`) has never previously needed to
-  name a specific Windows build number for anything. Where should that
-  now live, and does it change any of this project's existing "Windows"
-  language elsewhere to say "Windows 10 1809+" specifically for this one
-  feature?
+Resolved during implementation (2026-08-10), recorded here for the audit
+trail rather than deleted:
+
+- **`charmbracelet/x/conpty`'s pre-v1 API held up fine in practice.** No
+  bugs or instability encountered; the missing `Wait`/exit-code call was a
+  real but small gap, closed with `golang.org/x/sys/windows`'s
+  `WaitForSingleObject`/`GetExitCodeProcess` directly against the handle
+  `Spawn` returns, confirmed reliable across every live test performed
+  (including the `outputDrainGrace` timing races described in Status).
+  Not revisited to `UserExistsError/conpty`/`qsocket/conpty-go`.
+- **The `AF_UNIX` control socket did not work unmodified** — see Status
+  item 1. Named pipes with a `LockFileEx` mutual-exclusion guard shipped
+  instead.
+- **250ms resize polling** shipped as designed; no live signal it reads as
+  laggy, though this wasn't specifically stress-tested against rapid
+  window dragging. Left as the current behavior — the event-based
+  alternative remains a documented option if that ever surfaces as a real
+  complaint, not pursued speculatively.
+- **Minimum supported Windows build** (10 1809+) is stated in
+  `docs/site/agents/interactive.md` as a `[!NOTE]` callout and enforced
+  implicitly by `conpty.New`'s own error on an unsupported build — no
+  separate `doctor` check was added for this (see `internal/doctor/
+  doctor.go`'s comment at the interactive-runtime check for why: it's rare
+  enough in practice that a clear error at the point of failure was judged
+  sufficient, consistent with how this codebase handles other uncommon
+  environment gaps).

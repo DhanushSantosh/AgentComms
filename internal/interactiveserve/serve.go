@@ -4,15 +4,12 @@ package interactiveserve
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"os"
 	"os/exec"
 	"os/signal"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -20,25 +17,6 @@ import (
 	"github.com/charmbracelet/x/term"
 	"github.com/creack/pty"
 )
-
-// idleTimeout bounds how long deliverToPty waits for a busy target to come
-// up for air before giving up rather than injecting into an active turn. It
-// is generous because the target may legitimately be deep in its own
-// multi-step tool-calling sequence — waiting longer here is what actually
-// prevents two deliveries from gluing their text together in the pty's input
-// buffer, not a fallback for it.
-const idleTimeout = 90 * time.Second
-
-// echoTimeout bounds how long deliverToPty waits, after writing text, for
-// the pty to visibly echo it back before writing Enter — never trusting a
-// fixed sleep to be long enough for a given provider's input handling.
-const echoTimeout = 10 * time.Second
-
-// directDeliveryIdleTimeout keeps invocation creation responsive. A direct
-// wake is opportunistic: if the target became busy after the caller's probe,
-// it is safer to return a retryable warning than to hold the requester while
-// another agent finishes a potentially long turn.
-const directDeliveryIdleTimeout = 250 * time.Millisecond
 
 // Serve allocates a real pty, execs opts.Command attached to it, and
 // transparently forwards opts.ControlFD/Stdin/Stdout so the invoking
@@ -54,43 +32,8 @@ const directDeliveryIdleTimeout = 250 * time.Millisecond
 // special-casing needed. The signal handling here is for the other case:
 // something sends SIGINT/SIGTERM to the wrapper process itself directly.
 //
-// claudeSessionInheritanceKeys are environment variables Claude Code's own
-// CLI sets to mark "this process is a subordinate child of another live
-// session" (CLAUDE_CODE_CHILD_SESSION) and to identify that parent session
-// (CLAUDE_CODE_SESSION_ID, CLAUDE_CODE_BRIDGE_SESSION_ID). The child Serve
-// execs is meant to become a fresh, independent, top-level interactive
-// session in its own right — if Serve is invoked from inside an
-// already-running Claude Code session (an agent spinning up its own, or
-// another runtime's, interactive-serve), the wrapped `claude` process would
-// otherwise inherit these unchanged and conclude it is itself a child,
-// disabling its own transcript persistence entirely. Confirmed live: a
-// `claude` child spawned this way showed "Transcript saving is off —
-// inherited CLAUDE_CODE_CHILD_SESSION marker" in its own status line.
-var claudeSessionInheritanceKeys = []string{
-	"CLAUDE_CODE_CHILD_SESSION",
-	"CLAUDE_CODE_SESSION_ID",
-	"CLAUDE_CODE_BRIDGE_SESSION_ID",
-}
-
-// childEnviron returns os.Environ() with claudeSessionInheritanceKeys
-// removed, so the wrapped command never inherits a stale parent-session
-// identity it never asked for.
-func childEnviron() []string {
-	exclude := make(map[string]bool, len(claudeSessionInheritanceKeys))
-	for _, k := range claudeSessionInheritanceKeys {
-		exclude[k] = true
-	}
-	env := os.Environ()
-	filtered := make([]string, 0, len(env))
-	for _, kv := range env {
-		key, _, _ := strings.Cut(kv, "=")
-		if exclude[key] {
-			continue
-		}
-		filtered = append(filtered, kv)
-	}
-	return filtered
-}
+// claudeSessionInheritanceKeys and childEnviron now live in childenv.go (no
+// build tag), shared verbatim with the Windows ConPTY implementation.
 
 // Serve returns the child's exit code and never calls os.Exit itself — the
 // caller must do that only after Serve has returned, so pending cleanup
@@ -238,117 +181,7 @@ func exitCodeFor(cmd *exec.Cmd, waitErr error) int {
 	return 0
 }
 
-// acceptLoop serves control-socket connections until listener is closed
-// (which happens via Serve's deferred cleanup on shutdown).
-func acceptLoop(listener net.Listener, tee *outputTee, ptmx *os.File, mu *sync.Mutex) {
-	for {
-		conn, err := listener.Accept()
-		if err != nil {
-			return
-		}
-		go handleConn(conn, tee, ptmx, mu)
-	}
-}
-
-func handleConn(conn net.Conn, tee *outputTee, ptmx *os.File, mu *sync.Mutex) {
-	defer conn.Close()
-	var req Request
-	if err := json.NewDecoder(conn).Decode(&req); err != nil {
-		return
-	}
-	switch req.Kind {
-	case "ping":
-		_ = json.NewEncoder(conn).Encode(Response{OK: true, Busy: isBusy(tee.snapshot())})
-	case "snapshot":
-		_ = json.NewEncoder(conn).Encode(Response{OK: true, Busy: isBusy(tee.snapshot()), OutputSnapshot: string(tee.snapshot())})
-	case "deliver":
-		mu.Lock()
-		evidence, err := deliverToPtyWithEvidence(ptmx, tee, req.Message, idleTimeout, echoTimeout)
-		mu.Unlock()
-		resp := Response{OK: err == nil}
-		if err == nil {
-			resp.TextEchoedAt = &evidence.TextEchoedAt
-			resp.EnterSentAt = &evidence.EnterSentAt
-		}
-		if err != nil {
-			resp.Error = err.Error()
-		}
-		_ = json.NewEncoder(conn).Encode(resp)
-	case "try-deliver":
-		if !mu.TryLock() {
-			_ = json.NewEncoder(conn).Encode(Response{OK: false, Busy: true, Error: "another delivery is already in progress"})
-			return
-		}
-		evidence, err := deliverToPtyWithEvidence(ptmx, tee, req.Message, directDeliveryIdleTimeout, echoTimeout)
-		mu.Unlock()
-		resp := Response{OK: err == nil, Busy: err != nil && isBusy(tee.snapshot())}
-		if err == nil {
-			resp.TextEchoedAt = &evidence.TextEchoedAt
-			resp.EnterSentAt = &evidence.EnterSentAt
-		}
-		if err != nil {
-			resp.Error = err.Error()
-		}
-		_ = json.NewEncoder(conn).Encode(resp)
-	default:
-		_ = json.NewEncoder(conn).Encode(Response{OK: false, Error: "unknown request kind"})
-	}
-}
-
-// deliverToPty writes message into ptmx as terminal input: waits for the
-// target to be idle (see isBusy) before sending anything — the direct
-// replacement for the old cross-process delivery lock, since there's now
-// only ever one process touching this pty, concurrent senders just make
-// concurrent socket connections and this mutex-guarded function serializes
-// them — then writes the text and a separate Enter only once tee has
-// visibly reflected the text back, never blind. idleTO/echoTO are the real
-// package constants in production; tests call this directly with short
-// overrides rather than waiting out the real, deliberately generous values.
-func deliverToPty(ptmx *os.File, tee *outputTee, message string, idleTO, echoTO time.Duration) error {
-	_, err := deliverToPtyWithEvidence(ptmx, tee, message, idleTO, echoTO)
-	return err
-}
-
-func deliverToPtyWithEvidence(ptmx *os.File, tee *outputTee, message string, idleTO, echoTO time.Duration) (DeliveryReceipt, error) {
-	if !waitForIdle(tee, idleTO) {
-		return DeliveryReceipt{}, fmt.Errorf("target was still busy after %s; not injecting into an in-progress turn", idleTO)
-	}
-	if _, err := ptmx.Write([]byte(message)); err != nil {
-		return DeliveryReceipt{}, fmt.Errorf("write text: %w", err)
-	}
-	if !waitForEchoBuf(tee, message, echoTO) {
-		return DeliveryReceipt{}, errors.New("target never echoed the sent text back within the timeout; refusing to send Enter blind")
-	}
-	textEchoedAt := time.Now().UTC()
-	if _, err := ptmx.Write([]byte("\r")); err != nil {
-		return DeliveryReceipt{}, fmt.Errorf("write enter: %w", err)
-	}
-	enterSentAt := time.Now().UTC()
-	return DeliveryReceipt{TextEchoedAt: textEchoedAt, EnterSentAt: enterSentAt}, nil
-}
-
-func waitForIdle(tee *outputTee, timeout time.Duration) bool {
-	deadline := time.Now().Add(timeout)
-	for {
-		if !isBusy(tee.snapshot()) {
-			return true
-		}
-		if time.Now().After(deadline) {
-			return false
-		}
-		time.Sleep(300 * time.Millisecond)
-	}
-}
-
-func waitForEchoBuf(tee *outputTee, text string, timeout time.Duration) bool {
-	deadline := time.Now().Add(timeout)
-	for {
-		if echoed(tee.snapshot(), text) {
-			return true
-		}
-		if time.Now().After(deadline) {
-			return false
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-}
+// acceptLoop, handleConn, deliverToPty(WithEvidence), waitForIdle, and
+// waitForEchoBuf now live in delivery.go (no build tag), shared verbatim
+// with the Windows ConPTY implementation — see that file's package comment
+// for why.

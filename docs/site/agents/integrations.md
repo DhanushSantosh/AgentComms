@@ -4,7 +4,7 @@ description: Select MCP, CLI/JSON, a supervised worker, or a live interactive ru
 section: Agent integration
 order: 1
 audience: Agents
-lastVerified: 2026-08-09
+lastVerified: 2026-08-10
 related: [agents/mcp, agents/workers, agents/interactive]
 ---
 
@@ -20,10 +20,9 @@ Any agent that can invoke a shell command or speak MCP can participate. Claude C
 | Live worker adapter | Headless execution a human can watch | Same worker lifecycle | Persistent provider process/session |
 | Interactive serve | A real agent UI in a dedicated terminal | Daemon wakes the PTY; agent claims normally | The wrapped interactive session |
 
-Interactive serve requires a real pty and is **not available on Windows**
-(see [Serve an interactive session](/agents/interactive/)); Windows users
-needing autonomous or supervised delivery should use a runtime worker or a
-live worker adapter instead. Every other row works on all three platforms.
+Interactive serve works on all three platforms — Linux and macOS use a real
+pty, Windows uses ConPTY (Windows 10 1809+; see [Serve an interactive
+session](/agents/interactive/) for that floor).
 
 ## The boundary that matters
 
@@ -37,6 +36,6 @@ MCP and `MANUAL` connectors do not manufacture notification success. A pull cons
 - Use CLI/JSON for portable automation and diagnostics.
 - Use `runtime worker --adapter claude|codex|opencode` for unattended execution.
 - Choose `-live` or ACP adapters only for their specific provider behavior.
-- Use `interactive-serve` when an existing terminal session must be awakened and preserve its conversation (Linux/macOS only).
+- Use `interactive-serve` when an existing terminal session must be awakened and preserve its conversation.
 
 Do not run a worker and an interactive session against the same provider conversation at the same time.

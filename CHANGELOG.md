@@ -5,12 +5,17 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 
 ## [Unreleased]
 
+### Added
+- `interactive-serve` and `--takeover-pid` now work on Windows (10 version
+  1809/October 2018 Update or later), closing a platform gap that
+  previously errored outright. Built on ConPTY
+  (`github.com/charmbracelet/x/conpty`) in place of `creack/pty`, a named
+  pipe control socket (`github.com/Microsoft/go-winio`) in place of a unix
+  domain socket, and `TerminateProcess` in place of POSIX signals for
+  process lifecycle — see RFC 0014 for the full design and the live
+  testing behind each of those choices. Closes #17.
+
 ### Fixed
-- `agent-comms doctor` now warns (`INTERACTIVE_RUNTIME_UNSUPPORTED_ON_WINDOWS`)
-  when an INTERACTIVE-kind runtime is registered on Windows, where
-  `interactive-serve`/`--takeover-pid` can never come online (no ConPTY
-  backing for `github.com/creack/pty` yet). Docs now surface this
-  limitation up front instead of only via a runtime error — see #17.
 - `install.ps1`'s cosign prerequisite check no longer rejects a real,
   correctly installed cosign: it now also recognizes
   `cosign-windows-amd64.exe`, cosign's actual upstream release/winget
