@@ -56,12 +56,36 @@ func TestInvocationLifecycle(t *testing.T) {
 		ExpectedResult: "Post a concise review", Priority: "high", Deadline: &deadline,
 	})
 	registerOnlineDeliverableWorker(t, instance, "builder", "runtime-1")
+	// setupWithLocalConnector runs a real daemon (testsupport.StartPersonalProject),
+	// whose delivery coordinator retries dispatch for pending invocations every
+	// 500ms (internal/daemon/run.go's deliveryCoordinatorInterval) -- confirmed
+	// live as the cause of a real, intermittent CI failure: once "runtime-1" goes
+	// online here, that background goroutine can win the race and commit its own
+	// automatic delivery-attempt before this explicit call runs, which the
+	// invariant this test isn't exercising (delivery-attempt mutual exclusion is
+	// TestInvocationNotificationReservationIsExclusive's job) correctly refuses
+	// as a duplicate. Tolerate that outcome and read back whichever delivery ID
+	// actually won, rather than assuming this call always wins the race.
+	deliveryID := "delivery-1"
 	_, err := instance.Execute("owner", "invocation.delivery-attempt", "inv-1",
 		model.InvocationDeliveryAttempted{
-			DeliveryID: "delivery-1", RuntimeID: "runtime-1", Transport: "LOCAL_PROCESS",
+			DeliveryID: deliveryID, RuntimeID: "runtime-1", Transport: "LOCAL_PROCESS",
 		})
 	if err != nil {
-		t.Fatal(err)
+		state, stateErr := instance.State()
+		if stateErr != nil {
+			t.Fatal(stateErr)
+		}
+		found := false
+		for id, delivery := range state.InvocationDeliveries {
+			if delivery.InvocationID == "inv-1" && delivery.RuntimeID == "runtime-1" {
+				deliveryID, found = id, true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("explicit delivery-attempt failed (%v) and no delivery attempt exists to fall back to", err)
+		}
 	}
 	must(t, instance, "builder", "invocation.claim", "inv-1", model.InvocationClaimed{
 		RuntimeID: "runtime-1",
@@ -89,9 +113,9 @@ func TestInvocationLifecycle(t *testing.T) {
 		invocation.RuntimeID != "runtime-1" || invocation.CompletedAt == nil {
 		t.Fatalf("unexpected invocation projection: %+v", invocation)
 	}
-	delivery := state.InvocationDeliveries["delivery-1"]
+	delivery := state.InvocationDeliveries[deliveryID]
 	if delivery.Status != "SUCCEEDED" || delivery.InvocationID != "inv-1" {
-		t.Fatalf("unexpected delivery projection: %+v", delivery)
+		t.Fatalf("unexpected delivery projection (id %s): %+v", deliveryID, delivery)
 	}
 	if err = instance.Verify(0, 0); err != nil {
 		t.Fatal(err)
@@ -175,8 +199,31 @@ func TestInvocationNotificationReservationIsExclusive(t *testing.T) {
 			successes++
 		}
 	}
-	if successes != 1 {
-		t.Fatalf("notification reservations succeeded %d times, want 1", successes)
+	// setupWithLocalConnector runs a real daemon (testsupport.StartPersonalProject)
+	// whose delivery coordinator retries dispatch for pending invocations every
+	// 500ms (internal/daemon/run.go's deliveryCoordinatorInterval) -- confirmed
+	// live as a real, intermittent third contender for the same reservation this
+	// test's own two goroutines race for. If it wins before either of them starts,
+	// both of this test's explicit calls correctly lose too, so successes can be 0
+	// here without the real invariant (at most one delivery-attempt reservation
+	// ever succeeds for a given invocation/runtime pair) being violated -- that
+	// invariant is verified directly from state below instead, counting every
+	// reservation regardless of which of the (up to three) callers created it.
+	if successes > 1 {
+		t.Fatalf("notification reservations succeeded %d times, want at most 1", successes)
+	}
+	state, err := instance.State()
+	if err != nil {
+		t.Fatal(err)
+	}
+	reservations := 0
+	for _, delivery := range state.InvocationDeliveries {
+		if delivery.InvocationID == "inv-notify" && delivery.RuntimeID == "runtime-notify" {
+			reservations++
+		}
+	}
+	if reservations != 1 {
+		t.Fatalf("expected exactly one delivery-attempt reservation to exist for inv-notify/runtime-notify, found %d", reservations)
 	}
 }
 

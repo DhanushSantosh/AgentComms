@@ -708,9 +708,11 @@ look," never a second, unaudited channel for instruction content to reach a
 runtime.
 
 `runtime interactive-session --id <runtime>` reports whether a runtime
-currently has a live session. This mechanism is unix-only —
-`github.com/creack/pty` doesn't support Windows — which is not a regression;
-its tmux-based predecessor never worked on Windows either.
+currently has a live session. This mechanism now works on Linux, macOS, and
+Windows (10 version 1809+): Linux/macOS use a real pty
+(`github.com/creack/pty`), Windows uses ConPTY
+(`github.com/charmbracelet/x/conpty`) — see RFC 0014 for the full design
+and the Windows-specific process-lifecycle differences it documents.
 
 **Two failure modes were confirmed live and are actively guarded against, not
 just documented — carried over from an earlier tmux-based iteration of this
