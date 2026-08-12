@@ -50,7 +50,7 @@ var decisionSupersedeForm = &ActionForm{
 		}
 		m.form, m.inputs, m.err, m.formSpec = "", nil, nil, nil
 		m.notice = "Superseded " + oldID + " with " + values[0]
-		m.refresh()
+		m.refreshState()
 		return m, nil
 	},
 }

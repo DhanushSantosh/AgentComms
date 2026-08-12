@@ -312,6 +312,48 @@ one is picked up, remove it from here and note the landing commit.
 
 ## TUI
 
+- **Actor-switch/elevated-key trio of bugs, fixed 2026-08-12.** Reported
+  live: a user granting ORCHESTRATOR to an agent switched actors in the TUI
+  to what they believed was their owner identity, then still hit "owner or
+  orchestrator role required" with no way to tell why. Root-caused via a
+  live investigation (not guessed at) into three separate, real problems,
+  all fixed together:
+  1. **`refresh()` unconditionally overwrote `m.notice`.** Every action
+     handler that set an informative result notice ("Switched to X",
+     "Applied agent.activate to Y", ...) then called `refresh()` to reload
+     lists/findings/drafts — which stomped that notice with the generic
+     "State refreshed at HH:MM:SS" one line later, at 12 of 14 call sites.
+     A user switching actors (or completing any other action) never
+     actually saw confirmation of what happened. Fixed by splitting
+     `refresh()` (bare "r" keybinding only, still reports "state
+     refreshed") from a new `refreshState()` (everything else, leaves
+     `m.notice` alone) — `TestActorSwitchNoticeSurvivesTheFollowingRefresh`
+     is the regression test, confirmed to fail without the fix.
+  2. **The actor-switch picker showed bare IDs with no role/status**,
+     pulled from every locally-saved credential for the project regardless
+     of standing — trivial to pick a non-owner/non-orchestrator identity by
+     mistake with nothing warning you. Fixed: each candidate is now labeled
+     with its actual current role (`TestActorSwitchFormShowsRoleNextToEachCandidate`).
+  3. **The status rail showed role only, never actor ID** ("authority
+     owner" with no name attached) — no persistent way to confirm *who*
+     you're acting as without reopening the switch form. Fixed: the actor
+     ID is now shown alongside the role
+     (`TestCommandRailShowsActiveActorID`).
+  Separately, `docs/governance.md`, `docs/agent-onboarding.md`, and —
+  most consequentially, since it's the deployed public doc site —
+  `docs/site/start/tui.md` all incorrectly claimed the TUI refuses every
+  elevated-key-signed action and the CLI is required; the code has
+  actually supported completing these directly via a masked passphrase
+  form field for a while. This false claim is almost certainly what led an
+  agent operating this project to hand a user CLI-only instructions that
+  then failed on an unrelated actor-resolution mismatch — both problems
+  compounding into one confusing dead end. Docs corrected; `internal/
+  protocol/transitions.go`'s "owner or orchestrator role required" error
+  now also names the resolved actor and its actual role
+  (`TestElevationRejectionNamesTheResolvedActorAndItsRole`), confirmed live
+  against a real scratch project, so this exact failure mode is
+  self-diagnosing going forward instead of a silent puzzle.
+
 - **Sidebar title corruption on a short terminal, fixed 2026-08-08.** Asked
   to make the TUI dynamically scalable rather than requiring a minimum
   terminal size, found the real bug behind it: `renderSidebar`'s compact

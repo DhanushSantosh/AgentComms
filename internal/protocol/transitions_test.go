@@ -1,6 +1,7 @@
 package protocol
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -174,6 +175,32 @@ func agentOrchestrator(id string) model.Agent {
 // itself, so an unprotected owner-target is a full lockout primitive for a
 // project with only one human -- arguably worse than revoke, since revoke
 // was already guarded and suspend wasn't.
+// TestElevationRejectionNamesTheResolvedActorAndItsRole is the regression
+// test for a real, confirmed live gap: "owner or orchestrator role
+// required" gave no way to tell whether the actor genuinely lacked
+// standing or (just as common in practice) simply resolved to the wrong
+// actor in the first place -- a stale `profile use`, a leftover env var,
+// or picking the wrong identity from the TUI's actor switcher. The
+// rejection looked identical either way. Naming the actor and its actual
+// role turns that into a one-line diagnosis.
+func TestElevationRejectionNamesTheResolvedActorAndItsRole(t *testing.T) {
+	st := model.State{Agents: map[string]model.Agent{
+		"plain-agent": {ID: "plain-agent", Status: "ACTIVE", Role: model.RoleAgent, PrincipalType: model.PrincipalAgent},
+	}}
+	_, err := ValidateTransition(st, "plain-agent", "agent.activate", "target",
+		model.AgentActivated{Role: model.RoleAgent}, time.Now())
+	if err == nil {
+		t.Fatal("expected a non-elevated actor to be rejected")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "plain-agent") {
+		t.Fatalf("error %q does not name the actor that was actually resolved", msg)
+	}
+	if !strings.Contains(msg, "role is agent") {
+		t.Fatalf("error %q does not name the actor's actual current role", msg)
+	}
+}
+
 func TestAgentSuspendNeverPermitsOwnerTarget(t *testing.T) {
 	st := model.State{Agents: map[string]model.Agent{
 		"owner":      humanAgent("owner"),

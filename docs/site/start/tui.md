@@ -1,11 +1,11 @@
 ---
 title: Use the TUI control room
-description: Navigate the terminal interface, manage the project, and understand which sensitive actions remain CLI-only.
+description: Navigate the terminal interface, manage the project, and complete elevated-key-signed actions safely from the TUI.
 section: Start here
 order: 5
 audience: Human operators
-lastVerified: 2026-08-01
-related: [guide/agents, guide/governance, guide/maintenance]
+lastVerified: 2026-08-12
+related: [guide/agents, guide/governance, guide/maintenance, security/identity]
 ---
 
 Launch the terminal control room from any initialized project:
@@ -44,9 +44,9 @@ These captures come from the current TUI running against an isolated personal-mo
 
 ## Sensitive actions
 
-Actions that require a passphrase-protected elevated human key do not read the passphrase from Bubble Tea's raw terminal input. The TUI refuses those actions with an exact CLI command instead of hanging or weakening the authorization rule.
+Actions that require a passphrase-protected elevated human key -- granting Orchestrator, approving a HUMAN-tier approval, revoking another Orchestrator or HUMAN principal, and deleting a revoked identity -- have a masked "Elevated-key passphrase" field right in their TUI form. Typing your passphrase there completes the transition in the TUI itself; it is not a stand-in for something the CLI still has to finish. Leave the field blank and the TUI refuses cleanly with an exact CLI command instead, the same way it always has.
 
-Use the CLI for elevated identity deletion, orchestrator grants, or human-tier approvals until a dedicated masked passphrase form is available.
+**Registering** a new elevated key (`agent elevate-key`) is the one genuinely CLI-only step in this whole story: neither the TUI nor MCP offers a form for it, by design (see [Identity and authority](/security/identity)).
 
 ## Freshness and connectivity
 

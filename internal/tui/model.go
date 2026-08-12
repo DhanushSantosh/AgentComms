@@ -416,10 +416,28 @@ func (m *Model) focusCurrentView() {
 		m.settingsFocus = true
 	}
 }
+// refresh re-reads state and reports that it did so via m.notice. Use this
+// only where nothing more specific was already reported this same tick (the
+// bare "r" refresh keybinding, essentially) -- every other call site that
+// already set an informative m.notice (e.g. "Applied agent.activate to
+// THOR") must call refreshState instead, or this overwrites it before it
+// ever renders. Confirmed live as a real bug: the actor-switch form set
+// m.notice = "Switched to " + candidate immediately followed by a refresh()
+// call, so that confirmation was never actually visible -- only the generic
+// "State refreshed at HH:MM:SS" that replaced it a line later.
 func (m *Model) refresh() {
-	m.state, m.err = m.svc.State()
+	m.refreshState()
 	if m.err == nil {
 		m.notice = "State refreshed at " + time.Now().Format("15:04:05")
+	}
+}
+
+// refreshState re-reads state, lists, findings, and drafts without touching
+// m.notice, so a caller's own just-set result notice survives. See refresh's
+// doc comment for when to use which.
+func (m *Model) refreshState() {
+	m.state, m.err = m.svc.State()
+	if m.err == nil {
 		m.refreshLists()
 		m.refreshFindings()
 		m.refreshDrafts()
@@ -633,7 +651,7 @@ func (m Model) updateForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.form, m.inputs, m.err, m.formSpec = "", nil, nil, nil
 			m.notice = "Applied " + typ + " to " + id
-			m.refresh()
+			m.refreshState()
 			return m, nil
 		}
 	}
@@ -997,7 +1015,13 @@ func (m Model) commandRail(p palette, width int) string {
 	}
 	detail := fmt.Sprintf("  %s / %s  ·  %s  ·  seq %d", hub, views[m.view], freshness, sequence)
 	authority := strings.ToLower(string(m.state.Agents[m.actor].Role))
-	right := "authority " + empty(authority, "unknown")
+	// Actor ID alongside role, not role alone -- confirmed live as a real
+	// gap: this rail used to show only "authority <role>", with no way to
+	// see *which* locally-switched identity you're currently acting as
+	// short of opening the actor-switch form again or running a separate
+	// CLI command. That's exactly what let a wrong actor-switch go
+	// unnoticed until an elevation check rejected it downstream.
+	right := m.actor + " · " + empty(authority, "unknown")
 	leftLen := lipgloss.Width(left) + lipgloss.Width(detail)
 	rightLen := lipgloss.Width(right)
 	if leftLen+rightLen > width && width > 40 {

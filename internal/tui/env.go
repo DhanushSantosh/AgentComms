@@ -39,7 +39,7 @@ var envUpdateForm = &ActionForm{
 		}
 		m.form, m.inputs, m.err, m.formSpec = "", nil, nil, nil
 		m.notice = "Updated " + key
-		m.refresh()
+		m.refreshState()
 		return m, nil
 	},
 }
@@ -56,7 +56,7 @@ var (
 			}
 			m.err = nil
 			m.notice = "Deleted " + id
-			m.refresh()
+			m.refreshState()
 			return m, nil
 		},
 	}
