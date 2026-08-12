@@ -404,6 +404,7 @@ func TestInitRejectsInvalidModeBeforeWritingRuntime(t *testing.T) {
 		t.Fatalf("invalid mode wrote a runtime: %v", statErr)
 	}
 }
+
 // TestUnknownFlagStillEmitsJSONError guards a real, confirmed-live bug
 // found during a hands-on Windows compatibility pass: an unknown flag
 // (e.g. a typo) fails inside cobra's own flag parsing, before
