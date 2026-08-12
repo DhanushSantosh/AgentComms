@@ -17,6 +17,13 @@
 # run never provides. ci.yml's postgres-integration job checks it
 # separately, against real DB-backed numbers, right after running it.
 #
+# internal/releaseverify is likewise absent: its real regression tests
+# download a genuine published release and hit Sigstore's public network
+# infrastructure, gated behind AGENT_COMMS_TEST_LIVE_RELEASE_VERIFY=1 (see
+# that package's test file) so a bare `go test ./...` stays fast and
+# network-free. ci.yml's security job sets that env var and runs this
+# package's tests directly instead of relying on a coverage floor here.
+#
 # Packages with no test files or no statements at all (thin main-package
 # wrappers, pure data/type packages) are absent from FLOORS on purpose --
 # there is nothing a coverage percentage could mean for them.

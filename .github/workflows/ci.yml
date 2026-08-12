@@ -43,6 +43,10 @@ jobs:
       - run: go install golang.org/x/vuln/cmd/govulncheck@v1.6.0
       - run: govulncheck ./...
       - run: go test ./internal/contamination
+      - name: Live release-verification test (real Sigstore + a real published release)
+        env:
+          AGENT_COMMS_TEST_LIVE_RELEASE_VERIFY: "1"
+        run: go test -count=1 -v ./internal/releaseverify/...
   postgres-integration:
     timeout-minutes: 15
     runs-on: ubuntu-latest
@@ -97,7 +101,7 @@ jobs:
       - run: |
           for target in windows/amd64 windows/arm64 linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
             GOOS=${target%/*}; GOARCH=${target#*/}
-            for command in agent-comms agent-comms-daemon agent-comms-server; do
+            for command in agent-comms agent-comms-daemon agent-comms-server agent-comms-verify; do
               CGO_ENABLED=0 GOOS=$GOOS GOARCH=$GOARCH go build "./cmd/$command"
             done
           done

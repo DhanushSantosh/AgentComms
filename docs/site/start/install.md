@@ -4,7 +4,7 @@ description: Install a signed release on Linux, macOS, or Windows and verify tha
 section: Start here
 order: 2
 audience: Human operators
-lastVerified: 2026-08-10
+lastVerified: 2026-08-12
 related: [security/releases, guide/maintenance]
 ---
 
@@ -12,9 +12,7 @@ The installer places the CLI at user level. Existing managed projects reconcile 
 
 ## Before installation
 
-The release installers require [Cosign](https://docs.sigstore.dev/cosign/system_config/installation/) so they can verify the signed release bundle. Linux and macOS also require `curl` and Python 3.
-
-On Windows, cosign's own release and winget assets are named `cosign-windows-amd64.exe`, not `cosign.exe` — `install.ps1` looks for either name on `PATH`, so no manual rename is needed.
+Nothing to install first. The installers verify the signed release bundle themselves -- they automatically download `agent-comms-verify`, a small companion binary, and use it to check the signature; no separately installed Cosign is required (see [Verify a release](/security/releases)). Linux and macOS also require `curl` and Python 3.
 
 ## Linux and macOS
 
