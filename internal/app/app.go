@@ -277,11 +277,13 @@ func (c *cli) root() *cobra.Command {
 				return fmt.Errorf("load identity profiles: %w", e)
 			}
 		}
+		providerSessionID, _ := sessionbind.Capture()
 		c.actorResolution, e = identity.ResolveActor(identity.ActorResolutionRequest{
 			ProjectID: cfg.ProjectID, ProjectOwner: cfg.Owner,
 			ExplicitActor: c.actor, ExplicitProfile: c.profile,
 			EnvironmentActor: environmentActor, HostLabel: os.Getenv("AGENT_COMMS_HOST_LABEL"),
-			UserConfig: userConfig,
+			ProviderSessionID: providerSessionID,
+			UserConfig:        userConfig,
 		})
 		if e != nil {
 			return e

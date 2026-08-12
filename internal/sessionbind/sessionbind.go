@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/DhanushSantosh/AgentComms/internal/identity"
 	"github.com/DhanushSantosh/AgentComms/internal/worker"
 )
 
@@ -43,12 +44,19 @@ func Path(projectRoot string) string {
 // undocumented env var found only by running `strings` on the installed
 // binary -- removed 2026-08-08 along with the rest of agy support, over an
 // unresolved third-party ToS compliance question; see docs/backlog.md.)
+//
+// The Claude/Codex checks delegate to identity.DetectProviderSessionID
+// rather than duplicating them -- that function exists specifically so
+// packages that cannot import this one without an import cycle (see RFC
+// 0016) still get the identical detection logic, from one implementation.
 func Capture() (sessionID, adapter string) {
-	if id := strings.TrimSpace(os.Getenv("CLAUDE_CODE_SESSION_ID")); id != "" {
-		return id, "claude"
-	}
-	if id := strings.TrimSpace(os.Getenv("CODEX_THREAD_ID")); id != "" {
-		return id, "codex"
+	if id := identity.DetectProviderSessionID(); id != "" {
+		switch {
+		case strings.TrimSpace(os.Getenv("CLAUDE_CODE_SESSION_ID")) == id:
+			return id, "claude"
+		case strings.TrimSpace(os.Getenv("CODEX_THREAD_ID")) == id:
+			return id, "codex"
+		}
 	}
 	for envVar, adapterName := range worker.GetRegisteredDeclarativeSessionEnvVars() {
 		if id := strings.TrimSpace(os.Getenv(envVar)); id != "" {

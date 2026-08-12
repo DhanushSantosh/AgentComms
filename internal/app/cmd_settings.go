@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"github.com/DhanushSantosh/AgentComms/internal/identity"
+	"github.com/DhanushSantosh/AgentComms/internal/sessionbind"
 	"github.com/spf13/cobra"
 )
 
@@ -17,7 +18,14 @@ func (c *cli) profileCmd() *cobra.Command {
 		if e != nil {
 			return e
 		}
-		return c.emit("profile.list", map[string]any{"active": u.ActiveProfile, "profiles": u.Profiles})
+		sessionID, _ := sessionbind.Capture()
+		// session_scoped tells the caller (human or agent) whether "active"
+		// below reflects its own isolated session or the shared,
+		// machine-wide legacy default -- see RFC 0016.
+		return c.emit("profile.list", map[string]any{
+			"active": u.ActiveProfileFor(sessionID), "profiles": u.Profiles,
+			"session_scoped": sessionID != "",
+		})
 	}}
 	var name string
 	use := &cobra.Command{Use: "use", RunE: func(cmd *cobra.Command, args []string) error {
@@ -28,11 +36,16 @@ func (c *cli) profileCmd() *cobra.Command {
 		if _, ok := u.Profiles[name]; !ok {
 			return errors.New("profile not found")
 		}
-		u.ActiveProfile = name
+		sessionID, _ := sessionbind.Capture()
+		// Scoped to this exact session when one is recognized (an agent's
+		// own conversation, most commonly) rather than the legacy
+		// machine-wide field every other process would otherwise inherit
+		// too -- see RFC 0016.
+		u.SetActiveProfileFor(sessionID, name)
 		if e = identity.SaveUserConfig(u); e != nil {
 			return e
 		}
-		return c.emit("profile.use", map[string]string{"active": name})
+		return c.emit("profile.use", map[string]any{"active": name, "session_scoped": sessionID != ""})
 	}}
 	use.Flags().StringVar(&name, "name", "", "profile name")
 	root.AddCommand(current, list, use)

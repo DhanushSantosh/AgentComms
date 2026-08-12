@@ -102,6 +102,41 @@ one is picked up, remove it from here and note the landing commit.
 
 ## Security / governance
 
+- **RESOLVED 2026-08-12: local default-actor resolution could silently
+  misattribute real, signed governed actions across concurrent
+  sessions.** Reported live: a human owner switching actors in the TUI kept
+  hitting "owner or orchestrator role required" with no obvious cause.
+  Root-caused (not guessed at): `identity.UserConfig.ActiveProfile` was a
+  single string in one JSON file shared by *every* process on the machine
+  — a different agent running `agent-comms profile use --name <itself>`
+  for its own ordinary convenience ("default my own commands to me")
+  silently redirected every other concurrent session's default actor too,
+  including the human's own. Worse than a display bug: every registered
+  actor's real private key lives in the same shared OS keyring
+  (`KeyringStore`, keyed only by `(projectID, actor)`), so a bare command
+  resolving to the wrong actor got **cryptographically signed as that
+  actor** and durably recorded that way — real misattribution of ordinary
+  governed work (task claims, messages, plain activations), not just a
+  wrong name on screen. The four elevated-key-gated transitions (granting
+  Orchestrator, HUMAN-tier approval, revoking an Orchestrator/HUMAN,
+  deleting a revoked principal) were never at risk — each independently
+  verifies the signer is a genuine `HUMAN`-type principal server-side, so
+  this couldn't be used to escalate privilege or forge a human approval.
+  Fixed per RFC 0016: replaced the single machine-wide field with
+  `ActiveProfileBySession`, keyed by the provider session ID
+  `sessionbind.Capture` already reliably detects (`CLAUDE_CODE_SESSION_ID`/
+  `CODEX_THREAD_ID`, harness-injected into every subprocess, not something
+  an agent has to remember to export). The legacy field remains the
+  fallback only when no recognized session is present at all (a genuine
+  plain terminal) — and critically, a *real, recognized* session with no
+  profile of its own set yet resolves to the safe project-owner default,
+  never falls through to the shared legacy field. Verified live, not just
+  in unit tests: two different simulated sessions setting different active
+  profiles against the same on-disk config resolved fully independently,
+  and a plain-terminal resolution was unaffected by either — reproducing
+  the originally reported scenario directly and confirming it no longer
+  occurs.
+
 - **Approval self-approval is not prevented.** A human (or any elevated
   actor) can both request and approve the same approval record today —
   nothing requires the approver to differ from the requester, for any

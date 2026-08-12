@@ -17,6 +17,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	keyring "github.com/zalando/go-keyring"
 	"golang.org/x/crypto/argon2"
@@ -260,22 +261,29 @@ type Profile struct {
 }
 
 const (
-	ActorSourceFlag          = "actor_flag"
-	ActorSourceProfileFlag   = "profile_flag"
-	ActorSourceEnvironment   = "actor_environment"
-	ActorSourceHostBinding   = "host_binding"
-	ActorSourceActiveProfile = "active_profile"
-	ActorSourceProjectOwner  = "project_owner"
+	ActorSourceFlag           = "actor_flag"
+	ActorSourceProfileFlag    = "profile_flag"
+	ActorSourceEnvironment    = "actor_environment"
+	ActorSourceHostBinding    = "host_binding"
+	ActorSourceSessionProfile = "session_profile"
+	ActorSourceActiveProfile  = "active_profile"
+	ActorSourceProjectOwner   = "project_owner"
 )
 
 type ActorResolutionRequest struct {
-	ProjectID        string
-	ProjectOwner     string
-	ExplicitActor    string
-	ExplicitProfile  string
-	EnvironmentActor string
-	HostLabel        string
-	UserConfig       UserConfig
+	ProjectID    string
+	ProjectOwner string
+	// ProviderSessionID scopes the active-profile lookup to one specific
+	// agent/human session (see UserConfig.ActiveProfileFor) instead of the
+	// single machine-wide legacy default -- see RFC 0016. Typically
+	// sessionbind.Capture()'s first return value; empty for a plain
+	// interactive terminal with no recognized provider session.
+	ProviderSessionID string
+	ExplicitActor     string
+	ExplicitProfile   string
+	EnvironmentActor  string
+	HostLabel         string
+	UserConfig        UserConfig
 }
 
 type ActorResolution struct {
@@ -332,10 +340,14 @@ func ResolveActor(request ActorResolutionRequest) (ActorResolution, error) {
 		result.Actor, result.Source = request.ProjectOwner, ActorSourceProjectOwner
 		return result, nil
 	}
-	if request.UserConfig.ActiveProfile != "" {
-		profile, found := request.UserConfig.Profiles[request.UserConfig.ActiveProfile]
+	if name := request.UserConfig.ActiveProfileFor(request.ProviderSessionID); name != "" {
+		profile, found := request.UserConfig.Profiles[name]
 		if found && profile.ProjectID == request.ProjectID {
-			result.Actor, result.Source, result.Profile = profile.Actor, ActorSourceActiveProfile, request.UserConfig.ActiveProfile
+			source := ActorSourceActiveProfile
+			if request.ProviderSessionID != "" {
+				source = ActorSourceSessionProfile
+			}
+			result.Actor, result.Source, result.Profile = profile.Actor, source, name
 			return result, nil
 		}
 	}
@@ -368,11 +380,103 @@ func FindProfileByProjectAndHost(profiles map[string]Profile, projectID, hostLab
 }
 
 type UserConfig struct {
-	ActiveProfile string             `json:"active_profile,omitempty"`
-	UpdateChannel string             `json:"update_channel"`
-	CheckUpdates  bool               `json:"check_updates"`
-	Theme         string             `json:"theme"`
-	Profiles      map[string]Profile `json:"profiles"`
+	ActiveProfile string `json:"active_profile,omitempty"`
+	// ActiveProfileBySession scopes "which local profile is active by
+	// default" to the exact agent/human session that set it, keyed by a
+	// provider session ID (see DetectProviderSessionID) -- see RFC 0016.
+	// ActiveProfile alone is a single value in one file shared by every
+	// process under this OS account: one agent session running
+	// `profile use` for its own ordinary convenience ("default my own
+	// commands to me") silently redirected every OTHER concurrent
+	// session's default actor too, including genuine signing, since every
+	// registered actor's real private key lives in the same shared OS
+	// keyring (KeyringStore). ActiveProfile remains the fallback used only
+	// when no recognized session ID is present at all -- a genuine plain
+	// interactive terminal, which never had this problem in the first
+	// place and keeps behaving exactly as before.
+	ActiveProfileBySession map[string]SessionProfile `json:"active_profile_by_session,omitempty"`
+	UpdateChannel          string                    `json:"update_channel"`
+	CheckUpdates           bool                      `json:"check_updates"`
+	Theme                  string                    `json:"theme"`
+	Profiles               map[string]Profile        `json:"profiles"`
+}
+
+// SessionProfile is one entry in UserConfig.ActiveProfileBySession: which
+// profile a specific session made active, and when. The timestamp lets a
+// long-finished session's entry be pruned instead of accumulating forever
+// across every agent conversation ever run on the machine.
+type SessionProfile struct {
+	Profile string    `json:"profile"`
+	SetAt   time.Time `json:"set_at"`
+}
+
+// sessionProfileTTL bounds how long an unrefreshed session-scoped active
+// profile is honored before being treated as stale and pruned -- long
+// enough that an actual ongoing agent conversation never loses it (the
+// entry refreshes on every profile-changing call, not just once), short
+// enough that a session that's genuinely over doesn't leave a phantom
+// entry around indefinitely.
+const sessionProfileTTL = 30 * 24 * time.Hour
+
+// ActiveProfileFor returns the profile name active for sessionID -- the
+// legacy machine-wide ActiveProfile only when sessionID is empty (no
+// recognized provider session in the environment, i.e. a genuine plain
+// interactive terminal). A real, recognized session with no profile of
+// its own set yet returns "" rather than falling through to the shared
+// legacy field: that fallthrough is exactly the cross-session leak this
+// type exists to close, so a session must resolve to the safe
+// project-owner default until it explicitly sets its own.
+func (c UserConfig) ActiveProfileFor(sessionID string) string {
+	if sessionID == "" {
+		return c.ActiveProfile
+	}
+	entry, ok := c.ActiveProfileBySession[sessionID]
+	if !ok || time.Since(entry.SetAt) > sessionProfileTTL {
+		return ""
+	}
+	return entry.Profile
+}
+
+// SetActiveProfileFor sets the active profile for sessionID (the legacy
+// machine-wide field when sessionID is empty), and opportunistically
+// prunes any other session entries that have aged past sessionProfileTTL
+// so ActiveProfileBySession doesn't grow forever.
+func (c *UserConfig) SetActiveProfileFor(sessionID, profile string) {
+	if sessionID == "" {
+		c.ActiveProfile = profile
+		return
+	}
+	if c.ActiveProfileBySession == nil {
+		c.ActiveProfileBySession = map[string]SessionProfile{}
+	}
+	now := time.Now().UTC()
+	for id, entry := range c.ActiveProfileBySession {
+		if id != sessionID && now.Sub(entry.SetAt) > sessionProfileTTL {
+			delete(c.ActiveProfileBySession, id)
+		}
+	}
+	c.ActiveProfileBySession[sessionID] = SessionProfile{Profile: profile, SetAt: now}
+}
+
+// DetectProviderSessionID checks the current process environment for the
+// two provider session variables their respective CLIs guarantee to
+// inject into every subprocess they spawn -- CLAUDE_CODE_SESSION_ID and
+// CODEX_THREAD_ID -- not something a caller has to remember to export.
+// This is the subset internal/sessionbind.Capture also checks (and now
+// delegates to for these two); kept here too, rather than imported,
+// specifically so internal/identity (a zero-internal-dependency leaf
+// package) and packages like internal/service that cannot import
+// internal/sessionbind without an import cycle through internal/worker
+// can use it without pulling in sessionbind's broader
+// declarative-adapter detection. See RFC 0016.
+func DetectProviderSessionID() string {
+	if id := strings.TrimSpace(os.Getenv("CLAUDE_CODE_SESSION_ID")); id != "" {
+		return id
+	}
+	if id := strings.TrimSpace(os.Getenv("CODEX_THREAD_ID")); id != "" {
+		return id
+	}
+	return ""
 }
 
 func ConfigDir() (string, error) {
