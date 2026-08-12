@@ -193,6 +193,26 @@ one is picked up, remove it from here and note the landing commit.
 
 ## Test / CI infrastructure
 
+- **`TestInvocationDeliveryFailureDoesNotTerminateObligation` is flaky on
+  loaded/slow windows-latest runners, not fixed.** Observed live on PR #25's
+  CI (2026-08-13): failed once with `"an unexpired delivery attempt already
+  exists for this runtime"` on a run where every package's tests ran visibly
+  slower than normal (`internal/mcp` 72s vs the usual ~24s,
+  `internal/projectlifecycle` 62s vs ~20s) -- a re-run of the identical
+  commit passed cleanly, as did a separate parallel windows-latest run on
+  the same SHA. Root cause is a known race class already documented inline
+  by the neighboring test (`TestFailedRedeliveryPreservesEarlierSuccessfulEvidence`'s
+  comment): `setupWithLocalConnector` runs a real background daemon whose
+  delivery coordinator retries dispatch for PENDING invocations every
+  500ms, and on a slow enough runner that automatic retry can win the race
+  against this test's own explicit `invocation.delivery-attempt` call,
+  colliding on the same runtime's outstanding attempt. Unrelated to RFC
+  0017's actor-resolution guard (this test drives a `Service` instance
+  directly with an explicit `"owner"` actor, never through CLI actor
+  resolution). Worth tightening the 500ms retry/test timing assumption if
+  it recurs; not done here since a single confirmed flake isn't enough to
+  diagnose the right fix.
+
 - **RESOLVED 2026-08-12: `internal/protocol`'s `ValidateTransition` direct
   coverage gap closed, and a per-package coverage floor now guards against
   it recurring anywhere else.** Prompted by a codebase-hardness audit that
