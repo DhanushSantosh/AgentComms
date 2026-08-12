@@ -205,7 +205,7 @@ func TestAgentListHumanOutputIsATableNotIndentedJSON(t *testing.T) {
 	}
 	run(true, "init", "--non-interactive", "--owner", "owner", "--mode", "personal")
 	run(true, "agent", "register", "--id", "builder")
-	run(true, "agent", "activate", "--id", "builder", "--role", "AGENT", "--scope", "src")
+	run(true, "agent", "activate", "--id", "builder", "--role", "AGENT", "--scope", "src", "--actor", "owner")
 
 	run(false, "agent", "list")
 	if strings.HasPrefix(strings.TrimSpace(out.String()), "{") {
@@ -377,6 +377,61 @@ func TestProfileListDoesNotRequireInitializedProject(t *testing.T) {
 	}
 	if !bytes.Contains(stdout.Bytes(), []byte(`"active":"project:owner"`)) {
 		t.Fatalf("profile list did not return the registry: %s", stdout.String())
+	}
+}
+
+// TestWriteRefusesAmbiguousLegacyActorAcrossMultipleProfiles is the
+// end-to-end regression test for RFC 0017, exercised through the real CLI
+// entry point (Run), not just Service directly -- confirms the guard is
+// actually wired into internal/app's PersistentPreRunE, not merely present
+// in the Service type. Reproduces the shape of a real, confirmed-live
+// incident: a project with more than one locally-registered identity,
+// where a bare invocation with no recognized provider session and no
+// explicit actor used to silently sign under whichever identity happened
+// to be sitting in the shared legacy slot.
+func TestWriteRefusesAmbiguousLegacyActorAcrossMultipleProfiles(t *testing.T) {
+	d := t.TempDir()
+	cleanupProjectDaemon(t, d)
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(d, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(d, "credentials"))
+	// Deliberately no recognized provider session -- the exact condition
+	// that makes the legacy fallback reachable at all.
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "")
+	t.Setenv("CODEX_THREAD_ID", "")
+
+	var out, errBuf bytes.Buffer
+	if err := Run([]string{"init", "--project", d, "--non-interactive", "--owner", "owner", "--json"}, &out, &errBuf); err != nil {
+		t.Fatalf("init failed: %v\n%s", err, errBuf.String())
+	}
+
+	// Registering a second local identity for this same project is what
+	// makes the legacy fallback genuinely ambiguous -- one profile alone
+	// (just "owner") would still be safe.
+	out.Reset()
+	errBuf.Reset()
+	if err := Run([]string{"agent", "register", "--id", "helper", "--principal-type", "AGENT", "--project", d, "--actor", "helper", "--json"}, &out, &errBuf); err != nil {
+		t.Fatalf("registering a second local identity failed: %v\n%s", err, errBuf.String())
+	}
+
+	// A bare write, no --actor, no session: must now be refused instead of
+	// silently signing under whichever identity the shared legacy field
+	// happens to hold.
+	out.Reset()
+	errBuf.Reset()
+	err := Run([]string{"task", "create", "--id", "task-1", "--title", "t", "--repository", "r", "--branch", "b", "--resource", "src/x", "--project", d, "--json"}, &out, &errBuf)
+	if err == nil {
+		t.Fatalf("expected the ambiguous bare write to be refused, got success: %s", out.String())
+	}
+	if !bytes.Contains(errBuf.Bytes(), []byte("more than one locally-registered identity")) {
+		t.Fatalf("refusal did not explain itself as ambiguous-actor related; stdout=%s stderr=%s", out.String(), errBuf.String())
+	}
+
+	// The same write, made explicit, must succeed -- the guard blocks
+	// ambiguity, not the write itself.
+	out.Reset()
+	errBuf.Reset()
+	if err := Run([]string{"task", "create", "--id", "task-1", "--title", "t", "--repository", "r", "--branch", "b", "--resource", "src/x", "--project", d, "--actor", "owner", "--json"}, &out, &errBuf); err != nil {
+		t.Fatalf("expected the same write to succeed once the actor is explicit: %v\n%s", err, errBuf.String())
 	}
 }
 
@@ -949,13 +1004,13 @@ func TestInvocationAndRuntimeCLIWorkflow(t *testing.T) {
 	}
 	run("init", "--non-interactive", "--owner", "owner", "--mode", "personal")
 	run("agent", "register", "--id", "builder")
-	run("agent", "activate", "--id", "builder", "--role", "AGENT", "--scope", "src")
+	run("agent", "activate", "--id", "builder", "--role", "AGENT", "--scope", "src", "--actor", "owner")
 	run("runtime", "register", "--actor", "builder", "--id", "runtime-builder",
 		"--agent", "builder", "--connector", "MCP", "--max-concurrent", "1")
 	run("runtime", "heartbeat", "--actor", "builder", "--id", "runtime-builder")
-	run("invocation", "policy", "set", "--agent", "builder", "--mode", "AUTOMATIC")
+	run("invocation", "policy", "set", "--agent", "builder", "--mode", "AUTOMATIC", "--actor", "owner")
 	run("invocation", "request", "--id", "inv-cli", "--to", "builder",
-		"--instruction", "Review the CLI workflow", "--priority", "URGENT")
+		"--instruction", "Review the CLI workflow", "--priority", "URGENT", "--actor", "owner")
 	run("invocation", "next", "--actor", "builder", "--runtime", "runtime-builder")
 	if !bytes.Contains(out.Bytes(), []byte(`"found":true`)) ||
 		!bytes.Contains(out.Bytes(), []byte(`"id":"inv-cli"`)) {
@@ -1005,7 +1060,7 @@ func TestTaskLockCreatesAndClaimsInOneStep(t *testing.T) {
 	}
 	run("init", "--non-interactive", "--owner", "owner", "--mode", "personal")
 	run("agent", "register", "--id", "builder")
-	run("agent", "activate", "--id", "builder", "--role", "AGENT", "--scope", "src")
+	run("agent", "activate", "--id", "builder", "--role", "AGENT", "--scope", "src", "--actor", "owner")
 
 	run("task", "lock", "--actor", "builder", "--worktree", worktree, "--note", "fixing a bug")
 	if !bytes.Contains(out.Bytes(), []byte(`"type":"task.claim"`)) {
@@ -1078,7 +1133,7 @@ func TestTaskLockConflictsOnlyForTheSameWorktree(t *testing.T) {
 	must("init", "--non-interactive", "--owner", "owner", "--mode", "personal")
 	for _, id := range []string{"agent-a", "agent-b", "agent-c"} {
 		must("agent", "register", "--id", id)
-		must("agent", "activate", "--id", id, "--role", "AGENT", "--scope", "src")
+		must("agent", "activate", "--id", id, "--role", "AGENT", "--scope", "src", "--actor", "owner")
 	}
 
 	must("task", "lock", "--actor", "agent-a", "--worktree", sharedWorktree, "--note", "agent-a working")
@@ -1127,11 +1182,11 @@ func TestInvocationRequestDeliversDirectlyToLiveInteractiveSession(t *testing.T)
 
 	run("init", "--non-interactive", "--owner", "owner", "--mode", "personal")
 	run("agent", "register", "--id", "opencode-agent")
-	run("agent", "activate", "--id", "opencode-agent", "--role", "AGENT", "--scope", "src")
+	run("agent", "activate", "--id", "opencode-agent", "--role", "AGENT", "--scope", "src", "--actor", "owner")
 	run("runtime", "register", "--actor", "opencode-agent", "--id", "opencode-runtime",
 		"--agent", "opencode-agent", "--kind", "INTERACTIVE",
 		"--connector", "INTERACTIVE", "--max-concurrent", "1")
-	run("invocation", "policy", "set", "--agent", "opencode-agent", "--mode", "AUTOMATIC")
+	run("invocation", "policy", "set", "--agent", "opencode-agent", "--mode", "AUTOMATIC", "--actor", "owner")
 
 	// Stand up a live session the same way `runtime interactive-serve`
 	// does, without going through the CLI's Run() — that command calls
@@ -1171,7 +1226,7 @@ func TestInvocationRequestDeliversDirectlyToLiveInteractiveSession(t *testing.T)
 		"--endpoint-id", "test-opencode-endpoint")
 
 	run("invocation", "request", "--id", "inv-direct", "--to", "opencode-agent",
-		"--instruction", "say hi", "--consumer", "INTERACTIVE_ONLY", "--runtime", "opencode-runtime")
+		"--instruction", "say hi", "--consumer", "INTERACTIVE_ONLY", "--runtime", "opencode-runtime", "--actor", "owner")
 	if bytes.Contains(out.Bytes(), []byte(`"warnings"`)) {
 		t.Fatalf("expected no delivery warnings against a live session: %s", out.String())
 	}
@@ -1229,9 +1284,9 @@ func TestInvocationRequestWithoutRegisteredSessionIsUnaffected(t *testing.T) {
 	}
 	run("init", "--non-interactive", "--owner", "owner", "--mode", "personal")
 	run("agent", "register", "--id", "builder")
-	run("agent", "activate", "--id", "builder", "--role", "AGENT", "--scope", "src")
-	run("invocation", "policy", "set", "--agent", "builder", "--mode", "AUTOMATIC")
-	run("invocation", "request", "--id", "inv-headless", "--to", "builder", "--instruction", "say hi")
+	run("agent", "activate", "--id", "builder", "--role", "AGENT", "--scope", "src", "--actor", "owner")
+	run("invocation", "policy", "set", "--agent", "builder", "--mode", "AUTOMATIC", "--actor", "owner")
+	run("invocation", "request", "--id", "inv-headless", "--to", "builder", "--instruction", "say hi", "--actor", "owner")
 	if bytes.Contains(out.Bytes(), []byte(`"warnings"`)) {
 		t.Fatalf("expected no warnings when the target has no registered interactive session: %s", out.String())
 	}
@@ -1285,12 +1340,12 @@ func TestInvocationRedeliverRejectsNonPendingInvocation(t *testing.T) {
 	}
 	run("init", "--non-interactive", "--owner", "owner", "--mode", "personal")
 	run("agent", "register", "--id", "builder")
-	run("agent", "activate", "--id", "builder", "--role", "AGENT", "--scope", "src")
+	run("agent", "activate", "--id", "builder", "--role", "AGENT", "--scope", "src", "--actor", "owner")
 	run("runtime", "register", "--actor", "builder", "--id", "runtime-builder",
 		"--agent", "builder", "--connector", "MCP", "--max-concurrent", "1")
 	run("runtime", "heartbeat", "--actor", "builder", "--id", "runtime-builder")
-	run("invocation", "policy", "set", "--agent", "builder", "--mode", "AUTOMATIC")
-	run("invocation", "request", "--id", "inv-done", "--to", "builder", "--instruction", "say hi")
+	run("invocation", "policy", "set", "--agent", "builder", "--mode", "AUTOMATIC", "--actor", "owner")
+	run("invocation", "request", "--id", "inv-done", "--to", "builder", "--instruction", "say hi", "--actor", "owner")
 	run("invocation", "claim", "--actor", "builder", "--id", "inv-done", "--runtime", "runtime-builder")
 	run("invocation", "start", "--actor", "builder", "--id", "inv-done", "--summary", "started")
 	run("invocation", "complete", "--actor", "builder", "--id", "inv-done", "--summary", "done")
@@ -1298,7 +1353,7 @@ func TestInvocationRedeliverRejectsNonPendingInvocation(t *testing.T) {
 	out.Reset()
 	stderr.Reset()
 	err := Run([]string{"invocation", "redeliver", "--id", "inv-done", "--runtime", "runtime-builder",
-		"--project", project, "--json"}, &out, &stderr)
+		"--actor", "owner", "--project", project, "--json"}, &out, &stderr)
 	if err == nil {
 		t.Fatal("expected redeliver of a COMPLETED invocation to fail")
 	}
@@ -1333,17 +1388,17 @@ func TestInvocationRedeliverReachesSessionMissedByRequest(t *testing.T) {
 
 	run("init", "--non-interactive", "--owner", "owner", "--mode", "personal")
 	run("agent", "register", "--id", "opencode-runner")
-	run("agent", "activate", "--id", "opencode-runner", "--role", "AGENT", "--scope", "src")
+	run("agent", "activate", "--id", "opencode-runner", "--role", "AGENT", "--scope", "src", "--actor", "owner")
 	run("runtime", "register", "--actor", "opencode-runner", "--id", "opencode-runtime",
 		"--agent", "opencode-runner", "--kind", "INTERACTIVE",
 		"--connector", "INTERACTIVE", "--max-concurrent", "1")
-	run("invocation", "policy", "set", "--agent", "opencode-runner", "--mode", "AUTOMATIC")
+	run("invocation", "policy", "set", "--agent", "opencode-runner", "--mode", "AUTOMATIC", "--actor", "owner")
 
 	// No live session exists yet, so this request's own nudge is silently a
 	// no-op — the whole point of the test is to confirm redeliver can still
 	// reach the runtime later.
 	run("invocation", "request", "--id", "inv-missed", "--to", "opencode-runner",
-		"--instruction", "say hi", "--consumer", "INTERACTIVE_ONLY", "--runtime", "opencode-runtime")
+		"--instruction", "say hi", "--consumer", "INTERACTIVE_ONLY", "--runtime", "opencode-runtime", "--actor", "owner")
 	if !bytes.Contains(out.Bytes(), []byte(`"outcome":"UNAVAILABLE"`)) {
 		t.Fatalf("expected an unavailable delivery result while the session is offline: %s", out.String())
 	}
@@ -1378,7 +1433,7 @@ func TestInvocationRedeliverReachesSessionMissedByRequest(t *testing.T) {
 	run("runtime", "heartbeat", "--actor", "opencode-runner", "--id", "opencode-runtime",
 		"--endpoint-id", "test-redelivery-endpoint")
 
-	run("invocation", "redeliver", "--id", "inv-missed", "--runtime", "opencode-runtime")
+	run("invocation", "redeliver", "--id", "inv-missed", "--runtime", "opencode-runtime", "--actor", "owner")
 	if bytes.Contains(out.Bytes(), []byte(`"warnings"`)) {
 		t.Fatalf("expected no delivery warnings against a now-live session: %s", out.String())
 	}

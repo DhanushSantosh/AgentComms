@@ -289,6 +289,13 @@ func (c *cli) root() *cobra.Command {
 			return e
 		}
 		c.actor = c.actorResolution.Actor
+		// Refuse to sign anything under an actor this ambiguously resolved
+		// -- see RFC 0017. Only ActorSourceActiveProfile (the legacy,
+		// machine-wide fallback used when no recognized provider session
+		// is present at all) is ever ambiguous; every other resolution
+		// source is either explicit or already provably unambiguous.
+		c.svc.AmbiguousActor = c.actorResolution.Source == identity.ActorSourceActiveProfile &&
+			userConfig.ProfileCountForProject(cfg.ProjectID) > 1
 		return nil
 	}}
 	f := r.PersistentFlags()

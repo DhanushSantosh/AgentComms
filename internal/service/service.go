@@ -36,6 +36,20 @@ type Service struct {
 	// transitions then fail with a clear error rather than silently
 	// falling back to the actor's unprotected primary key.
 	PassphrasePrompt func(actor string) (string, error)
+	// AmbiguousActor is set once, by whichever caller resolved the actor
+	// this Service will sign as (internal/app's PersistentPreRunE, shared
+	// by the CLI, TUI, and MCP), when that resolution came from the
+	// legacy, machine-wide identity.UserConfig.ActiveProfile fallback (no
+	// recognized provider session ID at all) *and* the project has two or
+	// more locally-registered identities to silently choose between.
+	// ExecuteWithPassphrase refuses outright rather than sign under a
+	// value this ambiguous -- confirmed live as a real defect, not
+	// theoretical: exactly this condition let one agent's governed writes
+	// get silently signed under a different, unrelated agent's identity.
+	// See RFC 0017. Default false (every caller that never sets it, e.g.
+	// internal/worker's standalone worker-loop Service instances, is
+	// completely unaffected).
+	AmbiguousActor bool
 }
 
 func New(root string) *Service {
@@ -420,6 +434,16 @@ func (s *Service) Execute(actor, typ, id string, payload any) (model.Event, erro
 // back to the existing PassphrasePrompt behavior unchanged, so every
 // existing caller (CLI, MCP) is unaffected.
 func (s *Service) ExecuteWithPassphrase(actor, typ, id string, payload any, passphrase string) (model.Event, error) {
+	if s.AmbiguousActor {
+		return model.Event{}, fmt.Errorf(
+			"refusing to sign %s as %q: this actor was resolved from the shared, machine-wide"+
+				" active-profile default, and this project has more than one locally-registered"+
+				" identity to choose between -- pass --actor explicitly, or set AGENT_COMMS_ACTOR"+
+				" (both required for any invocation with no recognized provider session, e.g. an"+
+				" opencode-based agent or a background script); run `agent-comms profile current`"+
+				" to see exactly how this was resolved", typ, actor,
+		)
+	}
 	if s.remoteErr != nil {
 		return model.Event{}, s.remoteErr
 	}

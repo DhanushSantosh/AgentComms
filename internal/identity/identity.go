@@ -458,6 +458,22 @@ func (c *UserConfig) SetActiveProfileFor(sessionID, profile string) {
 	c.ActiveProfileBySession[sessionID] = SessionProfile{Profile: profile, SetAt: now}
 }
 
+// ProfileCountForProject counts locally-saved profiles scoped to projectID
+// -- Profiles spans every project ever touched on this machine, so this
+// filters rather than just returning len(Profiles). Used to decide whether
+// the legacy ActiveProfile fallback is genuinely ambiguous for a given
+// project (2+ locally-registered identities to silently choose between) or
+// safe (0-1, nothing else it could reasonably mean) -- see RFC 0017.
+func (c UserConfig) ProfileCountForProject(projectID string) int {
+	count := 0
+	for _, p := range c.Profiles {
+		if p.ProjectID == projectID {
+			count++
+		}
+	}
+	return count
+}
+
 // DetectProviderSessionID checks the current process environment for the
 // two provider session variables their respective CLIs guarantee to
 // inject into every subprocess they spawn -- CLAUDE_CODE_SESSION_ID and

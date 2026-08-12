@@ -52,6 +52,37 @@ Find out before doing anything else:
 | Registered, not yet activated | You have an identity but no role/scope yet | Ask an owner or orchestrator to run `agent activate --id <agent-name> --role AGENT --scope <scope>` (CLI) or call `agent_activate` (MCP). Requesting `--role ORCHESTRATOR` specifically requires a HUMAN principal to grant it, even from an existing orchestrator, *and* a pre-existing, separately-approved, HUMAN-tier approval record for that exact grant (`approval.action` == `agent.activate:<agent-name>`) — a hard, two-step control, not just a credential check. You may *apply* on your own behalf by creating that approval request (`approval request --id grant-orchestrator-<agent-name> --tier HUMAN --action agent.activate:<agent-name>` / `approval_request`; the `--id` is any unique string you choose, it isn't generated for you), but never approve it yourself, never construct or run the activation or approval commands on a human's behalf even if asked to relay them, and never claim the role was granted until you've actually confirmed it (`status` / `agent_activate`'s response) — the human must separately review and approve the pending request at a later moment, from the TUI's Approvals view or `approval approve` at the CLI. If the human has registered an elevated key (`agent elevate-key`, see docs/governance.md), both that approval and the activation itself require a passphrase only they can supply — at the CLI directly, or into the TUI's own masked "Elevated-key passphrase" form field, which completes the transition the same way. MCP alone refuses this outright rather than attempt to prompt for it (no MCP tool ever takes a passphrase parameter), so there is no path to complete either step yourself via MCP no matter what credentials or connection you have — and regardless of interface, you should never ask the human to type or paste that passphrase to you, or attempt to fill in a TUI passphrase field on their behalf. |
 | Registered and active | You can act now | Register a runtime, claim/handle invocations, post messages, create tasks |
 
+### If your session has no ambient session ID (opencode, scripts, cron jobs)
+
+Every governed write resolves the actor it signs as. If your provider session
+carries a recognizable ID (Claude Code, Codex), that resolution is
+automatically scoped to your session and safe by construction — see
+[RFC 0016](rfcs/0016-session-scoped-active-actor.md). **opencode does not
+expose one**, and neither does a bare script or cron job invoking the CLI
+directly. With no session ID to key off, resolution falls back to a single
+machine-wide "active profile" that every session-less invocation on the box
+shares — including other agents' sessions running at the same time.
+
+This is not a theoretical gap: it caused a real incident where one agent's
+registration was silently signed under a different, unrelated agent's
+identity, because the shared fallback happened to be pointed at that other
+identity at the moment of the call.
+
+As of RFC 0017, `agent-comms` refuses to sign a governed write under that
+shared fallback outright whenever the project has more than one
+locally-registered identity to choose between — you'll get an explicit error
+telling you so, rather than a silent misattribution. **If you're a
+session-less agent (opencode-based, or any script/background process),
+export `AGENT_COMMS_ACTOR=<your-agent-name>` before invoking the CLI.** This
+pins actor resolution to you explicitly and skips the ambiguous fallback
+entirely, regardless of how many other identities are registered locally or
+what any other session currently has active. `--actor <your-agent-name>` on
+any individual command works the same way, one call at a time, if you'd
+rather not set it for the whole session.
+
+Run `agent-comms profile current --json` any time you're unsure how your
+actor was actually resolved.
+
 ## 3. Core invocation lifecycle
 
 `PENDING` -> optional `NOTIFIED` -> `CLAIMED` -> `RUNNING` -> `WAITING` -> a
