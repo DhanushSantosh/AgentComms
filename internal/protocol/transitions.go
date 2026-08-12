@@ -324,7 +324,27 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 		selfKeyRotation := typ == "agent.rotate-key" && id == actor
 		selfRevoke := typ == "agent.revoke" && id == actor
 		if elevated(typ) && !selfKeyRotation && !selfRevoke && a.Role != model.RoleOwner && a.Role != model.RoleOrchestrator {
-			return nil, errors.New("owner or orchestrator role required")
+			// Confirmed live as a real, genuinely confusing dead end without
+			// this: this check is correct whenever it fires, but a bare
+			// "owner or orchestrator role required" gives no way to tell
+			// *why* -- the rejection looks identical whether the actor
+			// genuinely lacks standing or (just as commonly, in practice) the
+			// caller simply resolved to the wrong actor in the first place
+			// (a stale `profile use`, a leftover AGENT_COMMS_ACTOR/
+			// AGENT_COMMS_HOST_LABEL env var, or picking the wrong identity
+			// from the TUI's actor switcher). Naming the resolved actor and
+			// its actual current role turns that into a one-line diagnosis
+			// instead of a silent puzzle -- this validator is the one shared
+			// by CLI, MCP, TUI, and both authority backends, so the fix
+			// reaches all of them from a single place.
+			role := strings.ToLower(string(a.Role))
+			if role == "" {
+				role = "none"
+			}
+			return nil, fmt.Errorf(
+				"owner or orchestrator role required (acting as %s, whose current role is %s -- run `agent-comms profile current` at the CLI, or check the TUI's status rail, if this isn't who you meant to be)",
+				actor, role,
+			)
 		}
 		if typ == "approval.approve" {
 			ap := st.Approvals[id]

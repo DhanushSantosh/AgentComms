@@ -619,7 +619,7 @@ func (m Model) dispatchEventWithPassphrase(typ, id string, payload any, passphra
 	}
 	m.err = nil
 	m.notice = typ + " applied to " + id
-	m.refresh()
+	m.refreshState()
 	return m, nil
 }
 // hasApprovedOrchestratorGrant mirrors internal/protocol/transitions.go's
@@ -665,7 +665,7 @@ func (m Model) dispatchOrchestratorApprovalChain(c confirmState) (tea.Model, tea
 	}
 	m.err = nil
 	m.notice = "Requested, approved, and granted Orchestrator to " + c.id
-	m.refresh()
+	m.refreshState()
 	return m, nil
 }
 // triggerRowAction runs act against id exactly as pressing its own key

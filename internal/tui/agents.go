@@ -33,7 +33,7 @@ var agentRegisterForm = &ActionForm{
 		}
 		m.err, m.form, m.inputs, m.formSpec = nil, "", nil, nil
 		m.notice = "Registered " + id + " (pending activation)"
-		m.refresh()
+		m.refreshState()
 		return m, nil
 	},
 }
@@ -75,7 +75,7 @@ var activateForm = &ActionForm{
 		}
 		m.form, m.inputs, m.err, m.formSpec = "", nil, nil, nil
 		m.notice = "Applied agent.activate to " + id
-		m.refresh()
+		m.refreshState()
 		return m, nil
 	},
 }
@@ -129,7 +129,7 @@ var (
 			}
 			m.err = nil
 			m.notice = "Rotated signing key for " + m.actor
-			m.refresh()
+			m.refreshState()
 			return m, nil
 		},
 	}
@@ -161,10 +161,16 @@ var (
 	// the actor's passphrase-protected elevated key
 	// (protocol.RequiresElevatedKey, since the target is REVOKED) --
 	// offered here the same way HUMAN-tier approval.approve already is
-	// (approvals.go's approvalActionsFor): the TUI can't satisfy the
-	// passphrase prompt itself (nonInteractivePassphrasePrompt refuses
-	// cleanly), so this fails with a clear "run the CLI" message rather
-	// than being hidden.
+	// (approvals.go's approvalActionsFor). The masked "Elevated-key
+	// passphrase" field below (CollectsPassphrase) feeds straight into
+	// Service.ExecuteWithPassphrase, which decrypts the elevated key with
+	// it directly -- this action genuinely completes in the TUI, it is not
+	// CLI-only. Only leaving that field blank falls through to
+	// nonInteractivePassphrasePrompt's clean CLI-only refusal, the same
+	// fallback registering a *new* elevated key always requires
+	// (agent elevate-key has no TUI/MCP form at all -- that step, not this
+	// one, is the genuinely CLI-only part of this project's elevated-key
+	// story).
 	actDelete = RowAction{
 		Key: "d", Label: "delete", EventType: "agent.delete",
 		Form: &ActionForm{
@@ -307,12 +313,38 @@ func (m Model) openActorSwitchForm() (tea.Model, tea.Cmd) {
 		}
 	}
 	sort.Strings(options)
-	return m.openActionForm(actorSwitchForm(m.actor, options), "actor.switch", "")
+	return m.openActionForm(actorSwitchForm(m.actor, options, m.state.Agents), "actor.switch", "")
 }
-func actorSwitchForm(current string, options []string) *ActionForm {
+
+// actorRoleLabel is the picker's own defense against the confirmed-live
+// trap of picking the wrong locally-saved credential blind: every candidate
+// this project's own state actually knows about is shown with its role
+// (and non-ACTIVE status, if any) right next to its ID, so "which of these
+// is actually my owner/orchestrator identity" doesn't require leaving this
+// form to check `agent list` first. A candidate with a locally-saved
+// credential but no entry in current project state at all (registered
+// elsewhere, or since revoked/deleted) is labeled accordingly rather than
+// silently omitted.
+func actorRoleLabel(id string, agents map[string]model.Agent) string {
+	a, ok := agents[id]
+	if !ok {
+		return id + " (unregistered here)"
+	}
+	label := id + " (" + strings.ToLower(string(a.Role)) + ")"
+	if a.Status != "" && a.Status != "ACTIVE" {
+		label += " [" + strings.ToLower(a.Status) + "]"
+	}
+	return label
+}
+
+func actorSwitchForm(current string, options []string, agents map[string]model.Agent) *ActionForm {
 	hint := "No other local identities registered on this machine."
 	if len(options) > 0 {
-		hint = "Available locally: " + strings.Join(options, ", ")
+		labeled := make([]string, len(options))
+		for i, o := range options {
+			labeled[i] = actorRoleLabel(o, agents)
+		}
+		hint = "Available locally: " + strings.Join(labeled, ", ")
 	}
 	return &ActionForm{
 		Title:  "Switch actor",
@@ -334,7 +366,7 @@ func actorSwitchForm(current string, options []string) *ActionForm {
 			m.actor = candidate
 			m.form, m.inputs, m.formSpec, m.err = "", nil, nil, nil
 			m.notice = "Switched to " + candidate
-			m.refresh()
+			m.refreshState()
 			return m, nil
 		},
 	}

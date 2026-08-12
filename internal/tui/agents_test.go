@@ -845,6 +845,34 @@ func TestDeleteRequiresRevokedStatusAndReason(t *testing.T) {
 	}
 }
 
+// TestActorSwitchFormShowsRoleNextToEachCandidate is the regression test
+// for a real, confirmed trap: the actor-switch picker used to list bare
+// local credential IDs with no role or status shown, making it trivial to
+// pick a non-owner/non-orchestrator identity by mistake and have no way to
+// tell before submitting -- exactly the failure mode that produced a live
+// "owner or orchestrator role required" rejection after a user switched
+// actors expecting the switch to give them elevated standing.
+func TestActorSwitchFormShowsRoleNextToEachCandidate(t *testing.T) {
+	s := newTestService(t)
+	registerAgent(t, s, "builder", model.RoleAgent, "src")
+
+	m, e := New(s, "owner")
+	if e != nil {
+		t.Fatal(e)
+	}
+	m = pressKey(t, m, keyText("a"))
+	if m.formSpec == nil {
+		t.Fatal("expected the actor-switch form to be open")
+	}
+	hint := m.formSpec.Hint
+	if !strings.Contains(hint, "owner (owner)") {
+		t.Fatalf("hint = %q, want it to label the owner candidate with its role", hint)
+	}
+	if !strings.Contains(hint, "builder (agent)") {
+		t.Fatalf("hint = %q, want it to label the builder candidate with its role", hint)
+	}
+}
+
 func TestActorSwitchChangesActorAndRejectsUnknown(t *testing.T) {
 	s := newTestService(t)
 	registerAgent(t, s, "builder", model.RoleAgent, "src")
@@ -872,6 +900,70 @@ func TestActorSwitchChangesActorAndRejectsUnknown(t *testing.T) {
 	m = pressKey(t, m, keyEnter())
 	if m.actor != "builder" {
 		t.Fatalf("actor = %q, want builder", m.actor)
+	}
+}
+
+// TestCommandRailShowsActiveActorID is the regression test for a real gap:
+// the status rail used to show only "authority <role>" ("authority owner"),
+// with no actor ID anywhere -- so there was no persistent, always-visible
+// way to confirm *who* you're currently acting as, only what standing that
+// (unnamed) actor holds. Confirmed live as a real contributor to a user
+// switching to the wrong local identity and not noticing until an
+// elevation check rejected them downstream.
+func TestCommandRailShowsActiveActorID(t *testing.T) {
+	s := newTestService(t)
+	registerAgent(t, s, "builder", model.RoleAgent, "src")
+	m, e := New(s, "owner")
+	if e != nil {
+		t.Fatal(e)
+	}
+	p := colors(m.highContrast)
+	rail := m.commandRail(p, 200)
+	if !strings.Contains(rail, "owner") {
+		t.Fatalf("command rail = %q, want it to name the active actor (owner)", rail)
+	}
+
+	m = pressKey(t, m, keyText("a"))
+	m.inputs[0].SetValue("builder")
+	m.formFocus = 0
+	m = pressKey(t, m, keyEnter())
+	if m.actor != "builder" {
+		t.Fatalf("actor = %q, want builder", m.actor)
+	}
+	rail = m.commandRail(p, 200)
+	if !strings.Contains(rail, "builder") {
+		t.Fatalf("command rail after switching = %q, want it to name the new active actor (builder)", rail)
+	}
+}
+
+// TestActorSwitchNoticeSurvivesTheFollowingRefresh is the regression test
+// for a real, confirmed bug: switching actors set m.notice = "Switched to
+// X" and then immediately called refresh(), which unconditionally
+// overwrote m.notice with the generic "State refreshed at HH:MM:SS" one
+// line later -- so a user who switched to the wrong identity (or the right
+// one) never actually saw confirmation of what happened, only a
+// content-free "state refreshed" message identical to any other refresh.
+// The same clobbering pattern hit every other action that reports a
+// specific result and then refreshes (agent.activate, task/message/
+// approval actions, ...); this test only needs to prove the general fix
+// (refreshState vs. refresh) once, at this one real-world trigger.
+func TestActorSwitchNoticeSurvivesTheFollowingRefresh(t *testing.T) {
+	s := newTestService(t)
+	registerAgent(t, s, "builder", model.RoleAgent, "src")
+
+	m, e := New(s, "owner")
+	if e != nil {
+		t.Fatal(e)
+	}
+	m = pressKey(t, m, keyText("a"))
+	m.inputs[0].SetValue("builder")
+	m.formFocus = 0
+	m = pressKey(t, m, keyEnter())
+	if m.actor != "builder" {
+		t.Fatalf("actor = %q, want builder", m.actor)
+	}
+	if m.notice != "Switched to builder" {
+		t.Fatalf("notice = %q, want the actor-switch confirmation to survive the refresh that follows it", m.notice)
 	}
 }
 

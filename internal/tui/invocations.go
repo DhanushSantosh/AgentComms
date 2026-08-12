@@ -132,7 +132,7 @@ var (
 				}
 				m.form, m.inputs, m.err, m.formSpec = "", nil, nil, nil
 				m.notice = "Redelivery attempted for " + invocationID
-				m.refresh()
+				m.refreshState()
 				return m, nil
 			},
 		},
