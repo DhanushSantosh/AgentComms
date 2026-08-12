@@ -125,6 +125,23 @@ one is picked up, remove it from here and note the landing commit.
 
 ## Test / CI infrastructure
 
+- **RESOLVED 2026-08-12: `internal/protocol`'s `ValidateTransition` direct
+  coverage gap closed, and a per-package coverage floor now guards against
+  it recurring anywhere else.** Prompted by a codebase-hardness audit that
+  flagged this entry specifically. `transitions_lifecycle_test.go` adds
+  direct unit tests for task lifecycle, message routing, runtime lifecycle,
+  approval/decision/document, and invocation policy/delivery -- raising
+  `internal/protocol` from 32.2% to 73.5% coverage with zero functions left
+  at 0%. Separately, `scripts/coverage-floor.sh` (wired into `ci.yml`'s
+  `test (ubuntu-latest)` job) now fails CI if any package's coverage drops
+  below a floor ratcheted from real measured numbers, so a package quietly
+  losing its tests -- the exact shape of this original gap -- gets caught
+  going forward instead of relying on someone noticing. `internal/authority`
+  gets its own floor in the `postgres-integration` job instead, checked
+  against real Postgres-backed coverage (49.5% measured, 40% floor) rather
+  than the unit-only run where most of its paths are `t.Skip`-guarded.
+  Original entry kept below for context.
+
 - **`internal/protocol`'s `ValidateTransition` is mostly untested
   in-package.** `transitions_test.go` covers the elevated-key/orchestrator
   work directly; the other ~800 lines (task lifecycle, invocation
