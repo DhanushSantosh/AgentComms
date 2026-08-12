@@ -251,6 +251,24 @@ func TestResolveActorRejectsProfileFromAnotherProject(t *testing.T) {
 // different profiles never see each other's value, a genuine plain
 // terminal (empty sessionID) uses the legacy field exactly as before, and
 // a real-but-unset session never falls through to that legacy field.
+func TestProfileCountForProject(t *testing.T) {
+	c := UserConfig{Profiles: map[string]Profile{
+		"proj-a:owner": {Name: "proj-a:owner", ProjectID: "proj-a", Actor: "owner"},
+		"proj-a:THOR":  {Name: "proj-a:THOR", ProjectID: "proj-a", Actor: "THOR"},
+		"proj-a:ZEUS":  {Name: "proj-a:ZEUS", ProjectID: "proj-a", Actor: "ZEUS"},
+		"proj-b:owner": {Name: "proj-b:owner", ProjectID: "proj-b", Actor: "owner"},
+	}}
+	if got := c.ProfileCountForProject("proj-a"); got != 3 {
+		t.Fatalf("ProfileCountForProject(proj-a) = %d, want 3", got)
+	}
+	if got := c.ProfileCountForProject("proj-b"); got != 1 {
+		t.Fatalf("ProfileCountForProject(proj-b) = %d, want 1", got)
+	}
+	if got := c.ProfileCountForProject("proj-c"); got != 0 {
+		t.Fatalf("ProfileCountForProject(proj-c) = %d, want 0", got)
+	}
+}
+
 func TestActiveProfileForAndSetActiveProfileFor(t *testing.T) {
 	var c UserConfig
 

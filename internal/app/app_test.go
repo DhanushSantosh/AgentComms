@@ -380,6 +380,60 @@ func TestProfileListDoesNotRequireInitializedProject(t *testing.T) {
 	}
 }
 
+// TestWriteRefusesAmbiguousLegacyActorAcrossMultipleProfiles is the
+// end-to-end regression test for RFC 0017, exercised through the real CLI
+// entry point (Run), not just Service directly -- confirms the guard is
+// actually wired into internal/app's PersistentPreRunE, not merely present
+// in the Service type. Reproduces the shape of a real, confirmed-live
+// incident: a project with more than one locally-registered identity,
+// where a bare invocation with no recognized provider session and no
+// explicit actor used to silently sign under whichever identity happened
+// to be sitting in the shared legacy slot.
+func TestWriteRefusesAmbiguousLegacyActorAcrossMultipleProfiles(t *testing.T) {
+	d := t.TempDir()
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(d, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(d, "credentials"))
+	// Deliberately no recognized provider session -- the exact condition
+	// that makes the legacy fallback reachable at all.
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "")
+	t.Setenv("CODEX_THREAD_ID", "")
+
+	var out, errBuf bytes.Buffer
+	if err := Run([]string{"init", "--project", d, "--non-interactive", "--owner", "owner", "--json"}, &out, &errBuf); err != nil {
+		t.Fatalf("init failed: %v\n%s", err, errBuf.String())
+	}
+
+	// Registering a second local identity for this same project is what
+	// makes the legacy fallback genuinely ambiguous -- one profile alone
+	// (just "owner") would still be safe.
+	out.Reset()
+	errBuf.Reset()
+	if err := Run([]string{"agent", "register", "--id", "helper", "--principal-type", "AGENT", "--project", d, "--actor", "helper", "--json"}, &out, &errBuf); err != nil {
+		t.Fatalf("registering a second local identity failed: %v\n%s", err, errBuf.String())
+	}
+
+	// A bare write, no --actor, no session: must now be refused instead of
+	// silently signing under whichever identity the shared legacy field
+	// happens to hold.
+	out.Reset()
+	errBuf.Reset()
+	err := Run([]string{"task", "create", "--id", "task-1", "--title", "t", "--repository", "r", "--branch", "b", "--resource", "src/x", "--project", d, "--json"}, &out, &errBuf)
+	if err == nil {
+		t.Fatalf("expected the ambiguous bare write to be refused, got success: %s", out.String())
+	}
+	if !bytes.Contains(errBuf.Bytes(), []byte("more than one locally-registered identity")) {
+		t.Fatalf("refusal did not explain itself as ambiguous-actor related; stdout=%s stderr=%s", out.String(), errBuf.String())
+	}
+
+	// The same write, made explicit, must succeed -- the guard blocks
+	// ambiguity, not the write itself.
+	out.Reset()
+	errBuf.Reset()
+	if err := Run([]string{"task", "create", "--id", "task-1", "--title", "t", "--repository", "r", "--branch", "b", "--resource", "src/x", "--project", d, "--actor", "owner", "--json"}, &out, &errBuf); err != nil {
+		t.Fatalf("expected the same write to succeed once the actor is explicit: %v\n%s", err, errBuf.String())
+	}
+}
+
 func TestInitInNonGitDir(t *testing.T) {
 	d := t.TempDir()
 	var out, err bytes.Buffer

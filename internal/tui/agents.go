@@ -364,6 +364,11 @@ func actorSwitchForm(current string, options []string, agents map[string]model.A
 				return m, nil
 			}
 			m.actor = candidate
+			// A deliberate, human-picked switch through this form (which
+			// already shows each candidate's real role, not a blind list)
+			// is never ambiguous, regardless of how the TUI's actor was
+			// resolved at startup -- see RFC 0017.
+			m.svc.AmbiguousActor = false
 			m.form, m.inputs, m.formSpec, m.err = "", nil, nil, nil
 			m.notice = "Switched to " + candidate
 			m.refreshState()

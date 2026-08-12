@@ -137,6 +137,39 @@ one is picked up, remove it from here and note the landing commit.
   the originally reported scenario directly and confirming it no longer
   occurs.
 
+- **RESOLVED 2026-08-13: RFC 0016's legacy fallback was still silently
+  exploitable for any session-less invocation path.** Reported live, on a
+  real project: one agent's `runtime register` call got cryptographically
+  signed as a completely different, unrelated agent. Root cause was RFC
+  0016's own accepted fallback boundary, hit for real: the calling agent's
+  session (an opencode-based agent) exposes none of the provider session IDs
+  `identity.DetectProviderSessionID`/`sessionbind.Capture` know how to read
+  (`CLAUDE_CODE_SESSION_ID`/`CODEX_THREAD_ID` are opencode-specific gaps, not
+  a detection bug), so resolution fell all the way through to the same
+  shared, machine-wide `ActiveProfile` field RFC 0016 already knew was
+  unsafe to trust blindly — which another concurrent agent's session had
+  pointed at itself moments earlier for its own ordinary convenience. No
+  automatic fix is possible here: opencode's process model gives no ambient
+  signal a library can detect without spawning a subprocess on every
+  invocation, for every user, to check. Fixed per
+  [RFC 0017](rfcs/0017-refuse-ambiguous-legacy-actor-for-writes.md): rather
+  than trying to detect the session, `Service.ExecuteWithPassphrase` now
+  refuses outright to sign any governed write resolved via the legacy
+  fallback whenever the project has 2+ locally-registered identities to
+  silently choose between (`identity.UserConfig.ProfileCountForProject`),
+  forcing an explicit `--actor`/`AGENT_COMMS_ACTOR` instead of ever guessing.
+  Projects with 0-1 local identities are unaffected — there's nothing
+  ambiguous to guess between. A deliberate, human-picked switch through the
+  TUI's actor-switch form (which shows each candidate's real role, not a
+  blind list) explicitly clears the flag — that resolution was never
+  ambiguous regardless of how the TUI's own actor was set at startup.
+  Documented for session-less agents (opencode, scripts, cron jobs) in
+  [agent-onboarding.md](agent-onboarding.md#if-your-session-has-no-ambient-session-id-opencode-scripts-cron-jobs).
+  Verified end-to-end, not just in isolation: a project with two
+  locally-registered identities and no session ID present refuses a bare
+  write and points at the fix; the identical call succeeds immediately with
+  `--actor` supplied explicitly.
+
 - **Approval self-approval is not prevented.** A human (or any elevated
   actor) can both request and approve the same approval record today —
   nothing requires the approver to differ from the requester, for any

@@ -777,3 +777,47 @@ func TestExecuteDoesNotPromptForRoutineActions(t *testing.T) {
 	})
 	activate(t, s, "bystander", model.PrincipalAgent)
 }
+
+// TestExecuteRefusesWhenActorIsAmbiguous is the direct regression test for
+// RFC 0017: a real, confirmed-live incident where one agent's routine
+// writes (runtime.register/runtime.revoke, neither elevated-key-gated)
+// were silently signed under a *different*, unrelated agent's identity,
+// purely because the actor resolved through the shared, machine-wide
+// legacy ActiveProfile fallback rather than anything explicit. AmbiguousActor
+// is the caller-set gate (internal/app's PersistentPreRunE, shared by CLI/
+// TUI/MCP) that now refuses this outright instead of silently signing.
+func TestExecuteRefusesWhenActorIsAmbiguous(t *testing.T) {
+	s := setup(t)
+	activate(t, s, "bystander", model.PrincipalAgent)
+
+	s.AmbiguousActor = true
+	_, err := s.Execute("bystander", "runtime.register", "some-runtime", model.RuntimeRegistered{
+		AgentID: "bystander", Kind: model.RuntimeKindWorker, Connector: "MCP", MaxConcurrent: 1,
+	})
+	if err == nil {
+		t.Fatal("expected Execute to refuse an ambiguously-resolved actor")
+	}
+	if !strings.Contains(err.Error(), "ambiguous") && !strings.Contains(err.Error(), "refusing") {
+		t.Fatalf("error %q does not explain the refusal", err.Error())
+	}
+
+	// The gate is a pure client-side refusal to attempt the signature at
+	// all -- confirm the transition genuinely never landed, not just that
+	// an error came back.
+	state, stateErr := s.State()
+	if stateErr != nil {
+		t.Fatal(stateErr)
+	}
+	if _, exists := state.AgentRuntimes["some-runtime"]; exists {
+		t.Fatal("the refused runtime.register must not have been recorded")
+	}
+
+	// The gate must default to false and never leak into unrelated Service
+	// instances/calls -- clearing it restores completely normal behavior.
+	s.AmbiguousActor = false
+	if _, err := s.Execute("bystander", "runtime.register", "some-runtime", model.RuntimeRegistered{
+		AgentID: "bystander", Kind: model.RuntimeKindWorker, Connector: "MCP", MaxConcurrent: 1,
+	}); err != nil {
+		t.Fatalf("expected Execute to succeed once AmbiguousActor is cleared: %v", err)
+	}
+}
