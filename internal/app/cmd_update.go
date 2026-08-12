@@ -11,7 +11,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -19,6 +18,7 @@ import (
 
 	"github.com/DhanushSantosh/AgentComms/internal/durablefs"
 	"github.com/DhanushSantosh/AgentComms/internal/projectlifecycle"
+	"github.com/DhanushSantosh/AgentComms/internal/releaseverify"
 	"github.com/DhanushSantosh/AgentComms/internal/store"
 	"github.com/spf13/cobra"
 )
@@ -40,9 +40,6 @@ func (c *cli) updateCmd() *cobra.Command {
 	var yes, currentProjectOnly, skipProjectUpgrade bool
 	allKnown := true
 	apply := &cobra.Command{Use: "apply", RunE: func(cmd *cobra.Command, args []string) error {
-		if _, err := exec.LookPath("cosign"); err != nil {
-			return errors.New("verified self-update requires cosign on PATH; use the signed installer until bundled verification is available")
-		}
 		ctx, cancel := context.WithTimeout(cmd.Context(), 2*time.Minute)
 		defer cancel()
 		release, err := fetchRelease(ctx, channel, version)
@@ -255,9 +252,14 @@ func installRelease(ctx context.Context, r githubRelease) (map[string]any, error
 	if expected == "" || actual != expected {
 		return nil, errors.New("release SHA-256 verification failed")
 	}
-	verify := exec.CommandContext(ctx, "cosign", "verify-blob", "--bundle", filepath.Join(dir, name+".bundle"), "--certificate-identity-regexp", `^https://github.com/DhanushSantosh/AgentComms/.github/workflows/release.yml@refs/tags/`, "--certificate-oidc-issuer", "https://token.actions.githubusercontent.com", filepath.Join(dir, name))
-	if out, x := verify.CombinedOutput(); x != nil {
-		return nil, fmt.Errorf("cosign verification failed: %s", strings.TrimSpace(string(out)))
+	// Pure Go, no external cosign process required -- see
+	// docs/rfcs/0015-cosign-free-release-verification.md.
+	if e := releaseverify.VerifyBlob(
+		filepath.Join(dir, name), filepath.Join(dir, name+".bundle"),
+		"https://token.actions.githubusercontent.com",
+		`^https://github.com/DhanushSantosh/AgentComms/.github/workflows/release.yml@refs/tags/`,
+	); e != nil {
+		return nil, fmt.Errorf("release verification failed: %w", e)
 	}
 	exe, e := os.Executable()
 	if e != nil {

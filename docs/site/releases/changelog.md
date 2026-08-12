@@ -94,10 +94,10 @@ Separate from every release above: an unstable snapshot builds from `dev`'s late
 oras pull ghcr.io/dhanushsantosh/agentcomms-nightly:latest
 ```
 
-No login required. The binaries are still Cosign-signed and attested exactly like a real release, just under a different workflow identity:
+No login required. The binaries are still Cosign-signed and attested exactly like a real release, just under a different workflow identity. `oras pull` fetches the whole bundle, including `agent-comms-verify` (see [Verify a release](/security/releases/)) -- no separately installed `cosign` needed:
 
 ```sh
-cosign verify-blob \
+./agent-comms-verify \
   --bundle agent-comms-linux-amd64.bundle \
   --certificate-identity-regexp '^https://github.com/DhanushSantosh/AgentComms/.github/workflows/nightly.yml@refs/heads/dev' \
   --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \

@@ -65,7 +65,7 @@ jobs:
           mkdir dist
           for target in windows/amd64 windows/arm64 linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
             GOOS=${target%/*}; GOARCH=${target#*/}; ext=""; [ "$GOOS" = windows ] && ext=.exe
-            for command in agent-comms agent-comms-daemon agent-comms-server; do
+            for command in agent-comms agent-comms-daemon agent-comms-server agent-comms-verify; do
               name="${command}-${GOOS}-${GOARCH}${ext}"
               CGO_ENABLED=0 GOOS=$GOOS GOARCH=$GOARCH go build -trimpath -ldflags="-s -w -X github.com/DhanushSantosh/AgentComms/internal/app.Version=0.0.0-nightly -X github.com/DhanushSantosh/AgentComms/internal/buildinfo.Version=0.0.0-nightly -X github.com/DhanushSantosh/AgentComms/internal/buildinfo.BuildID=${GITHUB_SHA}" -o "dist/$name" "./cmd/$command"
             done

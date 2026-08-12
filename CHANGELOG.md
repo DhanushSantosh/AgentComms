@@ -15,6 +15,17 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
   process lifecycle — see RFC 0014 for the full design and the live
   testing behind each of those choices. Closes #17.
 
+- `install.sh`/`install.ps1` and `agent-comms update` no longer require a
+  separately installed `cosign` CLI to verify a release at all — a new
+  companion binary, `agent-comms-verify`, built from a new
+  `internal/releaseverify` package
+  (`github.com/sigstore/sigstore-go`, the official pure-Go Sigstore SDK),
+  performs the identical `cosign verify-blob --bundle` check with no
+  external process. Real `cosign` remains a fully supported, independent
+  way to run the same check manually. See RFC 0015 for the full design;
+  supersedes the prior cosign-detection fix below, which is kept for
+  history.
+
 ### Fixed
 - `install.ps1`'s cosign prerequisite check no longer rejects a real,
   correctly installed cosign: it now also recognizes
