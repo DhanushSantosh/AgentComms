@@ -391,6 +391,7 @@ func TestProfileListDoesNotRequireInitializedProject(t *testing.T) {
 // to be sitting in the shared legacy slot.
 func TestWriteRefusesAmbiguousLegacyActorAcrossMultipleProfiles(t *testing.T) {
 	d := t.TempDir()
+	cleanupProjectDaemon(t, d)
 	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(d, "user"))
 	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(d, "credentials"))
 	// Deliberately no recognized provider session -- the exact condition
