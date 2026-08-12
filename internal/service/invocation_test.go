@@ -261,15 +261,40 @@ func TestFailedRedeliveryPreservesEarlierSuccessfulEvidence(t *testing.T) {
 		Target: "builder", Instruction: "Wake the builder",
 	})
 	registerOnlineDeliverableWorker(t, instance, "builder", "runtime-delivery")
+	// setupWithLocalConnector runs a real daemon whose delivery coordinator
+	// retries dispatch for PENDING invocations every 500ms (see
+	// TestInvocationLifecycle's identical comment) -- once "runtime-delivery"
+	// goes online, that background goroutine can win the race and commit its
+	// own automatic delivery-attempt before this explicit call runs. Tolerate
+	// that outcome and read back whichever delivery ID actually won, rather
+	// than assuming this call always wins. (The second delivery-attempt below
+	// is not at risk of the same race: the automatic dispatcher only
+	// considers PENDING invocations -- internal/daemon/connectors.go's
+	// Dispatch -- and by the time it runs the invocation has already moved to
+	// NOTIFIED.)
+	successID := "delivery-success"
 	_, err := instance.Execute("owner", "invocation.delivery-attempt", "inv-preserve",
 		model.InvocationDeliveryAttempted{
-			DeliveryID: "delivery-success", RuntimeID: "runtime-delivery",
+			DeliveryID: successID, RuntimeID: "runtime-delivery",
 			Transport: "LOCAL_PROCESS",
 		})
 	if err != nil {
-		t.Fatal(err)
+		state, stateErr := instance.State()
+		if stateErr != nil {
+			t.Fatal(stateErr)
+		}
+		found := false
+		for id, delivery := range state.InvocationDeliveries {
+			if delivery.InvocationID == "inv-preserve" && delivery.RuntimeID == "runtime-delivery" {
+				successID, found = id, true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("explicit delivery-attempt failed (%v) and no delivery attempt exists to fall back to", err)
+		}
 	}
-	waitForDeliveryStatus(t, instance, "delivery-success", "SUCCEEDED")
+	waitForDeliveryStatus(t, instance, successID, "SUCCEEDED")
 	if err = os.WriteFile(os.Getenv("AGENT_COMMS_TEST_CONNECTOR_OUTCOME"),
 		[]byte("failure"), 0o600); err != nil {
 		t.Fatal(err)
@@ -284,10 +309,10 @@ func TestFailedRedeliveryPreservesEarlierSuccessfulEvidence(t *testing.T) {
 		t.Fatalf("failed redelivery erased successful notification state: %+v",
 			state.Invocations["inv-preserve"])
 	}
-	if state.InvocationDeliveries["delivery-success"].Status != "SUCCEEDED" ||
-		len(state.InvocationDeliveries["delivery-success"].Evidence) != 1 {
+	if state.InvocationDeliveries[successID].Status != "SUCCEEDED" ||
+		len(state.InvocationDeliveries[successID].Evidence) != 1 {
 		t.Fatalf("successful evidence was not preserved: %+v",
-			state.InvocationDeliveries["delivery-success"])
+			state.InvocationDeliveries[successID])
 	}
 	if state.InvocationDeliveries["delivery-failed"].Status != "EXHAUSTED" {
 		t.Fatalf("failed redelivery was not independently closed: %+v",
