@@ -573,8 +573,18 @@ func (s *Service) Register(actor, display string, pt model.PrincipalType) (model
 	}
 	name := cfg.ProjectID + ":" + actor
 	user.Profiles[name] = identity.Profile{Name: name, ProjectID: cfg.ProjectID, Actor: actor, ProjectRoot: s.Store.Root, HostLabel: os.Getenv("AGENT_COMMS_HOST_LABEL")}
-	if user.ActiveProfile == "" {
-		user.ActiveProfile = name
+	// Scoped to the registering session when one is recognized, rather
+	// than the legacy machine-wide field every other process on this
+	// account would otherwise inherit too -- see RFC 0016.
+	//
+	// identity.DetectProviderSessionID, not sessionbind.Capture: this
+	// package cannot import internal/sessionbind without a real cycle
+	// (sessionbind -> worker -> service), so it uses the narrower,
+	// dependency-free subset of the same detection logic instead -- see
+	// DetectProviderSessionID's own doc comment.
+	sessionID := identity.DetectProviderSessionID()
+	if user.ActiveProfileFor(sessionID) == "" {
+		user.SetActiveProfileFor(sessionID, name)
 	}
 	if e = identity.SaveUserConfig(user); e != nil {
 		// The registration itself is already durably recorded above --

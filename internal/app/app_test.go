@@ -348,6 +348,16 @@ func TestHandoffProjectUpgradePropagatesChildErrorCode(t *testing.T) {
 func TestProfileListDoesNotRequireInitializedProject(t *testing.T) {
 	configDirectory := t.TempDir()
 	t.Setenv("AGENT_COMMS_CONFIG_DIR", configDirectory)
+	// This test exercises the legacy, machine-wide ActiveProfile field
+	// deliberately (a plain human terminal with no recognized provider
+	// session) -- clear both session vars explicitly rather than assume a
+	// "clean" environment, since this suite itself typically runs inside a
+	// real Claude Code session that sets CLAUDE_CODE_SESSION_ID. See RFC
+	// 0016: with a real session ID present, this would correctly resolve
+	// to that session's own (unset) active profile instead, not the
+	// legacy field this test means to check.
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "")
+	t.Setenv("CODEX_THREAD_ID", "")
 	profile := identity.Profile{
 		Name:        "project:owner",
 		ProjectID:   "project",

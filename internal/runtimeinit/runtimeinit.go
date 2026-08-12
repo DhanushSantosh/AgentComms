@@ -284,7 +284,19 @@ func saveProfile(projectRoot, projectID, owner string) error {
 		return err
 	}
 	name := projectID + ":" + owner
-	userConfig.ActiveProfile = name
+	// Scoped to the initializing session when one is recognized, rather
+	// than the legacy machine-wide field every other process on this
+	// account would otherwise inherit too -- see RFC 0016.
+	//
+	// identity.DetectProviderSessionID, not sessionbind.Capture: this
+	// package is reachable from internal/service's own test build
+	// (retry_unix_test.go -> internal/runtimeinit), and sessionbind
+	// imports internal/worker, which imports internal/service -- a real
+	// cycle. Uses the narrower, dependency-free subset of the same
+	// detection logic instead -- see DetectProviderSessionID's own doc
+	// comment.
+	sessionID := identity.DetectProviderSessionID()
+	userConfig.SetActiveProfileFor(sessionID, name)
 	userConfig.Profiles[name] = identity.Profile{
 		Name: name, ProjectID: projectID, Actor: owner, ProjectRoot: projectRoot,
 	}
