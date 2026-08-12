@@ -26,3 +26,13 @@ Acknowledge credible private reports within three business days. Validate and de
 - Required checks, CODEOWNERS review, conversation resolution, stale-review dismissal, and force-push protection remain enabled.
 - Fork pull requests receive no secrets and must not execute untrusted code under `pull_request_target`.
 - Release workflows use least privilege, OIDC, protected environments, and immutable action references.
+
+## Continuity
+
+This project currently has one maintainer. [docs/continuity.md](continuity.md)
+is the factual inventory of what that means in practice: where signing keys
+and secrets actually live (or deliberately don't), who can approve a stuck
+release, and when the DCO owner-exemption and routine admin-bypass merging
+habit should actually change. Read it before assuming either "there's a
+bus-factor problem everywhere" or "there's nothing to hand off" -- it's
+narrower and more specific than either.
