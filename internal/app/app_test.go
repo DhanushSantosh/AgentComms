@@ -226,6 +226,40 @@ func TestAgentListHumanOutputIsATableNotIndentedJSON(t *testing.T) {
 	}
 }
 
+// TestAgentSwitchRoleIsSelfServiceThroughTheRealCLI is the end-to-end
+// regression test for RFC 0018's self-service role switch, exercised
+// through the real CLI entry point (Run), not just Service directly: a
+// plain, non-elevated agent relabels its own role with no owner or
+// orchestrator action at all, and the change is visible in agent list.
+func TestAgentSwitchRoleIsSelfServiceThroughTheRealCLI(t *testing.T) {
+	project := t.TempDir()
+	cleanupProjectDaemon(t, project)
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
+	var out, stderr bytes.Buffer
+	run := func(args ...string) {
+		t.Helper()
+		out.Reset()
+		stderr.Reset()
+		args = append(args, "--project", project, "--json")
+		if err := Run(args, &out, &stderr); err != nil {
+			t.Fatalf("%v: %v\n%s", args, err, stderr.String())
+		}
+	}
+	run("init", "--non-interactive", "--owner", "owner", "--mode", "personal")
+	run("agent", "register", "--id", "builder")
+	run("agent", "activate", "--id", "builder", "--role", "Backend-Designer", "--scope", "src", "--actor", "owner")
+
+	// Self-service: no --actor owner/orchestrator elevation needed, unlike
+	// agent activate above -- builder switches its own role directly.
+	run("agent", "switch-role", "--role", "Frontend-Architect", "--actor", "builder")
+
+	run("agent", "list")
+	if !bytes.Contains(out.Bytes(), []byte(`"role":"Frontend-Architect"`)) {
+		t.Fatalf("expected builder's role to show Frontend-Architect after self-service switch: %s", out.String())
+	}
+}
+
 // TestEnsureDaemonReplacesIncompatibleDaemon guards ensureDaemon's
 // replace-on-mismatch path end to end: a running daemon that reports a
 // stale BuildID/ProductVersion must be shut down and replaced with a

@@ -142,6 +142,9 @@ func tools() []map[string]any {
 			"capabilities": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 			"scopes":       map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 		}, "id", "role"),
+		tool("agent_switch_role", "Switch your own role (self-service, never someone else's) to ORCHESTRATOR or any freeform custom label — never OWNER. Never touches your capabilities or scopes. A switch to ORCHESTRATOR requires a human principal, a pre-approved HUMAN-tier approval, and the elevated key — which MCP cannot supply, so that specific switch is refused here exactly like `agent_activate` already refuses it; use the CLI instead.", map[string]any{
+			"role": map[string]any{"type": "string"},
+		}, "role"),
 		tool("agent_revoke", "Permanently revoke an agent principal — terminal, cannot be reversed or reactivated. The owner principal cannot be revoked. Revoking an orchestrator or any human principal requires an active human principal to call this, unless revoking yourself.", map[string]any{
 			"id":     map[string]any{"type": "string"},
 			"reason": map[string]any{"type": "string"},
@@ -315,6 +318,10 @@ func call(s *service.Service, resolution identity.ActorResolution, p callParams)
 		return s.Execute(actor, "agent.activate", stringArg(p.Arguments, "id"), model.AgentActivated{
 			Role: model.Role(stringArg(p.Arguments, "role")), Capabilities: stringsArg(p.Arguments["capabilities"]),
 			Scopes: stringsArg(p.Arguments["scopes"]),
+		})
+	case "agent_switch_role":
+		return s.Execute(actor, "agent.switch-role", actor, model.AgentRoleSwitched{
+			Role: model.Role(stringArg(p.Arguments, "role")),
 		})
 	case "agent_revoke":
 		return s.Execute(actor, "agent.revoke", stringArg(p.Arguments, "id"),

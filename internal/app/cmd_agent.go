@@ -58,7 +58,7 @@ func (c *cli) agentCmd() *cobra.Command {
 	var caps, scopes []string
 	act := &cobra.Command{Use: "activate", RunE: func(cmd *cobra.Command, args []string) error {
 		id, _ := cmd.Flags().GetString("id")
-		v, e := c.svc.Execute(c.actor, "agent.activate", id, model.AgentActivated{Role: model.Role(strings.ToUpper(role)), Capabilities: caps, Scopes: scopes})
+		v, e := c.svc.Execute(c.actor, "agent.activate", id, model.AgentActivated{Role: model.Role(role), Capabilities: caps, Scopes: scopes})
 		if e != nil {
 			return e
 		}
@@ -66,9 +66,24 @@ func (c *cli) agentCmd() *cobra.Command {
 	}}
 	act.Flags().String("id", "", "principal ID")
 	_ = act.MarkFlagRequired("id")
-	act.Flags().StringVar(&role, "role", "AGENT", "role")
+	// No default: RoleAgent no longer exists (see RFC 0018) and there is no
+	// other generic role to fall back to -- ORCHESTRATOR or any freeform
+	// custom label (e.g. Frontend-Architect, Tester) must be named
+	// explicitly.
+	act.Flags().StringVar(&role, "role", "", "role: ORCHESTRATOR or any custom label")
+	_ = act.MarkFlagRequired("role")
 	act.Flags().StringSliceVar(&caps, "capability", nil, "capability (repeatable or comma-separated)")
 	act.Flags().StringSliceVar(&scopes, "scope", nil, "scope (repeatable or comma-separated)")
+	var switchRole string
+	switchRoleCmd := &cobra.Command{Use: "switch-role", Args: cobra.NoArgs, Short: "Switch your own role (self-service; never OWNER)", RunE: func(cmd *cobra.Command, args []string) error {
+		v, e := c.svc.Execute(c.actor, "agent.switch-role", c.actor, model.AgentRoleSwitched{Role: model.Role(switchRole)})
+		if e != nil {
+			return e
+		}
+		return c.emit("agent.switch-role", v)
+	}}
+	switchRoleCmd.Flags().StringVar(&switchRole, "role", "", "new role: ORCHESTRATOR or any custom label")
+	_ = switchRoleCmd.MarkFlagRequired("role")
 	suspend := simpleStatus(c, "agent", "suspend")
 	var revokeReason string
 	revoke := payloadStatus(c, "agent", "revoke", func(string) any {
@@ -131,6 +146,6 @@ func (c *cli) agentCmd() *cobra.Command {
 		}
 		return c.emitTable("agent.list", st.Agents, headers, rows)
 	}}
-	root.AddCommand(reg, act, suspend, rotate, elevate, rename, revoke, deleteAgent, list)
+	root.AddCommand(reg, act, switchRoleCmd, suspend, rotate, elevate, rename, revoke, deleteAgent, list)
 	return root
 }

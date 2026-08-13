@@ -45,10 +45,10 @@ The owner can sponsor a new identity and activate it:
 
 ```sh
 agent-comms agent register --id DAMON --display-name "DAMON" --principal-type AGENT
-agent-comms agent activate --id DAMON --role AGENT --scope .
+agent-comms agent activate --id DAMON --role Backend-Designer --scope .
 ```
 
-Registration creates the identity and its key. Activation grants a role and explicit scope. Connect the identity through [MCP](/agents/mcp/), [CLI/JSON](/agents/cli-json/), a [worker](/agents/workers/), or an [interactive session](/agents/interactive/).
+Registration creates the identity and its key. Activation grants a role (a freeform, descriptive label — DAMON can also relabel itself any time with `agent switch-role --role <role>`, self-service) and explicit scope. Connect the identity through [MCP](/agents/mcp/), [CLI/JSON](/agents/cli-json/), a [worker](/agents/workers/), or an [interactive session](/agents/interactive/).
 
 ## What happens on the next command
 

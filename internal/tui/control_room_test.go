@@ -12,7 +12,7 @@ import (
 
 func TestControlRoomRendersWorkforceAndOperationalViews(t *testing.T) {
 	instance := newTestService(t)
-	registerAgent(t, instance, "builder", model.RoleAgent, "src")
+	registerAgent(t, instance, "builder", model.Role("MEMBER"), "src")
 	if _, err := instance.Execute("builder", "runtime.register", "runtime-builder",
 		model.RuntimeRegistered{AgentID: "builder", Connector: "MANUAL", MaxConcurrent: 1}); err != nil {
 		t.Fatal(err)
@@ -54,7 +54,7 @@ func TestWorkforceSignalIsStableAcrossMultipleRuntimeRecords(t *testing.T) {
 	m := Model{
 		state: model.State{
 			Agents: map[string]model.Agent{
-				"HENRY": {ID: "HENRY", DisplayName: "HENRY", Role: model.RoleAgent, PrincipalType: model.PrincipalAgent},
+				"HENRY": {ID: "HENRY", DisplayName: "HENRY", Role: model.Role("MEMBER"), PrincipalType: model.PrincipalAgent},
 			},
 			AgentRuntimes: map[string]model.AgentRuntime{
 				"henry-test": {ID: "henry-test", AgentID: "HENRY", Status: "REVOKED", Health: "UNKNOWN", RegisteredAt: older, LastSeenAt: older},
@@ -80,7 +80,7 @@ func TestWorkforceFallsBackToAgentIDWhenDisplayNameIsBlank(t *testing.T) {
 	m := Model{
 		state: model.State{
 			Agents: map[string]model.Agent{
-				"PETER": {ID: "PETER", DisplayName: "", Role: model.RoleAgent, PrincipalType: model.PrincipalAgent},
+				"PETER": {ID: "PETER", DisplayName: "", Role: model.Role("MEMBER"), PrincipalType: model.PrincipalAgent},
 			},
 		},
 	}
@@ -99,7 +99,7 @@ func TestAuditHealthSurfacesDoctorFindings(t *testing.T) {
 	// "builder" is one of doctor's own TEST_LIKE_RUNTIME triggers
 	// (internal/doctor.Findings), so this is a real, already-present finding
 	// rather than fabricated state.
-	registerAgent(t, instance, "builder", model.RoleAgent, "src")
+	registerAgent(t, instance, "builder", model.Role("MEMBER"), "src")
 	view, err := New(instance, "owner")
 	if err != nil {
 		t.Fatal(err)
@@ -177,7 +177,7 @@ func TestCommandPaletteShowsInputAndMatchingCommands(t *testing.T) {
 
 func TestInvocationRowActionsFollowStateAndAuthority(t *testing.T) {
 	state := model.State{Agents: map[string]model.Agent{
-		"builder": {ID: "builder", Role: model.RoleAgent, Status: "ACTIVE"},
+		"builder": {ID: "builder", Role: model.Role("MEMBER"), Status: "ACTIVE"},
 		"owner":   {ID: "owner", Role: model.RoleOwner, Status: "ACTIVE"},
 	}}
 	cases := []struct {
@@ -217,7 +217,7 @@ func TestRuntimeRowActionsExposeDrainResumeAndRevoke(t *testing.T) {
 	state := model.State{
 		Agents: map[string]model.Agent{
 			"owner":   {ID: "owner", Role: model.RoleOwner, Status: "ACTIVE"},
-			"builder": {ID: "builder", Role: model.RoleAgent, Status: "ACTIVE"},
+			"builder": {ID: "builder", Role: model.Role("MEMBER"), Status: "ACTIVE"},
 		},
 		AgentRuntimes: map[string]model.AgentRuntime{
 			"runtime": {ID: "runtime", AgentID: "builder", Status: "ONLINE"},
@@ -238,7 +238,7 @@ func TestRuntimeRowActionsExposeDrainResumeAndRevoke(t *testing.T) {
 
 func TestControlRoomCreatesInvocationThroughGuidedForm(t *testing.T) {
 	instance := newTestService(t)
-	registerAgent(t, instance, "builder", model.RoleAgent, "src")
+	registerAgent(t, instance, "builder", model.Role("MEMBER"), "src")
 	view, err := New(instance, "owner")
 	if err != nil {
 		t.Fatal(err)

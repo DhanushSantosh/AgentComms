@@ -182,7 +182,7 @@ func TestGetStartedToolReportsRegistrationState(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := instance.Execute("owner", "agent.activate", "fresh-agent",
-		model.AgentActivated{Role: model.RoleAgent, Scopes: []string{"src"}}); err != nil {
+		model.AgentActivated{Role: model.Role("MEMBER"), Scopes: []string{"src"}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -194,8 +194,8 @@ func TestGetStartedToolReportsRegistrationState(t *testing.T) {
 	if !strings.Contains(after.String(), `"registered":true`) || !strings.Contains(after.String(), `"active":true`) {
 		t.Fatalf("expected registered+active state after register+activate: %s", after.String())
 	}
-	if !strings.Contains(after.String(), `"role":"AGENT"`) {
-		t.Fatalf("expected role AGENT in get_started response: %s", after.String())
+	if !strings.Contains(after.String(), `"role":"MEMBER"`) {
+		t.Fatalf("expected role MEMBER in get_started response: %s", after.String())
 	}
 }
 
@@ -205,7 +205,7 @@ func TestInvocationToolsReturnAndClaimWork(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := instance.Execute("owner", "agent.activate", "builder",
-		model.AgentActivated{Role: model.RoleAgent, Scopes: []string{"src"}}); err != nil {
+		model.AgentActivated{Role: model.Role("MEMBER"), Scopes: []string{"src"}}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := instance.Execute("builder", "runtime.register", "runtime-builder",
@@ -398,7 +398,7 @@ func TestAgentRegisterToolRejectsNonOrchestratorAgentSponsorship(t *testing.T) {
 		t.Fatal(e)
 	}
 	if _, e := instance.Execute("owner", "agent.activate", "reviewer",
-		model.AgentActivated{Role: model.RoleAgent, Scopes: []string{"src"}}); e != nil {
+		model.AgentActivated{Role: model.Role("MEMBER"), Scopes: []string{"src"}}); e != nil {
 		t.Fatal(e)
 	}
 
@@ -447,7 +447,7 @@ func TestAgentActivateToolRequiresElevation(t *testing.T) {
 		t.Fatal(e)
 	}
 	if _, e := instance.Execute("owner", "agent.activate", "bystander",
-		model.AgentActivated{Role: model.RoleAgent, Scopes: []string{"src"}}); e != nil {
+		model.AgentActivated{Role: model.Role("MEMBER"), Scopes: []string{"src"}}); e != nil {
 		t.Fatal(e)
 	}
 	if _, e := instance.Register("fresh-agent", "Fresh Agent", model.PrincipalAgent); e != nil {
@@ -549,7 +549,7 @@ func TestMCPElevatedKeyTransitionsFailClosed(t *testing.T) {
 	if _, e := instance.Register("candidate", "Candidate", model.PrincipalAgent); e != nil {
 		t.Fatal(e)
 	}
-	if _, e := instance.Execute("owner", "agent.activate", "candidate", model.AgentActivated{Role: model.RoleAgent, Scopes: []string{"src"}}); e != nil {
+	if _, e := instance.Execute("owner", "agent.activate", "candidate", model.AgentActivated{Role: model.Role("MEMBER"), Scopes: []string{"src"}}); e != nil {
 		t.Fatal(e)
 	}
 	if _, e := instance.ElevateKey("owner", "a strong passphrase"); e != nil {

@@ -32,7 +32,7 @@ func activateAgent(t *testing.T, s *service.Service, id string) {
 		t.Fatal(e)
 	}
 	must(t, s, "owner", "agent.activate", id, model.AgentActivated{
-		Role: model.RoleAgent, Scopes: []string{"src"},
+		Role: model.Role("MEMBER"), Scopes: []string{"src"},
 	})
 }
 

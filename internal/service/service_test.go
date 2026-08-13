@@ -78,7 +78,7 @@ func activate(t *testing.T, s *service.Service, id string, pt model.PrincipalTyp
 	if _, e := s.Register(id, id, pt); e != nil {
 		t.Fatal(e)
 	}
-	must(t, s, "owner", "agent.activate", id, model.AgentActivated{Role: model.RoleAgent, Scopes: []string{"src"}})
+	must(t, s, "owner", "agent.activate", id, model.AgentActivated{Role: model.Role("MEMBER"), Scopes: []string{"src"}})
 }
 
 func registerOnlineWorker(t *testing.T, s *service.Service, agentID, runtimeID string, maxConcurrent int) {
@@ -323,7 +323,7 @@ func TestGrantingOrchestratorRoleRequiresHumanPrincipal(t *testing.T) {
 
 	// The same agent-lead orchestrator may still grant any non-orchestrator
 	// role — only the orchestrator grant itself is human-gated.
-	must(t, s, "agent-lead", "agent.activate", "candidate", model.AgentActivated{Role: model.RoleAgent, Scopes: []string{"src"}})
+	must(t, s, "agent-lead", "agent.activate", "candidate", model.AgentActivated{Role: model.Role("MEMBER"), Scopes: []string{"src"}})
 
 	// A human principal who is also already an orchestrator (elevation is
 	// still role-based, same as ever) may grant the orchestrator role.
@@ -414,7 +414,7 @@ func TestAgentRevokeIsTerminal(t *testing.T) {
 	if _, err = s.Execute("alpha", "task.create", "task-1", model.TaskCreated{Title: "x", Repository: "local", Branch: "b", Resources: []string{"src/x"}}); err == nil {
 		t.Fatal("expected a revoked principal's own action to fail via the general active() gate")
 	}
-	if _, err = s.Execute("owner", "agent.activate", "alpha", model.AgentActivated{Role: model.RoleAgent, Scopes: []string{"src"}}); err == nil {
+	if _, err = s.Execute("owner", "agent.activate", "alpha", model.AgentActivated{Role: model.Role("MEMBER"), Scopes: []string{"src"}}); err == nil {
 		t.Fatal("expected reactivating a revoked principal to fail")
 	}
 	if _, err = s.Execute("owner", "agent.rename", "alpha", model.AgentRenamed{DisplayName: "Alpha"}); err == nil {
@@ -576,7 +576,7 @@ func TestRegisterRejectsDuplicateIDWithoutTouchingExistingCredential(t *testing.
 	}
 	// The original credential must still actually work — the real-world
 	// failure mode was that it silently stopped being able to sign anything.
-	must(t, s, "owner", "agent.activate", "dup-test", model.AgentActivated{Role: model.RoleAgent, Scopes: []string{"src"}})
+	must(t, s, "owner", "agent.activate", "dup-test", model.AgentActivated{Role: model.Role("MEMBER"), Scopes: []string{"src"}})
 	if _, err := s.Execute("dup-test", "runtime.register", "dup-test-runtime",
 		model.RuntimeRegistered{AgentID: "dup-test", Connector: "MCP", MaxConcurrent: 1}); err != nil {
 		t.Fatalf("original credential can no longer sign after a rejected duplicate registration: %v", err)
@@ -735,6 +735,76 @@ func TestExecuteRequiresPassphrasePromptOnceElevatedKeyIsRegistered(t *testing.T
 	}
 	if state.Agents["candidate"].Role != model.RoleOrchestrator {
 		t.Fatalf("expected candidate to be granted ORCHESTRATOR, got %+v", state.Agents["candidate"])
+	}
+}
+
+// TestSwitchRoleSelfServiceSucceedsEndToEndWithNoElevation is the
+// full-daemon end-to-end counterpart to the ValidateTransition-level
+// agent.switch-role coverage in internal/protocol: a non-elevated principal
+// relabels its own role with a bare Execute call, no owner/orchestrator
+// action and no elevated key involved at all -- confirming the whole
+// client-to-daemon round trip, not just the validator in isolation.
+func TestSwitchRoleSelfServiceSucceedsEndToEndWithNoElevation(t *testing.T) {
+	s := setup(t)
+	activate(t, s, "builder", model.PrincipalAgent)
+	if _, err := s.Execute("builder", "agent.switch-role", "builder", model.AgentRoleSwitched{Role: model.Role("Frontend-Architect")}); err != nil {
+		t.Fatalf("expected a non-elevated self-switch to succeed: %v", err)
+	}
+	state, err := s.State()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Agents["builder"].Role != "Frontend-Architect" {
+		t.Fatalf("expected builder's role to become Frontend-Architect, got %+v", state.Agents["builder"])
+	}
+	if _, err := s.Execute("builder", "agent.switch-role", "someone-else", model.AgentRoleSwitched{Role: model.Role("Tester")}); err == nil {
+		t.Fatal("expected switching a different principal's role to fail end-to-end too")
+	}
+}
+
+// TestSwitchRoleToOrchestratorRequiresPassphrasePromptOnceElevatedKeyIsRegistered
+// is the switch-role sibling of
+// TestExecuteRequiresPassphrasePromptOnceElevatedKeyIsRegistered: switching
+// yourself to ORCHESTRATOR goes through the identical PassphrasePrompt path
+// as being granted it via agent.activate, once you've registered your own
+// elevated key.
+func TestSwitchRoleToOrchestratorRequiresPassphrasePromptOnceElevatedKeyIsRegistered(t *testing.T) {
+	s := setup(t)
+	activate(t, s, "human-candidate", model.PrincipalHuman)
+	if _, err := s.ElevateKey("human-candidate", "correct passphrase"); err != nil {
+		t.Fatal(err)
+	}
+
+	approvalID := "human-candidate-orchestrator-approval"
+	action := protocol.OrchestratorGrantApprovalAction("human-candidate")
+	must(t, s, "owner", "approval.request", approvalID, model.ApprovalRequested{Tier: "HUMAN", Action: action, Reason: "test"})
+	must(t, s, "owner", "approval.approve", approvalID, model.ApprovalResponse{})
+
+	// No prompt wired up: must fail clearly.
+	if _, err := s.Execute("human-candidate", "agent.switch-role", "human-candidate", model.AgentRoleSwitched{Role: model.RoleOrchestrator}); err == nil {
+		t.Fatal("expected agent.switch-role to fail with no PassphrasePrompt configured")
+	} else if !strings.Contains(err.Error(), "passphrase") {
+		t.Fatalf("expected a passphrase-shaped error, got: %v", err)
+	}
+
+	// Wrong passphrase: fails via AES-GCM authentication, not a garbage key.
+	s.PassphrasePrompt = func(string) (string, error) { return "wrong passphrase", nil }
+	if _, err := s.Execute("human-candidate", "agent.switch-role", "human-candidate", model.AgentRoleSwitched{Role: model.RoleOrchestrator}); err == nil {
+		t.Fatal("expected agent.switch-role to fail with an incorrect passphrase")
+	}
+
+	// Correct passphrase: succeeds end-to-end, genuinely ORCHESTRATOR, not
+	// just "no error."
+	s.PassphrasePrompt = func(string) (string, error) { return "correct passphrase", nil }
+	if _, err := s.Execute("human-candidate", "agent.switch-role", "human-candidate", model.AgentRoleSwitched{Role: model.RoleOrchestrator}); err != nil {
+		t.Fatalf("expected the self-switch to orchestrator to succeed with the correct passphrase: %v", err)
+	}
+	state, err := s.State()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Agents["human-candidate"].Role != model.RoleOrchestrator {
+		t.Fatalf("expected human-candidate to become ORCHESTRATOR, got %+v", state.Agents["human-candidate"])
 	}
 }
 

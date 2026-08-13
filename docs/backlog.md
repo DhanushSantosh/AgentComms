@@ -102,6 +102,32 @@ one is picked up, remove it from here and note the landing commit.
 
 ## Security / governance
 
+- **SHIPPED 2026-08-13: self-service role switching, custom role labels,
+  and removal of the AGENT/OBSERVER roles ([RFC 0018](rfcs/0018-self-service-role-switching-and-custom-roles.md)).**
+  `model.Role` was a closed four-value enum (`OWNER`, `ORCHESTRATOR`,
+  `AGENT`, `OBSERVER`) with two redundant/under-used members: `AGENT`
+  duplicated `PrincipalType`'s own `AGENT` value for no added meaning, and
+  `OBSERVER` was a narrow, two-transition read-only tier, not a coherent
+  permission model. Both are removed; `Role` is now `OWNER` |
+  `ORCHESTRATOR` | any freeform label a principal chooses for itself
+  (`Frontend-Architect`, `Tester`, ...), with zero permission effect for
+  anything other than the two reserved values. New self-service transition
+  `agent.switch-role`/`agent_switch_role` lets any active principal relabel
+  its own role at any time, no owner/orchestrator elevation required --
+  strictly bounded by construction: self-only (`id == actor`), `OWNER`
+  never reachable as either target or source, and switching to
+  `ORCHESTRATOR` keeps the exact same two-step human-approval-plus-
+  elevated-key gate `agent.activate` already enforces for the same grant
+  (kept, not weakened to "passphrase alone," per explicit direction).
+  Never touches `Capabilities`/`Scopes` -- only `agent.activate` (unchanged,
+  still owner/orchestrator-gated) can grant those. Also closes a related,
+  previously-unintended gap while touching this code: the general
+  `agent.activate` path used to silently accept `Role: OWNER` for any
+  target; `OWNER` is now reachable only through the one special bootstrap
+  event at project creation, exactly as it always should have been.
+  `agent activate --role` lost its `AGENT` default and is now a required
+  flag, since there's no longer a generic role to fall back to.
+
 - **RESOLVED 2026-08-12: local default-actor resolution could silently
   misattribute real, signed governed actions across concurrent
   sessions.** Reported live: a human owner switching actors in the TUI kept
@@ -212,6 +238,20 @@ one is picked up, remove it from here and note the landing commit.
   resolution). Worth tightening the 500ms retry/test timing assumption if
   it recurs; not done here since a single confirmed flake isn't enough to
   diagnose the right fix.
+
+- **`TestEnsureDaemonReplacesIncompatibleDaemon` is flaky on loaded/slow
+  windows-latest runners too, not fixed.** A second, distinct flake in the
+  same category, observed on PR #27's CI (2026-08-13): failed with "local
+  daemon did not become ready" after a 41s wait, on one of two parallel
+  windows-latest runs against the identical commit -- the other passed
+  cleanly, and a re-run of the failed job passed cleanly too. Unrelated to
+  RFC 0018's role changes (this test exercises daemon version-mismatch
+  respawn logic, untouched by that PR). Same underlying pattern as
+  `TestInvocationDeliveryFailureDoesNotTerminateObligation` above: a fixed
+  wait/readiness budget that a loaded CI runner can occasionally miss, not
+  a logic bug. Worth a shared look at whether these fixed-timeout Windows
+  daemon/delivery tests need a runner-load-aware retry budget instead of a
+  flat deadline, if a third instance shows up.
 
 - **RESOLVED 2026-08-12: `internal/protocol`'s `ValidateTransition` direct
   coverage gap closed, and a per-package coverage floor now guards against

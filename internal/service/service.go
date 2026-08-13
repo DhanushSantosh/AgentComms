@@ -481,12 +481,13 @@ func (s *Service) executeRemote(actor, typ, id string, payload any, passphrase s
 func (s *Service) elevateCredentialIfNeeded(
 	cfg store.Config, actor, typ, id string, payload any, primary identity.Credential, overridePassphrase string,
 ) (identity.Credential, error) {
-	if typ != "agent.activate" && typ != "approval.approve" && typ != "agent.revoke" && typ != "agent.delete" {
+	if typ != "agent.activate" && typ != "agent.switch-role" && typ != "approval.approve" && typ != "agent.revoke" && typ != "agent.delete" {
 		return primary, nil
 	}
-	// st stays the zero-value model.State{} for agent.activate, whose
-	// RequiresElevatedKey branch reads only the payload, never state -- see
-	// the invariant documented on RequiresElevatedKey itself (and mirrored
+	// st stays the zero-value model.State{} for agent.activate and
+	// agent.switch-role, whose RequiresElevatedKey branches read only the
+	// payload, never state -- see the invariant documented on
+	// RequiresElevatedKey itself (and mirrored
 	// by internal/authority/postgres.go's scopedElevationState, which makes
 	// the same per-type assumption via targeted SQL instead of a full
 	// fetch). Only fetch state for the transition types that actually need it.

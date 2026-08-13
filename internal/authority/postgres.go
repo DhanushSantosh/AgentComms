@@ -502,6 +502,8 @@ func decodePayload(eventType string, raw json.RawMessage) (any, error) {
 		return *value, nil
 	case *model.AgentActivated:
 		return *value, nil
+	case *model.AgentRoleSwitched:
+		return *value, nil
 	case *model.AgentKeyRotated:
 		return *value, nil
 	case *model.AgentElevatedKeyRegistered:
