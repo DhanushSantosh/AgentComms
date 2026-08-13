@@ -239,6 +239,20 @@ one is picked up, remove it from here and note the landing commit.
   it recurs; not done here since a single confirmed flake isn't enough to
   diagnose the right fix.
 
+- **`TestEnsureDaemonReplacesIncompatibleDaemon` is flaky on loaded/slow
+  windows-latest runners too, not fixed.** A second, distinct flake in the
+  same category, observed on PR #27's CI (2026-08-13): failed with "local
+  daemon did not become ready" after a 41s wait, on one of two parallel
+  windows-latest runs against the identical commit -- the other passed
+  cleanly, and a re-run of the failed job passed cleanly too. Unrelated to
+  RFC 0018's role changes (this test exercises daemon version-mismatch
+  respawn logic, untouched by that PR). Same underlying pattern as
+  `TestInvocationDeliveryFailureDoesNotTerminateObligation` above: a fixed
+  wait/readiness budget that a loaded CI runner can occasionally miss, not
+  a logic bug. Worth a shared look at whether these fixed-timeout Windows
+  daemon/delivery tests need a runner-load-aware retry budget instead of a
+  flat deadline, if a third instance shows up.
+
 - **RESOLVED 2026-08-12: `internal/protocol`'s `ValidateTransition` direct
   coverage gap closed, and a per-package coverage floor now guards against
   it recurring anywhere else.** Prompted by a codebase-hardness audit that
