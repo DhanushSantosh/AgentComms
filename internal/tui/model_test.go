@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // TestWrapTextNeverExceedsWidth guards wrapText's actual reason for
@@ -371,5 +372,38 @@ func TestGuidedTaskFormUsesGovernedService(t *testing.T) {
 	}
 	if state.Tasks["task-ui"].Title != "Created in TUI" {
 		t.Fatal("guided write did not reach service")
+	}
+}
+
+// TestActiveTabLooksDifferentWhenFocusedVsBrowsing is the regression test
+// for the seventh confirmed audit finding: neither the sidebar nor the
+// hub-tab bar referenced m.rowFocus at all, so the exact same tab looked
+// identical whether ↑/↓/←/→ were just moving the hub cursor around
+// (browsing) or a row list actually had keyboard focus (entered) -- the
+// same key, like "r", meant something completely different in each mode
+// with no on-screen way to tell them apart. Confirms the two states
+// render visibly different styling for the active tab while the plain
+// text label itself (once ANSI styling is stripped) stays identical --
+// this is meant to be a color/weight change, not a text change.
+func TestActiveTabLooksDifferentWhenFocusedVsBrowsing(t *testing.T) {
+	s := newTestService(t)
+	m, err := New(s, "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.width, m.height = 120, 30
+	p := colors(m.highContrast)
+
+	m.rowFocus, m.settingsFocus = false, false
+	browsing, _ := m.renderHubTabs(p, 100)
+	m.rowFocus = true
+	focused, _ := m.renderHubTabs(p, 100)
+
+	if browsing == focused {
+		t.Fatal("expected the active tab's rendering to differ between browsing and focused modes")
+	}
+	if ansi.Strip(browsing) != ansi.Strip(focused) {
+		t.Fatalf("expected only styling to differ, not the plain text:\nbrowsing=%q\nfocused=%q",
+			ansi.Strip(browsing), ansi.Strip(focused))
 	}
 }

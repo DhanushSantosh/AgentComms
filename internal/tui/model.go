@@ -197,6 +197,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// different section is an unambiguous "go there now" that should win
 	// over whatever mode the previous click (or keypress) left behind, the
 	// same way it would in any mouse-native app.
+	//
+	// Checked before this, unconditionally: the command palette. It used
+	// to be handled far below, nested inside the plain-navigation switch --
+	// reachable only once form/confirm/rowFocus/settingsFocus were all
+	// false. Opening the palette from inside a focused row list (rowlist.go's
+	// own "/" case) set m.palette=true but never cleared m.rowFocus, so
+	// every subsequent keystroke kept routing straight back to
+	// updateRowList instead: typed characters silently triggered row
+	// actions -- suspend, revoke, delete, "n" opening an unrelated form --
+	// while the palette sat on screen showing an empty, frozen query box.
+	// Checking m.palette first, here, means opening it from any mode
+	// always wins for input immediately after, exactly like the sidebar
+	// and hub-tab clicks below already do -- and since nothing needs to
+	// touch m.rowFocus/m.settingsFocus to get that, closing the palette
+	// (Esc, or a successful Enter) falls straight back through to whatever
+	// they already were, landing exactly where the palette was opened
+	// from with no separate state to save and restore.
+	if m.palette {
+		return m.updatePalette(msg)
+	}
 	if click, ok := msg.(tea.MouseClickMsg); ok {
 		mouse := click.Mouse()
 		if mouse.Button == tea.MouseLeft {
@@ -249,24 +269,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch v := msg.(type) {
 	case tea.KeyPressMsg:
 		k := v.String()
-		if m.palette {
-			switch k {
-			case "esc":
-				m.palette = false
-				m.query = ""
-			case "enter":
-				m.applyPalette()
-			case "backspace":
-				if len(m.query) > 0 {
-					m.query = m.query[:len(m.query)-1]
-				}
-			default:
-				if len(k) == 1 {
-					m.query += k
-				}
-			}
-			return m, nil
-		}
 		switch k {
 		case "q", "ctrl+c":
 			return m, tea.Quit
@@ -416,6 +418,7 @@ func (m *Model) focusCurrentView() {
 		m.settingsFocus = true
 	}
 }
+
 // refresh re-reads state and reports that it did so via m.notice. Use this
 // only where nothing more specific was already reported this same tick (the
 // bare "r" refresh keybinding, essentially) -- every other call site that
@@ -504,62 +507,128 @@ func (m *Model) refreshLists() {
 	m.artifactList.Refresh(m.state, m.actor)
 	m.envList.Refresh(m.state, m.actor)
 }
-func (m *Model) applyPalette() {
-	q := strings.ToLower(strings.TrimSpace(m.query))
-	if q == "" {
-		return
+
+// paletteCommand is one named, directly-executable command the palette can
+// offer, distinct from a bare view name (which only navigates). label is
+// what's matched and displayed; aliases add extra phrasings ("create
+// task" alongside "new task") that also match, without cluttering the
+// displayed match list with duplicates of the same command.
+type paletteCommand struct {
+	label   string
+	aliases []string
+	view    string
+	open    func(Model) (tea.Model, tea.Cmd)
+}
+
+func paletteCommands() []paletteCommand {
+	return []paletteCommand{
+		{label: "new task", aliases: []string{"create task"}, view: "Tasks",
+			open: func(v Model) (tea.Model, tea.Cmd) { return v.openTaskForm() }},
+		{label: "new agent", aliases: []string{"create agent", "register agent"}, view: "Agents",
+			open: func(v Model) (tea.Model, tea.Cmd) { return v.openActionForm(agentRegisterForm, "agent.register", "") }},
+		{label: "new message", aliases: []string{"create message"}, view: "Inbox",
+			open: func(v Model) (tea.Model, tea.Cmd) { return v.openActionForm(messagePostForm, "message.post", "") }},
+		{label: "new invocation", aliases: []string{"create invocation"}, view: "Invocations",
+			open: func(v Model) (tea.Model, tea.Cmd) {
+				return v.openActionForm(invocationRequestForm, "invocation.request", "")
+			}},
+		{label: "new runtime", aliases: []string{"create runtime"}, view: "Runtimes",
+			open: func(v Model) (tea.Model, tea.Cmd) {
+				return v.openActionForm(runtimeRegisterForm, "runtime.register", "")
+			}},
+		{label: "new document", aliases: []string{"create document"}, view: "Documents",
+			open: func(v Model) (tea.Model, tea.Cmd) { return v.openActionForm(documentCreateForm, "document.create", "") }},
+		{label: "new decision", aliases: []string{"create decision"}, view: "Contracts & decisions",
+			open: func(v Model) (tea.Model, tea.Cmd) { return v.openActionForm(decisionCreateForm, "decision.create", "") }},
+		{label: "new artifact", aliases: []string{"add artifact"}, view: "Artifacts",
+			open: func(v Model) (tea.Model, tea.Cmd) { return v.openActionForm(artifactAddForm, "artifact.add", "") }},
+		{label: "new draft", aliases: []string{"save draft"}, view: "Drafts",
+			open: func(v Model) (tea.Model, tea.Cmd) { return v.openActionForm(draftSaveForm, "draft.save", "") }},
+		{label: "new environment key", aliases: []string{"set environment key"}, view: "Environment",
+			open: func(v Model) (tea.Model, tea.Cmd) { return v.openActionForm(envSetForm, "env.set", "") }},
 	}
-	for _, command := range []struct {
-		names []string
-		view  string
-		open  func(Model) (tea.Model, tea.Cmd)
-	}{
-		{names: []string{"new task", "create task"}, view: "Tasks", open: func(value Model) (tea.Model, tea.Cmd) { return value.openTaskForm() }},
-		{names: []string{"new agent", "create agent", "register agent"}, view: "Agents", open: func(value Model) (tea.Model, tea.Cmd) {
-			return value.openActionForm(agentRegisterForm, "agent.register", "")
-		}},
-		{names: []string{"new message", "create message"}, view: "Inbox", open: func(value Model) (tea.Model, tea.Cmd) {
-			return value.openActionForm(messagePostForm, "message.post", "")
-		}},
-		{names: []string{"new invocation", "create invocation"}, view: "Invocations", open: func(value Model) (tea.Model, tea.Cmd) {
-			return value.openActionForm(invocationRequestForm, "invocation.request", "")
-		}},
-		{names: []string{"new runtime", "create runtime"}, view: "Runtimes", open: func(value Model) (tea.Model, tea.Cmd) {
-			return value.openActionForm(runtimeRegisterForm, "runtime.register", "")
-		}},
-		{names: []string{"new document", "create document"}, view: "Documents", open: func(value Model) (tea.Model, tea.Cmd) {
-			return value.openActionForm(documentCreateForm, "document.create", "")
-		}},
-		{names: []string{"new decision", "create decision"}, view: "Contracts & decisions", open: func(value Model) (tea.Model, tea.Cmd) {
-			return value.openActionForm(decisionCreateForm, "decision.create", "")
-		}},
-		{names: []string{"new artifact", "add artifact"}, view: "Artifacts", open: func(value Model) (tea.Model, tea.Cmd) {
-			return value.openActionForm(artifactAddForm, "artifact.add", "")
-		}},
-		{names: []string{"new draft", "save draft"}, view: "Drafts", open: func(value Model) (tea.Model, tea.Cmd) {
-			return value.openActionForm(draftSaveForm, "draft.save", "")
-		}},
-		{names: []string{"new environment key", "set environment key"}, view: "Environment", open: func(value Model) (tea.Model, tea.Cmd) {
-			return value.openActionForm(envSetForm, "env.set", "")
-		}},
-	} {
-		for _, name := range command.names {
-			if q == name {
-				m.openView(command.view)
-				next, _ := command.open(*m)
-				*m = next.(Model)
-				return
+}
+
+// updatePalette handles every message while the command palette is open --
+// checked before any other mode in Update(), so opening it from inside a
+// focused row list (or Project settings) can never leak a keystroke into
+// row actions or settings navigation underneath it -- confirmed live as a
+// real, serious defect without that ordering: typed characters silently
+// triggered row actions (suspend, revoke, delete, "n" opening an unrelated
+// form) while the palette sat on screen showing an empty, frozen query box.
+func (m Model) updatePalette(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if click, ok := msg.(tea.MouseClickMsg); ok {
+		if click.Mouse().Button == tea.MouseLeft {
+			p := colors(m.highContrast)
+			if index, ok := m.paletteMatchAt(p, click.Mouse().X, click.Mouse().Y); ok {
+				if matches := m.paletteMatches(); index < len(matches) {
+					return matches[index].apply(m)
+				}
+			}
+			// A click that missed every match row closes the palette
+			// outright and re-dispatches the identical click through the
+			// now-updated model -- with m.palette false, it falls through
+			// to whatever that click would ordinarily do (a sidebar hub, a
+			// hub tab, a click elsewhere). Clicking away from an open
+			// palette is an unambiguous "go there now, forget the search"
+			// the same way every other click in this app already wins over
+			// whatever mode was active, not something that should be
+			// silently swallowed just because the palette happened to be
+			// open -- confirmed live as a real defect without this: the
+			// sidebar/hub-tab click handling ran unconditionally, before
+			// any mode check at all, so it silently navigated underneath a
+			// palette that stayed visibly open on top, showing a frozen,
+			// stale query over a screen that had already changed.
+			m.palette, m.query = false, ""
+			return m.Update(msg)
+		}
+		return m, nil
+	}
+	if _, ok := msg.(tea.MouseWheelMsg); ok {
+		// Deliberately swallowed, not scrolled -- paletteMatches caps at
+		// 6 rows, never taller than the panel, so there's nothing to
+		// scroll here. Letting a wheel event reach whatever's underneath
+		// while composing a query would be exactly the kind of
+		// background-changes-while-typing surprise this whole fix
+		// removes for clicks and keystrokes too.
+		return m, nil
+	}
+	key, ok := msg.(tea.KeyPressMsg)
+	if !ok {
+		return m, nil
+	}
+	switch k := key.String(); k {
+	case "esc":
+		m.palette = false
+		m.query = ""
+	case "enter":
+		// An empty query doing nothing (rather than applying whatever
+		// paletteMatches() lists first for an empty filter) matches the
+		// original behavior: an accidental Enter before typing anything
+		// should never silently open a form.
+		if strings.TrimSpace(m.query) != "" {
+			if matches := m.paletteMatches(); len(matches) > 0 {
+				return matches[0].apply(m)
 			}
 		}
-	}
-	for _, v := range views {
-		if strings.Contains(strings.ToLower(v), q) {
-			m.openView(v)
-			break
+	case "backspace":
+		if len(m.query) > 0 {
+			m.query = m.query[:len(m.query)-1]
+		}
+	case "space":
+		// bubbletea/ultraviolet's Key.String() reports the spacebar as
+		// the literal word "space", never a single " " character --
+		// confirmed straight from the vendored key.go source -- so the
+		// len(k)==1 branch below can never see it. Without this case, no
+		// multi-word command ("new task", "new environment key", ...)
+		// could ever actually be typed.
+		m.query += " "
+	default:
+		if len(k) == 1 {
+			m.query += k
 		}
 	}
-	m.palette = false
-	m.query = ""
+	return m, nil
 }
 
 func (m Model) openTaskForm() (tea.Model, tea.Cmd) {
@@ -706,6 +775,7 @@ func colors(high bool) palette {
 	}
 	return palette{lipgloss.Color("#071216"), lipgloss.Color("#0D2024"), lipgloss.Color("#56D6C9"), lipgloss.Color("#E8B85C"), lipgloss.Color("#F07167"), lipgloss.Color("#B9A7E8"), lipgloss.Color("#78918F"), lipgloss.Color("#D7E5E3")}
 }
+
 // contentWidth is the width-only half of bodyLayout, split out so
 // bodyPrefixHeight (which needs to measure the real command rail/tabs/
 // header at the width they actually render at) can use it without calling
@@ -943,7 +1013,7 @@ func (m Model) renderBody(p palette, w, h int) string {
 	if m.err != nil {
 		content += "\n\n" + lipgloss.NewStyle().Foreground(p.red).MaxWidth(contentW).Render("Error: "+m.err.Error())
 	} else if m.toastMsg != "" && time.Now().Before(m.toastExpiresAt) {
-		content += "\n\n" + lipgloss.NewStyle().Foreground(p.ink).Background(p.cyan).Bold(true).MaxWidth(contentW).Render(" " + m.toastMsg + " ")
+		content += "\n\n" + lipgloss.NewStyle().Foreground(p.ink).Background(p.cyan).Bold(true).MaxWidth(contentW).Render(" "+m.toastMsg+" ")
 	} else if m.notice != "" {
 		content += "\n\n" + lipgloss.NewStyle().Foreground(p.cyan).MaxWidth(contentW).Render("Notice: "+m.notice)
 	}
@@ -1051,6 +1121,15 @@ func (m Model) commandRail(p palette, width int) string {
 func (m Model) renderHubTabs(p palette, width int) (view string, tabRange [][2]int) {
 	hub := navigationHubs[m.activeHubIndex()]
 	current := views[m.view]
+	// entered distinguishes "this tab is open and its row list/settings
+	// pane actually has keyboard focus" from "this tab is merely the one
+	// last opened, while ↑/↓/←/→ are still just moving the hub cursor
+	// around" -- confirmed live as a real, reported gap: nothing on
+	// screen told those two states apart, so a key like "r" (refresh at
+	// the hub level, but a real row action inside some views) did
+	// something different depending on a mode with no visible indicator
+	// at all for which one you were in.
+	entered := m.rowFocus || m.settingsFocus
 	tabs := make([]string, 0, len(hub.Views))
 	tabRange = make([][2]int, len(hub.Views))
 	col := 0
@@ -1058,7 +1137,15 @@ func (m Model) renderHubTabs(p palette, width int) (view string, tabRange [][2]i
 		label := name
 		style := lipgloss.NewStyle().Foreground(p.muted).Padding(0, 1)
 		if name == current {
-			style = style.Foreground(p.ink).Background(p.cyan).Bold(true)
+			if entered {
+				style = style.Foreground(p.ink).Background(p.cyan).Bold(true)
+			} else {
+				// Selected but not entered: cyan text on the ordinary
+				// background, no fill -- deliberately lighter than the
+				// solid "entered" look above, not just a different color
+				// for its own sake.
+				style = style.Foreground(p.cyan).Bold(true)
+			}
 		}
 		rendered := style.Render(label)
 		w := lipgloss.Width(rendered)
@@ -1072,6 +1159,7 @@ func (m Model) renderHubTabs(p palette, width int) (view string, tabRange [][2]i
 	return lipgloss.NewStyle().Width(width).BorderBottom(true).BorderStyle(lipgloss.NormalBorder()).
 		BorderForeground(p.muted).Render(strings.Join(tabs, " ")), tabRange
 }
+
 // formMaxWidth is the width constraint renderForm's final Render applies --
 // shared with formFieldLines so a standalone lipgloss.Height measurement of
 // any one row (title, hint, a field line) wraps exactly the same way it
@@ -1146,6 +1234,7 @@ func (m Model) renderForm(p palette) string {
 		BorderForeground(p.cyan).PaddingLeft(2).MaxWidth(m.formMaxWidth()).
 		Render(strings.Join(rows, "\n"))
 }
+
 // renderPickerField renders a picker field as "Label: ‹ value ›" instead of
 // a raw textinput.Model.View() (which would show a blinking text cursor
 // that's misleading here -- the value never accepts typed characters).
@@ -1428,7 +1517,15 @@ func (m Model) archive(p palette) string {
 	}
 	return fmt.Sprintf("%d archived tasks remain in immutable history.\n\nUse `agent-comms search <query>` for full-text event search or `agent-comms export markdown` for a review packet.", n)
 }
-func (m Model) renderPalette(p palette, under string) string {
+
+// paletteLayout builds the command palette's unplaced panel content --
+// shared by renderPalette (which centers it on screen) and paletteMatchAt
+// (mouse.go, which needs the exact same row layout to hit-test a click,
+// recomputed fresh the same way hubTabAt/sidebarHubAt/rowAtY already do,
+// since View() has no way to hand this to the Update() call that handles
+// a click). matchLine[i] is the row offset within the returned panel
+// string (0-based, before centering) of paletteMatches()'s i-th entry.
+func (m Model) paletteLayout(p palette) (panel string, matchLine []int) {
 	width := min(68, max(36, m.width-8))
 	rows := []string{
 		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("COMMANDS"),
@@ -1444,6 +1541,7 @@ func (m Model) renderPalette(p palette, under string) string {
 		rows = append(rows, lipgloss.NewStyle().Foreground(p.amber).Render("No matching command"))
 	} else {
 		rows = append(rows, lipgloss.NewStyle().Foreground(p.muted).Render("Matches"))
+		matchLine = make([]int, len(matches))
 		for index, match := range matches {
 			marker := "  "
 			style := lipgloss.NewStyle().Foreground(p.text)
@@ -1451,34 +1549,82 @@ func (m Model) renderPalette(p palette, under string) string {
 				marker = "› "
 				style = style.Foreground(p.cyan).Bold(true)
 			}
-			rows = append(rows, style.Render(marker+match))
+			matchLine[index] = len(rows)
+			rows = append(rows, style.Render(marker+match.label))
 		}
 	}
 	paletteFooter := strings.Join([]string{
 		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[type]") + " " + lipgloss.NewStyle().Foreground(p.muted).Render("filter"),
-		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[enter]") + " " + lipgloss.NewStyle().Foreground(p.muted).Render("open"),
+		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[enter/click]") + " " + lipgloss.NewStyle().Foreground(p.muted).Render("open"),
 		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[esc]") + " " + lipgloss.NewStyle().Foreground(p.muted).Render("close"),
 	}, " · ")
 	rows = append(rows, "", paletteFooter)
-	panel := lipgloss.NewStyle().Width(width).Border(lipgloss.NormalBorder()).
+	panel = lipgloss.NewStyle().Width(width).Border(lipgloss.NormalBorder()).
 		BorderForeground(p.cyan).Background(p.ink).Foreground(p.text).Padding(1, 2).
 		Render(strings.Join(rows, "\n"))
+	return panel, matchLine
+}
+
+func (m Model) renderPalette(p palette, under string) string {
+	panel, _ := m.paletteLayout(p)
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, panel,
 		lipgloss.WithWhitespaceStyle(lipgloss.NewStyle().Background(p.ink)))
 }
 
-func (m Model) paletteMatches() []string {
+// paletteMatch is one candidate the command palette offers for the current
+// query -- either a named command (paletteCommands) or a bare view to
+// navigate to. This is the single source both the rendered/highlighted
+// match list (paletteLayout) and what actually runs (updatePalette's Enter
+// and click handling) read from -- confirmed live as a real, confusing
+// defect without this: the highlighted "top match" and what Enter actually
+// executed used to come from two independently-written matching
+// implementations that had silently drifted apart, so the UI could
+// confidently highlight "new task" while Enter did something else, or
+// nothing at all, since typing it could never even produce that exact
+// string in the first place (see updatePalette's "space" case).
+type paletteMatch struct {
+	label string
+	apply func(Model) (tea.Model, tea.Cmd)
+}
+
+func (m Model) paletteMatches() []paletteMatch {
 	query := strings.ToLower(strings.TrimSpace(m.query))
-	commands := []string{"new task", "new agent", "new message", "new invocation", "new runtime", "new document", "new decision", "new artifact", "new draft", "new environment key"}
-	commands = append(commands, views...)
-	matches := make([]string, 0, 6)
-	for _, command := range commands {
-		if query == "" || strings.Contains(strings.ToLower(command), query) {
-			matches = append(matches, command)
-			if len(matches) == 6 {
+	var matches []paletteMatch
+	for _, cmd := range paletteCommands() {
+		if len(matches) >= 6 {
+			break
+		}
+		names := append([]string{cmd.label}, cmd.aliases...)
+		hit := query == ""
+		for _, name := range names {
+			if strings.Contains(strings.ToLower(name), query) {
+				hit = true
 				break
 			}
 		}
+		if !hit {
+			continue
+		}
+		cmd := cmd
+		matches = append(matches, paletteMatch{label: cmd.label, apply: func(value Model) (tea.Model, tea.Cmd) {
+			value.openView(cmd.view)
+			return cmd.open(value)
+		}})
+	}
+	for _, name := range views {
+		if len(matches) >= 6 {
+			break
+		}
+		if query != "" && !strings.Contains(strings.ToLower(name), query) {
+			continue
+		}
+		name := name
+		matches = append(matches, paletteMatch{label: name, apply: func(value Model) (tea.Model, tea.Cmd) {
+			value.openView(name)
+			value.focusCurrentView()
+			value.palette, value.query = false, ""
+			return value, nil
+		}})
 	}
 	return matches
 }
@@ -1645,7 +1791,6 @@ func RenderForTest(s *service.Service, actor string, w, h int) (string, error) {
 	m.height = h
 	return m.View().Content, nil
 }
-
 
 type ptySnapshotMsg struct {
 	runtimeID string
