@@ -607,7 +607,18 @@ func (s *Service) Register(actor, display string, pt model.PrincipalType) (model
 	// dependency-free subset of the same detection logic instead -- see
 	// DetectProviderSessionID's own doc comment.
 	sessionID := identity.DetectProviderSessionID()
-	if user.ActiveProfileFor(sessionID) == "" {
+	// Only the convenience of defaulting a *real, isolated* session to its
+	// own just-registered identity -- never the shared, machine-wide
+	// legacy field. That field has no scoping at all, so a session-less
+	// caller's (an opencode-based agent, a script) own convenience default
+	// would otherwise silently become every other session-less caller's
+	// default too, including a human's own plain terminal -- confirmed
+	// live: exactly this is how a project's shared legacy slot ended up
+	// permanently pointed at an agent instead of its human owner, with no
+	// further action from anyone. A session-less caller must already pass
+	// --actor/AGENT_COMMS_ACTOR explicitly on every write regardless (see
+	// RFC 0017), so it never needed this convenience to begin with.
+	if sessionID != "" && user.ActiveProfileFor(sessionID) == "" {
 		user.SetActiveProfileFor(sessionID, name)
 	}
 	if e = identity.SaveUserConfig(user); e != nil {
