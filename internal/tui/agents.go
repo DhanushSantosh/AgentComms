@@ -156,7 +156,16 @@ func consumerModeValues(values []string) []model.ConsumerMode {
 }
 
 var (
-	actActivate   = RowAction{Key: "a", Label: "activate", EventType: "agent.activate", Form: activateForm}
+	actActivate = RowAction{Key: "a", Label: "activate", EventType: "agent.activate", Form: activateForm}
+	// actChangeRole is the owner/orchestrator-administered counterpart to
+	// actSwitchRole (self-service): the exact same agent.activate
+	// transition and form as actActivate -- ValidateTransition never
+	// restricted agent.activate to PENDING targets, only this row-action
+	// list did, leaving an owner/orchestrator with no TUI-visible way to
+	// change an already-ACTIVE agent's role at all (CLI/MCP never had this
+	// gap). Distinct label and key from actActivate since "activate" reads
+	// oddly for a principal that's already active.
+	actChangeRole = RowAction{Key: "r", Label: "change role", EventType: "agent.activate", Form: activateForm}
 	actSwitchRole = RowAction{Key: "w", Label: "switch role", EventType: "agent.switch-role", Form: switchRoleForm}
 	actSuspend    = RowAction{
 		Key: "s", Label: "suspend", EventType: "agent.suspend", Confirm: true,
@@ -283,7 +292,7 @@ func agentActionsFor(a model.Agent, id, actor string, role model.Role) []RowActi
 		case "PENDING":
 			acts = append(acts, actActivate, actRename, revoke)
 		case "ACTIVE":
-			acts = append(acts, actSuspend, actRename, revoke)
+			acts = append(acts, actChangeRole, actSuspend, actRename, revoke)
 		case "SUSPENDED":
 			acts = append(acts, actRename, revoke)
 		case "REVOKED":

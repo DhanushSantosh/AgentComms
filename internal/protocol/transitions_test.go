@@ -649,3 +649,26 @@ func TestAgentActivateNeverGrantsOwnerOutsideBootstrap(t *testing.T) {
 		t.Fatal("expected agent.activate to reject OWNER as a target outside the bootstrap event")
 	}
 }
+
+// TestAgentActivateNeverChangesAnExistingOwnersRole closes the symmetric
+// gap: agent.activate never blocked changing a target whose CURRENT role
+// is already OWNER to something else -- an owner or orchestrator acting
+// administratively could otherwise strip every one of OWNER's protections
+// (immune to suspend/revoke, always elevated) from the real owner with a
+// single ordinary call. Mirrors agent.suspend/agent.revoke's identical,
+// unconditional protection of an OWNER target, and agent.switch-role's own
+// refusal to let the owner switch away from itself.
+func TestAgentActivateNeverChangesAnExistingOwnersRole(t *testing.T) {
+	st := model.State{Agents: map[string]model.Agent{
+		"owner":        humanAgent("owner"),
+		"orchestrator": {ID: "orchestrator", Status: "ACTIVE", Role: model.RoleOrchestrator, PrincipalType: model.PrincipalHuman},
+	}}
+	if _, err := ValidateTransition(st, "owner", "agent.activate", "owner",
+		model.AgentActivated{Role: model.Role("Tester")}, time.Now()); err == nil {
+		t.Fatal("expected the owner to be rejected changing its own role via agent.activate")
+	}
+	if _, err := ValidateTransition(st, "orchestrator", "agent.activate", "owner",
+		model.AgentActivated{Role: model.Role("Tester")}, time.Now()); err == nil {
+		t.Fatal("expected an orchestrator to be rejected changing the owner's role via agent.activate")
+	}
+}
