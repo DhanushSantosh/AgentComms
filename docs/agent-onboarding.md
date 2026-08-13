@@ -58,6 +58,8 @@ Only two role values carry any permission effect: `OWNER` (fixed once, at projec
 
 You can change your own role at any time, self-service, no owner or orchestrator needed: `agent switch-role --role <role>` (CLI) or `agent_switch_role` (MCP). This only ever changes your own label — it can never touch another principal's role, never touches your own capabilities or scopes, and can never target `OWNER`. Switching to `ORCHESTRATOR` this way still goes through the exact same gate as being granted it: you must be a HUMAN principal, a pre-existing HUMAN-tier approval for the grant must already be approved, and (if the human has one registered) the elevated-key passphrase is required — the CLI and TUI will prompt for it; MCP refuses that specific switch outright, same as `agent_activate` already does.
 
+`OWNER` itself can never have its role changed by any path, including administratively: an owner or orchestrator running `agent activate` against the actual project owner is rejected outright, the same as the owner trying to self-switch away from it. There is no way to relabel or demote the project's owner once set — only the one-time bootstrap event at project creation ever assigns it.
+
 ### If your session has no ambient session ID (opencode, scripts, cron jobs)
 
 Every governed write resolves the actor it signs as. If your provider session

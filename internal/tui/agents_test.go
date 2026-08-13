@@ -36,11 +36,15 @@ func TestAgentActionsForStates(t *testing.T) {
 	}{
 		{"pending non-elevated sees nothing", model.Agent{Status: "PENDING"}, "builder", "watcher", model.Role("MEMBER"), nil},
 		{"pending elevated sees activate rename and revoke", model.Agent{Status: "PENDING"}, "builder", "owner", model.RoleOwner, []string{"activate", "rename", "revoke"}},
-		{"active elevated sees suspend rename and revoke", model.Agent{Status: "ACTIVE"}, "builder", "owner", model.RoleOwner, []string{"suspend", "rename", "revoke"}},
+		{"active elevated sees change role suspend rename and revoke", model.Agent{Status: "ACTIVE"}, "builder", "owner", model.RoleOwner, []string{"change role", "suspend", "rename", "revoke"}},
 		{"active non-elevated sees nothing", model.Agent{Status: "ACTIVE"}, "builder", "watcher", model.Role("MEMBER"), nil},
 		{"suspended elevated sees rename and revoke", model.Agent{Status: "SUSPENDED"}, "builder", "owner", model.RoleOwner, []string{"rename", "revoke"}},
 		{"revoked offers only delete", model.Agent{Status: "REVOKED"}, "builder", "owner", model.RoleOwner, []string{"delete"}},
-		{"own row elevated adds rotate key", model.Agent{Status: "ACTIVE"}, "owner", "owner", model.RoleOwner, []string{"suspend", "rename", "revoke", "rotate key"}},
+		// change role is still offered on the owner's own row here (the TUI
+		// shows what MIGHT be allowed, exactly like suspend/revoke already
+		// do for an OWNER target) -- ValidateTransition itself is what
+		// actually refuses to change the owner's role, unconditionally.
+		{"own row elevated adds rotate key", model.Agent{Status: "ACTIVE"}, "owner", "owner", model.RoleOwner, []string{"change role", "suspend", "rename", "revoke", "rotate key"}},
 		{"own row non-elevated has no rotate key but can switch role", model.Agent{Status: "ACTIVE"}, "watcher", "watcher", model.Role("MEMBER"), []string{"switch role"}},
 	}
 	for _, c := range cases {

@@ -411,6 +411,19 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 		if target.Status == "REVOKED" {
 			return nil, errors.New("cannot activate a revoked principal")
 		}
+		// The owner principal's role can never be changed, by anyone,
+		// including another owner/orchestrator acting administratively --
+		// symmetric with agent.suspend and agent.revoke's identical,
+		// unconditional protection of an OWNER target elsewhere in this
+		// function, and with agent.switch-role's own refusal to let the
+		// owner switch itself away from OWNER. Confirmed live as a real
+		// gap this general path left open: nothing previously stopped an
+		// owner/orchestrator from re-activating the actual OWNER with a
+		// different role, silently stripping every one of OWNER's
+		// protections with a single ordinary call.
+		if target.Role == model.RoleOwner {
+			return nil, errors.New("the owner principal's role can never be changed")
+		}
 		activation, ok := payload.(model.AgentActivated)
 		if !ok {
 			return nil, errors.New("valid activation role is required")

@@ -128,6 +128,28 @@ one is picked up, remove it from here and note the landing commit.
   `agent activate --role` lost its `AGENT` default and is now a required
   flag, since there's no longer a generic role to fall back to.
 
+- **RESOLVED 2026-08-13: two follow-up gaps found live, immediately after
+  shipping RFC 0018.** First, the TUI's own "activate" action was only ever
+  offered for a `PENDING` agent, never an already-`ACTIVE` one -- so an
+  owner had a fully governed `agent.activate`/`agent_activate` admin path
+  to change any other principal's role at any time (this always worked,
+  unaffected), but no TUI-visible way to reach it once that principal was
+  active. Added a distinctly-labeled "change role" action (`r`, same
+  `agent.activate` transition and form as "activate") to the `ACTIVE` case,
+  alongside suspend/rename/revoke. Second, and more serious: neither
+  `agent.activate` nor the then-new `agent.switch-role` actually stopped an
+  owner/orchestrator from administratively changing the real project
+  *owner's* role to something else -- `agent.switch-role` only ever blocked
+  the owner switching *itself* away from `OWNER`, leaving the admin path
+  wide open to strip every one of `OWNER`'s protections (immune to
+  suspend/revoke, always elevated) from the actual owner with one ordinary
+  `agent activate --id <owner> --role <anything>` call. Closed by
+  `ValidateTransition` refusing `agent.activate` outright whenever the
+  target's *current* role is already `OWNER`, mirroring `agent.suspend`/
+  `agent.revoke`'s identical, unconditional protection of an `OWNER`
+  target elsewhere in the same function. `OWNER` can now never be changed
+  through any path at all -- self-service or administrative.
+
 - **RESOLVED 2026-08-12: local default-actor resolution could silently
   misattribute real, signed governed actions across concurrent
   sessions.** Reported live: a human owner switching actors in the TUI kept
