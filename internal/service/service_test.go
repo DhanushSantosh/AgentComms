@@ -583,6 +583,53 @@ func TestRegisterRejectsDuplicateIDWithoutTouchingExistingCredential(t *testing.
 	}
 }
 
+// TestRegisterDoesNotHijackTheSharedLegacyActiveProfile is the regression
+// test for a real, confirmed-live gap RFC 0017 alone did not close:
+// Register's own convenience of defaulting a freshly-registered identity to
+// "active" used to write into the shared, machine-wide legacy ActiveProfile
+// field whenever no provider session was recognized -- exactly the
+// session-less path an opencode-based agent always takes. Since that field
+// has no scoping at all, one such agent's own convenience default silently
+// became every other session-less caller's default too, including a
+// human's own plain terminal -- observed live as a project's shared slot
+// ending up permanently pointed at an agent instead of its human owner,
+// with no further action from anyone. Register must now leave the shared
+// field alone entirely when no session is recognized.
+func TestRegisterDoesNotHijackTheSharedLegacyActiveProfile(t *testing.T) {
+	s := setup(t)
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "")
+	t.Setenv("CODEX_THREAD_ID", "")
+
+	// Force the exact precondition that actually made the old code fire
+	// its opportunistic default (`ActiveProfileFor(sessionID) == ""`):
+	// setup(t)'s own init already claims the legacy field for "owner" in
+	// most environments, which would otherwise mask this regression
+	// entirely -- the real incident's project was originally initialized
+	// from a real, session-scoped caller, leaving the legacy field
+	// genuinely empty until a later session-less registration claimed it.
+	before, err := identity.LoadUserConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	before.ActiveProfile = ""
+	if err := identity.SaveUserConfig(before); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := s.Register("session-less-agent", "", model.PrincipalAgent); err != nil {
+		t.Fatal(err)
+	}
+
+	after, err := identity.LoadUserConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.ActiveProfile != "" {
+		t.Fatalf("session-less registration claimed the shared legacy active profile: got %q, want empty",
+			after.ActiveProfile)
+	}
+}
+
 func TestActorKeyRotationPreservesVerification(t *testing.T) {
 	s := setup(t)
 	activate(t, s, "alpha", model.PrincipalAgent)
