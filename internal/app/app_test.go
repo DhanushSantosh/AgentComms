@@ -260,6 +260,76 @@ func TestAgentSwitchRoleIsSelfServiceThroughTheRealCLI(t *testing.T) {
 	}
 }
 
+// TestTUIResolvesOwnerWhenLegacyActorIsAmbiguous is the end-to-end
+// regression test for RFC 0019: the TUI's own PersistentPreRunE wiring
+// (cmd.Name() == "tui") must resolve straight to the project owner, with
+// AmbiguousActor left false, in exactly the scenario RFC 0017 refuses for
+// every other command -- a project with 2+ locally-registered identities
+// and no recognized provider session. Invokes PersistentPreRunE directly
+// rather than through Run() (RunE would enter the TUI's real, blocking
+// bubbletea event loop, which needs a real terminal this test doesn't have).
+func TestTUIResolvesOwnerWhenLegacyActorIsAmbiguous(t *testing.T) {
+	d := t.TempDir()
+	cleanupProjectDaemon(t, d)
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(d, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(d, "credentials"))
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "")
+	t.Setenv("CODEX_THREAD_ID", "")
+
+	var out, errBuf bytes.Buffer
+	if err := Run([]string{"init", "--project", d, "--non-interactive", "--owner", "owner", "--json"}, &out, &errBuf); err != nil {
+		t.Fatalf("init failed: %v\n%s", err, errBuf.String())
+	}
+	out.Reset()
+	errBuf.Reset()
+	if err := Run([]string{"agent", "register", "--id", "helper", "--principal-type", "AGENT",
+		"--project", d, "--actor", "helper", "--json"}, &out, &errBuf); err != nil {
+		t.Fatalf("registering a second local identity failed: %v\n%s", err, errBuf.String())
+	}
+
+	c := &cli{out: &out, err: &errBuf, timeout: 10 * time.Second}
+	root := c.root()
+	// c.root() binds --project's flag default (registered as part of
+	// building the command tree) into c.project, overwriting any value
+	// set before this call -- so it has to be set after, not in the cli
+	// struct literal above.
+	c.project = d
+	root.SetOut(&out)
+	root.SetErr(&errBuf)
+	tuiCmd, _, findErr := root.Find([]string{"tui"})
+	if findErr != nil {
+		t.Fatal(findErr)
+	}
+	if err := root.PersistentPreRunE(tuiCmd, nil); err != nil {
+		t.Fatalf("tui's own PersistentPreRunE failed: %v", err)
+	}
+	if c.svc.AmbiguousActor {
+		t.Fatalf("expected the TUI to resolve straight to the project owner, not refuse as ambiguous: %+v", c.actorResolution)
+	}
+	if c.actorResolution.Actor != "owner" || c.actorResolution.Source != identity.ActorSourceProjectOwner {
+		t.Fatalf("expected the TUI to resolve to the project owner, got %+v", c.actorResolution)
+	}
+
+	// The identical scenario through an ordinary (non-tui) command must
+	// still refuse exactly as RFC 0017 specifies -- this opt-out is
+	// scoped to the TUI alone.
+	c2 := &cli{out: &out, err: &errBuf, timeout: 10 * time.Second}
+	root2 := c2.root()
+	c2.project = d
+	root2.SetOut(&out)
+	root2.SetErr(&errBuf)
+	agentListCmd, _, findErr2 := root2.Find([]string{"agent", "list"})
+	if findErr2 != nil {
+		t.Fatal(findErr2)
+	}
+	if err := root2.PersistentPreRunE(agentListCmd, nil); err != nil {
+		t.Fatalf("agent list's own PersistentPreRunE failed: %v", err)
+	}
+	if !c2.svc.AmbiguousActor {
+		t.Fatalf("expected an ordinary CLI command to still be refused as ambiguous, unaffected by RFC 0019: %+v", c2.actorResolution)
+	}
+}
+
 // TestEnsureDaemonReplacesIncompatibleDaemon guards ensureDaemon's
 // replace-on-mismatch path end to end: a running daemon that reports a
 // stale BuildID/ProductVersion must be shut down and replaced with a

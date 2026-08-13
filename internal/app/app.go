@@ -284,6 +284,11 @@ func (c *cli) root() *cobra.Command {
 			EnvironmentActor: environmentActor, HostLabel: os.Getenv("AGENT_COMMS_HOST_LABEL"),
 			ProviderSessionID: providerSessionID,
 			UserConfig:        userConfig,
+			// Only the TUI: a real, attached, interactive terminal session
+			// nothing session-less could plausibly be driving -- see RFC
+			// 0019. CLI/MCP/worker are unaffected, matching cmd.Name() !=
+			// "doctor" above as the established per-command check pattern.
+			PreferOwnerOnAmbiguousLegacy: cmd.Name() == "tui",
 		})
 		if e != nil {
 			return e
