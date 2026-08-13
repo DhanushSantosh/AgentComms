@@ -262,18 +262,26 @@ one is picked up, remove it from here and note the landing commit.
   diagnose the right fix.
 
 - **`TestEnsureDaemonReplacesIncompatibleDaemon` is flaky on loaded/slow
-  windows-latest runners too, not fixed.** A second, distinct flake in the
-  same category, observed on PR #27's CI (2026-08-13): failed with "local
-  daemon did not become ready" after a 41s wait, on one of two parallel
-  windows-latest runs against the identical commit -- the other passed
-  cleanly, and a re-run of the failed job passed cleanly too. Unrelated to
-  RFC 0018's role changes (this test exercises daemon version-mismatch
-  respawn logic, untouched by that PR). Same underlying pattern as
-  `TestInvocationDeliveryFailureDoesNotTerminateObligation` above: a fixed
-  wait/readiness budget that a loaded CI runner can occasionally miss, not
-  a logic bug. Worth a shared look at whether these fixed-timeout Windows
-  daemon/delivery tests need a runner-load-aware retry budget instead of a
-  flat deadline, if a third instance shows up.
+  windows-latest runners too, not fixed -- now confirmed three times.** A
+  second, distinct flake in the same category as the entry below, first
+  seen on PR #27's CI (2026-08-13): failed with "local daemon did not
+  become ready" after a 41s wait, on one of two parallel windows-latest
+  runs against the identical commit -- the other passed cleanly, and a
+  re-run of the failed job passed cleanly too. Recurred identically on PR
+  #28 the same day (again exactly 41s, again one of two parallel
+  windows-latest runs, again cleared by a bare re-run) -- unrelated to that
+  PR's TUI/protocol changes either, same as PR #27. Deliberately not
+  widened further this time: `daemonReadyTimeout` (internal/app/app.go)
+  already carries its own documented history of being widened exactly for
+  this failure mode -- 10s to 20s to 40s, across three separate PRs in an
+  earlier session, each time citing the identical "confirmed on CI,
+  resolved by a bare rerun" pattern. A test that already burns 41s before
+  failing is close to the point where widening further mostly delays
+  surfacing a genuinely hung daemon rather than absorbing real contention.
+  The established mitigation (rerun) reliably works and is cheap; a
+  runner-load-aware retry budget instead of a flat deadline is still worth
+  it if a fourth instance shows up, but three data points aren't enough yet
+  to know it would actually help versus just moving the ceiling again.
 
 - **RESOLVED 2026-08-12: `internal/protocol`'s `ValidateTransition` direct
   coverage gap closed, and a per-package coverage floor now guards against
