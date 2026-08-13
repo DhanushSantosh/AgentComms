@@ -26,7 +26,7 @@ func handoffWorkerService(t *testing.T, instruction, expectedResult string) (*se
 		t.Fatal(err)
 	}
 	if _, err := instance.Execute("owner", "agent.activate", "AXIOM",
-		model.AgentActivated{Role: model.RoleAgent, Scopes: []string{"src"}}); err != nil {
+		model.AgentActivated{Role: model.Role("MEMBER"), Scopes: []string{"src"}}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := instance.Execute("AXIOM", "runtime.register", "runtime-axiom",
@@ -34,7 +34,7 @@ func handoffWorkerService(t *testing.T, instruction, expectedResult string) (*se
 		t.Fatal(err)
 	}
 	if _, err := instance.Execute("owner", "agent.activate", "DAMON",
-		model.AgentActivated{Role: model.RoleAgent, Scopes: []string{"src"}}); err != nil {
+		model.AgentActivated{Role: model.Role("MEMBER"), Scopes: []string{"src"}}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := instance.Execute("owner", "invocation.policy.update", "DAMON",

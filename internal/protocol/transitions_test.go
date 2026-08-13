@@ -13,7 +13,7 @@ func TestRequiresElevatedKeyClassifiesOrchestratorGrant(t *testing.T) {
 	if RequiresElevatedKey(st, "owner", "agent.activate", "candidate", model.AgentActivated{Role: model.RoleOrchestrator}) != true {
 		t.Fatal("expected an ORCHESTRATOR grant to require the elevated key")
 	}
-	if RequiresElevatedKey(st, "owner", "agent.activate", "candidate", model.AgentActivated{Role: model.RoleAgent}) != false {
+	if RequiresElevatedKey(st, "owner", "agent.activate", "candidate", model.AgentActivated{Role: model.Role("MEMBER")}) != false {
 		t.Fatal("expected a plain AGENT-role activation not to require the elevated key")
 	}
 	if RequiresElevatedKey(st, "owner", "agent.activate", "candidate", "not-a-payload") != false {
@@ -40,8 +40,8 @@ func TestRequiresElevatedKeyClassifiesHumanTierApproval(t *testing.T) {
 func TestRequiresElevatedKeyClassifiesRevokeOfOrchestratorOrHuman(t *testing.T) {
 	st := model.State{Agents: map[string]model.Agent{
 		"agent-orch":  agentOrchestrator("agent-orch"),
-		"human-agent": {ID: "human-agent", Status: "ACTIVE", Role: model.RoleAgent, PrincipalType: model.PrincipalHuman},
-		"plain-agent": {ID: "plain-agent", Status: "ACTIVE", Role: model.RoleAgent, PrincipalType: model.PrincipalAgent},
+		"human-agent": {ID: "human-agent", Status: "ACTIVE", Role: model.Role("MEMBER"), PrincipalType: model.PrincipalHuman},
+		"plain-agent": {ID: "plain-agent", Status: "ACTIVE", Role: model.Role("MEMBER"), PrincipalType: model.PrincipalAgent},
 	}}
 	if RequiresElevatedKey(st, "owner", "agent.revoke", "agent-orch", model.RuntimeStatusChanged{}) != true {
 		t.Fatal("expected revoking an orchestrator to require the elevated key")
@@ -59,8 +59,8 @@ func TestRequiresElevatedKeyClassifiesRevokeOfOrchestratorOrHuman(t *testing.T) 
 
 func TestRequiresElevatedKeyClassifiesAgentDeletion(t *testing.T) {
 	st := model.State{Agents: map[string]model.Agent{
-		"revoked": {ID: "revoked", Status: "REVOKED", Role: model.RoleAgent, PrincipalType: model.PrincipalAgent},
-		"active":  {ID: "active", Status: "ACTIVE", Role: model.RoleAgent, PrincipalType: model.PrincipalAgent},
+		"revoked": {ID: "revoked", Status: "REVOKED", Role: model.Role("MEMBER"), PrincipalType: model.PrincipalAgent},
+		"active":  {ID: "active", Status: "ACTIVE", Role: model.Role("MEMBER"), PrincipalType: model.PrincipalAgent},
 	}}
 	if !RequiresElevatedKey(st, "owner", "agent.delete", "revoked", model.AgentDeleted{Reason: "cleanup"}) {
 		t.Fatal("expected deletion of a revoked principal to require the elevated key")
@@ -73,7 +73,7 @@ func TestRequiresElevatedKeyClassifiesAgentDeletion(t *testing.T) {
 func TestAgentDeleteRequiresRevokedTargetAndHumanActor(t *testing.T) {
 	humanOwner := humanAgent("owner")
 	agentLead := agentOrchestrator("agent-lead")
-	activeTarget := model.Agent{ID: "target", Status: "ACTIVE", Role: model.RoleAgent, PrincipalType: model.PrincipalAgent}
+	activeTarget := model.Agent{ID: "target", Status: "ACTIVE", Role: model.Role("MEMBER"), PrincipalType: model.PrincipalAgent}
 	st := model.State{Agents: map[string]model.Agent{
 		"owner": humanOwner, "agent-lead": agentLead, "target": activeTarget,
 	}}
@@ -127,7 +127,7 @@ func TestValidateTransitionElevateKeyRequiresSelf(t *testing.T) {
 }
 
 func TestValidateTransitionElevateKeyRequiresHumanPrincipal(t *testing.T) {
-	agentPrincipal := model.Agent{ID: "worker", Status: "ACTIVE", Role: model.RoleAgent, PrincipalType: model.PrincipalAgent}
+	agentPrincipal := model.Agent{ID: "worker", Status: "ACTIVE", Role: model.Role("MEMBER"), PrincipalType: model.PrincipalAgent}
 	st := model.State{Agents: map[string]model.Agent{"worker": agentPrincipal}}
 	if _, err := ValidateTransition(st, "worker", "agent.elevate-key", "worker",
 		model.AgentElevatedKeyRegistered{PublicKey: "pk"}, time.Now()); err == nil {
@@ -157,7 +157,7 @@ func TestValidateTransitionElevateKeySucceedsForSelfHuman(t *testing.T) {
 // since this is inherently self-scoped and grants no authority over anyone
 // else.
 func TestValidateTransitionElevateKeyIsNotElevationGated(t *testing.T) {
-	plainHuman := model.Agent{ID: "human-agent", Status: "ACTIVE", Role: model.RoleAgent, PrincipalType: model.PrincipalHuman}
+	plainHuman := model.Agent{ID: "human-agent", Status: "ACTIVE", Role: model.Role("MEMBER"), PrincipalType: model.PrincipalHuman}
 	st := model.State{Agents: map[string]model.Agent{"human-agent": plainHuman}}
 	if _, err := ValidateTransition(st, "human-agent", "agent.elevate-key", "human-agent",
 		model.AgentElevatedKeyRegistered{PublicKey: "pk"}, time.Now()); err != nil {
@@ -185,10 +185,10 @@ func agentOrchestrator(id string) model.Agent {
 // role turns that into a one-line diagnosis.
 func TestElevationRejectionNamesTheResolvedActorAndItsRole(t *testing.T) {
 	st := model.State{Agents: map[string]model.Agent{
-		"plain-agent": {ID: "plain-agent", Status: "ACTIVE", Role: model.RoleAgent, PrincipalType: model.PrincipalAgent},
+		"plain-agent": {ID: "plain-agent", Status: "ACTIVE", Role: model.Role("MEMBER"), PrincipalType: model.PrincipalAgent},
 	}}
 	_, err := ValidateTransition(st, "plain-agent", "agent.activate", "target",
-		model.AgentActivated{Role: model.RoleAgent}, time.Now())
+		model.AgentActivated{Role: model.Role("MEMBER")}, time.Now())
 	if err == nil {
 		t.Fatal("expected a non-elevated actor to be rejected")
 	}
@@ -196,7 +196,7 @@ func TestElevationRejectionNamesTheResolvedActorAndItsRole(t *testing.T) {
 	if !strings.Contains(msg, "plain-agent") {
 		t.Fatalf("error %q does not name the actor that was actually resolved", msg)
 	}
-	if !strings.Contains(msg, "role is agent") {
+	if !strings.Contains(msg, "role is member") {
 		t.Fatalf("error %q does not name the actor's actual current role", msg)
 	}
 }
@@ -220,7 +220,7 @@ func TestAgentSuspendOfOrchestratorRequiresHumanActor(t *testing.T) {
 		"owner":           humanAgent("owner"),
 		"agent-orch":      agentOrchestrator("agent-orch"),
 		"other-orch":      agentOrchestrator("other-orch"),
-		"human-non-owner": {ID: "human-non-owner", Status: "ACTIVE", Role: model.RoleAgent, PrincipalType: model.PrincipalHuman},
+		"human-non-owner": {ID: "human-non-owner", Status: "ACTIVE", Role: model.Role("MEMBER"), PrincipalType: model.PrincipalHuman},
 	}}
 	if _, err := ValidateTransition(st, "agent-orch", "agent.suspend", "other-orch", model.TaskStatus{}, time.Now()); err == nil {
 		t.Fatal("expected an agent-principal orchestrator to be rejected suspending another orchestrator")
@@ -250,7 +250,7 @@ func TestAgentSuspendSelfBypassesHumanGate(t *testing.T) {
 func TestAgentSuspendOfPlainAgentNeedsOnlyOrdinaryElevation(t *testing.T) {
 	st := model.State{Agents: map[string]model.Agent{
 		"agent-orch": agentOrchestrator("agent-orch"),
-		"bystander":  {ID: "bystander", Status: "ACTIVE", Role: model.RoleAgent, PrincipalType: model.PrincipalAgent},
+		"bystander":  {ID: "bystander", Status: "ACTIVE", Role: model.Role("MEMBER"), PrincipalType: model.PrincipalAgent},
 	}}
 	if _, err := ValidateTransition(st, "agent-orch", "agent.suspend", "bystander", model.TaskStatus{}, time.Now()); err != nil {
 		t.Fatalf("expected an agent-principal orchestrator to suspend a plain agent: %v", err)
@@ -267,7 +267,7 @@ func TestAgentSuspendOfPlainAgentNeedsOnlyOrdinaryElevation(t *testing.T) {
 func TestAgentRotateKeyRejectsCrossActorTarget(t *testing.T) {
 	st := model.State{Agents: map[string]model.Agent{
 		"owner":  humanAgent("owner"),
-		"victim": {ID: "victim", Status: "ACTIVE", Role: model.RoleAgent, PrincipalType: model.PrincipalAgent},
+		"victim": {ID: "victim", Status: "ACTIVE", Role: model.Role("MEMBER"), PrincipalType: model.PrincipalAgent},
 	}}
 	if _, err := ValidateTransition(st, "owner", "agent.rotate-key", "victim",
 		model.AgentKeyRotated{PublicKey: "attacker-controlled-key"}, time.Now()); err == nil {
@@ -280,7 +280,7 @@ func TestAgentRotateKeyRejectsCrossActorTarget(t *testing.T) {
 // interface has ever used, is unaffected.
 func TestAgentRotateKeySelfStillWorks(t *testing.T) {
 	st := model.State{Agents: map[string]model.Agent{
-		"bystander": {ID: "bystander", Status: "ACTIVE", Role: model.RoleAgent, PrincipalType: model.PrincipalAgent},
+		"bystander": {ID: "bystander", Status: "ACTIVE", Role: model.Role("MEMBER"), PrincipalType: model.PrincipalAgent},
 	}}
 	if _, err := ValidateTransition(st, "bystander", "agent.rotate-key", "bystander",
 		model.AgentKeyRotated{PublicKey: "new-key"}, time.Now()); err != nil {
@@ -292,7 +292,7 @@ func TestInvocationRequestNormalizesConsumerRoutingFromPolicy(t *testing.T) {
 	state := model.State{
 		Agents: map[string]model.Agent{
 			"owner":   humanAgent("owner"),
-			"builder": {ID: "builder", Status: "ACTIVE", Role: model.RoleAgent, PrincipalType: model.PrincipalAgent},
+			"builder": {ID: "builder", Status: "ACTIVE", Role: model.Role("MEMBER"), PrincipalType: model.PrincipalAgent},
 		},
 		AgentRuntimes: map[string]model.AgentRuntime{
 			"builder-interactive": {
@@ -326,7 +326,7 @@ func TestInvocationClaimEnforcesKindPreferredRuntimeAndCapacity(t *testing.T) {
 	now := time.Now().UTC()
 	state := model.State{
 		Agents: map[string]model.Agent{
-			"builder": {ID: "builder", Status: "ACTIVE", Role: model.RoleAgent, PrincipalType: model.PrincipalAgent},
+			"builder": {ID: "builder", Status: "ACTIVE", Role: model.Role("MEMBER"), PrincipalType: model.PrincipalAgent},
 		},
 		Invocations: map[string]model.Invocation{
 			"invocation": {
@@ -377,7 +377,7 @@ func TestDeliveryAttemptAndEvidenceAreStrictlyBound(t *testing.T) {
 	state := model.State{
 		Agents: map[string]model.Agent{
 			"owner":   humanAgent("owner"),
-			"builder": {ID: "builder", Status: "ACTIVE", Role: model.RoleAgent, PrincipalType: model.PrincipalAgent},
+			"builder": {ID: "builder", Status: "ACTIVE", Role: model.Role("MEMBER"), PrincipalType: model.PrincipalAgent},
 		},
 		Invocations: map[string]model.Invocation{
 			"invocation": {
@@ -433,7 +433,7 @@ func TestRuntimeConfigureRequiresInactiveOfflineRuntime(t *testing.T) {
 	now := time.Now().UTC()
 	state := model.State{
 		Agents: map[string]model.Agent{
-			"builder": {ID: "builder", Status: "ACTIVE", Role: model.RoleAgent, PrincipalType: model.PrincipalAgent},
+			"builder": {ID: "builder", Status: "ACTIVE", Role: model.Role("MEMBER"), PrincipalType: model.PrincipalAgent},
 		},
 		AgentRuntimes: map[string]model.AgentRuntime{
 			"runtime": {
@@ -493,23 +493,23 @@ func TestProjectSettingsUpdateRequiresHumanPrincipal(t *testing.T) {
 
 // TestEnvSetAndDeleteRequireElevation closes a real gap this package had
 // zero test coverage of at all: env.set/env.delete had no role gate
-// whatsoever, so even an OBSERVER-role principal (intended read-only) could
-// write or delete arbitrary key/value data into the shared, append-only
-// signed log, with no way to truly remove it afterward (only hide it from
-// current projected state).
+// whatsoever, so any non-owner/non-orchestrator principal could write or
+// delete arbitrary key/value data into the shared, append-only signed log,
+// with no way to truly remove it afterward (only hide it from current
+// projected state).
 func TestEnvSetAndDeleteRequireElevation(t *testing.T) {
 	st := model.State{Agents: map[string]model.Agent{
-		"owner":    humanAgent("owner"),
-		"observer": {ID: "observer", Status: "ACTIVE", Role: model.RoleObserver, PrincipalType: model.PrincipalAgent},
+		"owner":  humanAgent("owner"),
+		"member": {ID: "member", Status: "ACTIVE", Role: model.Role("MEMBER"), PrincipalType: model.PrincipalAgent},
 	}}
-	if _, err := ValidateTransition(st, "observer", "env.set", "key1", model.EnvSetPayload{Key: "key1", Value: "v"}, time.Now()); err == nil {
-		t.Fatal("expected an OBSERVER-role principal to be rejected setting an env value")
+	if _, err := ValidateTransition(st, "member", "env.set", "key1", model.EnvSetPayload{Key: "key1", Value: "v"}, time.Now()); err == nil {
+		t.Fatal("expected a non-elevated principal to be rejected setting an env value")
 	}
 	if _, err := ValidateTransition(st, "owner", "env.set", "key1", model.EnvSetPayload{Key: "key1", Value: "v"}, time.Now()); err != nil {
 		t.Fatalf("expected an owner to set an env value: %v", err)
 	}
-	if _, err := ValidateTransition(st, "observer", "env.delete", "key1", model.EnvDeletePayload{Key: "key1"}, time.Now()); err == nil {
-		t.Fatal("expected an OBSERVER-role principal to be rejected deleting an env value")
+	if _, err := ValidateTransition(st, "member", "env.delete", "key1", model.EnvDeletePayload{Key: "key1"}, time.Now()); err == nil {
+		t.Fatal("expected a non-elevated principal to be rejected deleting an env value")
 	}
 	if _, err := ValidateTransition(st, "owner", "env.delete", "key1", model.EnvDeletePayload{Key: "key1"}, time.Now()); err != nil {
 		t.Fatalf("expected an owner to delete an env value: %v", err)
@@ -522,5 +522,130 @@ func TestEnvSetRejectsEmptyKey(t *testing.T) {
 	st := model.State{Agents: map[string]model.Agent{"owner": humanAgent("owner")}}
 	if _, err := ValidateTransition(st, "owner", "env.set", "", model.EnvSetPayload{Key: "", Value: "v"}, time.Now()); err == nil {
 		t.Fatal("expected an empty key to be rejected")
+	}
+}
+
+// -- agent.switch-role (RFC 0018) ------------------------------------------
+
+func switchRoleState(extra ...func(*model.State)) model.State {
+	st := model.State{Agents: map[string]model.Agent{
+		"owner":        humanAgent("owner"),
+		"human-member": {ID: "human-member", Status: "ACTIVE", Role: model.Role("MEMBER"), PrincipalType: model.PrincipalHuman},
+		"agent-member": {ID: "agent-member", Status: "ACTIVE", Role: model.Role("MEMBER"), PrincipalType: model.PrincipalAgent},
+	}}
+	for _, f := range extra {
+		f(&st)
+	}
+	return st
+}
+
+func TestSwitchRoleIsSelfOnly(t *testing.T) {
+	st := switchRoleState()
+	if _, err := ValidateTransition(st, "agent-member", "agent.switch-role", "human-member",
+		model.AgentRoleSwitched{Role: model.Role("Tester")}, time.Now()); err == nil {
+		t.Fatal("expected switching a DIFFERENT principal's role to be rejected")
+	}
+}
+
+func TestSwitchRoleNeverTargetsOwner(t *testing.T) {
+	st := switchRoleState()
+	if _, err := ValidateTransition(st, "agent-member", "agent.switch-role", "agent-member",
+		model.AgentRoleSwitched{Role: model.RoleOwner}, time.Now()); err == nil {
+		t.Fatal("expected switching to OWNER to be rejected")
+	}
+	// Case-insensitive too -- normalizeRole canonicalizes before the check.
+	if _, err := ValidateTransition(st, "agent-member", "agent.switch-role", "agent-member",
+		model.AgentRoleSwitched{Role: model.Role("owner")}, time.Now()); err == nil {
+		t.Fatal("expected switching to owner (lowercase) to be rejected too")
+	}
+}
+
+func TestSwitchRoleRejectsWhenCurrentRoleIsOwner(t *testing.T) {
+	st := switchRoleState()
+	if _, err := ValidateTransition(st, "owner", "agent.switch-role", "owner",
+		model.AgentRoleSwitched{Role: model.Role("Tester")}, time.Now()); err == nil {
+		t.Fatal("expected the owner principal to be rejected switching its own role, even to something harmless")
+	}
+}
+
+func TestSwitchRoleToCustomLabelNeedsNoElevationAndPreservesCasing(t *testing.T) {
+	st := switchRoleState()
+	payload, err := ValidateTransition(st, "agent-member", "agent.switch-role", "agent-member",
+		model.AgentRoleSwitched{Role: model.Role("Frontend-Architect")}, time.Now())
+	if err != nil {
+		t.Fatalf("expected a non-elevated principal to switch its own role freely: %v", err)
+	}
+	switched, ok := payload.(model.AgentRoleSwitched)
+	if !ok || switched.Role != "Frontend-Architect" {
+		t.Fatalf("expected the custom label's casing to be preserved exactly, got %#v", payload)
+	}
+}
+
+func TestSwitchRoleRejectsEmptyOrOverlongRole(t *testing.T) {
+	st := switchRoleState()
+	if _, err := ValidateTransition(st, "agent-member", "agent.switch-role", "agent-member",
+		model.AgentRoleSwitched{Role: model.Role("   ")}, time.Now()); err == nil {
+		t.Fatal("expected a whitespace-only role to be rejected")
+	}
+	if _, err := ValidateTransition(st, "agent-member", "agent.switch-role", "agent-member",
+		model.AgentRoleSwitched{Role: model.Role(strings.Repeat("x", 65))}, time.Now()); err == nil {
+		t.Fatal("expected a role over 64 characters to be rejected")
+	}
+}
+
+func TestSwitchRoleToOrchestratorRequiresHumanPrincipal(t *testing.T) {
+	st := switchRoleState()
+	if _, err := ValidateTransition(st, "agent-member", "agent.switch-role", "agent-member",
+		model.AgentRoleSwitched{Role: model.RoleOrchestrator}, time.Now()); err == nil {
+		t.Fatal("expected an AGENT principal to be rejected self-switching to orchestrator")
+	}
+}
+
+func TestSwitchRoleToOrchestratorRequiresApproval(t *testing.T) {
+	st := switchRoleState()
+	if _, err := ValidateTransition(st, "human-member", "agent.switch-role", "human-member",
+		model.AgentRoleSwitched{Role: model.RoleOrchestrator}, time.Now()); err == nil {
+		t.Fatal("expected switching to orchestrator without a prior HUMAN-tier approval to be rejected")
+	}
+	approved := switchRoleState(func(s *model.State) {
+		s.Approvals = map[string]model.Approval{
+			"approval-1": {
+				Action: OrchestratorGrantApprovalAction("human-member"), Status: "APPROVED", Tier: "HUMAN",
+			},
+		}
+	})
+	if _, err := ValidateTransition(approved, "human-member", "agent.switch-role", "human-member",
+		model.AgentRoleSwitched{Role: model.RoleOrchestrator}, time.Now()); err != nil {
+		t.Fatalf("expected switching to orchestrator with an approved HUMAN-tier approval to succeed: %v", err)
+	}
+}
+
+func TestRequiresElevatedKeyClassifiesSwitchRoleToOrchestrator(t *testing.T) {
+	st := model.State{}
+	if RequiresElevatedKey(st, "human-member", "agent.switch-role", "human-member", model.AgentRoleSwitched{Role: model.RoleOrchestrator}) != true {
+		t.Fatal("expected a self-switch to ORCHESTRATOR to require the elevated key")
+	}
+	if RequiresElevatedKey(st, "agent-member", "agent.switch-role", "agent-member", model.AgentRoleSwitched{Role: model.Role("Tester")}) != false {
+		t.Fatal("expected a self-switch to a custom label not to require the elevated key")
+	}
+	if RequiresElevatedKey(st, "agent-member", "agent.switch-role", "agent-member", "not-a-payload") != false {
+		t.Fatal("expected a malformed payload to fail closed to false, not panic")
+	}
+}
+
+// TestAgentActivateNeverGrantsOwnerOutsideBootstrap closes the gap RFC 0018
+// identified: the general agent.activate path (this validator) previously
+// accepted RoleOwner for any target, silently -- unintended, since OWNER
+// is meant to be reachable only through the one special bootstrap event
+// (sequence == 1), handled entirely outside this validator by
+// internal/personalauthority/engine.go and internal/authority/postgres.go.
+func TestAgentActivateNeverGrantsOwnerOutsideBootstrap(t *testing.T) {
+	st := model.State{Agents: map[string]model.Agent{
+		"owner":     humanAgent("owner"),
+		"candidate": {ID: "candidate", Status: "PENDING", PrincipalType: model.PrincipalAgent},
+	}}
+	if _, err := ValidateTransition(st, "owner", "agent.activate", "candidate",
+		model.AgentActivated{Role: model.RoleOwner}, time.Now()); err == nil {
+		t.Fatal("expected agent.activate to reject OWNER as a target outside the bootstrap event")
 	}
 }

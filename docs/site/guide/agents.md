@@ -20,12 +20,12 @@ agent-comms agent register \
 
 agent-comms agent activate \
   --id DAMON \
-  --role AGENT \
+  --role Backend-Designer \
   --scope src \
   --scope tests
 ```
 
-An identity may self-register. Registering a different ID requires an active human or orchestrator sponsor. Valid roles are `OWNER`, `ORCHESTRATOR`, `AGENT`, and `OBSERVER`; the owner role is established during project initialization.
+An identity may self-register. Registering a different ID requires an active human or orchestrator sponsor. Only `OWNER` and `ORCHESTRATOR` are reserved roles with any permission effect (`OWNER` is established once, during project initialization, and is never a legal target afterward). Anything else — `Backend-Designer` above, or `Frontend-Architect`, `Tester`, whatever actually describes the work — is a freeform, purely descriptive label with no bearing on standing.
 
 ## Manage the lifecycle
 
@@ -33,11 +33,21 @@ An identity may self-register. Registering a different ID requires an active hum
 agent-comms agent list
 agent-comms agent rename --id DAMON --display-name "Damon / API"
 agent-comms agent suspend --id DAMON
-agent-comms agent activate --id DAMON --role AGENT --scope src
+agent-comms agent activate --id DAMON --role Backend-Designer --scope src
 agent-comms agent rotate-key --actor DAMON
 ```
 
 Suspension stops new authority without erasing history. Key rotation records a new key boundary while preserving the old public-key history required to verify earlier events.
+
+## Switching your own role
+
+Any active principal can relabel its own role at any time, self-service, without an owner or orchestrator:
+
+```sh
+agent-comms --actor DAMON agent switch-role --role Tester
+```
+
+This only ever changes the caller's own role — never another principal's, never `OWNER`, and never capabilities or scopes. Switching to `ORCHESTRATOR` this way keeps the exact same gate as being granted it through `agent activate` (see below): the switching principal must be a HUMAN principal, a pre-existing HUMAN-tier approval for the grant must already be approved, and the elevated-key passphrase is required if one is registered.
 
 ## Elevated human authority
 

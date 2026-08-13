@@ -83,7 +83,7 @@ func TestPostgresToCacheToLocalConnectorDelivery(t *testing.T) {
 			PublicKey: builder.PublicKey(), PrincipalType: model.PrincipalAgent,
 		}},
 		{"owner", "agent.activate", "builder", model.AgentActivated{
-			Role: model.RoleAgent, Scopes: []string{"src"},
+			Role: model.Role("MEMBER"), Scopes: []string{"src"},
 		}},
 		{"builder", "runtime.register", "runtime-builder", model.RuntimeRegistered{
 			AgentID: "builder", Connector: "LOCAL_PROCESS", ConfigReference: "builder-local", MaxConcurrent: 1,

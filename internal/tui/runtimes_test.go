@@ -62,7 +62,7 @@ func TestRuntimeSessionBindingReflectsCapturedProviderAndID(t *testing.T) {
 // redesign, not just the underlying data functions in isolation.
 func TestRuntimesViewRendersDetailPaneForSelectedRow(t *testing.T) {
 	instance := newTestService(t)
-	registerAgent(t, instance, "AXIOM", model.RoleAgent, "src")
+	registerAgent(t, instance, "AXIOM", model.Role("MEMBER"), "src")
 	if _, err := instance.Execute("AXIOM", "runtime.register", "axiom-runtime-1",
 		model.RuntimeRegistered{AgentID: "AXIOM", Connector: "MANUAL", MaxConcurrent: 1}); err != nil {
 		t.Fatal(err)
@@ -93,7 +93,7 @@ func TestRuntimesViewRendersDetailPaneForSelectedRow(t *testing.T) {
 // instead of a table row.
 func TestRuntimeDetailIncludesProviderAndSession(t *testing.T) {
 	instance := newTestService(t)
-	registerAgent(t, instance, "AXIOM", model.RoleAgent, "src")
+	registerAgent(t, instance, "AXIOM", model.Role("MEMBER"), "src")
 	if _, err := instance.Execute("AXIOM", "runtime.register", "axiom-runtime-1",
 		model.RuntimeRegistered{AgentID: "AXIOM", Connector: "MANUAL", MaxConcurrent: 1}); err != nil {
 		t.Fatal(err)

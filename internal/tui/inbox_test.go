@@ -24,7 +24,7 @@ func enterInboxView(t *testing.T, m Model) Model {
 
 func TestAckThenCompleteActionMessage(t *testing.T) {
 	s := newTestService(t)
-	registerAgent(t, s, "builder", model.RoleAgent, "src")
+	registerAgent(t, s, "builder", model.Role("MEMBER"), "src")
 	if _, e := s.Execute("owner", "message.post", "msg-1", model.MessagePosted{Kind: "ACTION", To: []string{"builder"}, Subject: "Run tests", Body: "Attach results"}); e != nil {
 		t.Fatal(e)
 	}
@@ -59,7 +59,7 @@ func TestAckThenCompleteActionMessage(t *testing.T) {
 
 func TestAckThenResolveBlocker(t *testing.T) {
 	s := newTestService(t)
-	registerAgent(t, s, "builder", model.RoleAgent, "src")
+	registerAgent(t, s, "builder", model.Role("MEMBER"), "src")
 	if _, e := s.Execute("owner", "message.post", "msg-2", model.MessagePosted{Kind: "BLOCKER", To: []string{"builder"}, Subject: "CI is down"}); e != nil {
 		t.Fatal(e)
 	}
@@ -115,7 +115,7 @@ func TestOwnerSeesEveryMessageByRealOwnerID(t *testing.T) {
 
 func TestContractPostRequiresConfirm(t *testing.T) {
 	s := newTestService(t)
-	registerAgent(t, s, "builder", model.RoleAgent, "src")
+	registerAgent(t, s, "builder", model.Role("MEMBER"), "src")
 
 	m, e := New(s, "owner")
 	if e != nil {
@@ -172,8 +172,8 @@ func TestContractPostRequiresConfirm(t *testing.T) {
 // wrapped.
 func TestRowCellsNeverWrapOntoAnExtraLine(t *testing.T) {
 	s := newTestService(t)
-	registerAgent(t, s, "HENRY", model.RoleAgent, "src")
-	registerAgent(t, s, "PETER", model.RoleAgent, "src")
+	registerAgent(t, s, "HENRY", model.Role("MEMBER"), "src")
+	registerAgent(t, s, "PETER", model.Role("MEMBER"), "src")
 	if _, e := s.Execute("HENRY", "message.post", "msg-1", model.MessagePosted{Kind: "FYI", To: []string{"owner"}, Subject: "Hello from HENRY"}); e != nil {
 		t.Fatal(e)
 	}

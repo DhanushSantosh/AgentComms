@@ -213,9 +213,8 @@ func taskState(extra ...func(*model.State)) model.State {
 	st := model.State{
 		Agents: map[string]model.Agent{
 			"owner":   humanAgent("owner"),
-			"builder": {ID: "builder", Status: "ACTIVE", Role: model.RoleAgent, PrincipalType: model.PrincipalAgent, Scopes: []string{"*"}},
-			"other":   {ID: "other", Status: "ACTIVE", Role: model.RoleAgent, PrincipalType: model.PrincipalAgent, Scopes: []string{"*"}},
-			"watcher": {ID: "watcher", Status: "ACTIVE", Role: model.RoleObserver, PrincipalType: model.PrincipalAgent},
+			"builder": {ID: "builder", Status: "ACTIVE", Role: model.Role("MEMBER"), PrincipalType: model.PrincipalAgent, Scopes: []string{"*"}},
+			"other":   {ID: "other", Status: "ACTIVE", Role: model.Role("MEMBER"), PrincipalType: model.PrincipalAgent, Scopes: []string{"*"}},
 		},
 		Tasks: map[string]model.Task{},
 	}
@@ -246,19 +245,16 @@ func TestTaskCreateValidatesRequiredFieldsAndDuplicateID(t *testing.T) {
 	}
 }
 
-func TestTaskClaimRejectsObserversScopeOverrunAndOwnedTasks(t *testing.T) {
+func TestTaskClaimRejectsScopeOverrunAndOwnedTasks(t *testing.T) {
 	st := taskState(func(s *model.State) {
 		s.Tasks["t1"] = model.Task{ID: "t1", Status: "OPEN", Resources: []string{"repo/a"}}
 		s.Tasks["owned"] = model.Task{ID: "owned", Status: "CLAIMED", Owner: "builder", Resources: []string{"repo/b"}}
 	})
-	if _, err := ValidateTransition(st, "watcher", "task.claim", "t1", model.TaskClaimed{}, time.Now()); err == nil {
-		t.Fatal("expected an OBSERVER-role principal to be rejected claiming a task")
-	}
 	if _, err := ValidateTransition(st, "owner", "task.claim", "owned", model.TaskClaimed{}, time.Now()); err == nil {
 		t.Fatal("expected claiming an already-owned task to be rejected")
 	}
 	scoped := taskState(func(s *model.State) {
-		s.Agents["builder"] = model.Agent{ID: "builder", Status: "ACTIVE", Role: model.RoleAgent, PrincipalType: model.PrincipalAgent, Scopes: []string{"repo/only-this"}}
+		s.Agents["builder"] = model.Agent{ID: "builder", Status: "ACTIVE", Role: model.Role("MEMBER"), PrincipalType: model.PrincipalAgent, Scopes: []string{"repo/only-this"}}
 		s.Tasks["t1"] = model.Task{ID: "t1", Status: "OPEN", Resources: []string{"repo/other"}}
 	})
 	if _, err := ValidateTransition(scoped, "builder", "task.claim", "t1", model.TaskClaimed{}, time.Now()); err == nil {
@@ -423,7 +419,7 @@ func messageState() model.State {
 		Agents: map[string]model.Agent{
 			"owner":      humanAgent("owner"),
 			"agent-orch": agentOrchestrator("agent-orch"),
-			"recipient":  {ID: "recipient", Status: "ACTIVE", Role: model.RoleAgent, PrincipalType: model.PrincipalAgent},
+			"recipient":  {ID: "recipient", Status: "ACTIVE", Role: model.Role("MEMBER"), PrincipalType: model.PrincipalAgent},
 		},
 		Messages: map[string]model.Message{},
 	}
@@ -623,7 +619,7 @@ func runtimeAgentState() model.State {
 	return model.State{
 		Agents: map[string]model.Agent{
 			"owner":   humanAgent("owner"),
-			"builder": {ID: "builder", Status: "ACTIVE", Role: model.RoleAgent, PrincipalType: model.PrincipalAgent},
+			"builder": {ID: "builder", Status: "ACTIVE", Role: model.Role("MEMBER"), PrincipalType: model.PrincipalAgent},
 		},
 		AgentRuntimes: map[string]model.AgentRuntime{},
 		Invocations:   map[string]model.Invocation{},
@@ -764,7 +760,7 @@ func TestInvocationPolicyUpdateValidatesModeActorsAndConsumerModes(t *testing.T)
 // design; using "owner" here would silently skip every branch this exercises.
 func requesterAgentState() model.State {
 	st := runtimeAgentState()
-	st.Agents["requester"] = model.Agent{ID: "requester", Status: "ACTIVE", Role: model.RoleAgent, PrincipalType: model.PrincipalAgent}
+	st.Agents["requester"] = model.Agent{ID: "requester", Status: "ACTIVE", Role: model.Role("MEMBER"), PrincipalType: model.PrincipalAgent}
 	return st
 }
 
@@ -831,7 +827,7 @@ func TestInvocationRequestDeadlineMustBeInFutureAndWithinTTL(t *testing.T) {
 
 func TestInvocationRequestSensitiveRequiresHumanOrApproval(t *testing.T) {
 	st := runtimeAgentState()
-	st.Agents["requester-agent"] = model.Agent{ID: "requester-agent", Status: "ACTIVE", Role: model.RoleAgent, PrincipalType: model.PrincipalAgent}
+	st.Agents["requester-agent"] = model.Agent{ID: "requester-agent", Status: "ACTIVE", Role: model.Role("MEMBER"), PrincipalType: model.PrincipalAgent}
 	st.InvocationPolicies = map[string]model.InvocationPolicy{
 		"builder": {AgentID: "builder", Mode: "AUTOMATIC", RequireHumanForSensitive: true},
 	}

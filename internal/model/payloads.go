@@ -6,13 +6,15 @@ import (
 	"time"
 )
 
+// Role is OWNER, ORCHESTRATOR, or any other freeform label a principal
+// chooses for itself (e.g. "Frontend-Architect", "Tester") -- see RFC 0018.
+// Only OWNER and ORCHESTRATOR carry any permission effect; everything else
+// is purely descriptive, like DisplayName, with no bearing on standing.
 type Role string
 
 const (
 	RoleOwner        Role = "OWNER"
 	RoleOrchestrator Role = "ORCHESTRATOR"
-	RoleAgent        Role = "AGENT"
-	RoleObserver     Role = "OBSERVER"
 )
 
 type PrincipalType string
@@ -31,6 +33,15 @@ type AgentActivated struct {
 	Role         Role     `json:"role"`
 	Capabilities []string `json:"capabilities"`
 	Scopes       []string `json:"scopes"`
+}
+
+// AgentRoleSwitched is the self-service counterpart to AgentActivated --
+// see RFC 0018. Unlike AgentActivated, it never carries Capabilities or
+// Scopes: a principal relabeling its own role cannot use this to grant
+// itself new standing, only a new descriptive label (or, with the
+// existing owner-grant-plus-approval gate intact, ORCHESTRATOR).
+type AgentRoleSwitched struct {
+	Role Role `json:"role"`
 }
 type AgentKeyRotated struct {
 	PublicKey           string `json:"public_key"`
@@ -242,7 +253,7 @@ type DocumentPayload struct {
 }
 
 var payloadFactories = map[string]func() any{
-	"agent.register": func() any { return &AgentRegistered{} }, "agent.activate": func() any { return &AgentActivated{} }, "agent.suspend": func() any { return &TaskStatus{} }, "agent.rotate-key": func() any { return &AgentKeyRotated{} }, "agent.rename": func() any { return &AgentRenamed{} }, "agent.revoke": func() any { return &RuntimeStatusChanged{} }, "agent.delete": func() any { return &AgentDeleted{} }, "agent.elevate-key": func() any { return &AgentElevatedKeyRegistered{} },
+	"agent.register": func() any { return &AgentRegistered{} }, "agent.activate": func() any { return &AgentActivated{} }, "agent.switch-role": func() any { return &AgentRoleSwitched{} }, "agent.suspend": func() any { return &TaskStatus{} }, "agent.rotate-key": func() any { return &AgentKeyRotated{} }, "agent.rename": func() any { return &AgentRenamed{} }, "agent.revoke": func() any { return &RuntimeStatusChanged{} }, "agent.delete": func() any { return &AgentDeleted{} }, "agent.elevate-key": func() any { return &AgentElevatedKeyRegistered{} },
 	"task.create": func() any { return &TaskCreated{} }, "task.offer": func() any { return &TaskOffered{} }, "task.claim": func() any { return &TaskClaimed{} }, "task.start": func() any { return &TaskStatus{} }, "task.renew": func() any { return &TaskRenewed{} }, "task.block": func() any { return &TaskStatus{} }, "task.review": func() any { return &TaskStatus{} }, "task.complete": func() any { return &TaskStatus{} }, "task.cancel": func() any { return &TaskStatus{} }, "task.handoff": func() any { return &TaskHandoff{} }, "task.handoff.accept": func() any { return &TaskStatus{} }, "task.takeover": func() any { return &TaskStatus{} },
 	"message.post": func() any { return &MessagePosted{} }, "message.ack": func() any { return &MessageResponse{} }, "message.reject": func() any { return &MessageResponse{} }, "message.complete": func() any { return &MessageResponse{} }, "message.resolve": func() any { return &MessageResponse{} },
 	"invocation.request": func() any { return &InvocationRequested{} }, "invocation.delivery-attempt": func() any { return &InvocationDeliveryAttempted{} }, "invocation.notify": func() any { return &InvocationNotified{} }, "invocation.claim": func() any { return &InvocationClaimed{} }, "invocation.start": func() any { return &InvocationProgress{} }, "invocation.wait": func() any { return &InvocationWaiting{} }, "invocation.resume": func() any { return &InvocationProgress{} }, "invocation.complete": func() any { return &InvocationCompleted{} }, "invocation.reject": func() any { return &InvocationRejected{} }, "invocation.expire": func() any { return &InvocationRejected{} }, "invocation.cancel": func() any { return &InvocationRejected{} }, "invocation.delivery-failed": func() any { return &InvocationDeliveryFailed{} },

@@ -34,14 +34,14 @@ func TestAgentActionsForStates(t *testing.T) {
 		role  model.Role
 		want  []string
 	}{
-		{"pending non-elevated sees nothing", model.Agent{Status: "PENDING"}, "builder", "watcher", model.RoleAgent, nil},
+		{"pending non-elevated sees nothing", model.Agent{Status: "PENDING"}, "builder", "watcher", model.Role("MEMBER"), nil},
 		{"pending elevated sees activate rename and revoke", model.Agent{Status: "PENDING"}, "builder", "owner", model.RoleOwner, []string{"activate", "rename", "revoke"}},
 		{"active elevated sees suspend rename and revoke", model.Agent{Status: "ACTIVE"}, "builder", "owner", model.RoleOwner, []string{"suspend", "rename", "revoke"}},
-		{"active non-elevated sees nothing", model.Agent{Status: "ACTIVE"}, "builder", "watcher", model.RoleAgent, nil},
+		{"active non-elevated sees nothing", model.Agent{Status: "ACTIVE"}, "builder", "watcher", model.Role("MEMBER"), nil},
 		{"suspended elevated sees rename and revoke", model.Agent{Status: "SUSPENDED"}, "builder", "owner", model.RoleOwner, []string{"rename", "revoke"}},
 		{"revoked offers only delete", model.Agent{Status: "REVOKED"}, "builder", "owner", model.RoleOwner, []string{"delete"}},
 		{"own row elevated adds rotate key", model.Agent{Status: "ACTIVE"}, "owner", "owner", model.RoleOwner, []string{"suspend", "rename", "revoke", "rotate key"}},
-		{"own row non-elevated has no rotate key", model.Agent{Status: "ACTIVE"}, "watcher", "watcher", model.RoleAgent, nil},
+		{"own row non-elevated has no rotate key but can switch role", model.Agent{Status: "ACTIVE"}, "watcher", "watcher", model.Role("MEMBER"), []string{"switch role"}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -71,9 +71,9 @@ func enterAgentsView(t *testing.T, m Model) Model {
 // translate tea.MouseWheelMsg itself (rowlist.go).
 func TestMouseWheelScrollsRowSelection(t *testing.T) {
 	s := newTestService(t)
-	registerAgent(t, s, "alpha", model.RoleAgent, "src")
-	registerAgent(t, s, "beta", model.RoleAgent, "src")
-	registerAgent(t, s, "gamma", model.RoleAgent, "src")
+	registerAgent(t, s, "alpha", model.Role("MEMBER"), "src")
+	registerAgent(t, s, "beta", model.Role("MEMBER"), "src")
+	registerAgent(t, s, "gamma", model.Role("MEMBER"), "src")
 
 	m, e := New(s, "owner")
 	if e != nil {
@@ -105,9 +105,9 @@ func click(x, y int) tea.MouseClickMsg {
 // consistent with itself.
 func TestMouseClickSelectsRow(t *testing.T) {
 	s := newTestService(t)
-	registerAgent(t, s, "alpha", model.RoleAgent, "src")
-	registerAgent(t, s, "beta", model.RoleAgent, "src")
-	registerAgent(t, s, "gamma", model.RoleAgent, "src")
+	registerAgent(t, s, "alpha", model.Role("MEMBER"), "src")
+	registerAgent(t, s, "beta", model.Role("MEMBER"), "src")
+	registerAgent(t, s, "gamma", model.Role("MEMBER"), "src")
 
 	m, e := New(s, "owner")
 	if e != nil {
@@ -147,7 +147,7 @@ func TestMouseClickSelectsRow(t *testing.T) {
 func TestMouseClickSelectsRowAfterScrolling(t *testing.T) {
 	s := newTestService(t)
 	for i := 0; i < 15; i++ {
-		registerAgent(t, s, fmt.Sprintf("agent-%02d", i), model.RoleAgent, "src")
+		registerAgent(t, s, fmt.Sprintf("agent-%02d", i), model.Role("MEMBER"), "src")
 	}
 
 	m, e := New(s, "owner")
@@ -200,7 +200,7 @@ func TestMouseClickSelectsRowAfterScrolling(t *testing.T) {
 func TestRowListCursorAlwaysStaysVisibleWhileScrolling(t *testing.T) {
 	s := newTestService(t)
 	for i := 0; i < 30; i++ {
-		registerAgent(t, s, fmt.Sprintf("agent-%02d", i), model.RoleAgent, "src")
+		registerAgent(t, s, fmt.Sprintf("agent-%02d", i), model.Role("MEMBER"), "src")
 	}
 
 	m, e := New(s, "owner")
@@ -320,7 +320,7 @@ func TestDoubleClickRequiresTheSameCellWithinTheWindow(t *testing.T) {
 // after the sidebar-click fix ("not the other tabs").
 func TestHubTabClickSwitchesView(t *testing.T) {
 	s := newTestService(t)
-	registerAgent(t, s, "builder", model.RoleAgent, "src")
+	registerAgent(t, s, "builder", model.Role("MEMBER"), "src")
 
 	m, e := New(s, "owner")
 	if e != nil {
@@ -383,7 +383,7 @@ func hubClickPosition(t *testing.T, m Model, hubIndex int) (x, y int) {
 // must actually switch each time, not get stuck on the first one clicked.
 func TestSidebarClickSwitchesHubsRepeatedly(t *testing.T) {
 	s := newTestService(t)
-	registerAgent(t, s, "builder", model.RoleAgent, "src")
+	registerAgent(t, s, "builder", model.Role("MEMBER"), "src")
 
 	m, e := New(s, "owner")
 	if e != nil {
@@ -414,7 +414,7 @@ func TestSidebarClickSwitchesHubsRepeatedly(t *testing.T) {
 
 func TestSidebarClickOpensAndFocusesHub(t *testing.T) {
 	s := newTestService(t)
-	registerAgent(t, s, "builder", model.RoleAgent, "src")
+	registerAgent(t, s, "builder", model.Role("MEMBER"), "src")
 
 	m, e := New(s, "owner")
 	if e != nil {
@@ -679,7 +679,7 @@ func TestActivateOrchestratorThroughMaskedPassphraseField(t *testing.T) {
 
 func TestSuspendRequiresConfirm(t *testing.T) {
 	s := newTestService(t)
-	registerAgent(t, s, "builder", model.RoleAgent, "src")
+	registerAgent(t, s, "builder", model.Role("MEMBER"), "src")
 
 	m, e := New(s, "owner")
 	if e != nil {
@@ -709,7 +709,7 @@ func TestSuspendRequiresConfirm(t *testing.T) {
 
 func TestRevokeRequiresConfirm(t *testing.T) {
 	s := newTestService(t)
-	registerAgent(t, s, "builder", model.RoleAgent, "src")
+	registerAgent(t, s, "builder", model.Role("MEMBER"), "src")
 
 	m, e := New(s, "owner")
 	if e != nil {
@@ -739,7 +739,7 @@ func TestRevokeRequiresConfirm(t *testing.T) {
 
 func TestRotateKeyOnlyOnOwnRow(t *testing.T) {
 	s := newTestService(t)
-	registerAgent(t, s, "builder", model.RoleAgent, "src")
+	registerAgent(t, s, "builder", model.Role("MEMBER"), "src")
 
 	m, e := New(s, "owner")
 	if e != nil {
@@ -767,7 +767,7 @@ func TestRotateKeyOnlyOnOwnRow(t *testing.T) {
 
 func TestRenameAgent(t *testing.T) {
 	s := newTestService(t)
-	registerAgent(t, s, "builder", model.RoleAgent, "src")
+	registerAgent(t, s, "builder", model.Role("MEMBER"), "src")
 
 	m, e := New(s, "owner")
 	if e != nil {
@@ -798,7 +798,7 @@ func TestRenameAgent(t *testing.T) {
 
 func TestDeleteRequiresRevokedStatusAndReason(t *testing.T) {
 	s := newTestService(t)
-	registerAgent(t, s, "builder", model.RoleAgent, "src")
+	registerAgent(t, s, "builder", model.Role("MEMBER"), "src")
 
 	m, e := New(s, "owner")
 	if e != nil {
@@ -854,7 +854,7 @@ func TestDeleteRequiresRevokedStatusAndReason(t *testing.T) {
 // actors expecting the switch to give them elevated standing.
 func TestActorSwitchFormShowsRoleNextToEachCandidate(t *testing.T) {
 	s := newTestService(t)
-	registerAgent(t, s, "builder", model.RoleAgent, "src")
+	registerAgent(t, s, "builder", model.Role("MEMBER"), "src")
 
 	m, e := New(s, "owner")
 	if e != nil {
@@ -868,14 +868,14 @@ func TestActorSwitchFormShowsRoleNextToEachCandidate(t *testing.T) {
 	if !strings.Contains(hint, "owner (owner)") {
 		t.Fatalf("hint = %q, want it to label the owner candidate with its role", hint)
 	}
-	if !strings.Contains(hint, "builder (agent)") {
+	if !strings.Contains(hint, "builder (member)") {
 		t.Fatalf("hint = %q, want it to label the builder candidate with its role", hint)
 	}
 }
 
 func TestActorSwitchChangesActorAndRejectsUnknown(t *testing.T) {
 	s := newTestService(t)
-	registerAgent(t, s, "builder", model.RoleAgent, "src")
+	registerAgent(t, s, "builder", model.Role("MEMBER"), "src")
 
 	m, e := New(s, "owner")
 	if e != nil {
@@ -912,7 +912,7 @@ func TestActorSwitchChangesActorAndRejectsUnknown(t *testing.T) {
 // elevation check rejected them downstream.
 func TestCommandRailShowsActiveActorID(t *testing.T) {
 	s := newTestService(t)
-	registerAgent(t, s, "builder", model.RoleAgent, "src")
+	registerAgent(t, s, "builder", model.Role("MEMBER"), "src")
 	m, e := New(s, "owner")
 	if e != nil {
 		t.Fatal(e)
@@ -949,7 +949,7 @@ func TestCommandRailShowsActiveActorID(t *testing.T) {
 // (refreshState vs. refresh) once, at this one real-world trigger.
 func TestActorSwitchNoticeSurvivesTheFollowingRefresh(t *testing.T) {
 	s := newTestService(t)
-	registerAgent(t, s, "builder", model.RoleAgent, "src")
+	registerAgent(t, s, "builder", model.Role("MEMBER"), "src")
 
 	m, e := New(s, "owner")
 	if e != nil {
@@ -1104,7 +1104,7 @@ func TestBodyPrefixMatchesActualRender(t *testing.T) {
 // rather than trusting the formula by inspection alone.
 func TestRowTableTopYMatchesActualRender(t *testing.T) {
 	s := newTestService(t)
-	registerAgent(t, s, "alpha", model.RoleAgent, "src")
+	registerAgent(t, s, "alpha", model.Role("MEMBER"), "src")
 
 	m, e := New(s, "owner")
 	if e != nil {

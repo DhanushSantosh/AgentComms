@@ -89,6 +89,15 @@ func RequiresElevatedKey(st model.State, actor, typ, id string, payload any) boo
 	case "agent.activate":
 		activation, ok := payload.(model.AgentActivated)
 		return ok && activation.Role == model.RoleOrchestrator
+	case "agent.switch-role":
+		// Reads only the payload, like agent.activate above -- see RFC 0018.
+		// A self-service switch to any other role needs no elevated key at
+		// all (ValidateTransition bounds its blast radius by construction:
+		// self-only, never OWNER); only a switch to ORCHESTRATOR does,
+		// exactly matching agent.activate's own classification for the same
+		// target role.
+		switched, ok := payload.(model.AgentRoleSwitched)
+		return ok && switched.Role == model.RoleOrchestrator
 	case "approval.approve":
 		return st.Approvals[id].Tier == "HUMAN"
 	case "agent.revoke":
@@ -111,6 +120,47 @@ func RequiresElevatedKey(st model.State, actor, typ, id string, payload any) boo
 		return false
 	}
 }
+
+// maxRoleLength bounds a custom role label -- generous enough for any
+// real descriptive name ("Frontend-Architect", "Backend-Designer",
+// "Tester"), short enough to keep it out of a signed event log and every
+// table/list that renders it as an unbounded value. See RFC 0018.
+const maxRoleLength = 64
+
+// normalizeRole trims a role value and canonicalizes it to model.RoleOwner
+// or model.RoleOrchestrator when it case-insensitively matches either, so
+// a caller typing "orchestrator" reaches the same reserved value
+// regardless of case. Any other role (a freeform custom label) keeps
+// exactly the casing its owner chose -- "Frontend-Architect" stays
+// "Frontend-Architect", never forced to any particular case. See RFC 0018.
+func normalizeRole(r model.Role) model.Role {
+	trimmed := strings.TrimSpace(string(r))
+	switch strings.ToUpper(trimmed) {
+	case string(model.RoleOwner):
+		return model.RoleOwner
+	case string(model.RoleOrchestrator):
+		return model.RoleOrchestrator
+	default:
+		return model.Role(trimmed)
+	}
+}
+
+// validateRoleValue rejects an empty or unreasonably long role -- called
+// after normalizeRole, on both agent.activate and agent.switch-role. Does
+// not reject OWNER itself: each caller enforces that separately, since the
+// two transitions differ on whether OWNER is ever a legal target at all
+// (agent.activate: never, outside the one bootstrap event this validator
+// never even sees; agent.switch-role: never, full stop). See RFC 0018.
+func validateRoleValue(r model.Role) error {
+	if r == "" {
+		return errors.New("a role is required")
+	}
+	if len(r) > maxRoleLength {
+		return fmt.Errorf("role exceeds %d characters", maxRoleLength)
+	}
+	return nil
+}
+
 func scopeAllows(scopes, resources []string) bool {
 	for _, resource := range resources {
 		allowed := false
@@ -362,10 +412,26 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 			return nil, errors.New("cannot activate a revoked principal")
 		}
 		activation, ok := payload.(model.AgentActivated)
-		if !ok || (activation.Role != model.RoleOwner && activation.Role != model.RoleOrchestrator &&
-			activation.Role != model.RoleAgent && activation.Role != model.RoleObserver) {
+		if !ok {
 			return nil, errors.New("valid activation role is required")
 		}
+		activation.Role = normalizeRole(activation.Role)
+		if e := validateRoleValue(activation.Role); e != nil {
+			return nil, e
+		}
+		// OWNER is reachable only through the one special bootstrap event
+		// (sequence == 1, handled entirely outside ValidateTransition by
+		// internal/personalauthority/engine.go and
+		// internal/authority/postgres.go) -- this general path never sees
+		// that event at all, so rejecting OWNER here unconditionally closes
+		// what was previously a silent, unintended gap: an owner or
+		// orchestrator could mint an unintended second OWNER, with all of
+		// OWNER's protections (immune to suspend/revoke, always elevated),
+		// through an ordinary agent.activate call. See RFC 0018.
+		if activation.Role == model.RoleOwner {
+			return nil, errors.New("the OWNER role can only be assigned once, at project creation")
+		}
+		payload = activation
 		// Granting the orchestrator role is a hard, human-only check on top
 		// of the owner-or-orchestrator elevation already required above: an
 		// existing orchestrator that is itself an AGENT principal (not a
@@ -394,6 +460,57 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 		if activation.Role == model.RoleOrchestrator && !hasHumanApproval(st, OrchestratorGrantApprovalAction(id)) {
 			return nil, fmt.Errorf("granting the orchestrator role to %s requires an approved HUMAN-tier approval first: run `approval request --id %s --tier HUMAN --action %s`, then have a human approve it separately", id, OrchestratorGrantApprovalID(id), OrchestratorGrantApprovalAction(id))
 		}
+	}
+	if typ == "agent.switch-role" {
+		// Self-service only -- see RFC 0018. An owner or orchestrator
+		// changing someone ELSE's role still goes through the unchanged
+		// agent.activate path above; this transition never touches another
+		// principal's standing, only the caller's own -- which is also why
+		// it needs no owner/orchestrator elevation gate of its own (see
+		// elevated()'s doc comment): its blast radius is already bounded to
+		// exactly one principal, itself.
+		if id != actor {
+			return nil, errors.New("a role can only be switched for your own actor")
+		}
+		// OWNER is the one truly fixed identity in a project (see the
+		// agent.activate block above) -- unreachable as a target here, and
+		// also unreachable as a SOURCE: an owner using this self-service
+		// path to switch itself away from OWNER would leave the project
+		// with no owner at all, a strictly worse outcome than any of the
+		// elevated, administrator-only paths this project already protects
+		// OWNER from (agent.suspend, agent.revoke).
+		if st.Agents[actor].Role == model.RoleOwner {
+			return nil, errors.New("the owner principal cannot switch its own role")
+		}
+		switched, ok := payload.(model.AgentRoleSwitched)
+		if !ok {
+			return nil, errors.New("valid role is required")
+		}
+		switched.Role = normalizeRole(switched.Role)
+		if e := validateRoleValue(switched.Role); e != nil {
+			return nil, e
+		}
+		if switched.Role == model.RoleOwner {
+			return nil, errors.New("the OWNER role can only be assigned once, at project creation")
+		}
+		// Switching to ORCHESTRATOR keeps the exact same two-step,
+		// human-only control agent.activate already enforces for the same
+		// target role -- see the comments on that block above. A principal
+		// switching itself to ORCHESTRATOR must itself be a HUMAN principal
+		// (an AGENT principal can never self-promote, symmetric with the
+		// rule that only a human can grant the role to someone else), and a
+		// pre-existing HUMAN-tier approval record for this exact grant must
+		// already be APPROVED -- the same request-then-separately-approve
+		// control, never weakened to "passphrase alone."
+		if switched.Role == model.RoleOrchestrator {
+			if st.Agents[actor].PrincipalType != model.PrincipalHuman {
+				return nil, errors.New("human principal required to switch to the orchestrator role")
+			}
+			if !hasHumanApproval(st, OrchestratorGrantApprovalAction(actor)) {
+				return nil, fmt.Errorf("switching to the orchestrator role requires an approved HUMAN-tier approval first: run `approval request --id %s --tier HUMAN --action %s`, then have a human approve it separately", OrchestratorGrantApprovalID(actor), OrchestratorGrantApprovalAction(actor))
+			}
+		}
+		payload = switched
 	}
 	if typ == "agent.elevate-key" {
 		// Self-service only: registering (or rotating, by re-registering) an
@@ -562,9 +679,6 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 			settings := model.EffectiveProjectSettings(st.ProjectSettings)
 			defaultLease, _ := time.ParseDuration(settings.DefaultLease)
 			a, _ := active(st, actor)
-			if a.Role == model.RoleObserver {
-				return nil, errors.New("observer cannot claim tasks")
-			}
 			if t.Owner != "" || (t.Status != "OPEN" && t.Status != "OFFERED") {
 				return nil, errors.New("task is no longer available to claim")
 			}
@@ -743,9 +857,6 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 				return nil, errors.New("active agent invocation target is required")
 			}
 			requester, _ := active(st, actor)
-			if requester.Role == model.RoleObserver {
-				return nil, errors.New("observer cannot request invocations")
-			}
 			if !actorElevated(st, actor) {
 				policy, configured := st.InvocationPolicies[p.Target]
 				if !configured || policy.Mode == "MANUAL" {

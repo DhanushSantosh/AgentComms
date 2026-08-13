@@ -201,7 +201,7 @@ func TestOverviewScrollReachesTrueEndOnASmallTerminal(t *testing.T) {
 func TestSmallTerminalNeverRendersMoreLinesThanItHas(t *testing.T) {
 	s := newTestService(t)
 	for i := 0; i < 10; i++ {
-		registerAgent(t, s, "agent-0"+string(rune('0'+i)), model.RoleAgent, "src")
+		registerAgent(t, s, "agent-0"+string(rune('0'+i)), model.Role("MEMBER"), "src")
 	}
 	if _, e := s.Execute("owner", "message.post", "msg-1", model.MessagePosted{Kind: "FYI", To: []string{"owner"}, Subject: "hi"}); e != nil {
 		t.Fatal(e)
@@ -314,36 +314,37 @@ func TestCyclePickerOption(t *testing.T) {
 // mistype, the actual point of the picker.
 func TestPickerFieldCyclesWithArrowKeysAndRejectsTypedText(t *testing.T) {
 	s := newTestService(t)
-	if _, err := s.Register("builder", "builder", model.PrincipalAgent); err != nil {
-		t.Fatal(err)
-	}
 	m, err := New(s, "owner")
 	if err != nil {
 		t.Fatal(err)
 	}
 	m = enterAgentsView(t, m)
-	if id := m.agentList.SelectedID(m.state, m.actor); id != "builder" {
-		t.Fatalf("selected id = %q, want builder", id)
+	m = pressKey(t, m, keyText("n")) // register (agentRegisterForm)
+	if m.form != "agent.register" {
+		t.Fatalf("expected agent.register form, got %q", m.form)
 	}
-	m = pressKey(t, m, keyText("a")) // activate
-	if m.form != "agent.activate" {
-		t.Fatalf("expected agent.activate form, got %q", m.form)
-	}
-	if got := m.inputs[0].Value(); got != "AGENT" {
-		t.Fatalf("role should default to Options[0]=AGENT, got %q", got)
+	// Field index 2 is "Principal type", Options: []string{"AGENT", "HUMAN"}
+	// -- picked over activateForm's Role field since that one is free text
+	// now (a custom role label has no room for Options' strict single-select
+	// -- see RFC 0018), no longer exercising the generic picker mechanics
+	// this test actually targets. Tab twice to focus it -- it isn't first.
+	m = pressKey(t, m, tea.KeyPressMsg(tea.Key{Code: tea.KeyTab}))
+	m = pressKey(t, m, tea.KeyPressMsg(tea.Key{Code: tea.KeyTab}))
+	if got := m.inputs[2].Value(); got != "AGENT" {
+		t.Fatalf("principal type should default to Options[0]=AGENT, got %q", got)
 	}
 	m = pressKey(t, m, tea.KeyPressMsg(tea.Key{Code: tea.KeyRight}))
-	if got := m.inputs[0].Value(); got != "OBSERVER" {
-		t.Fatalf("right should cycle AGENT -> OBSERVER, got %q", got)
+	if got := m.inputs[2].Value(); got != "HUMAN" {
+		t.Fatalf("right should cycle AGENT -> HUMAN, got %q", got)
 	}
 	// A typed character must not reach the field at all.
 	m = pressKey(t, m, keyText("z"))
-	if got := m.inputs[0].Value(); got != "OBSERVER" {
+	if got := m.inputs[2].Value(); got != "HUMAN" {
 		t.Fatalf("typed text should be ignored on a picker field, got %q", got)
 	}
 	m = pressKey(t, m, tea.KeyPressMsg(tea.Key{Code: tea.KeyLeft}))
-	if got := m.inputs[0].Value(); got != "AGENT" {
-		t.Fatalf("left should cycle back OBSERVER -> AGENT, got %q", got)
+	if got := m.inputs[2].Value(); got != "AGENT" {
+		t.Fatalf("left should cycle back HUMAN -> AGENT, got %q", got)
 	}
 }
 

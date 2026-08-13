@@ -72,7 +72,7 @@ func TestPostgresOrchestratorGrantRejectsPrimaryKeySignatureOnceElevatedKeyRegis
 	must("owner", owner, "agent.activate", "owner",
 		model.AgentActivated{Role: model.RoleOwner, Capabilities: []string{"*"}, Scopes: []string{"*"}})
 	register("candidate", candidate, model.PrincipalAgent)
-	must("owner", owner, "agent.activate", "candidate", model.AgentActivated{Role: model.RoleAgent, Scopes: []string{"src"}})
+	must("owner", owner, "agent.activate", "candidate", model.AgentActivated{Role: model.Role("MEMBER"), Scopes: []string{"src"}})
 
 	action := protocol.OrchestratorGrantApprovalAction("candidate")
 	must("owner", owner, "approval.request", "candidate-approval", model.ApprovalRequested{Tier: "HUMAN", Action: action, Reason: "test"})
