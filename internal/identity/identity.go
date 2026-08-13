@@ -284,6 +284,17 @@ type ActorResolutionRequest struct {
 	EnvironmentActor  string
 	HostLabel         string
 	UserConfig        UserConfig
+	// PreferOwnerOnAmbiguousLegacy, when true, skips the legacy
+	// machine-wide ActiveProfile fallback entirely whenever it would
+	// otherwise be genuinely ambiguous (2+ locally-registered identities
+	// for this project, no recognized provider session) and resolves
+	// straight to ProjectOwner instead -- see RFC 0019. Only ever set by
+	// the TUI's own entry point: a real, attached, interactive terminal
+	// session nothing session-less could plausibly be driving, unlike the
+	// CLI/MCP/worker paths this does not apply to. Every other resolution
+	// tier (explicit actor/profile, env var, host binding, and RFC 0016's
+	// session-scoped tier for a real provider session) is unaffected.
+	PreferOwnerOnAmbiguousLegacy bool
 }
 
 type ActorResolution struct {
@@ -347,8 +358,18 @@ func ResolveActor(request ActorResolutionRequest) (ActorResolution, error) {
 			if request.ProviderSessionID != "" {
 				source = ActorSourceSessionProfile
 			}
-			result.Actor, result.Source, result.Profile = profile.Actor, source, name
-			return result, nil
+			// See RFC 0019: the caller (only ever the TUI) has opted out of
+			// this specific tier when it's genuinely ambiguous -- the same
+			// 2+-locally-registered-identity condition RFC 0017 already
+			// classifies as unsafe for a governed write. Falls through to
+			// the unambiguous ProjectOwner default below instead of using
+			// this profile at all.
+			ambiguous := source == ActorSourceActiveProfile &&
+				request.UserConfig.ProfileCountForProject(request.ProjectID) > 1
+			if !(request.PreferOwnerOnAmbiguousLegacy && ambiguous) {
+				result.Actor, result.Source, result.Profile = profile.Actor, source, name
+				return result, nil
+			}
 		}
 	}
 	result.Actor, result.Source = request.ProjectOwner, ActorSourceProjectOwner

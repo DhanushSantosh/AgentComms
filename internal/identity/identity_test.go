@@ -221,6 +221,73 @@ func TestResolveActorPrecedenceAndProjectIsolation(t *testing.T) {
 	}
 }
 
+// TestResolveActorPreferOwnerOnAmbiguousLegacy is the regression test for
+// RFC 0019: the TUI's own opt-out of RFC 0017's ambiguous-legacy-actor
+// tier, scoped narrowly to exactly that one tier.
+func TestResolveActorPreferOwnerOnAmbiguousLegacy(t *testing.T) {
+	ambiguous := UserConfig{
+		ActiveProfile: "project:AGENT_A",
+		Profiles: map[string]Profile{
+			"project:AGENT_A": {Name: "project:AGENT_A", ProjectID: "project", Actor: "AGENT_A"},
+			"project:AGENT_B": {Name: "project:AGENT_B", ProjectID: "project", Actor: "AGENT_B"},
+		},
+	}
+	res, err := ResolveActor(ActorResolutionRequest{
+		ProjectID: "project", ProjectOwner: "owner", UserConfig: ambiguous,
+		PreferOwnerOnAmbiguousLegacy: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Actor != "owner" || res.Source != ActorSourceProjectOwner {
+		t.Fatalf("expected the TUI to resolve straight to the project owner when the legacy tier is ambiguous, got %+v", res)
+	}
+
+	// Same request without the flag (CLI/MCP/worker): uses the legacy
+	// field exactly as RFC 0017 already did -- completely unaffected.
+	res, err = ResolveActor(ActorResolutionRequest{
+		ProjectID: "project", ProjectOwner: "owner", UserConfig: ambiguous,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Actor != "AGENT_A" || res.Source != ActorSourceActiveProfile {
+		t.Fatalf("expected the unaffected legacy resolution for a non-TUI caller, got %+v", res)
+	}
+
+	unambiguous := UserConfig{
+		ActiveProfile: "project:SOLO",
+		Profiles: map[string]Profile{
+			"project:SOLO": {Name: "project:SOLO", ProjectID: "project", Actor: "SOLO"},
+		},
+	}
+	// Only one locally-registered identity: not ambiguous, so
+	// PreferOwnerOnAmbiguousLegacy has nothing to redirect -- resolves
+	// normally even with the flag set.
+	res, err = ResolveActor(ActorResolutionRequest{
+		ProjectID: "project", ProjectOwner: "owner", UserConfig: unambiguous,
+		PreferOwnerOnAmbiguousLegacy: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Actor != "SOLO" || res.Source != ActorSourceActiveProfile {
+		t.Fatalf("expected a genuinely unambiguous legacy resolution to be unaffected by PreferOwnerOnAmbiguousLegacy, got %+v", res)
+	}
+
+	// An explicit actor still wins outright, regardless of the flag.
+	res, err = ResolveActor(ActorResolutionRequest{
+		ProjectID: "project", ProjectOwner: "owner", UserConfig: ambiguous,
+		ExplicitActor: "AGENT_B", PreferOwnerOnAmbiguousLegacy: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Actor != "AGENT_B" || res.Source != ActorSourceFlag {
+		t.Fatalf("expected an explicit --actor to still win over PreferOwnerOnAmbiguousLegacy, got %+v", res)
+	}
+}
+
 func TestResolveActorRejectsAmbiguousHostBinding(t *testing.T) {
 	_, err := ResolveActor(ActorResolutionRequest{
 		ProjectID: "project", ProjectOwner: "owner", HostLabel: "claude",
