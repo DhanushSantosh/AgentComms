@@ -164,8 +164,12 @@ var (
 	// list did, leaving an owner/orchestrator with no TUI-visible way to
 	// change an already-ACTIVE agent's role at all (CLI/MCP never had this
 	// gap). Distinct label and key from actActivate since "activate" reads
-	// oddly for a principal that's already active.
-	actChangeRole = RowAction{Key: "r", Label: "change role", EventType: "agent.activate", Form: activateForm}
+	// oddly for a principal that's already active. Key "c", not "r": "r" is
+	// globally reserved for refresh inside updateRowList's own switch,
+	// checked before any row action's key ever gets a chance -- confirmed
+	// live, "r" bound here made this action completely unreachable, always
+	// losing silently to refresh instead.
+	actChangeRole = RowAction{Key: "c", Label: "change role", EventType: "agent.activate", Form: activateForm}
 	actSwitchRole = RowAction{Key: "w", Label: "switch role", EventType: "agent.switch-role", Form: switchRoleForm}
 	actSuspend    = RowAction{
 		Key: "s", Label: "suspend", EventType: "agent.suspend", Confirm: true,

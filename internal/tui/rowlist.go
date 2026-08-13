@@ -92,6 +92,7 @@ type confirmState struct {
 	// into one confirmation instead of a separate trip through Approvals.
 	chainOrchestratorApproval bool
 }
+
 // RowList owns its cursor and scroll position directly (cursor, topRow,
 // height) rather than delegating to bubbles/table.Model's internal
 // viewport. That component's MoveUp/MoveDown adjust an internal scroll
@@ -485,6 +486,12 @@ func (m Model) updateRowList(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if !ok {
 		return m, nil
 	}
+	// esc/left/q/ctrl+c/​/​/ctrl+p/r/i/?/h/n below are reserved globally --
+	// matched here, in this explicit switch, before the default case ever
+	// gets a chance to check a row's own Actions() for a matching key. No
+	// RowAction anywhere in the app may use any of these as its own Key;
+	// one already did ("r" for agent.go's actChangeRole) and was silently
+	// unreachable, always losing to refresh, until this comment existed.
 	switch k := key.String(); k {
 	case "esc", "left":
 		m.rowFocus = false
@@ -501,7 +508,7 @@ func (m Model) updateRowList(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.inspecting = !m.inspecting
 		return m, nil
 	case "?":
-		m.notice = "↑/↓ select row · [key] contextual action · [i] inspect · [n] new · [esc] back · [q] quit"
+		m.notice = "↑/↓ select row · [key] contextual action · [i] inspect · [n] new · / commands · [esc] back · [q] quit"
 		return m, nil
 	case "h":
 		m.highContrast = !m.highContrast
@@ -588,6 +595,7 @@ func (m Model) resolveConfirm(yes bool) (tea.Model, tea.Cmd) {
 	}
 	return mm, cmd
 }
+
 // confirmYesLabel/confirmNoLabel are shared between renderConfirm's actual
 // button line and confirmChoiceAt's (mouse.go) click hit-testing, so the
 // clickable regions can never drift from what's actually printed on screen.
@@ -622,6 +630,7 @@ func (m Model) dispatchEventWithPassphrase(typ, id string, payload any, passphra
 	m.refreshState()
 	return m, nil
 }
+
 // hasApprovedOrchestratorGrant mirrors internal/protocol/transitions.go's
 // unexported hasHumanApproval for the one action agent.activate cares
 // about: an APPROVED, HUMAN-tier approval.request for id's Orchestrator
@@ -668,6 +677,7 @@ func (m Model) dispatchOrchestratorApprovalChain(c confirmState) (tea.Model, tea
 	m.refreshState()
 	return m, nil
 }
+
 // triggerRowAction runs act against id exactly as pressing its own key
 // would: a Confirm action opens its prompt, everything else goes through
 // dispatchRowAction. Shared by the keyboard action lookup above and

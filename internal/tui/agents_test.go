@@ -1131,3 +1131,33 @@ func TestRowTableTopYMatchesActualRender(t *testing.T) {
 		t.Fatalf("expected the line right after the header (y=%d) to resolve to row 0, got row=%d ok=%v", predicted+1, row, ok)
 	}
 }
+
+// TestChangeRoleKeyActuallyOpensTheForm is the regression test for the
+// second most serious defect this audit found: actChangeRole's "r" key
+// used to be completely unreachable -- updateRowList's own explicit
+// "case \"r\": m.refresh()" always matched first, before the fallthrough
+// that checks a row's own Actions() ever ran, so pressing "r" on an
+// active agent always refreshed instead of opening the change-role form,
+// silently, with no error. Confirms "c" (the rebound key) actually opens
+// it, and that "r" still means refresh, not a stale expectation left
+// over from before the rebind.
+func TestChangeRoleKeyActuallyOpensTheForm(t *testing.T) {
+	s := newTestService(t)
+	registerAgent(t, s, "builder", model.Role("MEMBER"), "src")
+	m, err := New(s, "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m = enterAgentsView(t, m)
+	if id := m.agentList.SelectedID(m.state, m.actor); id != "builder" {
+		t.Fatalf("selected id = %q, want builder", id)
+	}
+	m = pressKey(t, m, keyText("r"))
+	if m.form != "" {
+		t.Fatalf("expected \"r\" to still mean refresh, not open a form, got form=%q", m.form)
+	}
+	m = pressKey(t, m, keyText("c"))
+	if m.form != "agent.activate" {
+		t.Fatalf("expected \"c\" to open the change-role form, got form=%q", m.form)
+	}
+}
