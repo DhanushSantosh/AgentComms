@@ -1,6 +1,6 @@
 .page {
-  background: var(--ice);
-  color: var(--ink);
+  background: var(--ink);
+  color: var(--text);
   min-width: 0;
 }
 
@@ -19,7 +19,7 @@
 }
 
 .intro > p:last-child {
-  color: color-mix(in srgb, var(--ink) 76%, transparent);
+  color: var(--steel-light);
   font-size: clamp(0.92rem, 1.2vw, 1.05rem);
   line-height: 1.65;
   margin: 0;
@@ -43,7 +43,7 @@
 }
 
 .section p {
-  color: color-mix(in srgb, var(--ink) 78%, transparent);
+  color: var(--steel-light);
   font-size: 0.92rem;
   line-height: 1.7;
   margin: 0 0 1rem;
@@ -71,8 +71,8 @@
 }
 
 .propertyList li {
-  background: var(--ink);
-  color: var(--ice);
+  background: var(--cyan);
+  color: var(--ink);
   font-family: var(--mono);
   font-size: 0.6rem;
   font-weight: 700;
