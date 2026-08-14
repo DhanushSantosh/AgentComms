@@ -5,28 +5,257 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 
 ## [Unreleased]
 
-### Added
+## [0.4.0] - 2026-08-14
+
+*Identity resolution can no longer silently misattribute a signed action to
+the wrong actor — closing a real incident end to end — plus self-service
+role switching with freeform custom labels, ConPTY-backed interactive-serve
+on Windows, cosign-free release verification, and a deep TUI interaction
+audit (the command palette, a dead keybinding, and a missing focus
+indicator).*
+
+**Security**
+- **Breaking:** a governed write resolved through the legacy, machine-wide
+  default-actor fallback is now refused outright whenever a project has
+  two or more locally-registered identities to choose between, instead of
+  silently signing under whichever one happens to be active — the exact
+  mechanism behind a real, confirmed incident where one agent's action was
+  signed under a different agent's identity. Session-scoped actor
+  resolution (below) already made this safe for any Claude Code/Codex
+  session; this closes the one remaining gap, for CLI/MCP/worker
+  invocations with no recognized session at all. See RFC 0017.
+- A provider session (Claude Code, Codex) now resolves its own isolated
+  default actor, instead of inheriting the one shared, machine-wide
+  default every concurrent session and script on the account used to read
+  and write. See RFC 0016.
+- Self-registering from a session-less caller (an opencode-based agent, a
+  script) no longer claims the shared legacy default-actor slot for every
+  other session-less process on the account — closing a second path into
+  the same class of misattribution the two items above close.
+- The project owner's role can no longer be changed through any path at
+  all, self-service or administrative — mirroring the existing, absolute
+  protection `agent suspend`/`agent revoke` already give the owner.
+
+**Added**
+- **Breaking:** self-service role switching (`agent switch-role` /
+  `agent_switch_role`) — any active principal can relabel its own role at
+  any time, to `ORCHESTRATOR` or any freeform custom label
+  (`Frontend-Architect`, `Tester`, ...), with no owner/orchestrator
+  elevation required. Never targets another principal, never touches
+  capabilities/scopes, and can never target `OWNER`. Switching to
+  `ORCHESTRATOR` keeps the full existing gate: a human principal, a
+  pre-approved HUMAN-tier approval, and the elevated-key passphrase. The
+  `AGENT`/`OBSERVER` roles are removed — `AGENT` duplicated
+  `PrincipalType`'s own value for no added meaning, and `OBSERVER`'s
+  read-only enforcement covered only two transitions. See RFC 0018.
 - `interactive-serve` and `--takeover-pid` now work on Windows (10 version
   1809/October 2018 Update or later), closing a platform gap that
   previously errored outright. Built on ConPTY
   (`github.com/charmbracelet/x/conpty`) in place of `creack/pty`, a named
   pipe control socket (`github.com/Microsoft/go-winio`) in place of a unix
   domain socket, and `TerminateProcess` in place of POSIX signals for
-  process lifecycle — see RFC 0014 for the full design and the live
-  testing behind each of those choices. Closes #17.
-
+  process lifecycle. See RFC 0014. Closes #17.
 - `install.sh`/`install.ps1` and `agent-comms update` no longer require a
   separately installed `cosign` CLI to verify a release at all — a new
-  companion binary, `agent-comms-verify`, built from a new
-  `internal/releaseverify` package
-  (`github.com/sigstore/sigstore-go`, the official pure-Go Sigstore SDK),
-  performs the identical `cosign verify-blob --bundle` check with no
-  external process. Real `cosign` remains a fully supported, independent
-  way to run the same check manually. See RFC 0015 for the full design;
-  supersedes the prior cosign-detection fix below, which is kept for
-  history.
+  companion binary, `agent-comms-verify`, performs the identical `cosign
+  verify-blob --bundle` check with no external process. Real `cosign`
+  remains a fully supported, independent way to run the same check
+  manually. See RFC 0015.
+- The TUI's command palette now has real mouse support (click a match to
+  run it), matching every other surface in the app.
+- A new "change role" action in the TUI lets an owner/orchestrator change
+  an already-active agent's role, not just a pending one's first
+  activation.
+
+**Fixed**
+- **Breaking:** `agent activate --role` is now a required flag (it lost
+  its `AGENT` default, since `AGENT` no longer exists as a role); and
+  `agent activate --role OWNER` now fails for any target outside the one
+  special bootstrap event at project creation, where it previously
+  succeeded silently.
+- The TUI resolves straight to the project owner, instead of refusing,
+  when the legacy actor fallback would otherwise be ambiguous — the TUI
+  can only ever be driven by a human physically present at a real
+  terminal, unlike the CLI/MCP/worker paths the write-refusal above
+  correctly still protects. See RFC 0019.
+- The TUI's command palette leaked keystrokes into row actions if opened
+  from inside a focused view — a typed character could silently trigger
+  suspend, revoke, or delete on the selected row instead of composing a
+  search query. The palette's rendered "top match" could also silently
+  drift from what Enter actually executed, and the spacebar could never
+  be typed into it at all (no multi-word command was ever reachable).
+  Clicking elsewhere while the palette was open silently navigated
+  underneath it instead of closing it.
+- A `RowAction` keybinding could silently collide with a global reserved
+  key (confirmed live for the new "change role" action, bound to `r`,
+  which lost every time to the global refresh binding) with no error or
+  indication — rebound, and the row-action key switch now documents the
+  full reserved set to stop this recurring.
+- The TUI now shows a visible focus indicator: the active tab renders
+  differently depending on whether a row list actually has keyboard
+  focus, or a key like `r` is just about to hit the hub-level browsing
+  shortcut instead.
+- The TUI's actor-switch form no longer clobbers its own success notice,
+  no longer shows a blind list of candidate identities with no role/status
+  shown, and now shows which actor ID is currently active.
+- `runtime verify-adapter` also checks an adapter's subcommands' own
+  `--help` output, not just the top-level command's.
+- An unknown CLI flag produced zero output on every platform instead of a
+  usage error.
+- `install.ps1`'s cosign prerequisite check no longer rejects a real,
+  correctly installed cosign: it now also recognizes
+  `cosign-windows-amd64.exe`, cosign's actual upstream release/winget
+  asset name, instead of only the bare `cosign` name that no documented
+  Windows install method for cosign actually produces. Previously this
+  blocked every Windows install that followed the documented steps
+  exactly — see #16.
+
+Full technical detail is below and in [CHANGELOG.md](https://github.com/DhanushSantosh/AgentComms/blob/main/CHANGELOG.md).
+
+### Security
+
+- **[RFC 0017](docs/rfcs/0017-refuse-ambiguous-legacy-actor-for-writes.md):
+  refuse ambiguous legacy-actor resolution for governed writes.**
+  `Service.ExecuteWithPassphrase` now refuses outright whenever the
+  resolved actor came from the legacy, machine-wide `ActiveProfile`
+  fallback (no recognized provider session at all) *and* the project has
+  two or more locally-registered identities — the exact, confirmed-live
+  root cause of a real incident where one agent's `runtime.register` got
+  signed under a different, unrelated agent's identity. A project with 0-1
+  locally-registered identities is unaffected, since there's nothing
+  ambiguous to guess between. Documented for session-less callers
+  (opencode-based agents, scripts, cron jobs) in `docs/agent-onboarding.md`:
+  export `AGENT_COMMS_ACTOR` or pass `--actor` explicitly.
+- **[RFC 0016](docs/rfcs/0016-session-scoped-active-actor.md): session-scoped
+  active-actor resolution.** `identity.UserConfig.ActiveProfile` was a
+  single string in one file shared by every process on the machine — one
+  agent switching its own active profile for its own convenience silently
+  redirected every other concurrent session's default actor too,
+  including a human's own. Every registered actor's real private key
+  lives in the same shared OS keyring, so a bare command resolving to the
+  wrong actor got cryptographically signed as that actor and durably
+  recorded that way. Replaced with `ActiveProfileBySession`, keyed by the
+  provider session ID Claude Code/Codex already expose; the legacy field
+  remains the fallback only when no recognized session is present at all.
+- **Register no longer hijacks the shared legacy active profile.**
+  `Register`'s own convenience of defaulting a freshly-registered identity
+  to "active" used to write into the shared legacy field whenever no
+  provider session was recognized — exactly the path a session-less agent
+  always takes — so one agent's self-registration could silently become
+  every other session-less caller's default too, including a human's own
+  plain terminal. Confirmed live as the mechanism behind a project's
+  shared slot ending up permanently pointed at an agent instead of its
+  human owner. Now only applies when a real session is recognized.
+- **The owner's role can never change, through any path.**
+  `agent.switch-role` already refused letting the owner switch itself away
+  from `OWNER`; `agent.activate` had no matching protection, letting an
+  owner/orchestrator administratively strip the real owner's protections
+  (immune to suspend/revoke, always elevated) with one ordinary call.
+  Closed to mirror `agent.suspend`/`agent.revoke`'s existing, unconditional
+  protection of an `OWNER` target.
+
+### Added
+
+- **[RFC 0018](docs/rfcs/0018-self-service-role-switching-and-custom-roles.md):
+  self-service role switching and custom role labels.** `model.RoleAgent`
+  and `model.RoleObserver` are removed. `Role` is now `OWNER` |
+  `ORCHESTRATOR` | any freeform label a principal chooses for itself
+  (`Frontend-Architect`, `Tester`, ...), with zero permission effect for
+  anything other than the two reserved values — purely descriptive, like a
+  display name. New transition `agent.switch-role`/`agent_switch_role`
+  (CLI: `agent switch-role --role <role>`) lets any active principal
+  relabel its own role at any time, no owner/orchestrator elevation
+  required: self-only, `OWNER` never reachable as target or source, and
+  switching to `ORCHESTRATOR` keeps the exact same two-step
+  human-approval-plus-elevated-key gate `agent.activate` already enforces
+  for that grant. Never touches `Capabilities`/`Scopes`. `agent activate
+  --role` lost its `AGENT` default and is now required.
+- **[RFC 0014](docs/rfcs/0014-conpty-interactive-serve-windows.md): ConPTY-backed
+  interactive-serve on Windows.** `interactive-serve`/`--takeover-pid`
+  work on Windows 10 (1809+) via ConPTY, a named-pipe control socket, and
+  `TerminateProcess`-based process lifecycle in place of the POSIX
+  primitives the Unix implementation uses. Closes #17.
+- **[RFC 0015](docs/rfcs/0015-cosign-free-release-verification.md):
+  cosign-free release verification.** A new `agent-comms-verify` binary
+  (`internal/releaseverify`, the pure-Go `github.com/sigstore/sigstore-go`
+  SDK) performs the identical `cosign verify-blob --bundle` check with no
+  external process, so `install.sh`/`install.ps1`/`agent-comms update`
+  never require a separately installed `cosign` CLI. Real `cosign` remains
+  fully supported for anyone who wants to verify manually.
+- The TUI's command palette gained real mouse support (`paletteMatchAt`,
+  following the same layout-recompute pattern the sidebar/hub-tab/row
+  click handlers already use) and a new "change role" row action for
+  already-active agents (`agent activate`'s admin path always supported
+  this; the TUI simply never offered it before now).
 
 ### Fixed
+
+- **[RFC 0019](docs/rfcs/0019-tui-owner-fallback-for-ambiguous-legacy-actor.md):
+  TUI resolves to the project owner instead of refusing on an ambiguous
+  legacy actor.** RFC 0017's refusal was also catching the TUI itself,
+  since `agent-comms tui` has no recognized provider session any more than
+  a session-less script does. The risk RFC 0017 defends against — a
+  script silently signing under whoever's in the shared slot, with no
+  human present to notice — does not exist for the TUI: it requires a
+  real, attached terminal, with the resolved actor shown continuously on
+  screen and a one-keypress correction available before anything signs.
+  `identity.ActorResolutionRequest` gained
+  `PreferOwnerOnAmbiguousLegacy`, set only by the TUI's own entry point;
+  CLI/MCP/worker are completely unaffected, and explicit
+  `--actor`/`--profile`/`AGENT_COMMS_ACTOR`/host-binding/session overrides
+  still win over this exactly as before.
+- **TUI command palette: seven confirmed interaction defects**, found by
+  driving the real interaction model end to end rather than reading the
+  code alone:
+  - Opening the palette from inside any focused row list left
+    `m.rowFocus` true, so every keystroke composing a query kept routing
+    to the row list instead of the palette — silently triggering real row
+    actions (suspend, revoke, delete, opening an unrelated form) while
+    the palette sat on screen showing an empty, frozen query box. Fixed
+    by checking `m.palette` first in `Update()`, before every other mode.
+  - The spacebar could never be typed into the query at all — bubbletea's
+    `Key.String()` reports it as the literal word `"space"`, never a
+    single `" "` character, so the palette's `len(k)==1` fallback never
+    saw it. No multi-word command could ever actually be typed.
+  - The rendered/highlighted "top match" and what Enter actually executed
+    came from two independently-written matching implementations that
+    had silently drifted apart. Rewritten as a single source of truth
+    (`paletteCommands`/`paletteMatches`/`paletteMatch.apply`) that both
+    the render path and Enter/click read from.
+  - The palette had zero mouse support at all, unlike every other surface
+    in the app.
+  - Sidebar/hub-tab clicks and mouse-wheel scroll ran unconditionally,
+    not gated behind the open palette — clicking elsewhere while
+    composing a query silently navigated underneath the still-open,
+    now-stale overlay instead of closing it.
+  - `actChangeRole` (new in this release) was bound to `r`, which
+    `updateRowList`'s own switch already claims globally for refresh,
+    checked before any row action's own key ever gets a chance — the
+    action was completely unreachable, always silently losing to
+    refresh. Rebound to `c`; the reserved-key set is now documented at
+    the switch itself.
+  - Neither the sidebar nor the hub-tab bar referenced `m.rowFocus` at
+    all, so the same tab looked identical whether arrow keys were moving
+    the hub cursor (browsing) or a row list genuinely had keyboard focus
+    (entered) — the root cause behind why a key like `r` felt
+    unpredictable in the first place. The active tab now renders with a
+    solid fill when entered versus cyan text only when merely selected.
+- The TUI's actor-switch form used to clobber its own "switched actor"
+  success notice with the next state refresh's own notice before it was
+  ever visible, listed candidate identities with no role or active status
+  shown (making it easy to pick a non-owner/non-orchestrator identity by
+  mistake with no way to tell beforehand), and gave no visibility into
+  which actor ID was currently active anywhere in the interface. All
+  three fixed together: the status rail now shows `<actor> · <role>`, and
+  the picker labels each candidate with its resolved role/status.
+- `runtime verify-adapter` now also scans an adapter's subcommands for
+  `--flag`-shaped literals against that subcommand's own `--help` output,
+  not just the top-level command's — a subcommand-only flag used to pass
+  verification even when it didn't exist.
+- An unknown CLI flag (e.g. a typo) produced zero output on every
+  platform instead of a usage error, because a pre-execution parse
+  failure short-circuited before `--json` mode's own error-encoding path
+  ever ran.
 - `install.ps1`'s cosign prerequisite check no longer rejects a real,
   correctly installed cosign: it now also recognizes
   `cosign-windows-amd64.exe`, cosign's actual upstream release/winget
@@ -679,6 +908,9 @@ deterministic JSON CLI/MCP surface.
 - Governed mutations revalidate authorization, leases, scopes, and conflicts
   inside the authoritative transaction.
 
-[Unreleased]: https://github.com/DhanushSantosh/AgentComms/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/DhanushSantosh/AgentComms/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/DhanushSantosh/AgentComms/compare/v0.3.0...v0.4.0
+[0.3.0]: https://github.com/DhanushSantosh/AgentComms/compare/v0.2.1...v0.3.0
+[0.2.1]: https://github.com/DhanushSantosh/AgentComms/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/DhanushSantosh/AgentComms/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/DhanushSantosh/AgentComms/releases/tag/v0.1.0
