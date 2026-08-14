@@ -98,6 +98,14 @@ type Model struct {
 	lastClickX, lastClickY int
 	lastClickAt            time.Time
 	ptySnapshots           map[string]string
+	// exitNotice, when non-empty, is printed to Run's out writer once the
+	// bubbletea program actually exits -- for a final message that needs to
+	// survive past the alt-screen/raw-mode teardown, unlike m.notice (drawn
+	// inside the still-running View). Its only current use is Danger Zone
+	// project deletion (RFC 0020): once DeleteProject succeeds, the Store
+	// this Model was built against no longer exists, so there is no view
+	// left to return to -- Dispatch sets this and quits, exactly like "q".
+	exitNotice string
 }
 
 // doubleClickWindow bounds how long after a first click a second click on
@@ -1779,8 +1787,14 @@ func Run(s *service.Service, actor string, in io.Reader, out io.Writer) error {
 		defer m.watcher.Close()
 	}
 	p := tea.NewProgram(m, tea.WithInput(in), tea.WithOutput(out))
-	_, e = p.Run()
-	return e
+	final, e := p.Run()
+	if e != nil {
+		return e
+	}
+	if fm, ok := final.(Model); ok && fm.exitNotice != "" {
+		fmt.Fprintln(out, fm.exitNotice)
+	}
+	return nil
 }
 func RenderForTest(s *service.Service, actor string, w, h int) (string, error) {
 	m, e := New(s, actor)

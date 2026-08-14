@@ -481,8 +481,64 @@ func (c *cli) versionCmd() *cobra.Command {
 func (c *cli) projectCmd() *cobra.Command {
 	root := &cobra.Command{Use: "project", Short: "Inspect and maintain the initialized project"}
 	upgrade := c.projectUpgradeCmd()
-	root.AddCommand(upgrade)
+	root.AddCommand(upgrade, c.projectDeleteCmd())
 	return root
+}
+
+// projectDeleteCmd is RFC 0020's project teardown. Deliberately refuses
+// outright under --non-interactive: matches agent elevate-key's own
+// reasoning (see cmd_agent.go) -- a passphrase prompt is meaningless to a
+// script, and this is the single most destructive command in the system.
+// There is no --yes, no piped-passphrase flag; there is no scripted path
+// for this one.
+func (c *cli) projectDeleteCmd() *cobra.Command {
+	return &cobra.Command{Use: "delete", Args: cobra.NoArgs,
+		Short: "Permanently delete this project's local runtime, and its remote data in service mode",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if c.nonInteractive {
+				return errors.New("project delete requires an interactive terminal -- there is no non-interactive or scripted path for this command")
+			}
+			root := c.project
+			if root == "" {
+				var err error
+				root, err = os.Getwd()
+				if err != nil {
+					return err
+				}
+			}
+			cfg, err := store.Open(root).Config()
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(c.out, "\nProject:      %s\n", cfg.ProjectID)
+			fmt.Fprintf(c.out, "Owner:        %s\n", cfg.Owner)
+			fmt.Fprintf(c.out, "Runtime mode: %s\n", cfg.RuntimeMode)
+			if cfg.RuntimeMode == "service" {
+				fmt.Fprintf(c.out, "Authority:    %s\n", cfg.AuthorityURL)
+				fmt.Fprint(c.out, "\nThis permanently deletes this project's ENTIRE row set from the shared authority above,\n"+
+					"not just this machine's local copy -- every other member's access to it ends too.\n")
+			}
+			fmt.Fprint(c.out, "\nThis is IRREVERSIBLE. There is no backup.\n\n")
+			fmt.Fprintf(c.out, "Type the project ID (%s) to confirm permanent deletion: ", cfg.ProjectID)
+			scanner := bufio.NewScanner(os.Stdin)
+			confirmed := ""
+			if scanner.Scan() {
+				confirmed = strings.TrimSpace(scanner.Text())
+			}
+			if confirmed != cfg.ProjectID {
+				return errors.New("project delete cancelled: typed confirmation did not match the project ID")
+			}
+			passphrase, err := promptPassphrase(c.actor)
+			if err != nil {
+				return err
+			}
+			result, err := c.svc.DeleteProject(c.actor, passphrase, confirmed)
+			if err != nil {
+				return err
+			}
+			return c.emit("project.delete", result)
+		},
+	}
 }
 
 func (c *cli) projectUpgradeCmd() *cobra.Command {

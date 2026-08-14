@@ -102,6 +102,8 @@ func (m Model) enterSettingsDomain(index int) (tea.Model, tea.Cmd) {
 		m.openView("Runtimes")
 		m.settingsFocus, m.rowFocus = false, true
 		m.runtimeList.Refresh(m.state, m.actor)
+	case 3:
+		return m.openDangerZoneForm()
 	case 4:
 		m.openView("Environment")
 		m.settingsFocus, m.rowFocus = false, true
@@ -110,6 +112,46 @@ func (m Model) enterSettingsDomain(index int) (tea.Model, tea.Cmd) {
 		m.toggleTheme()
 	}
 	return m, nil
+}
+
+// dangerZoneForm is RFC 0020's TUI entry point for permanent project
+// deletion -- reached only through "Authority & data" (settingsSections
+// index 3), distinct from every other settings domain in what it does, not
+// just how it looks. The two typed fields (project ID, elevated-key
+// passphrase) ARE the confirmation; there is no separate confirm dialog on
+// top, matching the CLI's own single confirmation step.
+var dangerZoneForm = &ActionForm{
+	Title: "Delete this project permanently",
+	Hint: "OWNER-only. Deletes the local runtime, and in service mode this project's entire " +
+		"remote data too -- every other member's access ends with it. There is no backup; this " +
+		"cannot be undone. See docs/rfcs/0020-elevated-key-gated-project-deletion.md.",
+	Fields: []FormField{
+		{Label: "Type the project ID to confirm", Required: true},
+		{Label: "Elevated-key passphrase", Mask: true, Required: true},
+	},
+	CollectsPassphrase: true,
+	// A plain Build+ExecuteWithPassphrase can't be used here at all --
+	// DeleteProject isn't a state-machine transition, it destroys the
+	// state machine's own storage. Dispatch is the only escape hatch that
+	// fits.
+	Dispatch: func(m Model, v []string, passphrase string) (tea.Model, tea.Cmd) {
+		result, err := m.svc.DeleteProject(m.actor, passphrase, v[0])
+		if err != nil {
+			m.err = err
+			return m, nil
+		}
+		// The project this Model was built against no longer exists --
+		// there is no view left to return to. Quit exactly like "q", but
+		// leave a final message Run's caller prints once the alt screen
+		// has actually torn down (m.notice would just vanish with it).
+		m.form, m.inputs, m.formSpec = "", nil, nil
+		m.exitNotice = fmt.Sprintf("Project %s permanently deleted.", result.ProjectID)
+		return m, tea.Quit
+	},
+}
+
+func (m Model) openDangerZoneForm() (tea.Model, tea.Cmd) {
+	return m.openActionForm(dangerZoneForm, "project.delete", m.projectID)
 }
 
 func (m *Model) toggleTheme() {
@@ -290,6 +332,7 @@ func (m Model) settingsControl(p palette, width int) string {
 			settingLine("Cache sequence", strconv.FormatUint(m.state.Integrity.CacheSequence, 10)),
 			settingLine("Chain verified", enabledLabel(m.state.Integrity.Verified)),
 			"", wrapText("Internal runtime storage is hidden by default. Use Audit & health for diagnostics.", innerWidth),
+			"", lipgloss.NewStyle().Foreground(p.red).Bold(true).Render("[e] DANGER ZONE -- permanently delete this project"),
 		)
 	case 4:
 		rows = append(rows,

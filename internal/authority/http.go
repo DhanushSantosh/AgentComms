@@ -82,6 +82,7 @@ func (s *HTTPServer) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/capabilities", s.capabilities)
 	mux.HandleFunc("GET /metrics", s.serveMetrics)
 	mux.HandleFunc("POST /v1/projects", s.createProject)
+	mux.HandleFunc("DELETE /v1/projects/{project}", s.deleteProject)
 	mux.HandleFunc("POST /v1/projects/{project}/commands", s.command)
 	mux.HandleFunc("GET /v1/projects/{project}/state", s.state)
 	mux.HandleFunc("GET /v1/projects/{project}/events", s.events)
@@ -149,6 +150,28 @@ func (s *HTTPServer) createProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"project_id": request.ProjectID, "owner_id": request.OwnerID})
+}
+
+// deleteProject handles RFC 0020's project-teardown request. Unlike
+// command, the body is a bare signed controlplane.Command with no
+// payload -- authorization (OWNER role, elevated-key signature) is
+// verified entirely inside Engine.DeleteProject, never trusted from the
+// client.
+func (s *HTTPServer) deleteProject(w http.ResponseWriter, r *http.Request) {
+	projectID := r.PathValue("project")
+	var command controlplane.Command
+	if !decodeJSON(w, r, &command) {
+		return
+	}
+	if command.ProjectID != projectID {
+		writeError(w, http.StatusBadRequest, &controlplane.Error{Code: controlplane.CodeValidation, Message: "path and command project IDs differ"})
+		return
+	}
+	if err := s.engine.DeleteProject(r.Context(), command); err != nil {
+		writeControlError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"project_id": projectID, "deleted": true})
 }
 
 func (s *HTTPServer) command(w http.ResponseWriter, r *http.Request) {

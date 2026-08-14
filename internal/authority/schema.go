@@ -14,7 +14,7 @@ import (
 //go:embed schema.sql
 var schema string
 
-const CurrentSchemaVersion = 3
+const CurrentSchemaVersion = 4
 
 const addActorKeyFingerprintMigration = `
 ALTER TABLE events
@@ -60,6 +60,20 @@ CREATE INDEX IF NOT EXISTS agent_runtimes_kind_host_status_idx
 ON agent_runtimes (project_id, runtime_kind, host_id, status);
 `
 
+// addDeletedProjectsMigration creates RFC 0020's permanent audit tombstone
+// table for DELETE /v1/projects/{project} -- see schema.sql's own comment
+// on deleted_projects for why it is deliberately not a foreign key of
+// projects(project_id).
+const addDeletedProjectsMigration = `
+CREATE TABLE IF NOT EXISTS deleted_projects (
+	project_id TEXT PRIMARY KEY,
+	owner_id TEXT NOT NULL,
+	deleted_by TEXT NOT NULL,
+	actor_key_fingerprint TEXT NOT NULL,
+	deleted_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+`
+
 // schemaMigration is one ordered, checksummed step. Automatic migrations
 // apply at every normal server startup; a migration with Automatic:false
 // only applies via `agent-comms-server migrate apply --yes
@@ -80,6 +94,7 @@ var schemaMigrations = []schemaMigration{
 	{Version: 1, Name: "initial-hybrid-control-plane", Automatic: true, SQL: schema},
 	{Version: 2, Name: "event-actor-key-fingerprint", Automatic: true, SQL: addActorKeyFingerprintMigration},
 	{Version: 3, Name: "interactive-delivery-integrity", Automatic: true, SQL: addDeliveryIntegrityColumnsMigration},
+	{Version: 4, Name: "project-deletion-tombstone", Automatic: true, SQL: addDeletedProjectsMigration},
 }
 
 type SchemaMigrationStatus struct {
