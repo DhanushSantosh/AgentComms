@@ -5,7 +5,7 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 
 ## [Unreleased]
 
-## [0.4.0] - 2026-08-14
+## [0.4.0] - 2026-08-14 — “Proof of Presence”
 
 *Identity resolution can no longer silently misattribute a signed action to
 the wrong actor — closing a real incident end to end — plus self-service
