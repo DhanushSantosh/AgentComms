@@ -871,7 +871,7 @@ func (s *Service) DeleteProject(actor, passphrase, confirmProjectID string) (Del
 	sort.Strings(result.KeyringRemoved)
 	sort.Strings(result.ProfilesRemoved)
 
-	if removeErr := os.RemoveAll(filepath.Join(s.Store.Root, store.Runtime)); removeErr != nil {
+	if removeErr := removeRuntimeDirectoryWithRetry(filepath.Join(s.Store.Root, store.Runtime)); removeErr != nil {
 		result.Warnings = append(result.Warnings, "remove runtime directory: "+removeErr.Error())
 	} else {
 		result.RuntimeRemoved = true
@@ -882,6 +882,30 @@ func (s *Service) DeleteProject(actor, passphrase, confirmProjectID string) (Del
 		result.BootstrapRemoved = true
 	}
 	return result, nil
+}
+
+// removeRuntimeDirectoryWithRetry retries os.RemoveAll briefly instead of
+// failing on the first attempt. StopDaemon above confirms the daemon stops
+// answering health checks, but that only proves its HTTP listener closed --
+// the personal-authority SQLite file underneath (internal/daemon/run.go)
+// is closed by a deferred Close() that only runs once Run() itself
+// returns, strictly after the health check already started failing. POSIX
+// allows unlinking a still-open file outright, so this race never
+// surfaces there; Windows refuses to remove a file another process still
+// has open at all ("The process cannot access the file because it is
+// being used by another process"), confirmed live in CI. The retry
+// budget roughly matches internal/daemon's own daemonShutdownTimeout (10s)
+// -- generous for the rare slow case, a no-op cost everywhere else since
+// it returns on the first successful attempt.
+func removeRuntimeDirectoryWithRetry(path string) error {
+	var lastErr error
+	for attempt := 0; attempt < 40; attempt++ {
+		if lastErr = os.RemoveAll(path); lastErr == nil {
+			return nil
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+	return lastErr
 }
 
 func (s *Service) AddArtifact(actor, path string) (model.Event, error) {
