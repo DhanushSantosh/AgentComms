@@ -34,12 +34,23 @@ export default defineConfig({
   site,
   output: "static",
   integrations: [mdx(), sitemap()],
+  server: { host: true },
   vite: {
     define: {
       "import.meta.env.PUBLIC_DOCS_CHANNEL": JSON.stringify(docsChannel),
       "import.meta.env.PUBLIC_SOURCE_BRANCH": JSON.stringify(sourceRef === "main" ? "main" : "dev"),
       "import.meta.env.PUBLIC_MARKETING_SITE_URL": JSON.stringify(marketingSite),
       "import.meta.env.PUBLIC_PRODUCT_VERSION": JSON.stringify(productVersion)
+    },
+    // Vite's dev server rejects requests whose Host header isn't in this
+    // list as DNS-rebinding protection -- mirrors sites/landing's
+    // next.config.ts allowedDevOrigins fix for the same class of problem
+    // (a LAN/Tailscale IP counts as a foreign host once the server is
+    // bound to every interface). SITES_PUBLIC_HOST comes from the
+    // untracked .env.local so a developer's own IP never needs to be
+    // hardcoded here.
+    server: {
+      allowedHosts: process.env.SITES_PUBLIC_HOST ? [process.env.SITES_PUBLIC_HOST] : undefined
     }
   },
   markdown: {
