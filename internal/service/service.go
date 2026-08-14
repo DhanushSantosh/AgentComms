@@ -769,10 +769,20 @@ type DeleteProjectResult struct {
 // against -- local runtime state always, and (in service mode) this
 // project's entire row set on the shared authority too. See RFC 0020.
 // OWNER-only, checked from live state, not just client-side trust;
-// requires a registered elevated key; confirmProjectID must equal the
-// project's actual ID -- the CLI/TUI's own typed-confirmation step,
-// enforced here once centrally rather than trusted from every call site.
-// There is no automatic backup: by explicit design, this is unrecoverable.
+// requires a registered elevated key; confirmDirectoryName must equal the
+// project root's actual directory name (filepath.Base(s.Store.Root)) --
+// the CLI/TUI's own typed-confirmation step, enforced here once centrally
+// rather than trusted from every call site. Deliberately the directory
+// name, not the internal project ID: the ID is an opaque generated UUID
+// nobody has memorized, so typing it back would just mean copying it from
+// the very screen that already displays it -- brittle to transcribe
+// exactly and no more likely to be actually *read* than any other string.
+// The directory name is something the human already knows without
+// looking anything up (it's the folder they're standing in), and is
+// exactly as effective at catching "right person, wrong project" -- the
+// one mistake this step exists to catch, distinct from what the
+// passphrase below proves. There is no automatic backup: by explicit
+// design, this is unrecoverable.
 //
 // Ordering matters: remote deletion (service mode only) happens first,
 // before anything local is touched, because local state is the only
@@ -780,7 +790,7 @@ type DeleteProjectResult struct {
 // remote deletion is confirmed. The daemon is stopped next, before any
 // local file removal, because the daemon (personal mode especially) may
 // still hold the runtime directory's files open.
-func (s *Service) DeleteProject(actor, passphrase, confirmProjectID string) (DeleteProjectResult, error) {
+func (s *Service) DeleteProject(actor, passphrase, confirmDirectoryName string) (DeleteProjectResult, error) {
 	cfg, err := s.Store.Config()
 	if err != nil {
 		return DeleteProjectResult{}, err
@@ -793,8 +803,9 @@ func (s *Service) DeleteProject(actor, passphrase, confirmProjectID string) (Del
 	if state.Agents[actor].Role != model.RoleOwner {
 		return DeleteProjectResult{}, fmt.Errorf("project delete: only the project owner can delete a project (actor: %s)", actor)
 	}
-	if confirmProjectID != cfg.ProjectID {
-		return DeleteProjectResult{}, errors.New("project delete: typed confirmation does not match the project ID")
+	directoryName := filepath.Base(s.Store.Root)
+	if confirmDirectoryName != directoryName {
+		return DeleteProjectResult{}, fmt.Errorf("project delete: typed confirmation %q does not match the project directory name %q", confirmDirectoryName, directoryName)
 	}
 	elevated, err := s.Store.Credentials.Get(cfg.ProjectID, identity.ElevatedActor(actor))
 	if err != nil {

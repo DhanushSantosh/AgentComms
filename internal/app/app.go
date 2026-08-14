@@ -510,7 +510,9 @@ func (c *cli) projectDeleteCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			directoryName := filepath.Base(root)
 			fmt.Fprintf(c.out, "\nProject:      %s\n", cfg.ProjectID)
+			fmt.Fprintf(c.out, "Directory:    %s\n", root)
 			fmt.Fprintf(c.out, "Owner:        %s\n", cfg.Owner)
 			fmt.Fprintf(c.out, "Runtime mode: %s\n", cfg.RuntimeMode)
 			if cfg.RuntimeMode == "service" {
@@ -519,14 +521,14 @@ func (c *cli) projectDeleteCmd() *cobra.Command {
 					"not just this machine's local copy -- every other member's access to it ends too.\n")
 			}
 			fmt.Fprint(c.out, "\nThis is IRREVERSIBLE. There is no backup.\n\n")
-			fmt.Fprintf(c.out, "Type the project ID (%s) to confirm permanent deletion: ", cfg.ProjectID)
+			fmt.Fprintf(c.out, "Type the project directory name (%s) to confirm permanent deletion: ", directoryName)
 			scanner := bufio.NewScanner(os.Stdin)
 			confirmed := ""
 			if scanner.Scan() {
 				confirmed = strings.TrimSpace(scanner.Text())
 			}
-			if confirmed != cfg.ProjectID {
-				return errors.New("project delete cancelled: typed confirmation did not match the project ID")
+			if confirmed != directoryName {
+				return errors.New("project delete cancelled: typed confirmation did not match the project directory name")
 			}
 			passphrase, err := promptPassphrase(c.actor)
 			if err != nil {

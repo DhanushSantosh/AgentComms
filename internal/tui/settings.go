@@ -3,6 +3,7 @@ package tui
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -117,16 +118,21 @@ func (m Model) enterSettingsDomain(index int) (tea.Model, tea.Cmd) {
 // dangerZoneForm is RFC 0020's TUI entry point for permanent project
 // deletion -- reached only through "Authority & data" (settingsSections
 // index 3), distinct from every other settings domain in what it does, not
-// just how it looks. The two typed fields (project ID, elevated-key
-// passphrase) ARE the confirmation; there is no separate confirm dialog on
-// top, matching the CLI's own single confirmation step.
+// just how it looks. The two typed fields (project directory name,
+// elevated-key passphrase) ARE the confirmation; there is no separate
+// confirm dialog on top, matching the CLI's own single confirmation step.
+// The confirmation asks for the project's directory name, not its
+// internal ID -- see Service.DeleteProject's own doc comment for why: the
+// ID is an opaque UUID nobody has memorized, while the directory name is
+// something already known without looking anything up and just as
+// effective at catching "right person, wrong project."
 var dangerZoneForm = &ActionForm{
 	Title: "Delete this project permanently",
 	Hint: "OWNER-only. Deletes the local runtime, and in service mode this project's entire " +
 		"remote data too -- every other member's access ends with it. There is no backup; this " +
 		"cannot be undone. See docs/rfcs/0020-elevated-key-gated-project-deletion.md.",
 	Fields: []FormField{
-		{Label: "Type the project ID to confirm", Required: true},
+		{Label: "Type the project directory name to confirm", Required: true},
 		{Label: "Elevated-key passphrase", Mask: true, Required: true},
 	},
 	CollectsPassphrase: true,
@@ -151,7 +157,16 @@ var dangerZoneForm = &ActionForm{
 }
 
 func (m Model) openDangerZoneForm() (tea.Model, tea.Cmd) {
-	return m.openActionForm(dangerZoneForm, "project.delete", m.projectID)
+	next, cmd := m.openActionForm(dangerZoneForm, "project.delete", m.projectID)
+	opened := next.(Model)
+	// Shown as a placeholder, never pre-filled as a value: pre-filling it
+	// would let Enter confirm the single most destructive action in the
+	// system without the operator having typed anything at all, defeating
+	// the entire point of asking.
+	if m.svc != nil && len(opened.inputs) > 0 {
+		opened.inputs[0].Placeholder = filepath.Base(m.svc.Store.Root)
+	}
+	return opened, cmd
 }
 
 func (m *Model) toggleTheme() {
