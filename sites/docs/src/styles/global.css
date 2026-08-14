@@ -30,19 +30,32 @@
   src: url("/fonts/commit-mono-latin-700.woff2") format("woff2");
 }
 
+/*
+ * Both themes' accent hues (brand/signal/receipt/warning/coral) are the
+ * TUI's own palette (internal/tui/model.go's colors()) -- cyan, violet,
+ * amber, coral -- not picked independently, so the docs site's identity
+ * matches the terminal and the marketing site rather than drifting on
+ * its own. Light mode darkens each one just enough to clear 4.5:1 text
+ * contrast against its pale canvas (checked, not eyeballed); dark mode
+ * uses the TUI's exact values verbatim, including pitch black for
+ * --canvas -- the same black sites/landing's own dark theme uses.
+ * --chrome* is intentionally defined once, here, not per-theme: the
+ * header/sidebar chrome stays TUI-dark regardless of which theme the
+ * article content itself is reading in.
+ */
 :root {
   color-scheme: light;
-  --brand: #3341f0;
-  --brand-strong: #202acf;
+  --brand: #806533;
+  --brand-strong: #2f766f;
   --ink: #08121b;
   --ink-raised: #101e28;
   --canvas: #eff4f6;
-  --signal: #24d6c8;
-  --signal-strong: #202acf;
-  --receipt: #7562e8;
-  --warning: #d77a22;
-  --coral: #ff765d;
-  --steel: #657985;
+  --signal: #56d6c9;
+  --signal-strong: #665c80;
+  --receipt: #665c80;
+  --warning: #806533;
+  --coral: #9c4943;
+  --steel: #566771;
   --muted: #435660;
   --surface-raised: #ffffff;
   --surface-muted: #dfe7eb;
@@ -51,13 +64,13 @@
   --warning-soft: #ffeadf;
   --line: #c7d1d6;
   --line-strong: #aebcc3;
-  --code-canvas: #08121b;
-  --code-ink: #eff4f6;
-  --chrome: #08121b;
-  --chrome-raised: #101e28;
-  --chrome-ink: #eff4f6;
-  --chrome-muted: #aebcc3;
-  --chrome-line: #24343e;
+  --code-canvas: #000000;
+  --code-ink: #d7e5e3;
+  --chrome: #000000;
+  --chrome-raised: #0d2024;
+  --chrome-ink: #d7e5e3;
+  --chrome-muted: #78918f;
+  --chrome-line: color-mix(in srgb, #d7e5e3 14%, transparent);
   --font-display: "Bricolage Grotesque Variable", "Arial Narrow", sans-serif;
   --font-sans: "Manrope Variable", system-ui, sans-serif;
   --font-mono: "Commit Mono", ui-monospace, monospace;
@@ -70,27 +83,27 @@
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --brand: #4352ff;
-  --brand-strong: #8390ff;
-  --ink: #eff4f6;
+  --brand: #e8b85c;
+  --brand-strong: #56d6c9;
+  --ink: #d7e5e3;
   --ink-raised: #ffffff;
-  --canvas: #08121b;
-  --signal: #24d6c8;
-  --signal-strong: #8390ff;
-  --receipt: #b9a7ff;
-  --warning: #efac48;
-  --coral: #ff8a73;
-  --steel: #91a3ad;
-  --muted: #b1c0c7;
-  --surface-raised: #101e28;
-  --surface-muted: #152731;
+  --canvas: #000000;
+  --signal: #56d6c9;
+  --signal-strong: #b9a7e8;
+  --receipt: #b9a7e8;
+  --warning: #e8b85c;
+  --coral: #f07167;
+  --steel: #78918f;
+  --muted: #9fb4b1;
+  --surface-raised: #0d2024;
+  --surface-muted: #142b30;
   --signal-soft: #103a39;
   --receipt-soft: #292448;
   --warning-soft: #3b291e;
-  --line: #24343e;
-  --line-strong: #3b505c;
-  --code-canvas: #050b10;
-  --code-ink: #eff4f6;
+  --line: color-mix(in srgb, #d7e5e3 14%, transparent);
+  --line-strong: color-mix(in srgb, #d7e5e3 24%, transparent);
+  --code-canvas: #000000;
+  --code-ink: #d7e5e3;
   --shadow-large: 0 25px 70px rgba(0, 0, 0, 0.46);
 }
 
@@ -323,10 +336,14 @@ a:hover {
 }
 
 .code-copy {
-  background: var(--brand);
-  border: 1px solid var(--brand);
+  /* Deliberately not var(--brand): code surfaces are always dark
+     regardless of site theme (see the comment above), but --brand's own
+     value flips per theme -- cyan is identical in both --root blocks, so
+     this button stays readable without a separate per-theme override. */
+  background: var(--signal);
+  border: 1px solid var(--signal);
   border-radius: 0;
-  color: #ffffff;
+  color: #000000;
   cursor: pointer;
   font-family: var(--font-mono);
   font-size: 0.58rem;

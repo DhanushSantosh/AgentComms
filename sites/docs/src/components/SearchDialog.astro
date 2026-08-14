@@ -127,10 +127,11 @@ import { flatNavigation } from "@data/navigation";
   }
 
   button {
-    background: var(--brand);
-    border: 1px solid var(--brand);
+    /* --signal, not --brand -- see Sidebar.astro's identical fix. */
+    background: var(--signal);
+    border: 1px solid var(--signal);
     border-radius: 0;
-    color: #ffffff;
+    color: #000000;
     cursor: pointer;
     font-family: var(--font-mono);
     font-size: 0.62rem;
