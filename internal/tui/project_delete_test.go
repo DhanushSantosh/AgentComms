@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -26,12 +27,12 @@ func TestDangerZoneFormOpensFromAuthorityAndDataDomain(t *testing.T) {
 		t.Fatalf("expected the Danger Zone form to open, got form=%q formSpec=%v", opened.form, opened.formSpec)
 	}
 	if len(opened.inputs) != 2 {
-		t.Fatalf("expected exactly the project-ID and passphrase fields, got %d inputs", len(opened.inputs))
+		t.Fatalf("expected exactly the directory-name and passphrase fields, got %d inputs", len(opened.inputs))
 	}
 }
 
 // TestDangerZoneDispatchWrongConfirmationRefuses confirms a mismatched
-// typed project ID surfaces as m.err, exactly like every other form
+// typed directory name surfaces as m.err, exactly like every other form
 // failure, and never quits the program.
 func TestDangerZoneDispatchWrongConfirmationRefuses(t *testing.T) {
 	s := newTestService(t)
@@ -39,7 +40,7 @@ func TestDangerZoneDispatchWrongConfirmationRefuses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	next, cmd := dangerZoneForm.Dispatch(m, []string{"not-the-real-project-id"}, "whatever")
+	next, cmd := dangerZoneForm.Dispatch(m, []string{"not-the-real-directory-name"}, "whatever")
 	result, ok := next.(Model)
 	if !ok {
 		t.Fatal("Dispatch did not return a tui.Model")
@@ -58,11 +59,11 @@ func TestDangerZoneDispatchWrongConfirmationRefuses(t *testing.T) {
 }
 
 // TestDangerZoneDispatchSucceedsAndQuits is the full happy path: correct
-// project-ID confirmation and elevated-key passphrase actually deletes the
-// project (exercised through the exact same Service.DeleteProject already
-// covered end to end in internal/service) and, since the Store this Model
-// was built against no longer exists afterward, quits the program with a
-// final exit notice -- there is no view left to return to.
+// directory-name confirmation and elevated-key passphrase actually deletes
+// the project (exercised through the exact same Service.DeleteProject
+// already covered end to end in internal/service) and, since the Store
+// this Model was built against no longer exists afterward, quits the
+// program with a final exit notice -- there is no view left to return to.
 func TestDangerZoneDispatchSucceedsAndQuits(t *testing.T) {
 	s := newTestService(t)
 	if _, err := s.ElevateKey("owner", "correct passphrase"); err != nil {
@@ -72,7 +73,7 @@ func TestDangerZoneDispatchSucceedsAndQuits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	next, cmd := dangerZoneForm.Dispatch(m, []string{m.projectID}, "correct passphrase")
+	next, cmd := dangerZoneForm.Dispatch(m, []string{filepath.Base(s.Store.Root)}, "correct passphrase")
 	result, ok := next.(Model)
 	if !ok {
 		t.Fatal("Dispatch did not return a tui.Model")

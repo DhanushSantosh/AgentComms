@@ -8,6 +8,17 @@ implementation began. Scope confirmed directly with the project owner beforehand
 covers local *and* remote state unconditionally in service mode, no automatic backup is taken,
 and the command is reachable from both the CLI and the TUI.
 
+**Amended same-day, pre-release:** the typed confirmation value changed from the internal
+`ProjectID` (an opaque generated UUID) to the project's directory name, after the project owner
+pointed out the UUID has to be copied from the very screen that just displayed it rather than
+recalled -- no more effective at catching "right person, wrong project" than a value the operator
+already knows without looking anything up. Also fixed a genuine Windows-only bug caught by CI on
+the shipping PR: `os.RemoveAll` on the runtime directory could race the daemon's own asynchronous
+shutdown-and-close, since `StopDaemon` confirming the daemon stopped answering health checks does
+not guarantee its SQLite file handle has actually closed yet -- Windows refuses to remove a file
+still held open where POSIX does not. Fixed with a short bounded retry
+(`removeRuntimeDirectoryWithRetry`).
+
 ## Context
 
 There is currently no way to fully retire an Agent Comms project. `agent-comms project upgrade`
@@ -68,17 +79,25 @@ see Alternatives for why.
 ### New method: `Service.DeleteProject`
 
 ```go
-func (s *Service) DeleteProject(actor, passphrase, confirmProjectID string) (DeleteProjectResult, error)
+func (s *Service) DeleteProject(actor, passphrase, confirmDirectoryName string) (DeleteProjectResult, error)
 ```
 
-`confirmProjectID` must equal the project's actual `ProjectID` (from `Store.Config()`) or the
-call refuses before touching anything -- the typed-confirmation step described under CLI/TUI
-below, enforced once, centrally, rather than trusting every call site to have prompted for it.
+`confirmDirectoryName` must equal the project root's actual directory name
+(`filepath.Base(s.Store.Root)`) or the call refuses before touching anything -- the
+typed-confirmation step described under CLI/TUI below, enforced once, centrally, rather than
+trusting every call site to have prompted for it. Deliberately the directory name rather than the
+internal `ProjectID`: the ID is an opaque generated UUID nobody has memorized, so confirming with
+it would just mean transcribing it from the very screen that already displays it -- brittle to
+get exactly right and no more likely to actually be *read* than any other string. The directory
+name is something the human already knows without looking anything up (it's the folder they're
+standing in), and is exactly as effective at catching "right person, wrong project" -- the one
+mistake this step exists to catch, distinct from what the passphrase proves. (Changed from the
+originally shipped `confirmProjectID` after live use surfaced exactly this friction.)
 
 Steps, in order, each one gating the next:
 
 1. Load config, resolve `actor`'s current role from state; refuse unless it is exactly `OWNER`.
-2. Refuse unless `confirmProjectID == config.ProjectID`.
+2. Refuse unless `confirmDirectoryName == filepath.Base(config root)`.
 3. `decryptElevatedKey(actor, passphrase)`; refuse if none is registered or the passphrase is
    wrong (identical error behavior to every existing elevated-key consumer).
 4. Sign `ProjectDeletionAuthorization{ProjectID, Actor: actor, IssuedAt: s.Now()}`.
@@ -155,11 +174,11 @@ meaningless to a script, and this is the single most destructive command in the 
 
 Interactive flow:
 
-1. Prints the project ID, owner, runtime mode, and (service mode only) the authority URL, with an
-   explicit warning that this is irreversible and, in service mode, deletes this project's data
-   from the shared authority too.
-2. Prompts `Type the project ID (<id>) to confirm permanent deletion: `, matched exactly against
-   `config.ProjectID`.
+1. Prints the project ID, directory, owner, runtime mode, and (service mode only) the authority
+   URL, with an explicit warning that this is irreversible and, in service mode, deletes this
+   project's data from the shared authority too.
+2. Prompts `Type the project directory name (<name>) to confirm permanent deletion: `, matched
+   exactly against `filepath.Base(root)`.
 3. Prompts for the elevated-key passphrase (masked, reusing `promptPassphrase`).
 4. Calls `Service.DeleteProject`; emits `project.delete` with the full `DeleteProjectResult`.
 
@@ -172,7 +191,7 @@ ORCHESTRATOR-grant and switch-role forms already are:
 
 ```go
 Fields: []FormField{
-	{Label: "Type the project ID to confirm"},
+	{Label: "Type the project directory name to confirm"},
 	{Label: "Elevated-key passphrase", Mask: true},
 },
 ```
@@ -232,7 +251,7 @@ confusing `404`.
   landing in a CI script or a shell alias by accident.
 - This is, by explicit design and explicit user decision, unrecoverable. There is no code path in
   this RFC that mitigates a wrong confirmation followed by a correct passphrase; the typed
-  project-ID step exists solely to catch that class of mistake before the passphrase prompt is
+  directory-name step exists solely to catch that class of mistake before the passphrase prompt is
   ever reached.
 
 ## Test and rollout plan
