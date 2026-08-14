@@ -34,14 +34,18 @@ func TestAgentActionsForStates(t *testing.T) {
 		role  model.Role
 		want  []string
 	}{
-		{"pending non-elevated sees nothing", model.Agent{Status: "PENDING"}, "builder", "watcher", model.RoleAgent, nil},
+		{"pending non-elevated sees nothing", model.Agent{Status: "PENDING"}, "builder", "watcher", model.Role("MEMBER"), nil},
 		{"pending elevated sees activate rename and revoke", model.Agent{Status: "PENDING"}, "builder", "owner", model.RoleOwner, []string{"activate", "rename", "revoke"}},
-		{"active elevated sees suspend rename and revoke", model.Agent{Status: "ACTIVE"}, "builder", "owner", model.RoleOwner, []string{"suspend", "rename", "revoke"}},
-		{"active non-elevated sees nothing", model.Agent{Status: "ACTIVE"}, "builder", "watcher", model.RoleAgent, nil},
+		{"active elevated sees change role suspend rename and revoke", model.Agent{Status: "ACTIVE"}, "builder", "owner", model.RoleOwner, []string{"change role", "suspend", "rename", "revoke"}},
+		{"active non-elevated sees nothing", model.Agent{Status: "ACTIVE"}, "builder", "watcher", model.Role("MEMBER"), nil},
 		{"suspended elevated sees rename and revoke", model.Agent{Status: "SUSPENDED"}, "builder", "owner", model.RoleOwner, []string{"rename", "revoke"}},
 		{"revoked offers only delete", model.Agent{Status: "REVOKED"}, "builder", "owner", model.RoleOwner, []string{"delete"}},
-		{"own row elevated adds rotate key", model.Agent{Status: "ACTIVE"}, "owner", "owner", model.RoleOwner, []string{"suspend", "rename", "revoke", "rotate key"}},
-		{"own row non-elevated has no rotate key", model.Agent{Status: "ACTIVE"}, "watcher", "watcher", model.RoleAgent, nil},
+		// change role is still offered on the owner's own row here (the TUI
+		// shows what MIGHT be allowed, exactly like suspend/revoke already
+		// do for an OWNER target) -- ValidateTransition itself is what
+		// actually refuses to change the owner's role, unconditionally.
+		{"own row elevated adds rotate key", model.Agent{Status: "ACTIVE"}, "owner", "owner", model.RoleOwner, []string{"change role", "suspend", "rename", "revoke", "rotate key"}},
+		{"own row non-elevated has no rotate key but can switch role", model.Agent{Status: "ACTIVE"}, "watcher", "watcher", model.Role("MEMBER"), []string{"switch role"}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -71,9 +75,9 @@ func enterAgentsView(t *testing.T, m Model) Model {
 // translate tea.MouseWheelMsg itself (rowlist.go).
 func TestMouseWheelScrollsRowSelection(t *testing.T) {
 	s := newTestService(t)
-	registerAgent(t, s, "alpha", model.RoleAgent, "src")
-	registerAgent(t, s, "beta", model.RoleAgent, "src")
-	registerAgent(t, s, "gamma", model.RoleAgent, "src")
+	registerAgent(t, s, "alpha", model.Role("MEMBER"), "src")
+	registerAgent(t, s, "beta", model.Role("MEMBER"), "src")
+	registerAgent(t, s, "gamma", model.Role("MEMBER"), "src")
 
 	m, e := New(s, "owner")
 	if e != nil {
@@ -105,9 +109,9 @@ func click(x, y int) tea.MouseClickMsg {
 // consistent with itself.
 func TestMouseClickSelectsRow(t *testing.T) {
 	s := newTestService(t)
-	registerAgent(t, s, "alpha", model.RoleAgent, "src")
-	registerAgent(t, s, "beta", model.RoleAgent, "src")
-	registerAgent(t, s, "gamma", model.RoleAgent, "src")
+	registerAgent(t, s, "alpha", model.Role("MEMBER"), "src")
+	registerAgent(t, s, "beta", model.Role("MEMBER"), "src")
+	registerAgent(t, s, "gamma", model.Role("MEMBER"), "src")
 
 	m, e := New(s, "owner")
 	if e != nil {
@@ -147,7 +151,7 @@ func TestMouseClickSelectsRow(t *testing.T) {
 func TestMouseClickSelectsRowAfterScrolling(t *testing.T) {
 	s := newTestService(t)
 	for i := 0; i < 15; i++ {
-		registerAgent(t, s, fmt.Sprintf("agent-%02d", i), model.RoleAgent, "src")
+		registerAgent(t, s, fmt.Sprintf("agent-%02d", i), model.Role("MEMBER"), "src")
 	}
 
 	m, e := New(s, "owner")
@@ -200,7 +204,7 @@ func TestMouseClickSelectsRowAfterScrolling(t *testing.T) {
 func TestRowListCursorAlwaysStaysVisibleWhileScrolling(t *testing.T) {
 	s := newTestService(t)
 	for i := 0; i < 30; i++ {
-		registerAgent(t, s, fmt.Sprintf("agent-%02d", i), model.RoleAgent, "src")
+		registerAgent(t, s, fmt.Sprintf("agent-%02d", i), model.Role("MEMBER"), "src")
 	}
 
 	m, e := New(s, "owner")
@@ -320,7 +324,7 @@ func TestDoubleClickRequiresTheSameCellWithinTheWindow(t *testing.T) {
 // after the sidebar-click fix ("not the other tabs").
 func TestHubTabClickSwitchesView(t *testing.T) {
 	s := newTestService(t)
-	registerAgent(t, s, "builder", model.RoleAgent, "src")
+	registerAgent(t, s, "builder", model.Role("MEMBER"), "src")
 
 	m, e := New(s, "owner")
 	if e != nil {
@@ -383,7 +387,7 @@ func hubClickPosition(t *testing.T, m Model, hubIndex int) (x, y int) {
 // must actually switch each time, not get stuck on the first one clicked.
 func TestSidebarClickSwitchesHubsRepeatedly(t *testing.T) {
 	s := newTestService(t)
-	registerAgent(t, s, "builder", model.RoleAgent, "src")
+	registerAgent(t, s, "builder", model.Role("MEMBER"), "src")
 
 	m, e := New(s, "owner")
 	if e != nil {
@@ -414,7 +418,7 @@ func TestSidebarClickSwitchesHubsRepeatedly(t *testing.T) {
 
 func TestSidebarClickOpensAndFocusesHub(t *testing.T) {
 	s := newTestService(t)
-	registerAgent(t, s, "builder", model.RoleAgent, "src")
+	registerAgent(t, s, "builder", model.Role("MEMBER"), "src")
 
 	m, e := New(s, "owner")
 	if e != nil {
@@ -679,7 +683,7 @@ func TestActivateOrchestratorThroughMaskedPassphraseField(t *testing.T) {
 
 func TestSuspendRequiresConfirm(t *testing.T) {
 	s := newTestService(t)
-	registerAgent(t, s, "builder", model.RoleAgent, "src")
+	registerAgent(t, s, "builder", model.Role("MEMBER"), "src")
 
 	m, e := New(s, "owner")
 	if e != nil {
@@ -709,7 +713,7 @@ func TestSuspendRequiresConfirm(t *testing.T) {
 
 func TestRevokeRequiresConfirm(t *testing.T) {
 	s := newTestService(t)
-	registerAgent(t, s, "builder", model.RoleAgent, "src")
+	registerAgent(t, s, "builder", model.Role("MEMBER"), "src")
 
 	m, e := New(s, "owner")
 	if e != nil {
@@ -739,7 +743,7 @@ func TestRevokeRequiresConfirm(t *testing.T) {
 
 func TestRotateKeyOnlyOnOwnRow(t *testing.T) {
 	s := newTestService(t)
-	registerAgent(t, s, "builder", model.RoleAgent, "src")
+	registerAgent(t, s, "builder", model.Role("MEMBER"), "src")
 
 	m, e := New(s, "owner")
 	if e != nil {
@@ -767,7 +771,7 @@ func TestRotateKeyOnlyOnOwnRow(t *testing.T) {
 
 func TestRenameAgent(t *testing.T) {
 	s := newTestService(t)
-	registerAgent(t, s, "builder", model.RoleAgent, "src")
+	registerAgent(t, s, "builder", model.Role("MEMBER"), "src")
 
 	m, e := New(s, "owner")
 	if e != nil {
@@ -798,7 +802,7 @@ func TestRenameAgent(t *testing.T) {
 
 func TestDeleteRequiresRevokedStatusAndReason(t *testing.T) {
 	s := newTestService(t)
-	registerAgent(t, s, "builder", model.RoleAgent, "src")
+	registerAgent(t, s, "builder", model.Role("MEMBER"), "src")
 
 	m, e := New(s, "owner")
 	if e != nil {
@@ -845,9 +849,37 @@ func TestDeleteRequiresRevokedStatusAndReason(t *testing.T) {
 	}
 }
 
+// TestActorSwitchFormShowsRoleNextToEachCandidate is the regression test
+// for a real, confirmed trap: the actor-switch picker used to list bare
+// local credential IDs with no role or status shown, making it trivial to
+// pick a non-owner/non-orchestrator identity by mistake and have no way to
+// tell before submitting -- exactly the failure mode that produced a live
+// "owner or orchestrator role required" rejection after a user switched
+// actors expecting the switch to give them elevated standing.
+func TestActorSwitchFormShowsRoleNextToEachCandidate(t *testing.T) {
+	s := newTestService(t)
+	registerAgent(t, s, "builder", model.Role("MEMBER"), "src")
+
+	m, e := New(s, "owner")
+	if e != nil {
+		t.Fatal(e)
+	}
+	m = pressKey(t, m, keyText("a"))
+	if m.formSpec == nil {
+		t.Fatal("expected the actor-switch form to be open")
+	}
+	hint := m.formSpec.Hint
+	if !strings.Contains(hint, "owner (owner)") {
+		t.Fatalf("hint = %q, want it to label the owner candidate with its role", hint)
+	}
+	if !strings.Contains(hint, "builder (member)") {
+		t.Fatalf("hint = %q, want it to label the builder candidate with its role", hint)
+	}
+}
+
 func TestActorSwitchChangesActorAndRejectsUnknown(t *testing.T) {
 	s := newTestService(t)
-	registerAgent(t, s, "builder", model.RoleAgent, "src")
+	registerAgent(t, s, "builder", model.Role("MEMBER"), "src")
 
 	m, e := New(s, "owner")
 	if e != nil {
@@ -872,6 +904,70 @@ func TestActorSwitchChangesActorAndRejectsUnknown(t *testing.T) {
 	m = pressKey(t, m, keyEnter())
 	if m.actor != "builder" {
 		t.Fatalf("actor = %q, want builder", m.actor)
+	}
+}
+
+// TestCommandRailShowsActiveActorID is the regression test for a real gap:
+// the status rail used to show only "authority <role>" ("authority owner"),
+// with no actor ID anywhere -- so there was no persistent, always-visible
+// way to confirm *who* you're currently acting as, only what standing that
+// (unnamed) actor holds. Confirmed live as a real contributor to a user
+// switching to the wrong local identity and not noticing until an
+// elevation check rejected them downstream.
+func TestCommandRailShowsActiveActorID(t *testing.T) {
+	s := newTestService(t)
+	registerAgent(t, s, "builder", model.Role("MEMBER"), "src")
+	m, e := New(s, "owner")
+	if e != nil {
+		t.Fatal(e)
+	}
+	p := colors(m.highContrast)
+	rail := m.commandRail(p, 200)
+	if !strings.Contains(rail, "owner") {
+		t.Fatalf("command rail = %q, want it to name the active actor (owner)", rail)
+	}
+
+	m = pressKey(t, m, keyText("a"))
+	m.inputs[0].SetValue("builder")
+	m.formFocus = 0
+	m = pressKey(t, m, keyEnter())
+	if m.actor != "builder" {
+		t.Fatalf("actor = %q, want builder", m.actor)
+	}
+	rail = m.commandRail(p, 200)
+	if !strings.Contains(rail, "builder") {
+		t.Fatalf("command rail after switching = %q, want it to name the new active actor (builder)", rail)
+	}
+}
+
+// TestActorSwitchNoticeSurvivesTheFollowingRefresh is the regression test
+// for a real, confirmed bug: switching actors set m.notice = "Switched to
+// X" and then immediately called refresh(), which unconditionally
+// overwrote m.notice with the generic "State refreshed at HH:MM:SS" one
+// line later -- so a user who switched to the wrong identity (or the right
+// one) never actually saw confirmation of what happened, only a
+// content-free "state refreshed" message identical to any other refresh.
+// The same clobbering pattern hit every other action that reports a
+// specific result and then refreshes (agent.activate, task/message/
+// approval actions, ...); this test only needs to prove the general fix
+// (refreshState vs. refresh) once, at this one real-world trigger.
+func TestActorSwitchNoticeSurvivesTheFollowingRefresh(t *testing.T) {
+	s := newTestService(t)
+	registerAgent(t, s, "builder", model.Role("MEMBER"), "src")
+
+	m, e := New(s, "owner")
+	if e != nil {
+		t.Fatal(e)
+	}
+	m = pressKey(t, m, keyText("a"))
+	m.inputs[0].SetValue("builder")
+	m.formFocus = 0
+	m = pressKey(t, m, keyEnter())
+	if m.actor != "builder" {
+		t.Fatalf("actor = %q, want builder", m.actor)
+	}
+	if m.notice != "Switched to builder" {
+		t.Fatalf("notice = %q, want the actor-switch confirmation to survive the refresh that follows it", m.notice)
 	}
 }
 
@@ -1012,7 +1108,7 @@ func TestBodyPrefixMatchesActualRender(t *testing.T) {
 // rather than trusting the formula by inspection alone.
 func TestRowTableTopYMatchesActualRender(t *testing.T) {
 	s := newTestService(t)
-	registerAgent(t, s, "alpha", model.RoleAgent, "src")
+	registerAgent(t, s, "alpha", model.Role("MEMBER"), "src")
 
 	m, e := New(s, "owner")
 	if e != nil {
@@ -1033,5 +1129,35 @@ func TestRowTableTopYMatchesActualRender(t *testing.T) {
 	}
 	if row, ok := m.rowAtY(p, predicted+1); !ok || row != 0 {
 		t.Fatalf("expected the line right after the header (y=%d) to resolve to row 0, got row=%d ok=%v", predicted+1, row, ok)
+	}
+}
+
+// TestChangeRoleKeyActuallyOpensTheForm is the regression test for the
+// second most serious defect this audit found: actChangeRole's "r" key
+// used to be completely unreachable -- updateRowList's own explicit
+// "case \"r\": m.refresh()" always matched first, before the fallthrough
+// that checks a row's own Actions() ever ran, so pressing "r" on an
+// active agent always refreshed instead of opening the change-role form,
+// silently, with no error. Confirms "c" (the rebound key) actually opens
+// it, and that "r" still means refresh, not a stale expectation left
+// over from before the rebind.
+func TestChangeRoleKeyActuallyOpensTheForm(t *testing.T) {
+	s := newTestService(t)
+	registerAgent(t, s, "builder", model.Role("MEMBER"), "src")
+	m, err := New(s, "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m = enterAgentsView(t, m)
+	if id := m.agentList.SelectedID(m.state, m.actor); id != "builder" {
+		t.Fatalf("selected id = %q, want builder", id)
+	}
+	m = pressKey(t, m, keyText("r"))
+	if m.form != "" {
+		t.Fatalf("expected \"r\" to still mean refresh, not open a form, got form=%q", m.form)
+	}
+	m = pressKey(t, m, keyText("c"))
+	if m.form != "agent.activate" {
+		t.Fatalf("expected \"c\" to open the change-role form, got form=%q", m.form)
 	}
 }

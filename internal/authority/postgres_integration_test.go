@@ -66,7 +66,7 @@ func TestPostgresTransactionalAuthority(t *testing.T) {
 	register("beta", beta)
 	for _, id := range []string{"alpha", "beta"} {
 		if _, _, err = mutate("owner", owner, "agent.activate", id,
-			model.AgentActivated{Role: model.RoleAgent, Scopes: []string{"src"}}, uuid.NewString()); err != nil {
+			model.AgentActivated{Role: model.Role("MEMBER"), Scopes: []string{"src"}}, uuid.NewString()); err != nil {
 			t.Fatal(err)
 		}
 	}

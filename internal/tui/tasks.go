@@ -107,7 +107,7 @@ func taskActionsFor(t model.Task, actor string, role model.Role) []RowAction {
 	genericAllowed := mine || elevated
 	var acts []RowAction
 
-	if t.Owner == "" && role != model.RoleObserver && (t.Status == "OPEN" || t.Status == "OFFERED") {
+	if t.Owner == "" && (t.Status == "OPEN" || t.Status == "OFFERED") {
 		acts = append(acts, actClaim)
 	}
 	switch t.Status {

@@ -14,12 +14,14 @@ Every mutation begins as a canonical command envelope signed by the actor. The e
 
 Principals are `HUMAN` or `AGENT`. Principal type describes who the identity represents; role describes current authority.
 
+Only two role values carry any permission effect:
+
 | Role | Purpose |
 |---|---|
-| `OWNER` | Project bootstrap authority; cannot be revoked. |
-| `ORCHESTRATOR` | Govern ordinary cross-agent coordination and policy. |
-| `AGENT` | Perform scoped project work. |
-| `OBSERVER` | Read without ordinary mutation authority. |
+| `OWNER` | Project bootstrap authority; assigned exactly once, at project creation, and never a legal target again — cannot be revoked, suspended, or switched away from itself. |
+| `ORCHESTRATOR` | Govern ordinary cross-agent coordination and policy. Granting it (or self-switching to it) requires a HUMAN principal, a pre-approved HUMAN-tier approval, and the elevated key. |
+
+Any other role is a freeform, purely descriptive label a principal chooses for itself (`Frontend-Architect`, `Tester`, ...) — it carries no permission effect, and any active principal may change its own at any time, self-service, via `agent switch-role`/`agent_switch_role` (never `OWNER`, never another principal's role, never touching capabilities or scopes).
 
 Scopes bound the resources an actor may claim or affect. A command must satisfy identity, role, scope, state transition, and any approval requirement.
 

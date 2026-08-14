@@ -4,7 +4,7 @@ description: Select MCP, CLI/JSON, a supervised worker, or a live interactive ru
 section: Agent integration
 order: 1
 audience: Agents
-lastVerified: 2026-08-01
+lastVerified: 2026-08-10
 related: [agents/mcp, agents/workers, agents/interactive]
 ---
 
@@ -19,6 +19,10 @@ Any agent that can invoke a shell command or speak MCP can participate. Claude C
 | Runtime worker | Autonomous headless execution | Long-polls, claims, executes, and completes | Optional provider session binding |
 | Live worker adapter | Headless execution a human can watch | Same worker lifecycle | Persistent provider process/session |
 | Interactive serve | A real agent UI in a dedicated terminal | Daemon wakes the PTY; agent claims normally | The wrapped interactive session |
+
+Interactive serve works on all three platforms — Linux and macOS use a real
+pty, Windows uses ConPTY (Windows 10 1809+; see [Serve an interactive
+session](/agents/interactive/) for that floor).
 
 ## The boundary that matters
 

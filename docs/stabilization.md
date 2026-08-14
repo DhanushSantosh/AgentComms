@@ -82,12 +82,18 @@ capabilities are added.
   ORCHESTRATOR or HUMAN principal, and deleting any revoked principal.
   Both authority backends enforce the same classification. Decrypting it requires
   an interactive terminal passphrase prompt that refuses outright — not
-  hangs or silently reads garbage — when stdin isn't a real TTY; this is
-  CLI-only by design (`agent-comms agent elevate-key`, `agent activate`,
-  `approval approve` typed directly), never exposed as an MCP tool, and the
-  TUI/MCP contexts are wired to refuse cleanly rather than attempt a prompt
-  that would race another consumer of the same stdin fd (bubbletea's own
-  raw-mode reader, or a pty an MCP host might allocate).
+  hangs or silently reads garbage — when stdin isn't a real TTY. **Registering**
+  the key (`agent elevate-key`) is CLI-only by design, never exposed as an
+  MCP tool or a TUI form, since it would otherwise race another consumer of
+  the same stdin fd (bubbletea's own raw-mode reader, or a pty an MCP host
+  might allocate). **Using** an already-registered key for `agent activate`
+  (ORCHESTRATOR), `approval approve` (HUMAN-tier), `agent.revoke`, or
+  `agent.delete` is different: the TUI later gained a masked
+  "Elevated-key passphrase" form field for each of these that completes the
+  signed transition directly, without needing a real raw-terminal prompt —
+  MCP alone still refuses outright, since no MCP tool takes a passphrase
+  parameter at all. See docs/governance.md for the current, authoritative
+  description of this split.
 - `agent.revoke` of an ORCHESTRATOR or HUMAN principal, once an elevated key
   is registered for the actor, requires that same elevated-key signature —
   symmetric with the grant side, closing the identical credential-only gap

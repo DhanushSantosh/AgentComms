@@ -78,7 +78,7 @@ func activate(t *testing.T, s *service.Service, id string, pt model.PrincipalTyp
 	if _, e := s.Register(id, id, pt); e != nil {
 		t.Fatal(e)
 	}
-	must(t, s, "owner", "agent.activate", id, model.AgentActivated{Role: model.RoleAgent, Scopes: []string{"src"}})
+	must(t, s, "owner", "agent.activate", id, model.AgentActivated{Role: model.Role("MEMBER"), Scopes: []string{"src"}})
 }
 
 func registerOnlineWorker(t *testing.T, s *service.Service, agentID, runtimeID string, maxConcurrent int) {
@@ -323,7 +323,7 @@ func TestGrantingOrchestratorRoleRequiresHumanPrincipal(t *testing.T) {
 
 	// The same agent-lead orchestrator may still grant any non-orchestrator
 	// role — only the orchestrator grant itself is human-gated.
-	must(t, s, "agent-lead", "agent.activate", "candidate", model.AgentActivated{Role: model.RoleAgent, Scopes: []string{"src"}})
+	must(t, s, "agent-lead", "agent.activate", "candidate", model.AgentActivated{Role: model.Role("MEMBER"), Scopes: []string{"src"}})
 
 	// A human principal who is also already an orchestrator (elevation is
 	// still role-based, same as ever) may grant the orchestrator role.
@@ -414,7 +414,7 @@ func TestAgentRevokeIsTerminal(t *testing.T) {
 	if _, err = s.Execute("alpha", "task.create", "task-1", model.TaskCreated{Title: "x", Repository: "local", Branch: "b", Resources: []string{"src/x"}}); err == nil {
 		t.Fatal("expected a revoked principal's own action to fail via the general active() gate")
 	}
-	if _, err = s.Execute("owner", "agent.activate", "alpha", model.AgentActivated{Role: model.RoleAgent, Scopes: []string{"src"}}); err == nil {
+	if _, err = s.Execute("owner", "agent.activate", "alpha", model.AgentActivated{Role: model.Role("MEMBER"), Scopes: []string{"src"}}); err == nil {
 		t.Fatal("expected reactivating a revoked principal to fail")
 	}
 	if _, err = s.Execute("owner", "agent.rename", "alpha", model.AgentRenamed{DisplayName: "Alpha"}); err == nil {
@@ -576,10 +576,57 @@ func TestRegisterRejectsDuplicateIDWithoutTouchingExistingCredential(t *testing.
 	}
 	// The original credential must still actually work — the real-world
 	// failure mode was that it silently stopped being able to sign anything.
-	must(t, s, "owner", "agent.activate", "dup-test", model.AgentActivated{Role: model.RoleAgent, Scopes: []string{"src"}})
+	must(t, s, "owner", "agent.activate", "dup-test", model.AgentActivated{Role: model.Role("MEMBER"), Scopes: []string{"src"}})
 	if _, err := s.Execute("dup-test", "runtime.register", "dup-test-runtime",
 		model.RuntimeRegistered{AgentID: "dup-test", Connector: "MCP", MaxConcurrent: 1}); err != nil {
 		t.Fatalf("original credential can no longer sign after a rejected duplicate registration: %v", err)
+	}
+}
+
+// TestRegisterDoesNotHijackTheSharedLegacyActiveProfile is the regression
+// test for a real, confirmed-live gap RFC 0017 alone did not close:
+// Register's own convenience of defaulting a freshly-registered identity to
+// "active" used to write into the shared, machine-wide legacy ActiveProfile
+// field whenever no provider session was recognized -- exactly the
+// session-less path an opencode-based agent always takes. Since that field
+// has no scoping at all, one such agent's own convenience default silently
+// became every other session-less caller's default too, including a
+// human's own plain terminal -- observed live as a project's shared slot
+// ending up permanently pointed at an agent instead of its human owner,
+// with no further action from anyone. Register must now leave the shared
+// field alone entirely when no session is recognized.
+func TestRegisterDoesNotHijackTheSharedLegacyActiveProfile(t *testing.T) {
+	s := setup(t)
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "")
+	t.Setenv("CODEX_THREAD_ID", "")
+
+	// Force the exact precondition that actually made the old code fire
+	// its opportunistic default (`ActiveProfileFor(sessionID) == ""`):
+	// setup(t)'s own init already claims the legacy field for "owner" in
+	// most environments, which would otherwise mask this regression
+	// entirely -- the real incident's project was originally initialized
+	// from a real, session-scoped caller, leaving the legacy field
+	// genuinely empty until a later session-less registration claimed it.
+	before, err := identity.LoadUserConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	before.ActiveProfile = ""
+	if err := identity.SaveUserConfig(before); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := s.Register("session-less-agent", "", model.PrincipalAgent); err != nil {
+		t.Fatal(err)
+	}
+
+	after, err := identity.LoadUserConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.ActiveProfile != "" {
+		t.Fatalf("session-less registration claimed the shared legacy active profile: got %q, want empty",
+			after.ActiveProfile)
 	}
 }
 
@@ -691,6 +738,76 @@ func TestExecuteRequiresPassphrasePromptOnceElevatedKeyIsRegistered(t *testing.T
 	}
 }
 
+// TestSwitchRoleSelfServiceSucceedsEndToEndWithNoElevation is the
+// full-daemon end-to-end counterpart to the ValidateTransition-level
+// agent.switch-role coverage in internal/protocol: a non-elevated principal
+// relabels its own role with a bare Execute call, no owner/orchestrator
+// action and no elevated key involved at all -- confirming the whole
+// client-to-daemon round trip, not just the validator in isolation.
+func TestSwitchRoleSelfServiceSucceedsEndToEndWithNoElevation(t *testing.T) {
+	s := setup(t)
+	activate(t, s, "builder", model.PrincipalAgent)
+	if _, err := s.Execute("builder", "agent.switch-role", "builder", model.AgentRoleSwitched{Role: model.Role("Frontend-Architect")}); err != nil {
+		t.Fatalf("expected a non-elevated self-switch to succeed: %v", err)
+	}
+	state, err := s.State()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Agents["builder"].Role != "Frontend-Architect" {
+		t.Fatalf("expected builder's role to become Frontend-Architect, got %+v", state.Agents["builder"])
+	}
+	if _, err := s.Execute("builder", "agent.switch-role", "someone-else", model.AgentRoleSwitched{Role: model.Role("Tester")}); err == nil {
+		t.Fatal("expected switching a different principal's role to fail end-to-end too")
+	}
+}
+
+// TestSwitchRoleToOrchestratorRequiresPassphrasePromptOnceElevatedKeyIsRegistered
+// is the switch-role sibling of
+// TestExecuteRequiresPassphrasePromptOnceElevatedKeyIsRegistered: switching
+// yourself to ORCHESTRATOR goes through the identical PassphrasePrompt path
+// as being granted it via agent.activate, once you've registered your own
+// elevated key.
+func TestSwitchRoleToOrchestratorRequiresPassphrasePromptOnceElevatedKeyIsRegistered(t *testing.T) {
+	s := setup(t)
+	activate(t, s, "human-candidate", model.PrincipalHuman)
+	if _, err := s.ElevateKey("human-candidate", "correct passphrase"); err != nil {
+		t.Fatal(err)
+	}
+
+	approvalID := "human-candidate-orchestrator-approval"
+	action := protocol.OrchestratorGrantApprovalAction("human-candidate")
+	must(t, s, "owner", "approval.request", approvalID, model.ApprovalRequested{Tier: "HUMAN", Action: action, Reason: "test"})
+	must(t, s, "owner", "approval.approve", approvalID, model.ApprovalResponse{})
+
+	// No prompt wired up: must fail clearly.
+	if _, err := s.Execute("human-candidate", "agent.switch-role", "human-candidate", model.AgentRoleSwitched{Role: model.RoleOrchestrator}); err == nil {
+		t.Fatal("expected agent.switch-role to fail with no PassphrasePrompt configured")
+	} else if !strings.Contains(err.Error(), "passphrase") {
+		t.Fatalf("expected a passphrase-shaped error, got: %v", err)
+	}
+
+	// Wrong passphrase: fails via AES-GCM authentication, not a garbage key.
+	s.PassphrasePrompt = func(string) (string, error) { return "wrong passphrase", nil }
+	if _, err := s.Execute("human-candidate", "agent.switch-role", "human-candidate", model.AgentRoleSwitched{Role: model.RoleOrchestrator}); err == nil {
+		t.Fatal("expected agent.switch-role to fail with an incorrect passphrase")
+	}
+
+	// Correct passphrase: succeeds end-to-end, genuinely ORCHESTRATOR, not
+	// just "no error."
+	s.PassphrasePrompt = func(string) (string, error) { return "correct passphrase", nil }
+	if _, err := s.Execute("human-candidate", "agent.switch-role", "human-candidate", model.AgentRoleSwitched{Role: model.RoleOrchestrator}); err != nil {
+		t.Fatalf("expected the self-switch to orchestrator to succeed with the correct passphrase: %v", err)
+	}
+	state, err := s.State()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Agents["human-candidate"].Role != model.RoleOrchestrator {
+		t.Fatalf("expected human-candidate to become ORCHESTRATOR, got %+v", state.Agents["human-candidate"])
+	}
+}
+
 // TestExecuteRequiresPassphrasePromptToRevokeOrchestrator is the revoke-side
 // sibling of TestExecuteRequiresPassphrasePromptOnceElevatedKeyIsRegistered:
 // revoking an orchestrator is exactly as sensitive as granting the role and
@@ -776,4 +893,48 @@ func TestExecuteDoesNotPromptForRoutineActions(t *testing.T) {
 		Title: "Routine", Repository: "local", Branch: "feature", Resources: []string{"src/x"},
 	})
 	activate(t, s, "bystander", model.PrincipalAgent)
+}
+
+// TestExecuteRefusesWhenActorIsAmbiguous is the direct regression test for
+// RFC 0017: a real, confirmed-live incident where one agent's routine
+// writes (runtime.register/runtime.revoke, neither elevated-key-gated)
+// were silently signed under a *different*, unrelated agent's identity,
+// purely because the actor resolved through the shared, machine-wide
+// legacy ActiveProfile fallback rather than anything explicit. AmbiguousActor
+// is the caller-set gate (internal/app's PersistentPreRunE, shared by CLI/
+// TUI/MCP) that now refuses this outright instead of silently signing.
+func TestExecuteRefusesWhenActorIsAmbiguous(t *testing.T) {
+	s := setup(t)
+	activate(t, s, "bystander", model.PrincipalAgent)
+
+	s.AmbiguousActor = true
+	_, err := s.Execute("bystander", "runtime.register", "some-runtime", model.RuntimeRegistered{
+		AgentID: "bystander", Kind: model.RuntimeKindWorker, Connector: "MCP", MaxConcurrent: 1,
+	})
+	if err == nil {
+		t.Fatal("expected Execute to refuse an ambiguously-resolved actor")
+	}
+	if !strings.Contains(err.Error(), "ambiguous") && !strings.Contains(err.Error(), "refusing") {
+		t.Fatalf("error %q does not explain the refusal", err.Error())
+	}
+
+	// The gate is a pure client-side refusal to attempt the signature at
+	// all -- confirm the transition genuinely never landed, not just that
+	// an error came back.
+	state, stateErr := s.State()
+	if stateErr != nil {
+		t.Fatal(stateErr)
+	}
+	if _, exists := state.AgentRuntimes["some-runtime"]; exists {
+		t.Fatal("the refused runtime.register must not have been recorded")
+	}
+
+	// The gate must default to false and never leak into unrelated Service
+	// instances/calls -- clearing it restores completely normal behavior.
+	s.AmbiguousActor = false
+	if _, err := s.Execute("bystander", "runtime.register", "some-runtime", model.RuntimeRegistered{
+		AgentID: "bystander", Kind: model.RuntimeKindWorker, Connector: "MCP", MaxConcurrent: 1,
+	}); err != nil {
+		t.Fatalf("expected Execute to succeed once AmbiguousActor is cleared: %v", err)
+	}
 }

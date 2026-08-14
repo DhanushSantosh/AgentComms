@@ -5,7 +5,12 @@
 The PTY ownership and terminal-safety findings remain implemented. RFC 0013
 supersedes this document's delivery-routing and evidence contract:
 interactive sessions are now first-class registered runtimes, daemon delivery
-is attempt-first, and no same-ID or zero-registration fallback exists.
+is attempt-first, and no same-ID or zero-registration fallback exists. RFC
+0014 supersedes the "unix-only" claim below (`creack/pty doesn't support
+Windows`) — Windows 10 1809+ is now supported via ConPTY
+(`github.com/charmbracelet/x/conpty`); the reasoning below is retained as
+accurate history of the design at the time it was written, not current
+platform support.
 
 **Built, in a narrower form than originally scoped, and only for `codex` and
 `opencode`.** Live-tested this session: `claude` was tried three separate

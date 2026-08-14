@@ -177,8 +177,8 @@
         },
         {
           "name": "role",
-          "usage": "role",
-          "default": "AGENT",
+          "usage": "role: ORCHESTRATOR or any custom label",
+          "default": "",
           "type": "string"
         },
         {
@@ -694,6 +694,68 @@
           "usage": "suppress non-essential output",
           "default": "false",
           "type": "bool"
+        },
+        {
+          "name": "timeout",
+          "usage": "transaction lock timeout",
+          "default": "10s",
+          "type": "duration"
+        }
+      ]
+    },
+    {
+      "path": "agent-comms agent switch-role",
+      "use": "agent-comms agent switch-role [flags]",
+      "summary": "Switch your own role (self-service; never OWNER)",
+      "flags": [
+        {
+          "name": "actor",
+          "usage": "actor override (credential must match)",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "json",
+          "usage": "emit a versioned JSON envelope",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "no-color",
+          "usage": "disable ANSI color",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "non-interactive",
+          "usage": "never prompt",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "profile",
+          "usage": "user profile name",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "project",
+          "usage": "target project root",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "quiet",
+          "shorthand": "q",
+          "usage": "suppress non-essential output",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "role",
+          "usage": "new role: ORCHESTRATOR or any custom label",
+          "default": "",
+          "type": "string"
         },
         {
           "name": "timeout",
@@ -9528,6 +9590,22 @@
         "type": "object"
       },
       "name": "agent_activate"
+    },
+    {
+      "description": "Switch your own role (self-service, never someone else's) to ORCHESTRATOR or any freeform custom label — never OWNER. Never touches your capabilities or scopes. A switch to ORCHESTRATOR requires a human principal, a pre-approved HUMAN-tier approval, and the elevated key — which MCP cannot supply, so that specific switch is refused here exactly like `agent_activate` already refuses it; use the CLI instead.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "role": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "role"
+        ],
+        "type": "object"
+      },
+      "name": "agent_switch_role"
     },
     {
       "description": "Permanently revoke an agent principal — terminal, cannot be reversed or reactivated. The owner principal cannot be revoked. Revoking an orchestrator or any human principal requires an active human principal to call this, unless revoking yourself.",

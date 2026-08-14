@@ -48,7 +48,7 @@ func newElevatedKeyFixture(t *testing.T) *elevatedKeyFixture {
 		model.AgentActivated{Role: model.RoleOwner, Capabilities: []string{"*"}, Scopes: []string{"*"}})
 	f.register("candidate", f.candidate, model.PrincipalAgent)
 	f.mustMutate("owner", f.owner, "agent.activate", "candidate",
-		model.AgentActivated{Role: model.RoleAgent, Scopes: []string{"src"}})
+		model.AgentActivated{Role: model.Role("MEMBER"), Scopes: []string{"src"}})
 	return f
 }
 

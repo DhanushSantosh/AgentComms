@@ -1,6 +1,10 @@
 package tui
 
-import "charm.land/lipgloss/v2"
+import (
+	"math"
+
+	"charm.land/lipgloss/v2"
+)
 
 // rowListDimensions returns the exact (w, h) the currently active row-list
 // view passes to RowList.View, mirroring renderBody's per-view adjustments
@@ -237,7 +241,7 @@ func (m Model) settingsSectionAt(p palette, x, y int) (index int, ok bool) {
 	}
 	innerW := max(1, domainWidth-4) // Border(1) + Padding(1), each side
 	measure := lipgloss.NewStyle().Width(innerW)
-	line := m.bodyPrefixHeight(p) + 1 /* border top */ + 1 /* padding top */
+	line := m.bodyPrefixHeight(p) + 1 /* border top */ + 1         /* padding top */
 	line += lipgloss.Height(measure.Render("CONTROL DOMAINS")) + 1 /* blank */
 	for i, section := range settingsSections {
 		marker := "  "
@@ -272,6 +276,50 @@ func (m Model) sidebarHubAt(p palette, x, y int) (hub int, ok bool) {
 	line := y - 1 // Padding(1)'s top line
 	for i, l := range hubLine {
 		if l == line {
+			return i, true
+		}
+	}
+	return 0, false
+}
+
+// centerOffset replicates lipgloss.Place's own centering split exactly --
+// PlaceHorizontal/PlaceVertical's identical math for Position 0.5 (gap :=
+// total-content; split := round(gap*0.5); offset := gap-split). There is
+// no exported way to ask Place where it actually positioned something, so
+// an independent click handler has no choice but to reproduce its math.
+func centerOffset(total, content int) int {
+	gap := total - content
+	if gap <= 0 {
+		return 0
+	}
+	split := int(math.Round(float64(gap) * 0.5))
+	return gap - split
+}
+
+// paletteMatchAt translates a click's absolute screen (x, y) into a
+// paletteMatches() index, or ok=false if the click missed the panel
+// entirely or landed on one of its non-match rows (title, query box,
+// footer). Recomputed fresh via paletteLayout, the same "call the render
+// function again for its layout metadata" pattern sidebarHubAt above
+// already uses, since View() has no way to hand this to the Update() call
+// that handles a click -- the palette's own panel is screen-centered via
+// lipgloss.Place rather than embedded in the ordinary sidebar+body layout,
+// so centerOffset locates it first.
+func (m Model) paletteMatchAt(p palette, x, y int) (index int, ok bool) {
+	panel, matchLine := m.paletteLayout(p)
+	if len(matchLine) == 0 {
+		return 0, false
+	}
+	contentW := lipgloss.Width(panel)
+	contentH := lipgloss.Height(panel)
+	left := centerOffset(m.width, contentW)
+	top := centerOffset(m.height, contentH)
+	if x < left || x >= left+contentW {
+		return 0, false
+	}
+	relativeY := y - top
+	for i, line := range matchLine {
+		if relativeY == line {
 			return i, true
 		}
 	}

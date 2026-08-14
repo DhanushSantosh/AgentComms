@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // TestWrapTextNeverExceedsWidth guards wrapText's actual reason for
@@ -201,7 +202,7 @@ func TestOverviewScrollReachesTrueEndOnASmallTerminal(t *testing.T) {
 func TestSmallTerminalNeverRendersMoreLinesThanItHas(t *testing.T) {
 	s := newTestService(t)
 	for i := 0; i < 10; i++ {
-		registerAgent(t, s, "agent-0"+string(rune('0'+i)), model.RoleAgent, "src")
+		registerAgent(t, s, "agent-0"+string(rune('0'+i)), model.Role("MEMBER"), "src")
 	}
 	if _, e := s.Execute("owner", "message.post", "msg-1", model.MessagePosted{Kind: "FYI", To: []string{"owner"}, Subject: "hi"}); e != nil {
 		t.Fatal(e)
@@ -314,36 +315,37 @@ func TestCyclePickerOption(t *testing.T) {
 // mistype, the actual point of the picker.
 func TestPickerFieldCyclesWithArrowKeysAndRejectsTypedText(t *testing.T) {
 	s := newTestService(t)
-	if _, err := s.Register("builder", "builder", model.PrincipalAgent); err != nil {
-		t.Fatal(err)
-	}
 	m, err := New(s, "owner")
 	if err != nil {
 		t.Fatal(err)
 	}
 	m = enterAgentsView(t, m)
-	if id := m.agentList.SelectedID(m.state, m.actor); id != "builder" {
-		t.Fatalf("selected id = %q, want builder", id)
+	m = pressKey(t, m, keyText("n")) // register (agentRegisterForm)
+	if m.form != "agent.register" {
+		t.Fatalf("expected agent.register form, got %q", m.form)
 	}
-	m = pressKey(t, m, keyText("a")) // activate
-	if m.form != "agent.activate" {
-		t.Fatalf("expected agent.activate form, got %q", m.form)
-	}
-	if got := m.inputs[0].Value(); got != "AGENT" {
-		t.Fatalf("role should default to Options[0]=AGENT, got %q", got)
+	// Field index 2 is "Principal type", Options: []string{"AGENT", "HUMAN"}
+	// -- picked over activateForm's Role field since that one is free text
+	// now (a custom role label has no room for Options' strict single-select
+	// -- see RFC 0018), no longer exercising the generic picker mechanics
+	// this test actually targets. Tab twice to focus it -- it isn't first.
+	m = pressKey(t, m, tea.KeyPressMsg(tea.Key{Code: tea.KeyTab}))
+	m = pressKey(t, m, tea.KeyPressMsg(tea.Key{Code: tea.KeyTab}))
+	if got := m.inputs[2].Value(); got != "AGENT" {
+		t.Fatalf("principal type should default to Options[0]=AGENT, got %q", got)
 	}
 	m = pressKey(t, m, tea.KeyPressMsg(tea.Key{Code: tea.KeyRight}))
-	if got := m.inputs[0].Value(); got != "OBSERVER" {
-		t.Fatalf("right should cycle AGENT -> OBSERVER, got %q", got)
+	if got := m.inputs[2].Value(); got != "HUMAN" {
+		t.Fatalf("right should cycle AGENT -> HUMAN, got %q", got)
 	}
 	// A typed character must not reach the field at all.
 	m = pressKey(t, m, keyText("z"))
-	if got := m.inputs[0].Value(); got != "OBSERVER" {
+	if got := m.inputs[2].Value(); got != "HUMAN" {
 		t.Fatalf("typed text should be ignored on a picker field, got %q", got)
 	}
 	m = pressKey(t, m, tea.KeyPressMsg(tea.Key{Code: tea.KeyLeft}))
-	if got := m.inputs[0].Value(); got != "AGENT" {
-		t.Fatalf("left should cycle back OBSERVER -> AGENT, got %q", got)
+	if got := m.inputs[2].Value(); got != "AGENT" {
+		t.Fatalf("left should cycle back HUMAN -> AGENT, got %q", got)
 	}
 }
 
@@ -370,5 +372,38 @@ func TestGuidedTaskFormUsesGovernedService(t *testing.T) {
 	}
 	if state.Tasks["task-ui"].Title != "Created in TUI" {
 		t.Fatal("guided write did not reach service")
+	}
+}
+
+// TestActiveTabLooksDifferentWhenFocusedVsBrowsing is the regression test
+// for the seventh confirmed audit finding: neither the sidebar nor the
+// hub-tab bar referenced m.rowFocus at all, so the exact same tab looked
+// identical whether ↑/↓/←/→ were just moving the hub cursor around
+// (browsing) or a row list actually had keyboard focus (entered) -- the
+// same key, like "r", meant something completely different in each mode
+// with no on-screen way to tell them apart. Confirms the two states
+// render visibly different styling for the active tab while the plain
+// text label itself (once ANSI styling is stripped) stays identical --
+// this is meant to be a color/weight change, not a text change.
+func TestActiveTabLooksDifferentWhenFocusedVsBrowsing(t *testing.T) {
+	s := newTestService(t)
+	m, err := New(s, "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.width, m.height = 120, 30
+	p := colors(m.highContrast)
+
+	m.rowFocus, m.settingsFocus = false, false
+	browsing, _ := m.renderHubTabs(p, 100)
+	m.rowFocus = true
+	focused, _ := m.renderHubTabs(p, 100)
+
+	if browsing == focused {
+		t.Fatal("expected the active tab's rendering to differ between browsing and focused modes")
+	}
+	if ansi.Strip(browsing) != ansi.Strip(focused) {
+		t.Fatalf("expected only styling to differ, not the plain text:\nbrowsing=%q\nfocused=%q",
+			ansi.Strip(browsing), ansi.Strip(focused))
 	}
 }

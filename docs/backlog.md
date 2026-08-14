@@ -102,6 +102,122 @@ one is picked up, remove it from here and note the landing commit.
 
 ## Security / governance
 
+- **SHIPPED 2026-08-13: self-service role switching, custom role labels,
+  and removal of the AGENT/OBSERVER roles ([RFC 0018](rfcs/0018-self-service-role-switching-and-custom-roles.md)).**
+  `model.Role` was a closed four-value enum (`OWNER`, `ORCHESTRATOR`,
+  `AGENT`, `OBSERVER`) with two redundant/under-used members: `AGENT`
+  duplicated `PrincipalType`'s own `AGENT` value for no added meaning, and
+  `OBSERVER` was a narrow, two-transition read-only tier, not a coherent
+  permission model. Both are removed; `Role` is now `OWNER` |
+  `ORCHESTRATOR` | any freeform label a principal chooses for itself
+  (`Frontend-Architect`, `Tester`, ...), with zero permission effect for
+  anything other than the two reserved values. New self-service transition
+  `agent.switch-role`/`agent_switch_role` lets any active principal relabel
+  its own role at any time, no owner/orchestrator elevation required --
+  strictly bounded by construction: self-only (`id == actor`), `OWNER`
+  never reachable as either target or source, and switching to
+  `ORCHESTRATOR` keeps the exact same two-step human-approval-plus-
+  elevated-key gate `agent.activate` already enforces for the same grant
+  (kept, not weakened to "passphrase alone," per explicit direction).
+  Never touches `Capabilities`/`Scopes` -- only `agent.activate` (unchanged,
+  still owner/orchestrator-gated) can grant those. Also closes a related,
+  previously-unintended gap while touching this code: the general
+  `agent.activate` path used to silently accept `Role: OWNER` for any
+  target; `OWNER` is now reachable only through the one special bootstrap
+  event at project creation, exactly as it always should have been.
+  `agent activate --role` lost its `AGENT` default and is now a required
+  flag, since there's no longer a generic role to fall back to.
+
+- **RESOLVED 2026-08-13: two follow-up gaps found live, immediately after
+  shipping RFC 0018.** First, the TUI's own "activate" action was only ever
+  offered for a `PENDING` agent, never an already-`ACTIVE` one -- so an
+  owner had a fully governed `agent.activate`/`agent_activate` admin path
+  to change any other principal's role at any time (this always worked,
+  unaffected), but no TUI-visible way to reach it once that principal was
+  active. Added a distinctly-labeled "change role" action (`r`, same
+  `agent.activate` transition and form as "activate") to the `ACTIVE` case,
+  alongside suspend/rename/revoke. Second, and more serious: neither
+  `agent.activate` nor the then-new `agent.switch-role` actually stopped an
+  owner/orchestrator from administratively changing the real project
+  *owner's* role to something else -- `agent.switch-role` only ever blocked
+  the owner switching *itself* away from `OWNER`, leaving the admin path
+  wide open to strip every one of `OWNER`'s protections (immune to
+  suspend/revoke, always elevated) from the actual owner with one ordinary
+  `agent activate --id <owner> --role <anything>` call. Closed by
+  `ValidateTransition` refusing `agent.activate` outright whenever the
+  target's *current* role is already `OWNER`, mirroring `agent.suspend`/
+  `agent.revoke`'s identical, unconditional protection of an `OWNER`
+  target elsewhere in the same function. `OWNER` can now never be changed
+  through any path at all -- self-service or administrative.
+
+- **RESOLVED 2026-08-12: local default-actor resolution could silently
+  misattribute real, signed governed actions across concurrent
+  sessions.** Reported live: a human owner switching actors in the TUI kept
+  hitting "owner or orchestrator role required" with no obvious cause.
+  Root-caused (not guessed at): `identity.UserConfig.ActiveProfile` was a
+  single string in one JSON file shared by *every* process on the machine
+  — a different agent running `agent-comms profile use --name <itself>`
+  for its own ordinary convenience ("default my own commands to me")
+  silently redirected every other concurrent session's default actor too,
+  including the human's own. Worse than a display bug: every registered
+  actor's real private key lives in the same shared OS keyring
+  (`KeyringStore`, keyed only by `(projectID, actor)`), so a bare command
+  resolving to the wrong actor got **cryptographically signed as that
+  actor** and durably recorded that way — real misattribution of ordinary
+  governed work (task claims, messages, plain activations), not just a
+  wrong name on screen. The four elevated-key-gated transitions (granting
+  Orchestrator, HUMAN-tier approval, revoking an Orchestrator/HUMAN,
+  deleting a revoked principal) were never at risk — each independently
+  verifies the signer is a genuine `HUMAN`-type principal server-side, so
+  this couldn't be used to escalate privilege or forge a human approval.
+  Fixed per RFC 0016: replaced the single machine-wide field with
+  `ActiveProfileBySession`, keyed by the provider session ID
+  `sessionbind.Capture` already reliably detects (`CLAUDE_CODE_SESSION_ID`/
+  `CODEX_THREAD_ID`, harness-injected into every subprocess, not something
+  an agent has to remember to export). The legacy field remains the
+  fallback only when no recognized session is present at all (a genuine
+  plain terminal) — and critically, a *real, recognized* session with no
+  profile of its own set yet resolves to the safe project-owner default,
+  never falls through to the shared legacy field. Verified live, not just
+  in unit tests: two different simulated sessions setting different active
+  profiles against the same on-disk config resolved fully independently,
+  and a plain-terminal resolution was unaffected by either — reproducing
+  the originally reported scenario directly and confirming it no longer
+  occurs.
+
+- **RESOLVED 2026-08-13: RFC 0016's legacy fallback was still silently
+  exploitable for any session-less invocation path.** Reported live, on a
+  real project: one agent's `runtime register` call got cryptographically
+  signed as a completely different, unrelated agent. Root cause was RFC
+  0016's own accepted fallback boundary, hit for real: the calling agent's
+  session (an opencode-based agent) exposes none of the provider session IDs
+  `identity.DetectProviderSessionID`/`sessionbind.Capture` know how to read
+  (`CLAUDE_CODE_SESSION_ID`/`CODEX_THREAD_ID` are opencode-specific gaps, not
+  a detection bug), so resolution fell all the way through to the same
+  shared, machine-wide `ActiveProfile` field RFC 0016 already knew was
+  unsafe to trust blindly — which another concurrent agent's session had
+  pointed at itself moments earlier for its own ordinary convenience. No
+  automatic fix is possible here: opencode's process model gives no ambient
+  signal a library can detect without spawning a subprocess on every
+  invocation, for every user, to check. Fixed per
+  [RFC 0017](rfcs/0017-refuse-ambiguous-legacy-actor-for-writes.md): rather
+  than trying to detect the session, `Service.ExecuteWithPassphrase` now
+  refuses outright to sign any governed write resolved via the legacy
+  fallback whenever the project has 2+ locally-registered identities to
+  silently choose between (`identity.UserConfig.ProfileCountForProject`),
+  forcing an explicit `--actor`/`AGENT_COMMS_ACTOR` instead of ever guessing.
+  Projects with 0-1 local identities are unaffected — there's nothing
+  ambiguous to guess between. A deliberate, human-picked switch through the
+  TUI's actor-switch form (which shows each candidate's real role, not a
+  blind list) explicitly clears the flag — that resolution was never
+  ambiguous regardless of how the TUI's own actor was set at startup.
+  Documented for session-less agents (opencode, scripts, cron jobs) in
+  [agent-onboarding.md](agent-onboarding.md#if-your-session-has-no-ambient-session-id-opencode-scripts-cron-jobs).
+  Verified end-to-end, not just in isolation: a project with two
+  locally-registered identities and no session ID present refuses a bare
+  write and points at the fix; the identical call succeeds immediately with
+  `--actor` supplied explicitly.
+
 - **Approval self-approval is not prevented.** A human (or any elevated
   actor) can both request and approve the same approval record today —
   nothing requires the approver to differ from the requester, for any
@@ -124,6 +240,69 @@ one is picked up, remove it from here and note the landing commit.
   Revisit if it's ever actually exploited.
 
 ## Test / CI infrastructure
+
+- **`TestInvocationDeliveryFailureDoesNotTerminateObligation` is flaky on
+  loaded/slow windows-latest runners, not fixed.** Observed live on PR #25's
+  CI (2026-08-13): failed once with `"an unexpired delivery attempt already
+  exists for this runtime"` on a run where every package's tests ran visibly
+  slower than normal (`internal/mcp` 72s vs the usual ~24s,
+  `internal/projectlifecycle` 62s vs ~20s) -- a re-run of the identical
+  commit passed cleanly, as did a separate parallel windows-latest run on
+  the same SHA. Root cause is a known race class already documented inline
+  by the neighboring test (`TestFailedRedeliveryPreservesEarlierSuccessfulEvidence`'s
+  comment): `setupWithLocalConnector` runs a real background daemon whose
+  delivery coordinator retries dispatch for PENDING invocations every
+  500ms, and on a slow enough runner that automatic retry can win the race
+  against this test's own explicit `invocation.delivery-attempt` call,
+  colliding on the same runtime's outstanding attempt. Unrelated to RFC
+  0017's actor-resolution guard (this test drives a `Service` instance
+  directly with an explicit `"owner"` actor, never through CLI actor
+  resolution). Worth tightening the 500ms retry/test timing assumption if
+  it recurs; not done here since a single confirmed flake isn't enough to
+  diagnose the right fix.
+
+- **`TestEnsureDaemonReplacesIncompatibleDaemon` is flaky on loaded/slow
+  windows-latest runners too, not fixed -- now confirmed four times.** A
+  second, distinct flake in the same category as the entry below, first
+  seen on PR #27's CI (2026-08-13): failed with "local daemon did not
+  become ready" after a 41s wait, on one of two parallel windows-latest
+  runs against the identical commit -- the other passed cleanly, and a
+  re-run of the failed job passed cleanly too. Recurred identically on PR
+  #28 the same day (again exactly 41s, again one of two parallel
+  windows-latest runs, again cleared by a bare re-run) -- unrelated to that
+  PR's TUI/protocol changes either, same as PR #27. Recurred a fourth time
+  on PR #30 (the TUI interaction-audit fix), again the identical ~41s
+  timeout, again one of two parallel windows-latest runs, again cleared by
+  a bare re-run -- unrelated to that PR's changes too (form/palette/mouse
+  logic, nowhere near daemon startup). Deliberately still not widening
+  `daemonReadyTimeout` (internal/app/app.go): it already carries its own
+  documented history of being widened exactly for this failure mode -- 10s
+  to 20s to 40s, across three separate PRs in an earlier session, each time
+  citing the identical "confirmed on CI, resolved by a bare rerun" pattern.
+  A test that already burns 41s before failing is close to the point where
+  widening further mostly delays surfacing a genuinely hung daemon rather
+  than absorbing real contention. The established mitigation (rerun)
+  reliably works and is cheap and has now cleared it cleanly all four
+  times; still holding off on a runner-load-aware retry budget instead of
+  a flat deadline until it's discussed directly, rather than guessing at
+  a redesign four data points still isn't quite enough to justify unasked.
+
+- **RESOLVED 2026-08-12: `internal/protocol`'s `ValidateTransition` direct
+  coverage gap closed, and a per-package coverage floor now guards against
+  it recurring anywhere else.** Prompted by a codebase-hardness audit that
+  flagged this entry specifically. `transitions_lifecycle_test.go` adds
+  direct unit tests for task lifecycle, message routing, runtime lifecycle,
+  approval/decision/document, and invocation policy/delivery -- raising
+  `internal/protocol` from 32.2% to 73.5% coverage with zero functions left
+  at 0%. Separately, `scripts/coverage-floor.sh` (wired into `ci.yml`'s
+  `test (ubuntu-latest)` job) now fails CI if any package's coverage drops
+  below a floor ratcheted from real measured numbers, so a package quietly
+  losing its tests -- the exact shape of this original gap -- gets caught
+  going forward instead of relying on someone noticing. `internal/authority`
+  gets its own floor in the `postgres-integration` job instead, checked
+  against real Postgres-backed coverage (49.5% measured, 40% floor) rather
+  than the unit-only run where most of its paths are `t.Skip`-guarded.
+  Original entry kept below for context.
 
 - **`internal/protocol`'s `ValidateTransition` is mostly untested
   in-package.** `transitions_test.go` covers the elevated-key/orchestrator
@@ -294,6 +473,48 @@ one is picked up, remove it from here and note the landing commit.
   item #6).
 
 ## TUI
+
+- **Actor-switch/elevated-key trio of bugs, fixed 2026-08-12.** Reported
+  live: a user granting ORCHESTRATOR to an agent switched actors in the TUI
+  to what they believed was their owner identity, then still hit "owner or
+  orchestrator role required" with no way to tell why. Root-caused via a
+  live investigation (not guessed at) into three separate, real problems,
+  all fixed together:
+  1. **`refresh()` unconditionally overwrote `m.notice`.** Every action
+     handler that set an informative result notice ("Switched to X",
+     "Applied agent.activate to Y", ...) then called `refresh()` to reload
+     lists/findings/drafts — which stomped that notice with the generic
+     "State refreshed at HH:MM:SS" one line later, at 12 of 14 call sites.
+     A user switching actors (or completing any other action) never
+     actually saw confirmation of what happened. Fixed by splitting
+     `refresh()` (bare "r" keybinding only, still reports "state
+     refreshed") from a new `refreshState()` (everything else, leaves
+     `m.notice` alone) — `TestActorSwitchNoticeSurvivesTheFollowingRefresh`
+     is the regression test, confirmed to fail without the fix.
+  2. **The actor-switch picker showed bare IDs with no role/status**,
+     pulled from every locally-saved credential for the project regardless
+     of standing — trivial to pick a non-owner/non-orchestrator identity by
+     mistake with nothing warning you. Fixed: each candidate is now labeled
+     with its actual current role (`TestActorSwitchFormShowsRoleNextToEachCandidate`).
+  3. **The status rail showed role only, never actor ID** ("authority
+     owner" with no name attached) — no persistent way to confirm *who*
+     you're acting as without reopening the switch form. Fixed: the actor
+     ID is now shown alongside the role
+     (`TestCommandRailShowsActiveActorID`).
+  Separately, `docs/governance.md`, `docs/agent-onboarding.md`, and —
+  most consequentially, since it's the deployed public doc site —
+  `docs/site/start/tui.md` all incorrectly claimed the TUI refuses every
+  elevated-key-signed action and the CLI is required; the code has
+  actually supported completing these directly via a masked passphrase
+  form field for a while. This false claim is almost certainly what led an
+  agent operating this project to hand a user CLI-only instructions that
+  then failed on an unrelated actor-resolution mismatch — both problems
+  compounding into one confusing dead end. Docs corrected; `internal/
+  protocol/transitions.go`'s "owner or orchestrator role required" error
+  now also names the resolved actor and its actual role
+  (`TestElevationRejectionNamesTheResolvedActorAndItsRole`), confirmed live
+  against a real scratch project, so this exact failure mode is
+  self-diagnosing going forward instead of a silent puzzle.
 
 - **Sidebar title corruption on a short terminal, fixed 2026-08-08.** Asked
   to make the TUI dynamically scalable rather than requiring a minimum

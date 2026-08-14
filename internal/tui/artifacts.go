@@ -28,7 +28,7 @@ var artifactAddForm = &ActionForm{
 		}
 		m.form, m.inputs, m.err, m.formSpec = "", nil, nil, nil
 		m.notice = "Added artifact from " + values[0]
-		m.refresh()
+		m.refreshState()
 		return m, nil
 	},
 }

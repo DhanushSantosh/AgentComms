@@ -2,10 +2,12 @@ package doctor_test
 
 import (
 	"context"
+	"runtime"
 	"testing"
 	"time"
 
 	"github.com/DhanushSantosh/AgentComms/internal/doctor"
+	"github.com/DhanushSantosh/AgentComms/internal/identity"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 	"github.com/DhanushSantosh/AgentComms/internal/service"
 	"github.com/DhanushSantosh/AgentComms/internal/testsupport"
@@ -30,7 +32,7 @@ func activateAgent(t *testing.T, s *service.Service, id string) {
 		t.Fatal(e)
 	}
 	must(t, s, "owner", "agent.activate", id, model.AgentActivated{
-		Role: model.RoleAgent, Scopes: []string{"src"},
+		Role: model.Role("MEMBER"), Scopes: []string{"src"},
 	})
 }
 
@@ -243,5 +245,41 @@ func TestRevokedAgentHasOpenWork_MultipleTerminalStatuses(t *testing.T) {
 	}
 	if _, found := findFinding(findings, "REVOKED_AGENT_HAS_OPEN_WORK"); found {
 		t.Fatal("REVOKED_AGENT_HAS_OPEN_WORK should not fire when all invocations are terminal (mixed statuses)")
+	}
+}
+
+// TestInteractiveRuntimeValidOnEveryPlatform confirms doctor treats a
+// correctly configured INTERACTIVE runtime identically on every platform,
+// including Windows -- interactive-serve/--takeover-pid have real,
+// verified implementations on all three (RFC 0014; see
+// internal/interactiveserve/serve_windows.go, takeover_windows.go), so a
+// runtime that is otherwise valid should produce no findings anywhere, not
+// just on unix as an earlier, now-removed Windows-specific WARNING here
+// once assumed.
+func TestInteractiveRuntimeValidOnEveryPlatform(t *testing.T) {
+	s := setup(t)
+	activateAgent(t, s, "alpha")
+	hostID, err := identity.LoadHostID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	must(t, s, "owner", "runtime.register", "rt-1", model.RuntimeRegistered{
+		AgentID: "alpha", Kind: model.RuntimeKindInteractive, Connector: "INTERACTIVE",
+		HostID: hostID, MaxConcurrent: 1,
+	})
+
+	findings, err := doctor.Findings(context.Background(), s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, code := range []string{
+		"INTERACTIVE_RUNTIME_MISMATCH",
+		"INTERACTIVE_RUNTIME_FOREIGN_HOST",
+		"INTERACTIVE_SOCKET_UNAVAILABLE",
+		"INTERACTIVE_RUNTIME_UNSUPPORTED_ON_WINDOWS", // removed check; must never reappear
+	} {
+		if _, found := findFinding(findings, code); found {
+			t.Fatalf("expected no %s finding for a valid interactive runtime on %s, got: %+v", code, runtime.GOOS, findings)
+		}
 	}
 }

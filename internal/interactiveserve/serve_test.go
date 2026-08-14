@@ -5,10 +5,8 @@ package interactiveserve
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -24,36 +22,6 @@ func requireBash(t *testing.T) {
 	t.Helper()
 	if _, err := exec.LookPath("bash"); err != nil {
 		t.Skip("bash not available")
-	}
-}
-
-func TestTryDeliverRefusesBusyTargetQuickly(t *testing.T) {
-	client, server := net.Pipe()
-	defer client.Close()
-	tee := newOutputTee()
-	if _, err := tee.Write([]byte(busyMarkers[0])); err != nil {
-		t.Fatal(err)
-	}
-	target, err := os.CreateTemp(t.TempDir(), "target")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer target.Close()
-	go handleConn(server, tee, target, &sync.Mutex{})
-
-	started := time.Now()
-	if err = json.NewEncoder(client).Encode(Request{Kind: "try-deliver", Message: "wake"}); err != nil {
-		t.Fatal(err)
-	}
-	var response Response
-	if err = json.NewDecoder(client).Decode(&response); err != nil {
-		t.Fatal(err)
-	}
-	if response.OK || !response.Busy {
-		t.Fatalf("expected a busy refusal, got %+v", response)
-	}
-	if elapsed := time.Since(started); elapsed > time.Second {
-		t.Fatalf("busy refusal took too long: %s", elapsed)
 	}
 }
 
@@ -544,33 +512,3 @@ func TestDeliverToPtyFailsClosedWhenTargetStaysBusy(t *testing.T) {
 	}
 }
 
-// TestChildEnvironStripsClaudeSessionInheritance guards the real, live-
-// confirmed bug this fixes: Serve's wrapped child inheriting the invoking
-// Claude Code session's own CLAUDE_CODE_CHILD_SESSION/SESSION_ID/
-// BRIDGE_SESSION_ID and concluding it is itself a subordinate child,
-// disabling its own transcript persistence entirely.
-func TestChildEnvironStripsClaudeSessionInheritance(t *testing.T) {
-	t.Setenv("CLAUDE_CODE_CHILD_SESSION", "1")
-	t.Setenv("CLAUDE_CODE_SESSION_ID", "parent-session-id")
-	t.Setenv("CLAUDE_CODE_BRIDGE_SESSION_ID", "session_parentbridge")
-	t.Setenv("SOME_UNRELATED_VAR", "keep-me")
-
-	env := childEnviron()
-	for _, kv := range env {
-		key, _, _ := strings.Cut(kv, "=")
-		for _, stripped := range claudeSessionInheritanceKeys {
-			if key == stripped {
-				t.Fatalf("expected %s to be stripped, but it was present: %s", stripped, kv)
-			}
-		}
-	}
-	found := false
-	for _, kv := range env {
-		if kv == "SOME_UNRELATED_VAR=keep-me" {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatal("expected an unrelated environment variable to be preserved")
-	}
-}

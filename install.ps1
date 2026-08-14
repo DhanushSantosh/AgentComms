@@ -16,19 +16,34 @@ $name = "agent-comms-windows-$arch.exe"
 $asset = $release.assets | Where-Object name -eq $name
 $checks = $release.assets | Where-Object name -eq 'checksums.txt'
 $bundle = $release.assets | Where-Object name -eq "$name.bundle"
-if (-not $asset -or -not $checks -or -not $bundle) { throw 'Release is missing a binary, checksum, or Cosign bundle.' }
-if (-not (Get-Command cosign -ErrorAction SilentlyContinue)) { throw 'cosign is required to verify Agent Comms. Install it from https://docs.sigstore.dev/cosign/system_config/installation/' }
+# agent-comms-verify is a small companion binary (docs/rfcs/0015) that
+# verifies $name's Cosign bundle in pure Go -- no separately installed
+# cosign CLI required, closing the exact gap issue #16 reported (no
+# documented Windows cosign install method satisfied the old prerequisite
+# check). Its own integrity here rests on the SHA-256 check below, the
+# same HTTPS-to-github.com trust bootstrap every installer -- including a
+# user's very first cosign install -- already relies on for its first
+# download; every install after this one is fully Sigstore-verified using
+# it.
+$verifierName = "agent-comms-verify-windows-$arch.exe"
+$verifierAsset = $release.assets | Where-Object name -eq $verifierName
+if (-not $asset -or -not $checks -or -not $bundle -or -not $verifierAsset) { throw 'Release is missing a binary, checksum, Cosign bundle, or verifier.' }
 $tmp = Join-Path ([IO.Path]::GetTempPath()) ("agent-comms-" + [guid]::NewGuid())
 New-Item -ItemType Directory $tmp | Out-Null
 try {
   Invoke-WebRequest $asset.browser_download_url -OutFile (Join-Path $tmp $name)
   Invoke-WebRequest $checks.browser_download_url -OutFile (Join-Path $tmp 'checksums.txt')
   Invoke-WebRequest $bundle.browser_download_url -OutFile (Join-Path $tmp "$name.bundle")
-  $expected = ((Get-Content (Join-Path $tmp 'checksums.txt')) | Where-Object { $_ -match "\s$name$" }).Split()[0]
-  $actual = (Get-FileHash (Join-Path $tmp $name) -Algorithm SHA256).Hash.ToLowerInvariant()
-  if ($actual -ne $expected) { throw 'SHA-256 verification failed.' }
-  & cosign verify-blob --bundle (Join-Path $tmp "$name.bundle") --certificate-identity-regexp '^https://github.com/DhanushSantosh/AgentComms/.github/workflows/release.yml@refs/tags/' --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' (Join-Path $tmp $name)
-  if ($LASTEXITCODE -ne 0) { throw 'Cosign verification failed.' }
+  Invoke-WebRequest $verifierAsset.browser_download_url -OutFile (Join-Path $tmp $verifierName)
+  $checksums = Get-Content (Join-Path $tmp 'checksums.txt')
+  foreach ($f in @($name, $verifierName)) {
+    $expected = (($checksums | Where-Object { $_ -match "\s$f$" }).Split())[0]
+    $actual = (Get-FileHash (Join-Path $tmp $f) -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($actual -ne $expected) { throw "SHA-256 verification failed for $f." }
+  }
+  $verifier = Join-Path $tmp $verifierName
+  & $verifier --bundle (Join-Path $tmp "$name.bundle") --certificate-identity-regexp '^https://github.com/DhanushSantosh/AgentComms/.github/workflows/release.yml@refs/tags/' --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' (Join-Path $tmp $name)
+  if ($LASTEXITCODE -ne 0) { throw 'Release verification failed.' }
   New-Item -ItemType Directory -Force $InstallDir | Out-Null
   $target = Join-Path $InstallDir 'agent-comms.exe'
   if (Test-Path $target) { Copy-Item $target "$target.previous" -Force }

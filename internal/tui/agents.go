@@ -33,15 +33,17 @@ var agentRegisterForm = &ActionForm{
 		}
 		m.err, m.form, m.inputs, m.formSpec = nil, "", nil, nil
 		m.notice = "Registered " + id + " (pending activation)"
-		m.refresh()
+		m.refreshState()
 		return m, nil
 	},
 }
 var activateForm = &ActionForm{
 	Title: "Activate agent",
-	Hint:  "Assign a role, capabilities, and write scopes before this principal can act. Granting Orchestrator additionally requires your elevated-key passphrase, if one is registered.",
+	Hint:  "Assign a role, capabilities, and write scopes before this principal can act. ORCHESTRATOR or any freeform label (Frontend-Architect, Tester, ...) -- never OWNER. Granting Orchestrator additionally requires your elevated-key passphrase, if one is registered.",
 	Fields: []FormField{
-		{Label: "Role", Options: []string{"AGENT", "OBSERVER", "ORCHESTRATOR", "OWNER"}, Required: true},
+		// Free text, not Options: a custom role is a freeform label, which
+		// Options (a strict single-select) has no room for -- see RFC 0018.
+		{Label: "Role", Placeholder: "ORCHESTRATOR, Frontend-Architect, Tester, ...", Required: true},
 		{Label: "Capabilities (comma-separated)", Placeholder: "go,test"},
 		{Label: "Scopes (comma-separated)", Placeholder: "src"},
 		{Label: "Elevated-key passphrase (Orchestrator grants only)", Mask: true},
@@ -56,9 +58,12 @@ var activateForm = &ActionForm{
 	// passphrase already typed into this form.
 	Dispatch: func(m Model, v []string, passphrase string) (tea.Model, tea.Cmd) {
 		id := m.formTaskID
-		role := model.Role(strings.ToUpper(strings.TrimSpace(v[0])))
+		role := model.Role(strings.TrimSpace(v[0]))
 		payload := model.AgentActivated{Role: role, Capabilities: splitCSV(v[1]), Scopes: splitCSV(v[2])}
-		if role == model.RoleOrchestrator && !hasApprovedOrchestratorGrant(m.state, id) {
+		// Case-insensitive here only to decide which UI to show -- the
+		// server (protocol.ValidateTransition) is the actual authority on
+		// canonicalizing the role, via the exact same comparison.
+		if strings.EqualFold(string(role), string(model.RoleOrchestrator)) && !hasApprovedOrchestratorGrant(m.state, id) {
 			m.form, m.inputs, m.formSpec = "", nil, nil
 			m.confirm = &confirmState{
 				prompt: "Granting " + id + " the Orchestrator role needs a HUMAN-tier approval first. " +
@@ -75,7 +80,45 @@ var activateForm = &ActionForm{
 		}
 		m.form, m.inputs, m.err, m.formSpec = "", nil, nil, nil
 		m.notice = "Applied agent.activate to " + id
-		m.refresh()
+		m.refreshState()
+		return m, nil
+	},
+}
+
+// switchRoleForm is the self-service counterpart to activateForm -- see RFC
+// 0018. Always targets the viewing actor's own row (never another
+// principal's), never touches capabilities or scopes, and never offers
+// OWNER as a target -- the server rejects it regardless, but there is no
+// point presenting it as if it were a real option.
+var switchRoleForm = &ActionForm{
+	Title: "Switch my role",
+	Hint:  "Self-service: relabel your own role at any time, to ORCHESTRATOR or any freeform label -- never OWNER. Switching to Orchestrator additionally requires a pre-approved HUMAN-tier approval and your elevated-key passphrase, if one is registered.",
+	Fields: []FormField{
+		{Label: "Role", Placeholder: "ORCHESTRATOR, Frontend-Architect, Tester, ...", Required: true},
+		{Label: "Elevated-key passphrase (Orchestrator switches only)", Mask: true},
+	},
+	CollectsPassphrase: true,
+	Dispatch: func(m Model, v []string, passphrase string) (tea.Model, tea.Cmd) {
+		role := model.Role(strings.TrimSpace(v[0]))
+		payload := model.AgentRoleSwitched{Role: role}
+		if strings.EqualFold(string(role), string(model.RoleOrchestrator)) && !hasApprovedOrchestratorGrant(m.state, m.actor) {
+			m.form, m.inputs, m.formSpec = "", nil, nil
+			m.confirm = &confirmState{
+				prompt: "Switching yourself to the Orchestrator role needs a HUMAN-tier approval first. " +
+					"Request and approve it now, then switch?",
+				typ: "agent.switch-role", id: m.actor, payload: payload, passphrase: passphrase,
+				chainOrchestratorApproval: true,
+			}
+			return m, nil
+		}
+		_, err := m.svc.ExecuteWithPassphrase(m.actor, "agent.switch-role", m.actor, payload, passphrase)
+		if err != nil {
+			m.err = err
+			return m, nil
+		}
+		m.form, m.inputs, m.err, m.formSpec = "", nil, nil, nil
+		m.notice = "Switched your own role"
+		m.refreshState()
 		return m, nil
 	},
 }
@@ -114,7 +157,21 @@ func consumerModeValues(values []string) []model.ConsumerMode {
 
 var (
 	actActivate = RowAction{Key: "a", Label: "activate", EventType: "agent.activate", Form: activateForm}
-	actSuspend  = RowAction{
+	// actChangeRole is the owner/orchestrator-administered counterpart to
+	// actSwitchRole (self-service): the exact same agent.activate
+	// transition and form as actActivate -- ValidateTransition never
+	// restricted agent.activate to PENDING targets, only this row-action
+	// list did, leaving an owner/orchestrator with no TUI-visible way to
+	// change an already-ACTIVE agent's role at all (CLI/MCP never had this
+	// gap). Distinct label and key from actActivate since "activate" reads
+	// oddly for a principal that's already active. Key "c", not "r": "r" is
+	// globally reserved for refresh inside updateRowList's own switch,
+	// checked before any row action's key ever gets a chance -- confirmed
+	// live, "r" bound here made this action completely unreachable, always
+	// losing silently to refresh instead.
+	actChangeRole = RowAction{Key: "c", Label: "change role", EventType: "agent.activate", Form: activateForm}
+	actSwitchRole = RowAction{Key: "w", Label: "switch role", EventType: "agent.switch-role", Form: switchRoleForm}
+	actSuspend    = RowAction{
 		Key: "s", Label: "suspend", EventType: "agent.suspend", Confirm: true,
 		Payload: func() any { return model.TaskStatus{} },
 		Prompt:  func(id string) string { return "Suspend " + id + "? It cannot act again until reactivated." },
@@ -129,7 +186,7 @@ var (
 			}
 			m.err = nil
 			m.notice = "Rotated signing key for " + m.actor
-			m.refresh()
+			m.refreshState()
 			return m, nil
 		},
 	}
@@ -161,10 +218,16 @@ var (
 	// the actor's passphrase-protected elevated key
 	// (protocol.RequiresElevatedKey, since the target is REVOKED) --
 	// offered here the same way HUMAN-tier approval.approve already is
-	// (approvals.go's approvalActionsFor): the TUI can't satisfy the
-	// passphrase prompt itself (nonInteractivePassphrasePrompt refuses
-	// cleanly), so this fails with a clear "run the CLI" message rather
-	// than being hidden.
+	// (approvals.go's approvalActionsFor). The masked "Elevated-key
+	// passphrase" field below (CollectsPassphrase) feeds straight into
+	// Service.ExecuteWithPassphrase, which decrypts the elevated key with
+	// it directly -- this action genuinely completes in the TUI, it is not
+	// CLI-only. Only leaving that field blank falls through to
+	// nonInteractivePassphrasePrompt's clean CLI-only refusal, the same
+	// fallback registering a *new* elevated key always requires
+	// (agent elevate-key has no TUI/MCP form at all -- that step, not this
+	// one, is the genuinely CLI-only part of this project's elevated-key
+	// story).
 	actDelete = RowAction{
 		Key: "d", Label: "delete", EventType: "agent.delete",
 		Form: &ActionForm{
@@ -233,7 +296,7 @@ func agentActionsFor(a model.Agent, id, actor string, role model.Role) []RowActi
 		case "PENDING":
 			acts = append(acts, actActivate, actRename, revoke)
 		case "ACTIVE":
-			acts = append(acts, actSuspend, actRename, revoke)
+			acts = append(acts, actChangeRole, actSuspend, actRename, revoke)
 		case "SUSPENDED":
 			acts = append(acts, actRename, revoke)
 		case "REVOKED":
@@ -245,6 +308,16 @@ func agentActionsFor(a model.Agent, id, actor string, role model.Role) []RowActi
 	}
 	if elevated && id == actor {
 		acts = append(acts, actRotateKey)
+	}
+	// Self-service role switching needs no elevation at all -- see RFC
+	// 0018: internal/protocol/transitions.go's agent.switch-role bounds its
+	// own blast radius (self-only, never OWNER as source or target)
+	// independent of the viewing actor's role, unlike every action above.
+	// Uses role (== st.Agents[actor].Role at the one real call site), the
+	// same value elevated above already reads, rather than a's -- when
+	// id == actor those two are always the same state entry in practice.
+	if id == actor && a.Status == "ACTIVE" && role != model.RoleOwner {
+		acts = append(acts, actSwitchRole)
 	}
 	return acts
 }
@@ -307,12 +380,38 @@ func (m Model) openActorSwitchForm() (tea.Model, tea.Cmd) {
 		}
 	}
 	sort.Strings(options)
-	return m.openActionForm(actorSwitchForm(m.actor, options), "actor.switch", "")
+	return m.openActionForm(actorSwitchForm(m.actor, options, m.state.Agents), "actor.switch", "")
 }
-func actorSwitchForm(current string, options []string) *ActionForm {
+
+// actorRoleLabel is the picker's own defense against the confirmed-live
+// trap of picking the wrong locally-saved credential blind: every candidate
+// this project's own state actually knows about is shown with its role
+// (and non-ACTIVE status, if any) right next to its ID, so "which of these
+// is actually my owner/orchestrator identity" doesn't require leaving this
+// form to check `agent list` first. A candidate with a locally-saved
+// credential but no entry in current project state at all (registered
+// elsewhere, or since revoked/deleted) is labeled accordingly rather than
+// silently omitted.
+func actorRoleLabel(id string, agents map[string]model.Agent) string {
+	a, ok := agents[id]
+	if !ok {
+		return id + " (unregistered here)"
+	}
+	label := id + " (" + strings.ToLower(string(a.Role)) + ")"
+	if a.Status != "" && a.Status != "ACTIVE" {
+		label += " [" + strings.ToLower(a.Status) + "]"
+	}
+	return label
+}
+
+func actorSwitchForm(current string, options []string, agents map[string]model.Agent) *ActionForm {
 	hint := "No other local identities registered on this machine."
 	if len(options) > 0 {
-		hint = "Available locally: " + strings.Join(options, ", ")
+		labeled := make([]string, len(options))
+		for i, o := range options {
+			labeled[i] = actorRoleLabel(o, agents)
+		}
+		hint = "Available locally: " + strings.Join(labeled, ", ")
 	}
 	return &ActionForm{
 		Title:  "Switch actor",
@@ -332,9 +431,14 @@ func actorSwitchForm(current string, options []string) *ActionForm {
 				return m, nil
 			}
 			m.actor = candidate
+			// A deliberate, human-picked switch through this form (which
+			// already shows each candidate's real role, not a blind list)
+			// is never ambiguous, regardless of how the TUI's actor was
+			// resolved at startup -- see RFC 0017.
+			m.svc.AmbiguousActor = false
 			m.form, m.inputs, m.formSpec, m.err = "", nil, nil, nil
 			m.notice = "Switched to " + candidate
-			m.refresh()
+			m.refreshState()
 			return m, nil
 		},
 	}

@@ -35,6 +35,12 @@ func ApplyEvent(s *model.State, e model.Event) error {
 		a.Capabilities = p.Capabilities
 		a.Scopes = p.Scopes
 		s.Agents[e.EntityID] = a
+	case *model.AgentRoleSwitched:
+		// Only Role changes -- Capabilities and Scopes are untouched,
+		// unlike AgentActivated. See RFC 0018.
+		a := s.Agents[e.EntityID]
+		a.Role = p.Role
+		s.Agents[e.EntityID] = a
 	case *model.AgentKeyRotated:
 		a := s.Agents[e.EntityID]
 		a.PublicKey = p.PublicKey
@@ -281,7 +287,7 @@ func ApplyEvent(s *model.State, e model.Event) error {
 						model.ConsumerModeEither,
 					},
 					RequireHumanForSensitive: true,
-					UpdatedBy: e.Actor, UpdatedAt: e.Time,
+					UpdatedBy:                e.Actor, UpdatedAt: e.Time,
 				}
 			}
 		}

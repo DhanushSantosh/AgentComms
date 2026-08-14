@@ -110,6 +110,13 @@ func Findings(ctx context.Context, svc *service.Service) ([]Finding, error) {
 		if kind != model.RuntimeKindInteractive {
 			continue
 		}
+		// Windows support landed via RFC 0014 (ConPTY, serve_windows.go) --
+		// no platform-specific finding here. The one real remaining floor
+		// (ConPTY requires Windows 10 1809+) is rare enough in practice
+		// that Serve itself reports it with a clear, actionable error at
+		// the point of failure, the same way this codebase handles other
+		// uncommon environment gaps, rather than doctor pre-emptively
+		// probing the OS build number for a case almost nobody hits.
 		if runtimeState.Connector != "INTERACTIVE" || runtimeState.HostID == "" {
 			add("ERROR", "INTERACTIVE_RUNTIME_MISMATCH",
 				fmt.Sprintf("runtime %s is interactive but its connector or host binding is invalid", id),

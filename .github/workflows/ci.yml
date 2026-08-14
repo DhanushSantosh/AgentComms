@@ -14,12 +14,15 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with: {go-version: '1.26.5', cache: true}
+        with: {go-version: '1.26.6', cache: true}
       - run: go test ./...
       - run: go vet ./...
       - run: go run honnef.co/go/tools/cmd/staticcheck@v0.7.0 ./...
       - run: go test -race ./...
         if: runner.os != 'Windows'
+      - name: Coverage floor
+        if: runner.os == 'Linux'
+        run: ./scripts/coverage-floor.sh
       - name: Validate PowerShell installer
         if: runner.os == 'Windows'
         shell: pwsh
@@ -36,10 +39,14 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with: {go-version: '1.26.5'}
+        with: {go-version: '1.26.6'}
       - run: go install golang.org/x/vuln/cmd/govulncheck@v1.6.0
       - run: govulncheck ./...
       - run: go test ./internal/contamination
+      - name: Live release-verification test (real Sigstore + a real published release)
+        env:
+          AGENT_COMMS_TEST_LIVE_RELEASE_VERIFY: "1"
+        run: go test -count=1 -v ./internal/releaseverify/...
   postgres-integration:
     timeout-minutes: 15
     runs-on: ubuntu-latest
@@ -62,19 +69,39 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with: {go-version: '1.26.5', cache: true}
-      - run: go test -count=1 ./internal/authority/... ./internal/daemon/...
+        with: {go-version: '1.26.6', cache: true}
+      - run: go test -count=1 -cover ./internal/authority/... ./internal/daemon/... | tee /tmp/pg-coverage.txt
+      - name: Authority coverage floor (Postgres-backed)
+        # internal/authority's meaningful coverage only exists against a
+        # real Postgres backend -- most of its mutation paths are
+        # t.Skip-guarded without AGENT_COMMS_TEST_POSTGRES_URL set (see
+        # scripts/coverage-floor.sh's comment, which deliberately excludes
+        # this package for exactly that reason). Floor of 40% sits a
+        # deliberate buffer below the 49.5% measured live against a real
+        # postgres:17 container when this check was added.
+        run: |
+          set -euo pipefail
+          pct=$(grep 'AgentComms/internal/authority' /tmp/pg-coverage.txt | grep -oE '[0-9.]+% of statements' | grep -oE '[0-9.]+')
+          if [ -z "$pct" ]; then
+            echo "::error::could not parse internal/authority's coverage percentage from go test output"
+            exit 1
+          fi
+          echo "internal/authority Postgres-backed coverage: ${pct}%"
+          awk -v p="$pct" 'BEGIN{exit !(p+0 >= 40)}' || {
+            echo "::error::internal/authority Postgres-backed coverage ${pct}% is below its floor of 40%"
+            exit 1
+          }
   cross-build:
     timeout-minutes: 20
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with: {go-version: '1.26.5'}
+        with: {go-version: '1.26.6'}
       - run: |
           for target in windows/amd64 windows/arm64 linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
             GOOS=${target%/*}; GOARCH=${target#*/}
-            for command in agent-comms agent-comms-daemon agent-comms-server; do
+            for command in agent-comms agent-comms-daemon agent-comms-server agent-comms-verify; do
               CGO_ENABLED=0 GOOS=$GOOS GOARCH=$GOARCH go build "./cmd/$command"
             done
           done
@@ -85,7 +112,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
         with: {fetch-depth: 0}
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with: {go-version: '1.26.5', cache: true}
+        with: {go-version: '1.26.6', cache: true}
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with: {node-version: '22', cache: npm}
       - run: npm ci

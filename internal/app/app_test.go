@@ -205,7 +205,7 @@ func TestAgentListHumanOutputIsATableNotIndentedJSON(t *testing.T) {
 	}
 	run(true, "init", "--non-interactive", "--owner", "owner", "--mode", "personal")
 	run(true, "agent", "register", "--id", "builder")
-	run(true, "agent", "activate", "--id", "builder", "--role", "AGENT", "--scope", "src")
+	run(true, "agent", "activate", "--id", "builder", "--role", "AGENT", "--scope", "src", "--actor", "owner")
 
 	run(false, "agent", "list")
 	if strings.HasPrefix(strings.TrimSpace(out.String()), "{") {
@@ -223,6 +223,110 @@ func TestAgentListHumanOutputIsATableNotIndentedJSON(t *testing.T) {
 	}
 	if !envelope.OK || envelope.Command != "agent.list" {
 		t.Fatalf("--json behavior changed unexpectedly: %#v", envelope)
+	}
+}
+
+// TestAgentSwitchRoleIsSelfServiceThroughTheRealCLI is the end-to-end
+// regression test for RFC 0018's self-service role switch, exercised
+// through the real CLI entry point (Run), not just Service directly: a
+// plain, non-elevated agent relabels its own role with no owner or
+// orchestrator action at all, and the change is visible in agent list.
+func TestAgentSwitchRoleIsSelfServiceThroughTheRealCLI(t *testing.T) {
+	project := t.TempDir()
+	cleanupProjectDaemon(t, project)
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
+	var out, stderr bytes.Buffer
+	run := func(args ...string) {
+		t.Helper()
+		out.Reset()
+		stderr.Reset()
+		args = append(args, "--project", project, "--json")
+		if err := Run(args, &out, &stderr); err != nil {
+			t.Fatalf("%v: %v\n%s", args, err, stderr.String())
+		}
+	}
+	run("init", "--non-interactive", "--owner", "owner", "--mode", "personal")
+	run("agent", "register", "--id", "builder")
+	run("agent", "activate", "--id", "builder", "--role", "Backend-Designer", "--scope", "src", "--actor", "owner")
+
+	// Self-service: no --actor owner/orchestrator elevation needed, unlike
+	// agent activate above -- builder switches its own role directly.
+	run("agent", "switch-role", "--role", "Frontend-Architect", "--actor", "builder")
+
+	run("agent", "list")
+	if !bytes.Contains(out.Bytes(), []byte(`"role":"Frontend-Architect"`)) {
+		t.Fatalf("expected builder's role to show Frontend-Architect after self-service switch: %s", out.String())
+	}
+}
+
+// TestTUIResolvesOwnerWhenLegacyActorIsAmbiguous is the end-to-end
+// regression test for RFC 0019: the TUI's own PersistentPreRunE wiring
+// (cmd.Name() == "tui") must resolve straight to the project owner, with
+// AmbiguousActor left false, in exactly the scenario RFC 0017 refuses for
+// every other command -- a project with 2+ locally-registered identities
+// and no recognized provider session. Invokes PersistentPreRunE directly
+// rather than through Run() (RunE would enter the TUI's real, blocking
+// bubbletea event loop, which needs a real terminal this test doesn't have).
+func TestTUIResolvesOwnerWhenLegacyActorIsAmbiguous(t *testing.T) {
+	d := t.TempDir()
+	cleanupProjectDaemon(t, d)
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(d, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(d, "credentials"))
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "")
+	t.Setenv("CODEX_THREAD_ID", "")
+
+	var out, errBuf bytes.Buffer
+	if err := Run([]string{"init", "--project", d, "--non-interactive", "--owner", "owner", "--json"}, &out, &errBuf); err != nil {
+		t.Fatalf("init failed: %v\n%s", err, errBuf.String())
+	}
+	out.Reset()
+	errBuf.Reset()
+	if err := Run([]string{"agent", "register", "--id", "helper", "--principal-type", "AGENT",
+		"--project", d, "--actor", "helper", "--json"}, &out, &errBuf); err != nil {
+		t.Fatalf("registering a second local identity failed: %v\n%s", err, errBuf.String())
+	}
+
+	c := &cli{out: &out, err: &errBuf, timeout: 10 * time.Second}
+	root := c.root()
+	// c.root() binds --project's flag default (registered as part of
+	// building the command tree) into c.project, overwriting any value
+	// set before this call -- so it has to be set after, not in the cli
+	// struct literal above.
+	c.project = d
+	root.SetOut(&out)
+	root.SetErr(&errBuf)
+	tuiCmd, _, findErr := root.Find([]string{"tui"})
+	if findErr != nil {
+		t.Fatal(findErr)
+	}
+	if err := root.PersistentPreRunE(tuiCmd, nil); err != nil {
+		t.Fatalf("tui's own PersistentPreRunE failed: %v", err)
+	}
+	if c.svc.AmbiguousActor {
+		t.Fatalf("expected the TUI to resolve straight to the project owner, not refuse as ambiguous: %+v", c.actorResolution)
+	}
+	if c.actorResolution.Actor != "owner" || c.actorResolution.Source != identity.ActorSourceProjectOwner {
+		t.Fatalf("expected the TUI to resolve to the project owner, got %+v", c.actorResolution)
+	}
+
+	// The identical scenario through an ordinary (non-tui) command must
+	// still refuse exactly as RFC 0017 specifies -- this opt-out is
+	// scoped to the TUI alone.
+	c2 := &cli{out: &out, err: &errBuf, timeout: 10 * time.Second}
+	root2 := c2.root()
+	c2.project = d
+	root2.SetOut(&out)
+	root2.SetErr(&errBuf)
+	agentListCmd, _, findErr2 := root2.Find([]string{"agent", "list"})
+	if findErr2 != nil {
+		t.Fatal(findErr2)
+	}
+	if err := root2.PersistentPreRunE(agentListCmd, nil); err != nil {
+		t.Fatalf("agent list's own PersistentPreRunE failed: %v", err)
+	}
+	if !c2.svc.AmbiguousActor {
+		t.Fatalf("expected an ordinary CLI command to still be refused as ambiguous, unaffected by RFC 0019: %+v", c2.actorResolution)
 	}
 }
 
@@ -348,6 +452,16 @@ func TestHandoffProjectUpgradePropagatesChildErrorCode(t *testing.T) {
 func TestProfileListDoesNotRequireInitializedProject(t *testing.T) {
 	configDirectory := t.TempDir()
 	t.Setenv("AGENT_COMMS_CONFIG_DIR", configDirectory)
+	// This test exercises the legacy, machine-wide ActiveProfile field
+	// deliberately (a plain human terminal with no recognized provider
+	// session) -- clear both session vars explicitly rather than assume a
+	// "clean" environment, since this suite itself typically runs inside a
+	// real Claude Code session that sets CLAUDE_CODE_SESSION_ID. See RFC
+	// 0016: with a real session ID present, this would correctly resolve
+	// to that session's own (unset) active profile instead, not the
+	// legacy field this test means to check.
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "")
+	t.Setenv("CODEX_THREAD_ID", "")
 	profile := identity.Profile{
 		Name:        "project:owner",
 		ProjectID:   "project",
@@ -367,6 +481,61 @@ func TestProfileListDoesNotRequireInitializedProject(t *testing.T) {
 	}
 	if !bytes.Contains(stdout.Bytes(), []byte(`"active":"project:owner"`)) {
 		t.Fatalf("profile list did not return the registry: %s", stdout.String())
+	}
+}
+
+// TestWriteRefusesAmbiguousLegacyActorAcrossMultipleProfiles is the
+// end-to-end regression test for RFC 0017, exercised through the real CLI
+// entry point (Run), not just Service directly -- confirms the guard is
+// actually wired into internal/app's PersistentPreRunE, not merely present
+// in the Service type. Reproduces the shape of a real, confirmed-live
+// incident: a project with more than one locally-registered identity,
+// where a bare invocation with no recognized provider session and no
+// explicit actor used to silently sign under whichever identity happened
+// to be sitting in the shared legacy slot.
+func TestWriteRefusesAmbiguousLegacyActorAcrossMultipleProfiles(t *testing.T) {
+	d := t.TempDir()
+	cleanupProjectDaemon(t, d)
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(d, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(d, "credentials"))
+	// Deliberately no recognized provider session -- the exact condition
+	// that makes the legacy fallback reachable at all.
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "")
+	t.Setenv("CODEX_THREAD_ID", "")
+
+	var out, errBuf bytes.Buffer
+	if err := Run([]string{"init", "--project", d, "--non-interactive", "--owner", "owner", "--json"}, &out, &errBuf); err != nil {
+		t.Fatalf("init failed: %v\n%s", err, errBuf.String())
+	}
+
+	// Registering a second local identity for this same project is what
+	// makes the legacy fallback genuinely ambiguous -- one profile alone
+	// (just "owner") would still be safe.
+	out.Reset()
+	errBuf.Reset()
+	if err := Run([]string{"agent", "register", "--id", "helper", "--principal-type", "AGENT", "--project", d, "--actor", "helper", "--json"}, &out, &errBuf); err != nil {
+		t.Fatalf("registering a second local identity failed: %v\n%s", err, errBuf.String())
+	}
+
+	// A bare write, no --actor, no session: must now be refused instead of
+	// silently signing under whichever identity the shared legacy field
+	// happens to hold.
+	out.Reset()
+	errBuf.Reset()
+	err := Run([]string{"task", "create", "--id", "task-1", "--title", "t", "--repository", "r", "--branch", "b", "--resource", "src/x", "--project", d, "--json"}, &out, &errBuf)
+	if err == nil {
+		t.Fatalf("expected the ambiguous bare write to be refused, got success: %s", out.String())
+	}
+	if !bytes.Contains(errBuf.Bytes(), []byte("more than one locally-registered identity")) {
+		t.Fatalf("refusal did not explain itself as ambiguous-actor related; stdout=%s stderr=%s", out.String(), errBuf.String())
+	}
+
+	// The same write, made explicit, must succeed -- the guard blocks
+	// ambiguity, not the write itself.
+	out.Reset()
+	errBuf.Reset()
+	if err := Run([]string{"task", "create", "--id", "task-1", "--title", "t", "--repository", "r", "--branch", "b", "--resource", "src/x", "--project", d, "--actor", "owner", "--json"}, &out, &errBuf); err != nil {
+		t.Fatalf("expected the same write to succeed once the actor is explicit: %v\n%s", err, errBuf.String())
 	}
 }
 
@@ -404,6 +573,36 @@ func TestInitRejectsInvalidModeBeforeWritingRuntime(t *testing.T) {
 		t.Fatalf("invalid mode wrote a runtime: %v", statErr)
 	}
 }
+
+// TestUnknownFlagStillEmitsJSONError guards a real, confirmed-live bug
+// found during a hands-on Windows compatibility pass: an unknown flag
+// (e.g. a typo) fails inside cobra's own flag parsing, before
+// PersistentPreRunE ever runs -- so c.json, which that function binds,
+// was never set to true even though --json was right there in argv.
+// Run's error branch used to check only c.json, so the JSON envelope was
+// silently never written; main.go separately assumes Run already handled
+// printing whenever --json is literally present in os.Args, so neither
+// layer printed anything at all, on any platform (confirmed live on both
+// Git Bash and a genuine native PowerShell console, ruling out a
+// redirection artifact). Falling back to a raw scan of args
+// (ContainsJSONFlag) closes the gap.
+func TestUnknownFlagStillEmitsJSONError(t *testing.T) {
+	project := t.TempDir()
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
+	var out, stderr bytes.Buffer
+	err := Run([]string{"decision", "create", "--project", project, "--id", "d1", "--this-flag-does-not-exist", "x", "--json"}, &out, &stderr)
+	if err == nil {
+		t.Fatal("expected an unknown flag to produce an error")
+	}
+	if stderr.Len() == 0 {
+		t.Fatal("expected an unknown flag with --json to still emit a JSON-formatted error, got no output at all")
+	}
+	if !bytes.Contains(stderr.Bytes(), []byte(`"ok":false`)) || !bytes.Contains(stderr.Bytes(), []byte(`"error"`)) {
+		t.Fatalf("expected a valid JSON error envelope, got: %s", stderr.String())
+	}
+}
+
 func TestCompletion(t *testing.T) {
 	var out, err bytes.Buffer
 	if e := Run([]string{"completion", "powershell"}, &out, &err); e != nil {
@@ -909,13 +1108,13 @@ func TestInvocationAndRuntimeCLIWorkflow(t *testing.T) {
 	}
 	run("init", "--non-interactive", "--owner", "owner", "--mode", "personal")
 	run("agent", "register", "--id", "builder")
-	run("agent", "activate", "--id", "builder", "--role", "AGENT", "--scope", "src")
+	run("agent", "activate", "--id", "builder", "--role", "AGENT", "--scope", "src", "--actor", "owner")
 	run("runtime", "register", "--actor", "builder", "--id", "runtime-builder",
 		"--agent", "builder", "--connector", "MCP", "--max-concurrent", "1")
 	run("runtime", "heartbeat", "--actor", "builder", "--id", "runtime-builder")
-	run("invocation", "policy", "set", "--agent", "builder", "--mode", "AUTOMATIC")
+	run("invocation", "policy", "set", "--agent", "builder", "--mode", "AUTOMATIC", "--actor", "owner")
 	run("invocation", "request", "--id", "inv-cli", "--to", "builder",
-		"--instruction", "Review the CLI workflow", "--priority", "URGENT")
+		"--instruction", "Review the CLI workflow", "--priority", "URGENT", "--actor", "owner")
 	run("invocation", "next", "--actor", "builder", "--runtime", "runtime-builder")
 	if !bytes.Contains(out.Bytes(), []byte(`"found":true`)) ||
 		!bytes.Contains(out.Bytes(), []byte(`"id":"inv-cli"`)) {
@@ -965,7 +1164,7 @@ func TestTaskLockCreatesAndClaimsInOneStep(t *testing.T) {
 	}
 	run("init", "--non-interactive", "--owner", "owner", "--mode", "personal")
 	run("agent", "register", "--id", "builder")
-	run("agent", "activate", "--id", "builder", "--role", "AGENT", "--scope", "src")
+	run("agent", "activate", "--id", "builder", "--role", "AGENT", "--scope", "src", "--actor", "owner")
 
 	run("task", "lock", "--actor", "builder", "--worktree", worktree, "--note", "fixing a bug")
 	if !bytes.Contains(out.Bytes(), []byte(`"type":"task.claim"`)) {
@@ -1038,7 +1237,7 @@ func TestTaskLockConflictsOnlyForTheSameWorktree(t *testing.T) {
 	must("init", "--non-interactive", "--owner", "owner", "--mode", "personal")
 	for _, id := range []string{"agent-a", "agent-b", "agent-c"} {
 		must("agent", "register", "--id", id)
-		must("agent", "activate", "--id", id, "--role", "AGENT", "--scope", "src")
+		must("agent", "activate", "--id", id, "--role", "AGENT", "--scope", "src", "--actor", "owner")
 	}
 
 	must("task", "lock", "--actor", "agent-a", "--worktree", sharedWorktree, "--note", "agent-a working")
@@ -1087,11 +1286,11 @@ func TestInvocationRequestDeliversDirectlyToLiveInteractiveSession(t *testing.T)
 
 	run("init", "--non-interactive", "--owner", "owner", "--mode", "personal")
 	run("agent", "register", "--id", "opencode-agent")
-	run("agent", "activate", "--id", "opencode-agent", "--role", "AGENT", "--scope", "src")
+	run("agent", "activate", "--id", "opencode-agent", "--role", "AGENT", "--scope", "src", "--actor", "owner")
 	run("runtime", "register", "--actor", "opencode-agent", "--id", "opencode-runtime",
 		"--agent", "opencode-agent", "--kind", "INTERACTIVE",
 		"--connector", "INTERACTIVE", "--max-concurrent", "1")
-	run("invocation", "policy", "set", "--agent", "opencode-agent", "--mode", "AUTOMATIC")
+	run("invocation", "policy", "set", "--agent", "opencode-agent", "--mode", "AUTOMATIC", "--actor", "owner")
 
 	// Stand up a live session the same way `runtime interactive-serve`
 	// does, without going through the CLI's Run() — that command calls
@@ -1131,7 +1330,7 @@ func TestInvocationRequestDeliversDirectlyToLiveInteractiveSession(t *testing.T)
 		"--endpoint-id", "test-opencode-endpoint")
 
 	run("invocation", "request", "--id", "inv-direct", "--to", "opencode-agent",
-		"--instruction", "say hi", "--consumer", "INTERACTIVE_ONLY", "--runtime", "opencode-runtime")
+		"--instruction", "say hi", "--consumer", "INTERACTIVE_ONLY", "--runtime", "opencode-runtime", "--actor", "owner")
 	if bytes.Contains(out.Bytes(), []byte(`"warnings"`)) {
 		t.Fatalf("expected no delivery warnings against a live session: %s", out.String())
 	}
@@ -1189,9 +1388,9 @@ func TestInvocationRequestWithoutRegisteredSessionIsUnaffected(t *testing.T) {
 	}
 	run("init", "--non-interactive", "--owner", "owner", "--mode", "personal")
 	run("agent", "register", "--id", "builder")
-	run("agent", "activate", "--id", "builder", "--role", "AGENT", "--scope", "src")
-	run("invocation", "policy", "set", "--agent", "builder", "--mode", "AUTOMATIC")
-	run("invocation", "request", "--id", "inv-headless", "--to", "builder", "--instruction", "say hi")
+	run("agent", "activate", "--id", "builder", "--role", "AGENT", "--scope", "src", "--actor", "owner")
+	run("invocation", "policy", "set", "--agent", "builder", "--mode", "AUTOMATIC", "--actor", "owner")
+	run("invocation", "request", "--id", "inv-headless", "--to", "builder", "--instruction", "say hi", "--actor", "owner")
 	if bytes.Contains(out.Bytes(), []byte(`"warnings"`)) {
 		t.Fatalf("expected no warnings when the target has no registered interactive session: %s", out.String())
 	}
@@ -1245,12 +1444,12 @@ func TestInvocationRedeliverRejectsNonPendingInvocation(t *testing.T) {
 	}
 	run("init", "--non-interactive", "--owner", "owner", "--mode", "personal")
 	run("agent", "register", "--id", "builder")
-	run("agent", "activate", "--id", "builder", "--role", "AGENT", "--scope", "src")
+	run("agent", "activate", "--id", "builder", "--role", "AGENT", "--scope", "src", "--actor", "owner")
 	run("runtime", "register", "--actor", "builder", "--id", "runtime-builder",
 		"--agent", "builder", "--connector", "MCP", "--max-concurrent", "1")
 	run("runtime", "heartbeat", "--actor", "builder", "--id", "runtime-builder")
-	run("invocation", "policy", "set", "--agent", "builder", "--mode", "AUTOMATIC")
-	run("invocation", "request", "--id", "inv-done", "--to", "builder", "--instruction", "say hi")
+	run("invocation", "policy", "set", "--agent", "builder", "--mode", "AUTOMATIC", "--actor", "owner")
+	run("invocation", "request", "--id", "inv-done", "--to", "builder", "--instruction", "say hi", "--actor", "owner")
 	run("invocation", "claim", "--actor", "builder", "--id", "inv-done", "--runtime", "runtime-builder")
 	run("invocation", "start", "--actor", "builder", "--id", "inv-done", "--summary", "started")
 	run("invocation", "complete", "--actor", "builder", "--id", "inv-done", "--summary", "done")
@@ -1258,7 +1457,7 @@ func TestInvocationRedeliverRejectsNonPendingInvocation(t *testing.T) {
 	out.Reset()
 	stderr.Reset()
 	err := Run([]string{"invocation", "redeliver", "--id", "inv-done", "--runtime", "runtime-builder",
-		"--project", project, "--json"}, &out, &stderr)
+		"--actor", "owner", "--project", project, "--json"}, &out, &stderr)
 	if err == nil {
 		t.Fatal("expected redeliver of a COMPLETED invocation to fail")
 	}
@@ -1293,17 +1492,17 @@ func TestInvocationRedeliverReachesSessionMissedByRequest(t *testing.T) {
 
 	run("init", "--non-interactive", "--owner", "owner", "--mode", "personal")
 	run("agent", "register", "--id", "opencode-runner")
-	run("agent", "activate", "--id", "opencode-runner", "--role", "AGENT", "--scope", "src")
+	run("agent", "activate", "--id", "opencode-runner", "--role", "AGENT", "--scope", "src", "--actor", "owner")
 	run("runtime", "register", "--actor", "opencode-runner", "--id", "opencode-runtime",
 		"--agent", "opencode-runner", "--kind", "INTERACTIVE",
 		"--connector", "INTERACTIVE", "--max-concurrent", "1")
-	run("invocation", "policy", "set", "--agent", "opencode-runner", "--mode", "AUTOMATIC")
+	run("invocation", "policy", "set", "--agent", "opencode-runner", "--mode", "AUTOMATIC", "--actor", "owner")
 
 	// No live session exists yet, so this request's own nudge is silently a
 	// no-op — the whole point of the test is to confirm redeliver can still
 	// reach the runtime later.
 	run("invocation", "request", "--id", "inv-missed", "--to", "opencode-runner",
-		"--instruction", "say hi", "--consumer", "INTERACTIVE_ONLY", "--runtime", "opencode-runtime")
+		"--instruction", "say hi", "--consumer", "INTERACTIVE_ONLY", "--runtime", "opencode-runtime", "--actor", "owner")
 	if !bytes.Contains(out.Bytes(), []byte(`"outcome":"UNAVAILABLE"`)) {
 		t.Fatalf("expected an unavailable delivery result while the session is offline: %s", out.String())
 	}
@@ -1338,7 +1537,7 @@ func TestInvocationRedeliverReachesSessionMissedByRequest(t *testing.T) {
 	run("runtime", "heartbeat", "--actor", "opencode-runner", "--id", "opencode-runtime",
 		"--endpoint-id", "test-redelivery-endpoint")
 
-	run("invocation", "redeliver", "--id", "inv-missed", "--runtime", "opencode-runtime")
+	run("invocation", "redeliver", "--id", "inv-missed", "--runtime", "opencode-runtime", "--actor", "owner")
 	if bytes.Contains(out.Bytes(), []byte(`"warnings"`)) {
 		t.Fatalf("expected no delivery warnings against a now-live session: %s", out.String())
 	}

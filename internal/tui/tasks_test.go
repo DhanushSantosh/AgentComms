@@ -76,7 +76,7 @@ func enterTasksView(t *testing.T, m Model) Model {
 
 func TestRowSelectionAndClaimEndToEnd(t *testing.T) {
 	s := newTestService(t)
-	registerAgent(t, s, "builder", model.RoleAgent, "src")
+	registerAgent(t, s, "builder", model.Role("MEMBER"), "src")
 	createTask(t, s, "task-1")
 
 	m, e := New(s, "builder")
@@ -105,7 +105,7 @@ func TestRowSelectionAndClaimEndToEnd(t *testing.T) {
 
 func TestTakeoverBlockedThenApprovedSucceeds(t *testing.T) {
 	s := newTestService(t)
-	registerAgent(t, s, "builder", model.RoleAgent, "src")
+	registerAgent(t, s, "builder", model.Role("MEMBER"), "src")
 	createTask(t, s, "task-1")
 	if _, e := s.Execute("builder", "task.claim", "task-1", model.TaskClaimed{}); e != nil {
 		t.Fatal(e)
@@ -160,7 +160,7 @@ func TestTakeoverBlockedThenApprovedSucceeds(t *testing.T) {
 
 func TestRenewFormSubmitsProgress(t *testing.T) {
 	s := newTestService(t)
-	registerAgent(t, s, "builder", model.RoleAgent, "src")
+	registerAgent(t, s, "builder", model.Role("MEMBER"), "src")
 	createTask(t, s, "task-1")
 	if _, e := s.Execute("builder", "task.claim", "task-1", model.TaskClaimed{}); e != nil {
 		t.Fatal(e)
@@ -197,7 +197,7 @@ func TestRenewFormSubmitsProgress(t *testing.T) {
 
 func TestHandoffTwoFieldForm(t *testing.T) {
 	s := newTestService(t)
-	registerAgent(t, s, "builder", model.RoleAgent, "src")
+	registerAgent(t, s, "builder", model.Role("MEMBER"), "src")
 	createTask(t, s, "task-1")
 	if _, e := s.Execute("builder", "task.claim", "task-1", model.TaskClaimed{}); e != nil {
 		t.Fatal(e)

@@ -26,7 +26,7 @@ func TestApprovalActionsForStates(t *testing.T) {
 		pt   model.PrincipalType
 		want []string
 	}{
-		{"pending non-elevated role sees nothing", model.Approval{Status: "PENDING", Tier: "ORCHESTRATOR"}, model.RoleAgent, model.PrincipalAgent, nil},
+		{"pending non-elevated role sees nothing", model.Approval{Status: "PENDING", Tier: "ORCHESTRATOR"}, model.Role("MEMBER"), model.PrincipalAgent, nil},
 		{"pending orchestrator-tier owner sees both", model.Approval{Status: "PENDING", Tier: "ORCHESTRATOR"}, model.RoleOwner, model.PrincipalAgent, []string{"approve", "reject"}},
 		{"pending human-tier agent-principal orchestrator hides approve", model.Approval{Status: "PENDING", Tier: "HUMAN"}, model.RoleOrchestrator, model.PrincipalAgent, []string{"reject"}},
 		{"pending human-tier human-principal owner sees both", model.Approval{Status: "PENDING", Tier: "HUMAN"}, model.RoleOwner, model.PrincipalHuman, []string{"approve", "reject"}},

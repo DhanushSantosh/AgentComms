@@ -36,6 +36,20 @@ type Service struct {
 	// transitions then fail with a clear error rather than silently
 	// falling back to the actor's unprotected primary key.
 	PassphrasePrompt func(actor string) (string, error)
+	// AmbiguousActor is set once, by whichever caller resolved the actor
+	// this Service will sign as (internal/app's PersistentPreRunE, shared
+	// by the CLI, TUI, and MCP), when that resolution came from the
+	// legacy, machine-wide identity.UserConfig.ActiveProfile fallback (no
+	// recognized provider session ID at all) *and* the project has two or
+	// more locally-registered identities to silently choose between.
+	// ExecuteWithPassphrase refuses outright rather than sign under a
+	// value this ambiguous -- confirmed live as a real defect, not
+	// theoretical: exactly this condition let one agent's governed writes
+	// get silently signed under a different, unrelated agent's identity.
+	// See RFC 0017. Default false (every caller that never sets it, e.g.
+	// internal/worker's standalone worker-loop Service instances, is
+	// completely unaffected).
+	AmbiguousActor bool
 }
 
 func New(root string) *Service {
@@ -420,6 +434,16 @@ func (s *Service) Execute(actor, typ, id string, payload any) (model.Event, erro
 // back to the existing PassphrasePrompt behavior unchanged, so every
 // existing caller (CLI, MCP) is unaffected.
 func (s *Service) ExecuteWithPassphrase(actor, typ, id string, payload any, passphrase string) (model.Event, error) {
+	if s.AmbiguousActor {
+		return model.Event{}, fmt.Errorf(
+			"refusing to sign %s as %q: this actor was resolved from the shared, machine-wide"+
+				" active-profile default, and this project has more than one locally-registered"+
+				" identity to choose between -- pass --actor explicitly, or set AGENT_COMMS_ACTOR"+
+				" (both required for any invocation with no recognized provider session, e.g. an"+
+				" opencode-based agent or a background script); run `agent-comms profile current`"+
+				" to see exactly how this was resolved", typ, actor,
+		)
+	}
 	if s.remoteErr != nil {
 		return model.Event{}, s.remoteErr
 	}
@@ -457,12 +481,13 @@ func (s *Service) executeRemote(actor, typ, id string, payload any, passphrase s
 func (s *Service) elevateCredentialIfNeeded(
 	cfg store.Config, actor, typ, id string, payload any, primary identity.Credential, overridePassphrase string,
 ) (identity.Credential, error) {
-	if typ != "agent.activate" && typ != "approval.approve" && typ != "agent.revoke" && typ != "agent.delete" {
+	if typ != "agent.activate" && typ != "agent.switch-role" && typ != "approval.approve" && typ != "agent.revoke" && typ != "agent.delete" {
 		return primary, nil
 	}
-	// st stays the zero-value model.State{} for agent.activate, whose
-	// RequiresElevatedKey branch reads only the payload, never state -- see
-	// the invariant documented on RequiresElevatedKey itself (and mirrored
+	// st stays the zero-value model.State{} for agent.activate and
+	// agent.switch-role, whose RequiresElevatedKey branches read only the
+	// payload, never state -- see the invariant documented on
+	// RequiresElevatedKey itself (and mirrored
 	// by internal/authority/postgres.go's scopedElevationState, which makes
 	// the same per-type assumption via targeted SQL instead of a full
 	// fetch). Only fetch state for the transition types that actually need it.
@@ -573,8 +598,29 @@ func (s *Service) Register(actor, display string, pt model.PrincipalType) (model
 	}
 	name := cfg.ProjectID + ":" + actor
 	user.Profiles[name] = identity.Profile{Name: name, ProjectID: cfg.ProjectID, Actor: actor, ProjectRoot: s.Store.Root, HostLabel: os.Getenv("AGENT_COMMS_HOST_LABEL")}
-	if user.ActiveProfile == "" {
-		user.ActiveProfile = name
+	// Scoped to the registering session when one is recognized, rather
+	// than the legacy machine-wide field every other process on this
+	// account would otherwise inherit too -- see RFC 0016.
+	//
+	// identity.DetectProviderSessionID, not sessionbind.Capture: this
+	// package cannot import internal/sessionbind without a real cycle
+	// (sessionbind -> worker -> service), so it uses the narrower,
+	// dependency-free subset of the same detection logic instead -- see
+	// DetectProviderSessionID's own doc comment.
+	sessionID := identity.DetectProviderSessionID()
+	// Only the convenience of defaulting a *real, isolated* session to its
+	// own just-registered identity -- never the shared, machine-wide
+	// legacy field. That field has no scoping at all, so a session-less
+	// caller's (an opencode-based agent, a script) own convenience default
+	// would otherwise silently become every other session-less caller's
+	// default too, including a human's own plain terminal -- confirmed
+	// live: exactly this is how a project's shared legacy slot ended up
+	// permanently pointed at an agent instead of its human owner, with no
+	// further action from anyone. A session-less caller must already pass
+	// --actor/AGENT_COMMS_ACTOR explicitly on every write regardless (see
+	// RFC 0017), so it never needed this convenience to begin with.
+	if sessionID != "" && user.ActiveProfileFor(sessionID) == "" {
+		user.SetActiveProfileFor(sessionID, name)
 	}
 	if e = identity.SaveUserConfig(user); e != nil {
 		// The registration itself is already durably recorded above --

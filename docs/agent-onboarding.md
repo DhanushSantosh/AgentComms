@@ -49,8 +49,47 @@ Find out before doing anything else:
 | Your state | What it means | What to do |
 | --- | --- | --- |
 | Not registered, resolving as the project owner | Expected on a first connection — nothing has bootstrapped a dedicated identity for you yet | Choose a project-meaningful name and register: `agent register --id <agent-name> --principal-type AGENT` (CLI) or `agent_register` with `id: "<agent-name>"` (MCP). Later connections resolve back to it automatically. Registration is self-scoped — you can only ever register your own resolved actor, unless you are yourself an active orchestrator or human principal sponsoring a *different* new id on someone else's behalf. **Stop there** — register and nothing else. This ambient owner identity is for bootstrapping your own registration only, never a shortcut for activating anyone or performing any other owner-level action just because it's technically possible. |
-| Registered, not yet activated | You have an identity but no role/scope yet | Ask an owner or orchestrator to run `agent activate --id <agent-name> --role AGENT --scope <scope>` (CLI) or call `agent_activate` (MCP). Requesting `--role ORCHESTRATOR` specifically requires a HUMAN principal to grant it, even from an existing orchestrator, *and* a pre-existing, separately-approved, HUMAN-tier approval record for that exact grant (`approval.action` == `agent.activate:<agent-name>`) — a hard, two-step control, not just a credential check. You may *apply* on your own behalf by creating that approval request (`approval request --id grant-orchestrator-<agent-name> --tier HUMAN --action agent.activate:<agent-name>` / `approval_request`; the `--id` is any unique string you choose, it isn't generated for you), but never approve it yourself, never construct or run the activation or approval commands on a human's behalf even if asked to relay them, and never claim the role was granted until you've actually confirmed it (`status` / `agent_activate`'s response) — the human must separately review and approve the pending request at a later moment (a TUI keypress, *if* they haven't registered an elevated key yet). If the human has registered an elevated key (`agent elevate-key`, see docs/governance.md), both that approval and the activation itself require a passphrase only they can supply at the CLI directly — the TUI and MCP both refuse this outright rather than attempt to prompt for it, so there is no path to complete either step yourself no matter what credentials or connection you have, and you should never ask the human to paste that passphrase to you. |
-| Registered and active | You can act now | Register a runtime, claim/handle invocations, post messages, create tasks |
+| Registered, not yet activated | You have an identity but no role/scope yet | Ask an owner or orchestrator to run `agent activate --id <agent-name> --role <role> --scope <scope>` (CLI) or call `agent_activate` (MCP), where `<role>` is `ORCHESTRATOR` or any descriptive label of your choosing (`Frontend-Architect`, `Tester`, ...) — see below for what a role actually means now. Requesting `--role ORCHESTRATOR` specifically requires a HUMAN principal to grant it, even from an existing orchestrator, *and* a pre-existing, separately-approved, HUMAN-tier approval record for that exact grant (`approval.action` == `agent.activate:<agent-name>`) — a hard, two-step control, not just a credential check. You may *apply* on your own behalf by creating that approval request (`approval request --id grant-orchestrator-<agent-name> --tier HUMAN --action agent.activate:<agent-name>` / `approval_request`; the `--id` is any unique string you choose, it isn't generated for you), but never approve it yourself, never construct or run the activation or approval commands on a human's behalf even if asked to relay them, and never claim the role was granted until you've actually confirmed it (`status` / `agent_activate`'s response) — the human must separately review and approve the pending request at a later moment, from the TUI's Approvals view or `approval approve` at the CLI. If the human has registered an elevated key (`agent elevate-key`, see docs/governance.md), both that approval and the activation itself require a passphrase only they can supply — at the CLI directly, or into the TUI's own masked "Elevated-key passphrase" form field, which completes the transition the same way. MCP alone refuses this outright rather than attempt to prompt for it (no MCP tool ever takes a passphrase parameter), so there is no path to complete either step yourself via MCP no matter what credentials or connection you have — and regardless of interface, you should never ask the human to type or paste that passphrase to you, or attempt to fill in a TUI passphrase field on their behalf. |
+| Registered and active | You can act now | Register a runtime, claim/handle invocations, post messages, create tasks. You can also relabel your own role any time — see below. |
+
+### Roles, and switching your own
+
+Only two role values carry any permission effect: `OWNER` (fixed once, at project creation — never a legal target for anything else) and `ORCHESTRATOR` (elevated standing, gated as described above). Every other role is a freeform, purely descriptive label you choose for yourself — `Frontend-Architect`, `Backend-Designer`, `Tester`, whatever actually describes what you're doing. It carries no permission effect at all.
+
+You can change your own role at any time, self-service, no owner or orchestrator needed: `agent switch-role --role <role>` (CLI) or `agent_switch_role` (MCP). This only ever changes your own label — it can never touch another principal's role, never touches your own capabilities or scopes, and can never target `OWNER`. Switching to `ORCHESTRATOR` this way still goes through the exact same gate as being granted it: you must be a HUMAN principal, a pre-existing HUMAN-tier approval for the grant must already be approved, and (if the human has one registered) the elevated-key passphrase is required — the CLI and TUI will prompt for it; MCP refuses that specific switch outright, same as `agent_activate` already does.
+
+`OWNER` itself can never have its role changed by any path, including administratively: an owner or orchestrator running `agent activate` against the actual project owner is rejected outright, the same as the owner trying to self-switch away from it. There is no way to relabel or demote the project's owner once set — only the one-time bootstrap event at project creation ever assigns it.
+
+### If your session has no ambient session ID (opencode, scripts, cron jobs)
+
+Every governed write resolves the actor it signs as. If your provider session
+carries a recognizable ID (Claude Code, Codex), that resolution is
+automatically scoped to your session and safe by construction — see
+[RFC 0016](rfcs/0016-session-scoped-active-actor.md). **opencode does not
+expose one**, and neither does a bare script or cron job invoking the CLI
+directly. With no session ID to key off, resolution falls back to a single
+machine-wide "active profile" that every session-less invocation on the box
+shares — including other agents' sessions running at the same time.
+
+This is not a theoretical gap: it caused a real incident where one agent's
+registration was silently signed under a different, unrelated agent's
+identity, because the shared fallback happened to be pointed at that other
+identity at the moment of the call.
+
+As of RFC 0017, `agent-comms` refuses to sign a governed write under that
+shared fallback outright whenever the project has more than one
+locally-registered identity to choose between — you'll get an explicit error
+telling you so, rather than a silent misattribution. **If you're a
+session-less agent (opencode-based, or any script/background process),
+export `AGENT_COMMS_ACTOR=<your-agent-name>` before invoking the CLI.** This
+pins actor resolution to you explicitly and skips the ambiguous fallback
+entirely, regardless of how many other identities are registered locally or
+what any other session currently has active. `--actor <your-agent-name>` on
+any individual command works the same way, one call at a time, if you'd
+rather not set it for the whole session.
+
+Run `agent-comms profile current --json` any time you're unsure how your
+actor was actually resolved.
 
 ## 3. Core invocation lifecycle
 
