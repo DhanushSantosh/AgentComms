@@ -268,7 +268,7 @@ func Reconcile(ctx context.Context, options Options) (Result, error) {
 		return result, nil
 	}
 	if options.StopDaemon {
-		result.DaemonStopped, err = stopDaemon(ctx, config)
+		result.DaemonStopped, err = StopDaemon(ctx, config)
 		if err != nil {
 			return result, upgradeFailed("stop existing daemon", err)
 		}
@@ -989,7 +989,12 @@ func invalidateCache(root string, config store.Config, plan Plan) (bool, error) 
 	return true, nil
 }
 
-func stopDaemon(ctx context.Context, config store.Config) (bool, error) {
+// StopDaemon health-checks then gracefully shuts down the daemon at
+// config.DaemonEndpoint, if one is running -- returns (false, nil) if none
+// was reachable at all (nothing to stop, not an error). Exported for reuse
+// by internal/service's DeleteProject (RFC 0020), which needs the exact
+// same stop-before-removing-local-files sequencing Reconcile already uses.
+func StopDaemon(ctx context.Context, config store.Config) (bool, error) {
 	client, err := daemonclient.New(config.DaemonEndpoint, time.Second)
 	if err != nil {
 		return false, err

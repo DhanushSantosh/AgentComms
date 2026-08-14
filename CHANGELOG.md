@@ -5,6 +5,22 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 
 ## [Unreleased]
 
+### Added
+
+- **Breaking:** `agent-comms project delete` / the TUI's Danger Zone form
+  permanently deletes a project -- its local runtime always, and its
+  entire remote row set on the shared authority in service mode too. See
+  RFC 0020. OWNER-only, requires a registered elevated key with no
+  fallback, and is verified independently both locally and server-side
+  (actor role re-checked from live state, signature checked against that
+  exact project's registered elevated key). No `--yes`, no
+  piped-passphrase flag, and refuses outright under `--non-interactive` or
+  from MCP -- there is no scripted path for this one. No automatic
+  backup; this is unrecoverable by design. Adds `DELETE
+  /v1/projects/{project}` to the authority server (schema migration 4)
+  and a permanent, data-free `deleted_projects` tombstone that survives
+  the cascade for audit purposes on a shared authority instance.
+
 ## [0.4.0] - 2026-08-14 — “Proof of Presence”
 
 *Identity resolution can no longer silently misattribute a signed action to

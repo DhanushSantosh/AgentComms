@@ -5768,6 +5768,62 @@
       ]
     },
     {
+      "path": "agent-comms project delete",
+      "use": "agent-comms project delete",
+      "summary": "Permanently delete this project's local runtime, and its remote data in service mode",
+      "flags": [
+        {
+          "name": "actor",
+          "usage": "actor override (credential must match)",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "json",
+          "usage": "emit a versioned JSON envelope",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "no-color",
+          "usage": "disable ANSI color",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "non-interactive",
+          "usage": "never prompt",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "profile",
+          "usage": "user profile name",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "project",
+          "usage": "target project root",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "quiet",
+          "shorthand": "q",
+          "usage": "suppress non-essential output",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "timeout",
+          "usage": "transaction lock timeout",
+          "default": "10s",
+          "type": "duration"
+        }
+      ]
+    },
+    {
       "path": "agent-comms project upgrade",
       "use": "agent-comms project upgrade [flags]",
       "summary": "Inspect, back up, reconcile, restart, and verify a project",
