@@ -4,13 +4,40 @@ description: What changed in each tagged release, why it matters, and where to f
 section: Releases
 order: 1
 audience: Everyone
-lastVerified: 2026-08-08
+lastVerified: 2026-08-14
 related: [guide/maintenance, security/releases]
 ---
 
 Every tagged release is signed and dated. This page summarizes what changed and why; the repository's [CHANGELOG.md](https://github.com/DhanushSantosh/AgentComms/blob/main/CHANGELOG.md) carries the exhaustive per-change detail this page intentionally leaves out.
 
 Every release below is **Beta** — before v1.0.0, SemVer's own 0.x.y convention means anything may still change without notice. There is no Stable channel yet; that label only becomes accurate once a 1.x release ships.
+
+## v0.4.0 — "Proof of Presence" — Beta — 2026-08-14
+
+Identity resolution can no longer silently misattribute a signed action to the wrong actor — closing a real incident end to end — plus self-service role switching with freeform custom labels, ConPTY-backed interactive-serve on Windows, cosign-free release verification, and a deep TUI interaction audit.
+
+**Security**
+
+- **Breaking:** a governed write resolved through the legacy, machine-wide default-actor fallback is now refused outright whenever a project has two or more locally-registered identities to choose between, instead of silently signing under whichever one happens to be active — the exact mechanism behind a real, confirmed incident where one agent's action was signed under a different agent's identity. See RFC 0017.
+- A provider session (Claude Code, Codex) now resolves its own isolated default actor, instead of inheriting the one shared, machine-wide default every concurrent session and script on the account used to read and write. See RFC 0016.
+- Self-registering from a session-less caller no longer claims the shared legacy default-actor slot for every other session-less process on the account.
+- The project owner's role can no longer be changed through any path at all, self-service or administrative — mirroring the existing, absolute protection `agent suspend`/`agent revoke` already give the owner.
+
+**Added**
+
+- **Breaking:** self-service role switching (`agent switch-role` / `agent_switch_role`) — any active principal can relabel its own role at any time, to `ORCHESTRATOR` or any freeform custom label, with no owner/orchestrator elevation required. Switching to `ORCHESTRATOR` keeps the full existing human-approval-plus-elevated-key gate. The `AGENT`/`OBSERVER` roles are removed. See RFC 0018.
+- `interactive-serve` and `--takeover-pid` now work on Windows, built on ConPTY in place of `creack/pty`, a named pipe in place of a unix domain socket, and `TerminateProcess` in place of POSIX signals. See RFC 0014.
+- `install.sh`/`install.ps1` and `agent-comms update` no longer require a separately installed `cosign` CLI to verify a release — a new companion binary, `agent-comms-verify`, performs the identical check with no external process. See RFC 0015.
+- The TUI's command palette now has real mouse support, matching every other surface in the app.
+- A new "change role" action in the TUI lets an owner/orchestrator change an already-active agent's role.
+
+**Fixed**
+
+- The TUI now resolves ambiguous legacy actors to the project owner instead of refusing outright — the human operating the TUI is never blocked by RFC 0017's own refusal.
+- A deep TUI interaction audit found and fixed seven distinct defects in the command palette, keybindings, and focus indication: the palette could leak keystrokes into whatever row list it was opened over, the spacebar could never be typed into it, its displayed "top match" and what Enter actually ran could silently disagree, it had no mouse support at all, clicking away from an open palette navigated underneath it without closing it, the "change role" action collided with the global refresh keybinding, and there was no visual indicator that a hub tab was actively focused versus merely selected.
+- `runtime verify-adapter` now checks a provider's subcommand `--help` output too, not just its top-level one.
+- Unknown-flag errors now produce output on every platform instead of failing silently.
+- `install.ps1`'s cosign verification path is fixed.
 
 ## v0.3.0 — "Point and Click" — Beta — 2026-08-08
 
