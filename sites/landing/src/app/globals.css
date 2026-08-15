@@ -218,7 +218,10 @@ img { max-width: 100%; }
 .hero-kicker span:first-child { background: var(--cyan); color: var(--ink); padding: 0.28rem 0.45rem; }
 .hero h1 { font-family: var(--display); font-size: clamp(4.4rem, 7.35vw, 8.1rem); font-weight: 650; letter-spacing: -0.075em; line-height: 0.78; margin: 0; text-wrap: balance; }
 .hero h1 > span { display: block; }
-.hero h1 > span:nth-child(2) { background: var(--panel); box-shadow: 0.09em 0.09em 0 var(--cyan); color: var(--text); margin-top: 0.08em; padding: 0.02em 0.1em 0.1em 0.04em; transform: rotate(-1deg); width: max-content; }
+/* A solid fill, not a rotated sticker with an offset shadow -- reads as a
+   permanently-highlighted terminal selection (the same grammar every
+   ::selection rule on this site already uses), not a decorative trick. */
+.hero h1 > span:nth-child(2) { background: var(--cyan); color: var(--ink); margin-top: 0.08em; padding: 0.02em 0.14em 0.1em 0.06em; width: max-content; }
 .hero h1 strong { display: block; font-size: 0.41em; font-weight: 520; letter-spacing: -0.045em; line-height: 1.05; margin-top: 0.55em; max-width: 20ch; }
 .hero-summary { color: var(--steel-light); font-size: clamp(0.94rem, 1.25vw, 1.12rem); line-height: 1.65; margin: 2rem 0 0; max-width: 39rem; }
 .hero-actions { display: flex; flex-wrap: wrap; gap: 0.65rem; margin-top: 2rem; }
@@ -249,6 +252,25 @@ img { max-width: 100%; }
   transition: transform 160ms ease-out;
   z-index: 2;
 }
+
+/* Instrument corner ticks: calibration marks borrowed from real diagnostic
+   equipment, not a rounded card. Two pseudo-elements cover the diagonal
+   pair of corners; applied to the three "flagship" panels that also carry
+   the offset-shadow treatment, so the shadow reads as a deliberate
+   silkscreen/instrument-panel signature rather than a lone decoration. */
+.coordination-field::before, .coordination-field::after,
+.control-frame::before, .control-frame::after,
+.demo-reel::before, .demo-reel::after,
+.collision-lab::before, .collision-lab::after {
+  content: "";
+  height: 0.9rem;
+  pointer-events: none;
+  position: absolute;
+  width: 0.9rem;
+  z-index: 6;
+}
+.coordination-field::before, .control-frame::before, .demo-reel::before, .collision-lab::before { border-left: 2px solid var(--cyan); border-top: 2px solid var(--cyan); left: -1px; top: -1px; }
+.coordination-field::after, .control-frame::after, .demo-reel::after, .collision-lab::after { border-bottom: 2px solid var(--cyan); border-right: 2px solid var(--cyan); bottom: -1px; right: -1px; }
 .field-grid { background-image: linear-gradient(color-mix(in srgb, var(--ice) 8%, transparent) 1px, transparent 1px), linear-gradient(90deg, color-mix(in srgb, var(--ice) 8%, transparent) 1px, transparent 1px); background-size: 3.5rem 3.5rem; inset: 0; opacity: 0.6; position: absolute; }
 .field-label, .field-status { align-items: center; display: flex; font-family: var(--mono); font-size: 0.5rem; justify-content: space-between; letter-spacing: 0.06em; position: absolute; text-transform: uppercase; }
 .field-label--top { border-bottom: 1px solid var(--line-dark); left: 1rem; padding-bottom: 0.8rem; right: 1rem; top: 1rem; }
@@ -273,7 +295,7 @@ img { max-width: 100%; }
 .scope--auth { left: calc(50% - 4.75rem); top: 34%; }
 .scope--test { bottom: 26%; left: calc(50% - 4.75rem); }
 .field-path { height: calc(100% - 5rem); inset: 2.5rem 0; position: absolute; width: 100%; }
-.path { fill: none; stroke: var(--line-dark); stroke-dasharray: 5 5; stroke-width: 1.4; }
+.path { fill: none; stroke: var(--line-dark); stroke-dasharray: 3 4; stroke-width: 1.6; }
 .path--damon { stroke: var(--cyan); }
 .path--axiom { stroke: var(--lilac); }
 .path--gorge { stroke: var(--coral); }
@@ -308,7 +330,7 @@ img { max-width: 100%; }
 .demo-intro h2, .protocol-intro h2, .control-heading h2, .modes header h2 { font-family: var(--display); font-size: clamp(3rem, 5.8vw, 6rem); font-weight: 620; letter-spacing: -0.066em; line-height: 0.9; margin: 0; text-wrap: balance; }
 .collision-copy h2, .relay-copy h2, .trust-lede h2 { font-family: var(--display); font-size: clamp(2.3rem, 4.2vw, 4.2rem); font-weight: 620; letter-spacing: -0.058em; line-height: 0.96; margin: 0; text-wrap: balance; }
 .collision-copy > p:last-child, .protocol-intro > p:last-child, .relay-copy > p, .control-heading > p:last-child { color: var(--steel-light); font-size: clamp(0.92rem, 1.25vw, 1.1rem); line-height: 1.7; margin: 1.8rem 0 0; max-width: 34rem; }
-.collision-lab { align-self: end; background: var(--panel); border: 1px solid var(--line-dark); color: var(--text); min-width: 0; }
+.collision-lab { align-self: end; background: var(--panel); border: 1px solid var(--line-dark); color: var(--text); min-width: 0; position: relative; }
 .lab-toolbar { align-items: center; border-bottom: 1px solid var(--line-dark); display: flex; font-family: var(--mono); font-size: 0.52rem; justify-content: space-between; padding: 0.7rem; }
 .lab-toolbar > span { color: var(--steel-light); }
 .lab-toolbar div { display: flex; }

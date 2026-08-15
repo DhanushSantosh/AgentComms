@@ -13,11 +13,13 @@ export function CoordinationField() {
       <div className="agent agent--damon"><b /><span>DAMON</span><small>RUNNING</small></div>
       <div className="agent agent--axiom"><b /><span>AXIOM</span><small>WAITING</small></div>
       <div className="agent agent--gorge"><b /><span>GORGE</span><small>CLAIMED</small></div>
+      {/* Right-angle routing, not organic curves -- reads as protocol
+          traces on a schematic rather than a generic network diagram. */}
       <svg className="field-path" viewBox="0 0 760 620" preserveAspectRatio="none" aria-hidden="true">
-        <path className="path path--damon" d="M92 138 C210 138, 218 246, 354 246" />
-        <path className="path path--axiom" d="M664 132 C554 132, 526 246, 406 246" />
-        <path className="path path--gorge" d="M654 485 C532 485, 518 392, 404 392" />
-        <path className="path path--authority" d="M380 271 L380 535" />
+        <path className="path path--damon" d="M92 138 H228 V246 H354" />
+        <path className="path path--axiom" d="M664 132 H538 V246 H406" />
+        <path className="path path--gorge" d="M654 485 V392 H404" />
+        <path className="path path--authority" d="M380 271 V535" />
       </svg>
       <div className="authority-core"><span>AUTHORITY</span><b>conflict checked</b><i>receipt signed</i></div>
       <div className="receipt-ticket"><span>EVENT / invocation.claim</span><strong>9f2a…e8c1</strong><small>ACTOR GORGE · SCOPE test/auth</small></div>
