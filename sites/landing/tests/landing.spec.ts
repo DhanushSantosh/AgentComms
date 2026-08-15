@@ -60,10 +60,6 @@ test("walkthrough scenes can be selected and replayed", async ({ page }) => {
 test("selected feature visuals preserve exact product semantics", async ({ page }) => {
   await page.goto("/");
 
-  const stream = page.locator(".authority-stream");
-  await expect(stream.getByText("agent-comms — live authority", { exact: true })).toBeVisible();
-  await expect(stream.getByText("chain verified", { exact: true })).toBeVisible();
-
   const orbit = page.locator(".lifecycle-orbit");
   await expect(orbit.getByText("Delivered ≠ Acknowledged", { exact: true }).first()).toBeVisible();
 });
@@ -170,11 +166,9 @@ test("activates the main hero motion after hydration", async ({ page }) => {
   await page.goto("/");
 
   const hero = page.locator('[data-reveal="hero"]');
-  const stream = page.locator(".authority-stream");
   await expect(hero).toHaveClass(/is-revealed/);
   await expect(hero).toHaveClass(/is-active/);
-  await stream.scrollIntoViewIfNeeded();
-  await expect(stream).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
 });
 
 test("waits for meaningful viewport entry before revealing main sections", async ({ page }) => {

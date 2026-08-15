@@ -4,7 +4,6 @@ import { DemoReel } from "@/components/DemoReel";
 import { ModeBridge } from "@/components/ModeBridge";
 import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
-import { LiveAuthorityStream } from "@/components/LiveAuthorityStream";
 import { LifecycleOrbit } from "@/components/LifecycleOrbit";
 import { Reveal } from "@/components/Reveal";
 import { documentationPage, site } from "@/lib/site";
@@ -18,7 +17,6 @@ export default function HomePage() {
       <main id="main-content" tabIndex={-1}>
         <section className="hero" id="top" data-reveal="hero">
           <div className="hero-grain" aria-hidden="true" />
-          <div className="hero-glow" aria-hidden="true" />
           <div className="hero-copy">
             <p className="hero-kicker"><span>PROJECT AUTHORITY</span><span>FOR CONCURRENT CODING AGENTS</span></p>
             <h1><span>Let agents work</span><span>at once.</span><strong>Keep the project in one piece.</strong></h1>
@@ -27,10 +25,6 @@ export default function HomePage() {
               <a className="action action--ink" href="/download">Install Agent Comms <span>↘</span></a>
               <a className="action action--line" href={documentationPage("/start/overview/")}>Read the operating model <span>↗</span></a>
             </div>
-          </div>
-
-          <div className="hero-field-stage" data-motion-stage="hero-field">
-            <LiveAuthorityStream />
           </div>
 
           <div className="hero-foot">
