@@ -6,6 +6,7 @@ import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
 import { LifecycleOrbit } from "@/components/LifecycleOrbit";
 import { Reveal } from "@/components/Reveal";
+import { HeroWave } from "@/components/HeroWave";
 import { documentationPage, site } from "@/lib/site";
 
 export default function HomePage() {
@@ -16,6 +17,7 @@ export default function HomePage() {
 
       <main id="main-content" tabIndex={-1}>
         <section className="hero" id="top" data-reveal="hero">
+          <HeroWave />
           <div className="hero-grain" aria-hidden="true" />
           <div className="hero-copy">
             <p className="hero-kicker"><span>PROJECT AUTHORITY</span><span>FOR CONCURRENT CODING AGENTS</span></p>
@@ -40,7 +42,7 @@ export default function HomePage() {
         </section>
 
         <section className="collision" id="collision" data-reveal="collision">
-          <Reveal>
+          <Reveal className="collision-reveal">
             <header className="collision-copy">
               <p className="eyebrow"><span>02</span> / COLLISION CONTROL</p>
               <h2>Stop collisions before they ship.</h2>
