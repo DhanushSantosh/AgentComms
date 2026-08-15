@@ -82,7 +82,9 @@
   font-size: 0.72rem;
   line-height: 1.7;
   margin: 0;
+  box-sizing: content-box;
   max-height: 42rem;
+  max-width: 84ch;
   overflow: auto;
   padding: clamp(1.5rem, 3vw, 2.5rem);
   position: relative;
