@@ -32,18 +32,26 @@ const licenseText = readRepositoryFile("LICENSE");
 // Presentational-only pass over the verbatim license text: every character
 // is preserved exactly as read from disk, this only wraps section-heading
 // lines ("N. Title.", the top-level terms line, and the closing copyright
-// line) in a span for emphasis so the wall of legal text has scannable
-// structure.
-const sectionHeadingPattern = /^(\s*\d+\.\s+[^.]+\.)(.*)$/;
+// line) in a span for emphasis, and gives the 9 numbered sections an id
+// so the jump nav beside the text can link straight to each one, so the
+// wall of legal text has scannable structure instead of just being narrower.
+const numberedSectionPattern = /^(\s*(\d+)\.\s+([^.]+)\.)(.*)$/;
+const sectionIndex: { id: string; number: string; title: string }[] = [];
 const licenseLines = licenseText.split("\n").map((line, index) => {
-  const sectionMatch = line.match(sectionHeadingPattern);
-  if (sectionMatch) {
-    return { key: index, line, heading: sectionMatch[1], rest: sectionMatch[2] };
+  const numberedMatch = line.match(numberedSectionPattern);
+  if (numberedMatch) {
+    const heading = numberedMatch[1] ?? "";
+    const number = numberedMatch[2] ?? "";
+    const title = numberedMatch[3] ?? "";
+    const rest = numberedMatch[4] ?? "";
+    const id = `license-section-${number}`;
+    sectionIndex.push({ id, number, title });
+    return { key: index, line, heading, rest, id };
   }
   if (line.trim() === "TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION" || /^Copyright \d{4}/.test(line)) {
-    return { key: index, line, heading: line, rest: "" };
+    return { key: index, line, heading: line, rest: "", id: undefined };
   }
-  return { key: index, line, heading: null, rest: null };
+  return { key: index, line, heading: null, rest: null, id: undefined };
 });
 
 export default function LicensePage() {
@@ -80,15 +88,25 @@ export default function LicensePage() {
           <header>
             <p className="eyebrow">Full text</p>
           </header>
-          <pre>
-            {licenseLines.map(({ key, line, heading, rest }, index) => (
-              <span key={key} className={heading ? styles.sectionHeading : undefined}>
-                {heading ? <strong>{heading}</strong> : line}
-                {rest}
-                {index < licenseLines.length - 1 ? "\n" : ""}
-              </span>
-            ))}
-          </pre>
+          <div className={styles.fullTextBody}>
+            <pre>
+              {licenseLines.map(({ key, line, heading, rest, id }, index) => (
+                <span key={key} id={id} className={heading ? styles.sectionHeading : undefined}>
+                  {heading ? <strong>{heading}</strong> : line}
+                  {rest}
+                  {index < licenseLines.length - 1 ? "\n" : ""}
+                </span>
+              ))}
+            </pre>
+            <nav className={styles.sectionNav} aria-label="Jump to a license section">
+              <p>Jump to a section</p>
+              <ol>
+                {sectionIndex.map(({ id, number, title }) => (
+                  <li key={id}><a href={`#${id}`}><span>{number.padStart(2, "0")}</span>{title}</a></li>
+                ))}
+              </ol>
+            </nav>
+          </div>
         </section>
       </main>
 
