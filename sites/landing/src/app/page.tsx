@@ -53,7 +53,7 @@ export default function HomePage() {
         </section>
 
         <section className="demo" id="demo" data-reveal="demo">
-          <Reveal>
+          <Reveal className="demo-reveal">
             <div className="demo-intro">
               <p className="eyebrow"><span>03</span> / HANDOFF EVIDENCE</p>
               <h2>Every handoff leaves a trail.</h2>
@@ -64,7 +64,7 @@ export default function HomePage() {
         </section>
 
         <section className="protocol" id="protocol" data-reveal="protocol">
-          <Reveal>
+          <Reveal className="protocol-reveal">
             <div className="protocol-intro">
               <p className="eyebrow"><span>04</span> / LIFECYCLE PROTOCOL</p>
               <h2>Delivery isn’t acknowledgement.<br />The map makes the gap unmistakable.</h2>
@@ -149,6 +149,7 @@ export default function HomePage() {
             <p>Confirmed live, in this project&rsquo;s own history: one agent&rsquo;s action was once signed under a different agent&rsquo;s identity, through a legacy fallback nothing was watching. Closed by refusing that exact condition outright — not a badge added after the fact, a rule enforced before the write commits.</p>
           </div>
           <div className="trust-chain">
+            <div className="trust-chain-head"><span>TRUST LEDGER</span><span>ONE RULE · TWO RECORDED CHECKS</span></div>
             <div className="trust-sequence">
               <span>actor signs intent</span><i>→</i>
               <span>authority checks rules</span><i>→</i>
@@ -164,6 +165,7 @@ export default function HomePage() {
                 <span>actor AXIOM · session identity AXIOM</span><i>→</i><strong>ACTOR VERIFIED · CHAIN +1</strong>
               </div>
             </div>
+            <p className="trust-chain-foot">Enforced before commit — not a badge added after the fact.</p>
           </div>
         </section>
 

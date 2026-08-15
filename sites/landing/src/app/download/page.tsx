@@ -3,7 +3,6 @@ import { PageBreadcrumb } from "@/components/PageBreadcrumb";
 import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
 import { downloadRelease, installerMethods, nightlyBuild } from "@/lib/downloads";
-import { releases } from "@/lib/releases";
 import { documentationPage, site } from "@/lib/site";
 import styles from "./download.module.css";
 
@@ -27,7 +26,7 @@ export const metadata: Metadata = {
 const downloadNavItems = [
   { label: "Installers", href: "#installer" },
   { label: "Nightly", href: "#nightly" },
-  { label: "Releases", href: "#releases" }
+  { label: "Releases", href: "/releases" }
 ];
 
 export default function DownloadPage() {
@@ -133,39 +132,10 @@ export default function DownloadPage() {
           </aside>
         </section>
 
-        <section className="releases" id="releases" data-reveal="releases">
-          <header className="releases-heading">
-            <p className="eyebrow">Every release, dated and signed</p>
-            <h2>Nothing ships without a changelog.</h2>
-            <p>Three tagged releases so far, each backed by a signed history and a written record of what actually changed — not a marketing recap. Every one is <strong>Beta</strong>: before v1.0.0, anything may still change without notice.</p>
-          </header>
-          <ol className="release-list">
-            {releases.map((release) => (
-              <li className="release" key={release.version}>
-                <div className="release-head">
-                  <span className="release-version">{release.version}</span>
-                  <span className="release-channel">{release.channel}</span>
-                  <span className="release-name">“{release.name}”</span>
-                  <time className="release-date" dateTime={release.date}>{release.dateLabel}</time>
-                </div>
-                <ul className="release-highlights">
-                  {release.highlights.map((highlight) => (
-                    <li key={highlight}>{highlight}</li>
-                  ))}
-                </ul>
-              </li>
-            ))}
-          </ol>
-          <div className="releases-links">
-            <a className="action action--ink" href="/releases">All releases <span>↗</span></a>
-            <a className="action action--line" href={documentationPage("/releases/changelog/")}>Read the full changelog <span>↗</span></a>
-          </div>
-        </section>
-
         <nav className={styles.supportLinks} aria-label="Installation support links" data-reveal="download-links">
           <a href={documentationPage("/start/install/")}><span>Installation guide</span><i>Paths and prerequisites</i><b>↗</b></a>
-          <a href={downloadRelease.allReleasesUrl}><span>All releases</span><i>Channels and history</i><b>↗</b></a>
-          <a href={downloadRelease.sourceUrl}><span>Release source</span><i>Inspect the tagged code</i><b>↗</b></a>
+          <a href="/releases"><span>All releases</span><i>Channels and history</i><b>↗</b></a>
+          <a href={documentationPage("/security/releases/")}><span>Verify a release</span><i>Checksums, signatures, provenance</i><b>↗</b></a>
         </nav>
       </main>
 

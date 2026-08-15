@@ -3,7 +3,7 @@
   position: relative;
   width: 100%;
   aspect-ratio: 1 / 1.1;
-  max-width: 38rem;
+  max-width: 44rem;
   margin: 0 auto;
   display: flex;
   align-items: center;
@@ -39,16 +39,16 @@
 }
 .semantic-gap span {
   font-size: 0.65rem;
-  color: var(--coral);
+  color: var(--steel-light);
   letter-spacing: 0.05em;
   margin-bottom: 0.4rem;
 }
 .semantic-gap strong {
   font-size: 0.75rem;
-  color: var(--coral);
-  background: color-mix(in srgb, var(--coral) 12%, transparent);
+  color: var(--ink);
+  background: var(--text);
   padding: 0.3rem 0.6rem;
-  border: 1px solid var(--coral);
+  font-weight: 700;
   margin-bottom: 0.3rem;
 }
 .semantic-gap small {
@@ -98,7 +98,7 @@
 .orbit-node--running { bottom: 0; left: 50%; transform: translate(-50%, 50%); }
 .orbit-node--completed { top: 50%; left: 0; transform: translate(-50%, -50%); }
 
-.orbit-node--acknowledged i { background: var(--lilac); }
+.orbit-node--acknowledged i { background: var(--text); }
 .orbit-node--completed i { background: var(--cyan); }
 
 .node-label {
@@ -175,7 +175,7 @@
 .legend-line--happy { background: var(--steel-light); }
 .legend-line--alternate { border-top: 1px dashed var(--steel-light); background: transparent; }
 .legend-line--evidence { border-top: 2px dotted var(--steel); background: transparent; }
-.legend-line--gap { border-top: 2px dotted var(--coral); background: transparent; }
+.legend-line--gap { border-top: 2px dotted var(--text); background: transparent; }
 
 .orbit-replay {
   background: none;

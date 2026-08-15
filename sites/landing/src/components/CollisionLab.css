@@ -76,7 +76,7 @@
   font-size: 0.6rem;
   font-weight: 700;
 }
-.track-agent--axiom { color: var(--lilac); }
+.track-agent--axiom { color: var(--text); }
 .track-agent--damon { color: var(--cyan); }
 
 .track-file {
@@ -108,7 +108,7 @@
   opacity: 0.7;
 }
 
-.bg-lilac { background: var(--lilac); }
+.bg-lilac { background: var(--text); }
 .bg-cyan { background: var(--cyan); }
 
 .conflict-marker {
@@ -129,16 +129,15 @@
   bottom: 0;
   left: 50%;
   width: 1px;
-  background: var(--coral);
+  background: var(--text);
   transform: translateX(-50%);
 }
 .conflict-icon {
   position: relative;
-  background: var(--ink);
-  color: var(--coral);
+  background: var(--text);
+  color: var(--ink);
   font-size: 0.7rem;
   padding: 0.2rem;
-  border: 1px solid var(--coral);
   z-index: 2;
   font-style: normal;
 }
@@ -146,11 +145,12 @@
   position: relative;
   font-family: var(--mono);
   font-size: 0.55rem;
-  color: var(--coral);
+  font-weight: 700;
+  color: var(--ink);
   text-align: center;
   margin-top: 0.5rem;
-  background: var(--ink);
-  padding: 0.2rem;
+  background: var(--text);
+  padding: 0.25rem 0.4rem;
   z-index: 2;
 }
 
@@ -195,5 +195,5 @@
 }
 
 .text-cyan { color: var(--cyan); }
-.text-coral { color: var(--coral); }
+.text-coral { color: var(--text); }
 .text-steel { color: var(--steel-light); }

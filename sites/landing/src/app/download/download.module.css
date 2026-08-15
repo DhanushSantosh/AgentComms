@@ -58,7 +58,7 @@
 }
 
 .intro h1 em {
-  color: var(--coral);
+  color: var(--cyan);
   font-style: normal;
 }
 
@@ -133,12 +133,12 @@
   text-decoration: none;
 }
 
-.buildIndex li a:hover { color: var(--coral); padding-left: 0.35rem; }
+.buildIndex li a:hover { color: var(--cyan); padding-left: 0.35rem; }
 .buildIndex li span { color: var(--steel); font-family: var(--mono); font-size: 0.48rem; }
 
 .releaseStatus {
   align-items: start;
-  background: var(--lilac);
+  background: var(--text);
   color: var(--ink);
   display: grid;
   gap: 0.8rem;
@@ -252,20 +252,20 @@
 
 .installCommand pre { margin: 0; overflow-x: auto; padding: 1.25rem 1.4rem; white-space: pre; }
 .installCommand code { font-family: var(--mono); font-size: clamp(0.82rem, 1vw, 0.96rem); font-weight: 520; line-height: 1.65; }
-.installCommand button { align-items: center; align-self: stretch; background: var(--lilac); border: 0; border-left: 1px solid var(--ink); color: var(--ink); cursor: pointer; display: flex; flex-direction: column-reverse; font-family: var(--mono); font-size: 0.48rem; font-weight: 700; gap: 0.55rem; justify-content: center; min-width: 5.4rem; padding: 0.7rem; text-transform: uppercase; white-space: nowrap; }
+.installCommand button { align-items: center; align-self: stretch; background: var(--panel-raised); border: 0; border-left: 1px solid var(--ink); color: var(--text); cursor: pointer; display: flex; flex-direction: column-reverse; font-family: var(--mono); font-size: 0.48rem; font-weight: 700; gap: 0.55rem; justify-content: center; min-width: 5.4rem; padding: 0.7rem; text-transform: uppercase; white-space: nowrap; }
 .installCommand button > span { display: block; }
 .installCommand button b { display: block; height: 1.4rem; position: relative; width: 1.4rem; }
 .installCommand button b::before,
 .installCommand button b::after { border: 1px solid currentColor; content: ""; height: 0.72rem; position: absolute; width: 0.62rem; }
 .installCommand button b::before { left: 0.18rem; top: 0.18rem; }
-.installCommand button b::after { background: var(--lilac); left: 0.48rem; top: 0.48rem; }
+.installCommand button b::after { background: var(--text); left: 0.48rem; top: 0.48rem; }
 .installCommand button:hover,
-.installCommand button:hover { background: var(--coral); color: var(--ink); }
-.installCommand button:hover b::after { background: var(--coral); transform: translate(0.1rem, 0.1rem); }
+.installCommand button:hover { background: var(--cyan); color: var(--ink); }
+.installCommand button:hover b::after { background: var(--ink); transform: translate(0.1rem, 0.1rem); }
 .installCommand button[data-copy-state="success"] { background: var(--cyan); color: var(--ink); }
 .installCommand button[data-copy-state="success"] b::after { background: var(--cyan); }
-.installCommand button[data-copy-state="failure"] { background: var(--coral); border-color: var(--coral); color: var(--ink); }
-.installCommand button:focus-visible { outline: 3px solid var(--lilac); outline-offset: -4px; }
+.installCommand button[data-copy-state="failure"] { background: var(--text); border-color: var(--text); color: var(--ink); }
+.installCommand button:focus-visible { outline: 3px solid var(--cyan); outline-offset: -4px; }
 
 .nightly {
   align-items: center;
@@ -372,12 +372,12 @@
 
 .handoff aside {
   align-self: end;
-  border-top: 1px solid var(--coral);
+  border-top: 1px solid var(--cyan);
   padding-top: 1rem;
 }
 
 .handoff aside p {
-  color: var(--coral);
+  color: var(--cyan);
   font-family: var(--mono);
   font-size: 0.48rem;
   margin: 0 0 0.7rem;
@@ -405,14 +405,11 @@
 }
 
 .supportLinks a:last-child { border-right: 1px solid var(--line-dark); }
-.supportLinks a:hover { background: var(--coral); color: var(--ink); }
+.supportLinks a:hover { background: var(--cyan); color: var(--ink); }
 .supportLinks span { font-size: 0.74rem; font-weight: 760; }
 .supportLinks i { color: color-mix(in srgb, currentColor 68%, transparent); font-family: var(--mono); font-size: 0.48rem; font-style: normal; grid-column: 1; text-transform: uppercase; }
 .supportLinks b { grid-column: 2; grid-row: 1 / span 2; }
 
-.downloadDesk ::selection { background: var(--ink); color: var(--ice); }
-.handoff ::selection { background: var(--cyan); color: var(--ink); }
-.supportLinks ::selection { background: var(--ice); color: var(--ink); }
 
 :global(.motion-ready) :is(.intro, .buildPicker, .handoff, .supportLinks):not(:global(.is-revealed)) > *,
 :global(.motion-ready) .platform:not(:global(.is-revealed)) > * {
@@ -442,12 +439,12 @@
   .installCommand button[data-copy-state="success"] { animation: copy-confirm var(--download-feedback-duration) var(--ease-authority) both; }
 }
 
-@keyframes headline-signal { 0%, 82%, 100% { color: var(--coral); } 88% { color: var(--steel); } 92% { color: var(--cyan); } }
-@keyframes warning-ping { 0%, 72%, 100% { background: transparent; color: var(--ink); } 82%, 90% { background: var(--ink); color: var(--lilac); } }
+@keyframes headline-signal { 0%, 82%, 100% { color: var(--cyan); } 88% { color: var(--steel); } 92% { color: var(--text); } }
+@keyframes warning-ping { 0%, 72%, 100% { background: transparent; color: var(--ink); } 82%, 90% { background: var(--ink); color: var(--text); } }
 @keyframes platform-scan { from { transform: scaleX(0); } to { transform: scaleX(1); } }
 @keyframes platform-index { 0%, 76%, 100% { background: var(--panel); color: var(--text); } 85%, 92% { background: var(--cyan); color: var(--ink); } }
-@keyframes prompt-ready { 0%, 72%, 100% { background: var(--cyan); } 84%, 91% { background: var(--coral); } }
-@keyframes handoff-cursor { 0%, 66%, 100% { color: var(--cyan); } 78%, 88% { color: var(--coral); } }
+@keyframes prompt-ready { 0%, 72%, 100% { background: var(--cyan); } 84%, 91% { background: var(--text); } }
+@keyframes handoff-cursor { 0%, 66%, 100% { color: var(--cyan); } 78%, 88% { color: var(--text); } }
 @keyframes copy-confirm { 0% { transform: scale(0.94); } 70% { transform: scale(1.04); } 100% { transform: scale(1); } }
 
 @media (max-width: 72rem) {

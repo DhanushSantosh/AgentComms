@@ -181,10 +181,10 @@ test("waits for meaningful viewport entry before revealing main sections", async
   await expect(statement).toHaveClass(/is-active/);
 });
 
-test("reveals the releases section on the download page", async ({ page }) => {
-  await page.goto("/download");
+test("reveals the release list on the releases page", async ({ page }) => {
+  await page.goto("/releases");
 
-  const releases = page.locator('[data-reveal="releases"]');
+  const releases = page.locator('[data-reveal="releases-list"]');
   await releases.scrollIntoViewIfNeeded();
   await expect(releases).toHaveClass(/is-revealed/);
   await expect(releases).toHaveClass(/is-active/);
@@ -210,7 +210,7 @@ test("footer links to native pages instead of bouncing straight to GitHub", asyn
   await expect(footer.getByRole("link", { name: "Privacy", exact: true })).toHaveAttribute("href", "/privacy");
   await expect(footer.getByRole("link", { name: "Report an issue", exact: true })).toHaveAttribute(
     "href",
-    "https://github.com/DhanushSantosh/AgentComms/issues/new"
+    "/support#report-issue"
   );
   await expect(footer.getByRole("link", { name: "Changelog", exact: true })).toHaveAttribute(
     "href",
@@ -243,10 +243,8 @@ test("points to private advisories on the security page", async ({ page }) => {
   await page.goto("/security");
 
   await expect(page.getByRole("heading", { level: 1 })).toContainText("Found a flaw?");
-  await expect(page.getByRole("link", { name: /Open a private advisory/ })).toHaveAttribute(
-    "href",
-    "https://github.com/DhanushSantosh/AgentComms/security/advisories/new"
-  );
+  await expect(page.locator("#advisory-url")).toHaveText("https://github.com/DhanushSantosh/AgentComms/security/advisories/new");
+  await expect(page.getByRole("button", { name: /Copy the private advisory link/ })).toBeVisible();
 });
 
 test("cross-links support and privacy pages to the security policy", async ({ page }) => {

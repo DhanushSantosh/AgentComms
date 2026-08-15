@@ -46,11 +46,11 @@ export function LifecycleOrbit() {
             animate={{ pathLength: 1 }}
             transition={{ duration: 10, ease: "linear", repeat: Infinity }}
           />
-          {/* Semantic gap path (right part - red/coral) */}
-          <motion.path 
+          {/* Semantic gap path (right part - dashed, distinct from the solid cyan happy path) */}
+          <motion.path
             d="M 95 50 A 45 45 0 0 1 50 95"
-            fill="none" 
-            stroke="var(--coral)" 
+            fill="none"
+            stroke="var(--text)"
             strokeWidth="0.4" 
             strokeDasharray="2 6"
             initial={{ opacity: 0.2 }}

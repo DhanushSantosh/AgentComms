@@ -59,7 +59,11 @@ export default function ReleasesPage() {
           </ol>
           <div className="releases-links">
             <a className="action action--ink" href={documentationPage("/releases/changelog/")}>Read the full changelog <span>↗</span></a>
-            <a className="action action--line" href="https://github.com/DhanushSantosh/AgentComms/releases">Compare tags on GitHub <span>↗</span></a>
+          </div>
+          <p className={contentStyles.externalLabel}>Compare tags</p>
+          <div className={contentStyles.externalAction}>
+            <code id="compare-tags-url">https://github.com/DhanushSantosh/AgentComms/releases</code>
+            <button type="button" data-copy-command data-command-source="compare-tags-url" aria-live="polite" aria-label="Copy the compare-tags link"><span data-copy-label>Copy</span></button>
           </div>
         </section>
       </main>
