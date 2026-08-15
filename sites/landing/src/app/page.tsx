@@ -18,6 +18,7 @@ export default function HomePage() {
       <main id="main-content" tabIndex={-1}>
         <section className="hero" id="top" data-reveal="hero">
           <div className="hero-grain" aria-hidden="true" />
+          <div className="hero-glow" aria-hidden="true" />
           <div className="hero-copy">
             <p className="hero-kicker"><span>PROJECT AUTHORITY</span><span>FOR CONCURRENT CODING AGENTS</span></p>
             <h1><span>Let agents work</span><span>at once.</span><strong>Keep the project in one piece.</strong></h1>
