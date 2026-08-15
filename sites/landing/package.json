@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "next dev",
-    "build": "next build && node scripts/prune-next-runtime.mjs",
+    "build": "next build",
     "check": "tsc --noEmit && npm run build",
     "preview": "node scripts/serve.mjs",
     "test:e2e": "npm run build && playwright test",
