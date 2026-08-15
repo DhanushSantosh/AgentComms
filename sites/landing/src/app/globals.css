@@ -46,6 +46,7 @@
   --motion-loop-brief: 3.2s;
   --motion-loop-medium: 6s;
   --motion-loop-long: 9.6s;
+  --motion-loop-feed: 14s;
   --scroll-progress: 0;
   --scroll-head-position: 0%;
 }
@@ -423,17 +424,28 @@ img { max-width: 100%; }
 .role-owner { color: var(--cyan); }
 .role-orchestrator { color: var(--amber); }
 .role-custom { color: var(--lilac); }
-.tui-panel--activity ul { list-style: none; margin: 0; padding: 0; }
+/* The activity panel is a real live-tail: two identical passes sit back to
+   back in one track, which scrolls up by exactly one pass's height on an
+   infinite linear loop -- rows keep arriving from the bottom and retiring
+   off the top, the way an append-only event feed actually behaves, rather
+   than a static list with a light sweeping over it. */
+.tui-activity-window { -webkit-mask-image: linear-gradient(180deg, transparent, var(--ink) 14%, var(--ink) 86%, transparent); height: 8.4rem; mask-image: linear-gradient(180deg, transparent, var(--ink) 14%, var(--ink) 86%, transparent); overflow: hidden; position: relative; }
+.tui-activity-track ul { list-style: none; margin: 0; padding: 0; }
 .tui-panel--activity li { color: var(--steel-light); display: grid; gap: 0.8rem; grid-template-columns: 3rem 10rem 1fr; padding: 0.28rem 0; }
 .tui-panel--activity li i { color: var(--steel); font-style: normal; }
 .tui-panel--activity li b { color: var(--text); font-weight: 400; }
 .tui-panel--activity li em { color: var(--steel); font-style: normal; }
 .tui-footer { color: var(--steel); display: flex; gap: 1.2rem; margin-top: 1rem; }
 .motion-ready .control.is-active .tui-tabs b { animation: agent-presence-solo var(--motion-loop-brief) ease-out 0.8s infinite; }
-.motion-ready .control.is-active [data-tui-activity] li:first-child { animation: readout-refresh var(--motion-fast) var(--ease-handoff) both; }
+.motion-ready .control.is-active .tui-panel td i.is-online { animation: agent-presence-solo var(--motion-loop-brief) ease-out 1.4s infinite; }
+.motion-ready .control.is-active .tui-activity-track { animation: tui-activity-scroll var(--motion-loop-feed) linear infinite; }
 @keyframes agent-presence-solo {
   0%, 58%, 100% { box-shadow: 0 0 0 0.3rem color-mix(in srgb, var(--cyan) 22%, transparent); }
   76% { box-shadow: 0 0 0 0.6rem transparent; }
+}
+@keyframes tui-activity-scroll {
+  from { transform: translateY(0); }
+  to { transform: translateY(-50%); }
 }
 @media (max-width: 60rem) {
   .tui-frame { font-size: 0.58rem; grid-template-columns: 1fr; }
@@ -507,6 +519,7 @@ img { max-width: 100%; }
 .modes h2 { max-width: 14ch; }
 .modes header > p:last-child { color: var(--steel-light); font-size: clamp(0.92rem, 1.25vw, 1.1rem); line-height: 1.7; margin: 1.8rem 0 0; max-width: 44rem; }
 .mode-split { display: grid; grid-template-columns: repeat(2, 1fr); margin-top: clamp(4rem, 8vw, 8rem); }
+.mode-bridge { grid-column: 1 / -1; }
 .mode { border: 1px solid color-mix(in srgb, var(--text) 20%, transparent); min-height: 35rem; overflow: hidden; padding: clamp(1.5rem, 4vw, 3.4rem); position: relative; }
 .mode + .mode { border-left: 0; }
 .mode > div { align-items: center; display: flex; font-family: var(--mono); font-size: 0.52rem; justify-content: space-between; }
@@ -522,8 +535,19 @@ img { max-width: 100%; }
 .trust { align-items: end; background: var(--ink); display: grid; gap: clamp(3rem, 8vw, 9rem); grid-template-columns: 0.72fr 1.28fr; padding: clamp(6rem, 10vw, 9rem) var(--gutter); }
 .trust .eyebrow { color: var(--amber); }
 .trust-lede > p:last-child { color: var(--steel-light); font-size: clamp(0.88rem, 1.1vw, 1rem); line-height: 1.7; margin: 1.6rem 0 0; max-width: 30rem; }
+.trust-chain { display: grid; gap: 1.6rem; }
 .trust-sequence { align-items: center; border-bottom: 1px solid color-mix(in srgb, var(--text) 22%, transparent); border-top: 1px solid color-mix(in srgb, var(--text) 22%, transparent); display: flex; flex-wrap: wrap; font-family: var(--mono); font-size: 0.52rem; gap: 0.8rem; overflow: hidden; padding: 1.3rem 0; position: relative; }
+.trust-sequence > span { color: var(--steel-light); transition: color var(--motion-medium) ease; }
 .trust-sequence i { font-style: normal; opacity: 0.5; }
+.trust-stamp { background: var(--cyan); color: var(--ink); font-size: 0.5rem; font-style: normal; letter-spacing: 0.05em; margin-left: auto; opacity: 0; padding: 0.3rem 0.5rem; transform: rotate(9deg) scale(1.4); }
+.trust-proof { display: grid; font-family: var(--mono); font-size: 0.56rem; gap: 0.6rem; }
+.trust-proof-row { align-items: center; display: flex; gap: 0.7rem; }
+.trust-proof-row span { color: var(--steel-light); }
+.trust-proof-row i { flex: 1; font-style: normal; height: 1px; background: color-mix(in srgb, var(--text) 18%, transparent); }
+.trust-proof-row strong { font-weight: 700; letter-spacing: 0.04em; padding: 0.15rem 0.4rem; }
+.trust-proof-row--refused strong { background: color-mix(in srgb, var(--coral) 18%, var(--ink)); color: var(--coral); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--coral) 70%, transparent); }
+.trust-proof-row--refused span { text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--text) 30%, transparent); }
+.trust-proof-row--signed strong { background: color-mix(in srgb, var(--cyan) 18%, var(--ink)); color: var(--cyan); }
 
 .releases { background: var(--ink); padding: clamp(7rem, 11vw, 11rem) var(--gutter); }
 .releases-heading { max-width: 42rem; }
@@ -732,24 +756,26 @@ img { max-width: 100%; }
 .motion-ready .relay.is-revealed .relay-evidence > * { transition-delay: calc(var(--motion-stagger) * 6); }
 .motion-ready .relay.is-revealed .relay-party--target { transition-delay: calc(var(--motion-stagger) * 8); }
 .motion-ready .relay.is-revealed .relay-claim { transition-delay: calc(var(--motion-stagger) * 10); }
-.relay-evidence i { transform-origin: left; }
-.relay-evidence i::after {
-  background: var(--cyan);
-  content: "";
-  inset: 0;
-  position: absolute;
-  transform: translateX(-105%);
-}
-.motion-ready .relay.is-active .relay-evidence i::after { animation: relay-evidence-travel var(--motion-loop-medium) var(--ease-handoff) 1.4s infinite; }
-.motion-ready .relay.is-active .relay-message { animation: relay-message-hold var(--motion-loop-long) var(--ease-authority) 1.5s infinite; }
-.motion-ready .relay.is-active .relay-claim { animation: relay-claim-hold var(--motion-loop-long) var(--ease-authority) 1.9s infinite; }
+/* Looping demonstration: once the section is active, the transient parts of
+   the exchange -- message, evidence, claim -- replay their own arrival on
+   one shared clock, so every cycle re-tells the real sequence in order:
+   send, evidence captured one tick at a time, target receives, claim
+   stamps in. DAMON and GORGE's cards are the constant scene and never
+   hide; only the event between them repeats. */
+.relay-evidence i { background: color-mix(in srgb, var(--text) 20%, transparent); transform-origin: left; }
+.motion-ready .relay.is-active .relay-message { animation: relay-message-in var(--motion-loop-long) var(--ease-authority) infinite; }
+.motion-ready .relay.is-active .relay-evidence i:nth-child(1) { animation: relay-line-1 var(--motion-loop-long) var(--ease-handoff) infinite; }
+.motion-ready .relay.is-active .relay-evidence span:nth-child(2) { animation: relay-tick-1 var(--motion-loop-long) var(--ease-authority) infinite; }
+.motion-ready .relay.is-active .relay-evidence i:nth-child(3) { animation: relay-line-2 var(--motion-loop-long) var(--ease-handoff) infinite; }
+.motion-ready .relay.is-active .relay-evidence span:nth-child(4) { animation: relay-tick-2 var(--motion-loop-long) var(--ease-authority) infinite; }
+.motion-ready .relay.is-active .relay-evidence i:nth-child(5) { animation: relay-line-3 var(--motion-loop-long) var(--ease-handoff) infinite; }
+.motion-ready .relay.is-active .relay-party--target { animation: relay-target-receive var(--motion-loop-long) var(--ease-handoff) infinite; }
+.motion-ready .relay.is-active .relay-claim { animation: relay-claim-stamp var(--motion-loop-long) var(--ease-authority) infinite; }
 
 .control-frame { position: relative; }
-.control-frame::after { background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--cyan) 55%, transparent), transparent); content: ""; height: 18%; left: 0; opacity: 0; pointer-events: none; position: absolute; right: 0; top: 0; transform: translateY(-140%); }
 .motion-ready .control-frame { transition: clip-path var(--motion-slow) var(--ease-handoff), opacity var(--motion-medium) ease, transform var(--motion-slow) var(--ease-authority); }
 .motion-ready .control:not(.is-revealed) .control-frame { clip-path: inset(48% 0 48% 0); opacity: 0.4; transform: translateY(2rem); }
 .motion-ready .control.is-revealed .control-frame { transition-delay: calc(var(--motion-stagger) * 2); }
-.motion-ready .control.is-active .control-frame::after { animation: control-scan var(--motion-loop-long) var(--ease-handoff) 0.75s infinite; }
 .motion-ready .control-capabilities article { transition: opacity var(--motion-medium) ease, transform var(--motion-medium) var(--ease-authority); }
 .motion-ready .control:not(.is-revealed) .control-capabilities article { opacity: 0; transform: translateY(1.5rem); }
 .motion-ready .control.is-revealed .control-capabilities article:nth-child(1) { transition-delay: calc(var(--motion-stagger) * 5); }
@@ -767,24 +793,40 @@ img { max-width: 100%; }
 .motion-ready .modes.is-revealed .mode li:nth-child(2) { transition-delay: calc(var(--motion-stagger) * 8); }
 .motion-ready .modes.is-revealed .mode li:nth-child(3) { transition-delay: calc(var(--motion-stagger) * 9); }
 .motion-ready .modes.is-revealed .mode li:nth-child(4) { transition-delay: calc(var(--motion-stagger) * 10); }
-.mode::after {
-  background: linear-gradient(90deg, transparent, var(--mode-signal), transparent);
-  content: "";
-  height: 2px;
-  left: 0;
-  opacity: 0;
-  position: absolute;
-  right: 0;
-  top: 0;
-  transform: translateX(-100%);
-}
-.mode--personal { --mode-signal: var(--cyan); }
-.mode--team { --mode-signal: var(--lilac); }
-.motion-ready .modes.is-active .mode--personal::after { animation: mode-capacity-scan var(--motion-loop-long) var(--ease-handoff) 1.2s infinite; }
-.motion-ready .modes.is-active .mode--team::after { animation: mode-capacity-scan var(--motion-loop-long) var(--ease-handoff) 2.2s infinite; }
+/* ModeBridge: a live topology strip above the two cards. One machine with
+   an embedded local authority is the resting state; each loop plays the
+   real transition the copy describes -- a wire draws in, a shared
+   authority node appears, a second machine joins it, and the local-only
+   tag retires -- rather than a flat light sweeping over static cards. */
+.motion-ready .modes:not(.is-revealed) .mode-bridge { opacity: 0; transform: translateY(-1rem); }
+.motion-ready .mode-bridge { transition: opacity var(--motion-medium) ease, transform var(--motion-medium) var(--ease-authority); }
+.motion-ready .modes.is-revealed .mode-bridge { transition-delay: var(--motion-stagger); }
 
-.motion-ready .trust-sequence > * { transition: clip-path var(--motion-medium) var(--ease-authority), opacity var(--motion-fast) ease, transform var(--motion-medium) var(--ease-authority); }
-.motion-ready .trust:not(.is-revealed) .trust-sequence > * { clip-path: inset(0 100% 0 0); opacity: 0; transform: translateX(-0.8rem); }
+.mode-bridge { background: var(--ink-raised); border: 1px solid var(--line-dark); margin-bottom: clamp(2rem, 4vw, 3rem); padding: 1.4rem clamp(1.2rem, 3vw, 2.4rem); }
+.mode-bridge-row { align-items: center; display: flex; gap: 0.7rem; }
+.mode-bridge-machine { display: grid; gap: 0.3rem; }
+.mode-bridge-node { align-items: center; display: flex; font-family: var(--mono); font-size: 0.52rem; gap: 0.45rem; letter-spacing: 0.04em; text-transform: uppercase; white-space: nowrap; }
+.mode-bridge-node i { background: var(--cyan); border-radius: 50%; display: inline-block; height: 0.4rem; width: 0.4rem; }
+.mode-bridge-machine--a .mode-bridge-node { color: var(--text); }
+.mode-bridge-local { color: var(--steel); font-family: var(--mono); font-size: 0.46rem; letter-spacing: 0.03em; text-transform: uppercase; transition: opacity var(--motion-medium) ease; }
+.mode-bridge-node--authority { color: var(--lilac); opacity: 0; transform: scale(0.7); transition: opacity var(--motion-medium) ease, transform var(--motion-medium) var(--ease-authority); }
+.mode-bridge-node--authority i { background: var(--lilac); border-radius: 0; }
+.mode-bridge-node--b { color: var(--steel-light); opacity: 0; transition: opacity var(--motion-medium) ease, transform var(--motion-medium) var(--ease-authority); }
+.mode-bridge-node--b i { background: currentColor; }
+.mode-bridge-wire { background: color-mix(in srgb, var(--text) 18%, transparent); flex: 1; height: 1px; transform-origin: left; transform: scaleX(0); transition: background-color var(--motion-medium) ease, transform var(--motion-medium) var(--ease-handoff); }
+.mode-bridge-caption { display: grid; margin-top: 1rem; min-height: 1.3em; position: relative; }
+.mode-bridge-caption span { color: var(--steel-light); font-family: var(--mono); font-size: 0.58rem; grid-area: 1 / 1; letter-spacing: 0.01em; transition: opacity var(--motion-medium) ease; }
+.mode-bridge-caption--b { opacity: 0; }
+.motion-ready .modes.is-active .mode-bridge-wire--a { animation: mode-bridge-wire-a var(--motion-loop-long) var(--ease-handoff) infinite; }
+.motion-ready .modes.is-active .mode-bridge-node--authority { animation: mode-bridge-authority var(--motion-loop-long) var(--ease-authority) infinite; }
+.motion-ready .modes.is-active .mode-bridge-local { animation: mode-bridge-local-fade var(--motion-loop-long) ease infinite; }
+.motion-ready .modes.is-active .mode-bridge-wire--b { animation: mode-bridge-wire-b var(--motion-loop-long) var(--ease-handoff) infinite; }
+.motion-ready .modes.is-active .mode-bridge-node--b { animation: mode-bridge-machine-b var(--motion-loop-long) var(--ease-authority) infinite; }
+.motion-ready .modes.is-active .mode-bridge-caption--a { animation: mode-bridge-caption-a var(--motion-loop-long) ease infinite; }
+.motion-ready .modes.is-active .mode-bridge-caption--b { animation: mode-bridge-caption-b var(--motion-loop-long) ease infinite; }
+
+.motion-ready .trust-sequence > :not(.trust-stamp) { transition: clip-path var(--motion-medium) var(--ease-authority), opacity var(--motion-fast) ease, transform var(--motion-medium) var(--ease-authority); }
+.motion-ready .trust:not(.is-revealed) .trust-sequence > :not(.trust-stamp) { clip-path: inset(0 100% 0 0); opacity: 0; transform: translateX(-0.8rem); }
 .motion-ready .trust.is-revealed .trust-sequence > :nth-child(1) { transition-delay: calc(var(--motion-stagger) * 2); }
 .motion-ready .trust.is-revealed .trust-sequence > :nth-child(2) { transition-delay: calc(var(--motion-stagger) * 3); }
 .motion-ready .trust.is-revealed .trust-sequence > :nth-child(3) { transition-delay: calc(var(--motion-stagger) * 4); }
@@ -792,6 +834,9 @@ img { max-width: 100%; }
 .motion-ready .trust.is-revealed .trust-sequence > :nth-child(5) { transition-delay: calc(var(--motion-stagger) * 6); }
 .motion-ready .trust.is-revealed .trust-sequence > :nth-child(6) { transition-delay: calc(var(--motion-stagger) * 7); }
 .motion-ready .trust.is-revealed .trust-sequence > :nth-child(7) { transition-delay: calc(var(--motion-stagger) * 8); }
+.motion-ready .trust:not(.is-revealed) .trust-proof { opacity: 0; transform: translateY(1rem); }
+.motion-ready .trust-proof { transition: opacity var(--motion-medium) ease, transform var(--motion-medium) var(--ease-authority); }
+.motion-ready .trust.is-revealed .trust-proof { transition-delay: calc(var(--motion-stagger) * 9); }
 .trust-sequence::after {
   background: var(--cyan);
   bottom: -1px;
@@ -799,10 +844,26 @@ img { max-width: 100%; }
   height: 3px;
   left: 0;
   position: absolute;
-  transform: translateX(-110%);
-  width: 12%;
+  transform: scaleX(0);
+  transform-origin: left;
+  width: 100%;
 }
-.motion-ready .trust.is-active .trust-sequence::after { animation: trust-signing-head var(--motion-loop-medium) var(--ease-handoff) 1.2s infinite; }
+
+/* Looping demonstration: the four steps light up in true left-to-right
+   order as the progress bar fills beneath them, a SIGNED stamp lands once
+   the chain is complete, and the matching proof row stamps in with it --
+   re-running the real signing sequence every cycle instead of a light
+   sliding under an already-fully-lit row. */
+.motion-ready .trust.is-active .trust-sequence::after { animation: trust-fill var(--motion-loop-long) var(--ease-handoff) infinite; }
+.motion-ready .trust.is-active .trust-sequence > span:nth-child(1) { animation: trust-step-1 var(--motion-loop-long) ease infinite; }
+.motion-ready .trust.is-active .trust-sequence > i:nth-child(2) { animation: trust-arrow-1 var(--motion-loop-long) ease infinite; }
+.motion-ready .trust.is-active .trust-sequence > span:nth-child(3) { animation: trust-step-2 var(--motion-loop-long) ease infinite; }
+.motion-ready .trust.is-active .trust-sequence > i:nth-child(4) { animation: trust-arrow-2 var(--motion-loop-long) ease infinite; }
+.motion-ready .trust.is-active .trust-sequence > span:nth-child(5) { animation: trust-step-3 var(--motion-loop-long) ease infinite; }
+.motion-ready .trust.is-active .trust-sequence > i:nth-child(6) { animation: trust-arrow-3 var(--motion-loop-long) ease infinite; }
+.motion-ready .trust.is-active .trust-sequence > span:nth-child(7) { animation: trust-step-4 var(--motion-loop-long) ease infinite; }
+.motion-ready .trust.is-active .trust-stamp { animation: trust-stamp-in var(--motion-loop-long) var(--ease-authority) infinite; }
+.motion-ready .trust.is-active .trust-proof-row--signed strong { animation: trust-proof-signed var(--motion-loop-long) var(--ease-authority) infinite; }
 
 .motion-ready .releases-heading > * { transition: opacity var(--motion-medium) ease, transform var(--motion-medium) var(--ease-authority); }
 .motion-ready .releases:not(.is-revealed) .releases-heading > * { opacity: 0; transform: translateY(1.2rem); }
@@ -879,38 +940,156 @@ img { max-width: 100%; }
   76% { box-shadow: 0 0 0 0.65rem transparent; }
 }
 
-@keyframes relay-evidence-travel {
-  0%, 14%, 100% { opacity: 0; transform: translateX(-105%); }
-  24%, 58% { opacity: 1; }
-  68%, 99% { opacity: 0; transform: translateX(105%); }
+@keyframes relay-message-in {
+  0%, 6% { opacity: 0; transform: rotate(-7deg) scale(0.72) translateY(-0.4rem); }
+  16%, 88% { opacity: 1; transform: rotate(-1deg) scale(1) translateY(0); }
+  97%, 100% { opacity: 0; transform: rotate(-7deg) scale(0.72) translateY(-0.4rem); }
 }
 
-@keyframes relay-message-hold {
-  0%, 54%, 100% { transform: rotate(-1deg) translateY(0); }
-  66%, 76% { transform: rotate(-1deg) translateY(-0.3rem); }
+@keyframes relay-line-1 {
+  0%, 17% { background: color-mix(in srgb, var(--text) 20%, transparent); transform: scaleX(0.12); }
+  25%, 88% { background: var(--cyan); transform: scaleX(1); }
+  97%, 100% { background: color-mix(in srgb, var(--text) 20%, transparent); transform: scaleX(0.12); }
 }
 
-@keyframes relay-claim-hold {
-  0%, 58%, 100% { box-shadow: 0 0 0 transparent; transform: rotate(2deg) scale(1); }
-  70%, 78% { box-shadow: 0.35rem 0.35rem 0 var(--ink); transform: rotate(2deg) scale(1.025); }
+@keyframes relay-tick-1 {
+  0%, 22% { color: var(--ink); opacity: 0; transform: translateY(0.5rem); }
+  30%, 88% { color: var(--cyan-deep); opacity: 1; transform: translateY(0); }
+  97%, 100% { color: var(--ink); opacity: 0; transform: translateY(0.5rem); }
 }
 
-@keyframes control-scan {
-  0%, 10%, 100% { opacity: 0; transform: translateY(-140%); }
-  17%, 42% { opacity: 0.72; }
-  52%, 99% { opacity: 0; transform: translateY(680%); }
+@keyframes relay-line-2 {
+  0%, 29% { background: color-mix(in srgb, var(--text) 20%, transparent); transform: scaleX(0.12); }
+  37%, 88% { background: var(--cyan); transform: scaleX(1); }
+  97%, 100% { background: color-mix(in srgb, var(--text) 20%, transparent); transform: scaleX(0.12); }
 }
 
-@keyframes mode-capacity-scan {
-  0%, 14%, 100% { opacity: 0; transform: translateX(-100%); }
-  24%, 54% { opacity: 1; }
-  64%, 99% { opacity: 0; transform: translateX(100%); }
+@keyframes relay-tick-2 {
+  0%, 34% { color: var(--ink); opacity: 0; transform: translateY(0.5rem); }
+  42%, 88% { color: var(--cyan-deep); opacity: 1; transform: translateY(0); }
+  97%, 100% { color: var(--ink); opacity: 0; transform: translateY(0.5rem); }
 }
 
-@keyframes trust-signing-head {
-  0%, 14%, 100% { opacity: 0; transform: translateX(-110%); }
-  24%, 58% { opacity: 1; }
-  68%, 99% { opacity: 0; transform: translateX(840%); }
+@keyframes relay-line-3 {
+  0%, 41% { background: color-mix(in srgb, var(--text) 20%, transparent); transform: scaleX(0.12); }
+  49%, 88% { background: var(--cyan); transform: scaleX(1); }
+  97%, 100% { background: color-mix(in srgb, var(--text) 20%, transparent); transform: scaleX(0.12); }
+}
+
+@keyframes relay-target-receive {
+  0%, 45% { box-shadow: 0 0 0 0 transparent; }
+  54% { box-shadow: 0 0 0 0.3rem color-mix(in srgb, var(--cyan) 35%, transparent); }
+  64%, 100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+@keyframes relay-claim-stamp {
+  0%, 55% { opacity: 0; transform: rotate(11deg) scale(1.5); }
+  64% { opacity: 1; transform: rotate(1deg) scale(0.94); }
+  70%, 88% { opacity: 1; transform: rotate(2deg) scale(1); }
+  97%, 100% { opacity: 0; transform: rotate(11deg) scale(1.5); }
+}
+
+@keyframes mode-bridge-wire-a {
+  0%, 8% { background: color-mix(in srgb, var(--text) 18%, transparent); transform: scaleX(0); }
+  20%, 88% { background: var(--cyan); transform: scaleX(1); }
+  97%, 100% { background: color-mix(in srgb, var(--text) 18%, transparent); transform: scaleX(0); }
+}
+
+@keyframes mode-bridge-local-fade {
+  0%, 22% { opacity: 1; }
+  32%, 88% { opacity: 0; }
+  97%, 100% { opacity: 1; }
+}
+
+@keyframes mode-bridge-authority {
+  0%, 22% { opacity: 0; transform: scale(0.7); }
+  32%, 88% { opacity: 1; transform: scale(1); }
+  97%, 100% { opacity: 0; transform: scale(0.7); }
+}
+
+@keyframes mode-bridge-wire-b {
+  0%, 34% { background: color-mix(in srgb, var(--text) 18%, transparent); transform: scaleX(0); }
+  46%, 88% { background: var(--lilac); transform: scaleX(1); }
+  97%, 100% { background: color-mix(in srgb, var(--text) 18%, transparent); transform: scaleX(0); }
+}
+
+@keyframes mode-bridge-machine-b {
+  0%, 48% { opacity: 0; transform: translateX(-0.4rem); }
+  58%, 88% { color: var(--lilac); opacity: 1; transform: translateX(0); }
+  97%, 100% { opacity: 0; transform: translateX(-0.4rem); }
+}
+
+@keyframes mode-bridge-caption-a {
+  0%, 28% { opacity: 1; }
+  36%, 100% { opacity: 0; }
+}
+
+@keyframes mode-bridge-caption-b {
+  0%, 34% { opacity: 0; }
+  42%, 92% { opacity: 1; }
+  98%, 100% { opacity: 0; }
+}
+
+@keyframes trust-fill {
+  0%, 6% { transform: scaleX(0); }
+  54%, 90% { transform: scaleX(1); }
+  97%, 100% { transform: scaleX(0); }
+}
+
+@keyframes trust-step-1 {
+  0%, 8% { color: var(--steel-light); }
+  16%, 90% { color: var(--cyan); }
+  97%, 100% { color: var(--steel-light); }
+}
+
+@keyframes trust-arrow-1 {
+  0%, 14% { color: var(--steel-light); opacity: 0.5; }
+  20%, 90% { color: var(--cyan); opacity: 1; }
+  97%, 100% { color: var(--steel-light); opacity: 0.5; }
+}
+
+@keyframes trust-step-2 {
+  0%, 20% { color: var(--steel-light); }
+  28%, 90% { color: var(--cyan); }
+  97%, 100% { color: var(--steel-light); }
+}
+
+@keyframes trust-arrow-2 {
+  0%, 26% { color: var(--steel-light); opacity: 0.5; }
+  32%, 90% { color: var(--cyan); opacity: 1; }
+  97%, 100% { color: var(--steel-light); opacity: 0.5; }
+}
+
+@keyframes trust-step-3 {
+  0%, 32% { color: var(--steel-light); }
+  40%, 90% { color: var(--cyan); }
+  97%, 100% { color: var(--steel-light); }
+}
+
+@keyframes trust-arrow-3 {
+  0%, 38% { color: var(--steel-light); opacity: 0.5; }
+  44%, 90% { color: var(--cyan); opacity: 1; }
+  97%, 100% { color: var(--steel-light); opacity: 0.5; }
+}
+
+@keyframes trust-step-4 {
+  0%, 44% { color: var(--steel-light); }
+  52%, 90% { color: var(--cyan); }
+  97%, 100% { color: var(--steel-light); }
+}
+
+@keyframes trust-stamp-in {
+  0%, 56% { opacity: 0; transform: rotate(9deg) scale(1.4); }
+  64% { opacity: 1; transform: rotate(-1deg) scale(0.92); }
+  70%, 90% { opacity: 1; transform: rotate(-2deg) scale(1); }
+  97%, 100% { opacity: 0; transform: rotate(9deg) scale(1.4); }
+}
+
+@keyframes trust-proof-signed {
+  0%, 56% { opacity: 0; transform: scale(1.3); }
+  64% { opacity: 1; transform: scale(0.94); }
+  70%, 90% { opacity: 1; transform: scale(1); }
+  97%, 100% { opacity: 0; transform: scale(1.3); }
 }
 
 @keyframes release-ledger-scan {
@@ -998,6 +1177,8 @@ img { max-width: 100%; }
   .header-action { display: none; }
   .mode-split { grid-template-columns: 1fr; }
   .mode + .mode { border-left: 1px solid color-mix(in srgb, var(--ice) 33%, transparent); border-top: 0; }
+  .mode-bridge-row { flex-wrap: wrap; row-gap: 0.6rem; }
+  .mode-bridge-wire { min-width: 1.4rem; }
   .control-capabilities { grid-template-columns: 1fr; }
   .control-capabilities article + article { border-left: 0; padding-left: 0; }
   .release { gap: 1rem; grid-template-columns: 1fr; }
