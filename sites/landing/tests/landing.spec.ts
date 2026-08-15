@@ -8,9 +8,9 @@ test("presents the product thesis and truthful lifecycle", async ({ page }) => {
   await expect(page.getByRole("link", { name: /Install Agent Comms/ })).toHaveAttribute("href", "/download");
   await expect(page.getByRole("link", { name: "Docs", exact: true }).first()).toHaveAttribute("href", "https://agentcomms-docs.vercel.app");
 
-  const lifecycle = page.getByRole("list").filter({ hasText: "REQUESTED" });
+  const lifecycle = page.locator(".lifecycle-orbit");
   await expect(lifecycle).toContainText("DELIVERED");
-  await expect(lifecycle).toContainText("CLAIMED");
+  await expect(lifecycle).toContainText("ACKNOWLEDGED");
   await expect(lifecycle).toContainText("COMPLETED");
   await expect(page.getByText(/A transport can succeed while the agent never acknowledges/)).toBeVisible();
 });
@@ -40,19 +40,61 @@ test("supports a keyboard skip path", async ({ page }) => {
 test("resolves a simulated scope collision", async ({ page }) => {
   await page.goto("/#collision");
 
-  await expect(page.getByText("COLLISION", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "With Agent Comms" }).click();
-  await expect(page.getByText("RESOLVED", { exact: true })).toBeVisible();
-  await expect(page.getByText("one owner", { exact: true })).toBeVisible();
+  await expect(page.getByText("WITHOUT COORDINATION", { exact: true })).toBeVisible();
+  await expect(page.getByText("CONFLICT DETECTED", { exact: false })).toBeVisible();
+  await expect(page.getByText("WITH AGENT COMMS", { exact: true })).toBeVisible();
+  await expect(page.getByText("SCOPE LEASE GRANTED", { exact: false })).toBeVisible();
+});
+
+test("walkthrough scenes can be selected and replayed", async ({ page }) => {
+  await page.goto("/#demo");
+
+  const reel = page.locator("[data-demo-reel]");
+  await page.getByRole("button", { name: /03.*AGENT ACK/ }).click();
+  await expect(reel).toHaveAttribute("data-scene", "2");
+  await expect(reel.locator("[data-reel-live]")).toContainText(/explicitly accepts the obligation/);
+  await page.getByRole("button", { name: "Replay handoff evidence film" }).click();
+  await expect(reel).toHaveAttribute("data-scene", "0");
+});
+
+test("selected feature visuals preserve exact product semantics", async ({ page }) => {
+  await page.goto("/");
+
+  const orbit = page.locator(".lifecycle-orbit");
+  await expect(orbit.getByText("Delivered ≠ Acknowledged", { exact: true }).first()).toBeVisible();
+});
+
+test("relay separates transport from acknowledgement and returns a result", async ({ page }) => {
+  await page.goto("/#relay");
+
+  const relay = page.locator("[data-relay-sequence]");
+  await page.getByRole("button", { name: "Replay agent relay demonstration" }).click();
+  await expect(relay).toHaveAttribute("data-relay-state", "requested");
+  await expect(relay).toHaveAttribute("data-relay-state", "delivered", { timeout: 3_000 });
+  await expect(relay.getByText("DELIVERED ≠ ACKNOWLEDGED")).toBeVisible();
+  await expect(relay).toHaveAttribute("data-relay-state", "completed", { timeout: 7_000 });
+  await expect(relay.getByText("24 / 24 auth tests pass", { exact: true })).toBeVisible();
+});
+
+test("control room resolves a human-tier approval coherently", async ({ page }) => {
+  await page.goto("/#control");
+
+  const frame = page.locator("[data-tui-frame]");
+  await page.getByRole("button", { name: /approval-orchestrator-axiom/ }).click();
+  await expect(page.getByText("HUMAN AUTHORITY REQUIRED")).toBeVisible();
+  await page.getByRole("button", { name: "Approve with human authority" }).click();
+  await expect(frame).toHaveAttribute("data-control-state", "approved");
+  await expect(frame.locator("[data-control-role]")).toHaveText("ORCHESTRATOR");
+  await expect(frame.locator("[data-control-event] b")).toHaveText("approval.approve");
 });
 
 test("keeps delivery evidence separate from acknowledgement", async ({ page }) => {
   await page.goto("/#protocol");
 
-  await page.getByRole("button", { name: "DELIVERED transport evidence" }).click();
-  await expect(page.getByText("The selected transport acted and returned bounded delivery evidence.")).toBeVisible();
-  await expect(page.getByText("semantic consumption", { exact: true })).toBeVisible();
-  await expect(page.getByText("invocation.notify", { exact: true })).toBeVisible();
+  const orbit = page.locator(".lifecycle-orbit");
+  await expect(orbit.getByText("DELIVERED", { exact: true })).toBeVisible();
+  await expect(orbit.getByText("ACKNOWLEDGED", { exact: true })).toBeVisible();
+  await expect(orbit.getByText("Delivered ≠ Acknowledged")).toBeVisible();
 });
 
 test("reveals the footer after a reload", async ({ page }) => {
@@ -124,13 +166,9 @@ test("activates the main hero motion after hydration", async ({ page }) => {
   await page.goto("/");
 
   const hero = page.locator('[data-reveal="hero"]');
-  const coordinationField = page.locator("[data-motion-stage]");
   await expect(hero).toHaveClass(/is-revealed/);
   await expect(hero).toHaveClass(/is-active/);
-  await coordinationField.scrollIntoViewIfNeeded();
-  await expect(coordinationField).toHaveClass(/is-revealed/);
-  await expect(coordinationField).toHaveClass(/is-active/);
-  await expect(coordinationField.locator(".path:not(.path--authority)").first()).toHaveCSS("animation-name", "field-flow");
+  await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
 });
 
 test("waits for meaningful viewport entry before revealing main sections", async ({ page }) => {
@@ -143,10 +181,10 @@ test("waits for meaningful viewport entry before revealing main sections", async
   await expect(statement).toHaveClass(/is-active/);
 });
 
-test("reveals the releases section on the download page", async ({ page }) => {
-  await page.goto("/download");
+test("reveals the release list on the releases page", async ({ page }) => {
+  await page.goto("/releases");
 
-  const releases = page.locator('[data-reveal="releases"]');
+  const releases = page.locator('[data-reveal="releases-list"]');
   await releases.scrollIntoViewIfNeeded();
   await expect(releases).toHaveClass(/is-revealed/);
   await expect(releases).toHaveClass(/is-active/);
@@ -172,7 +210,7 @@ test("footer links to native pages instead of bouncing straight to GitHub", asyn
   await expect(footer.getByRole("link", { name: "Privacy", exact: true })).toHaveAttribute("href", "/privacy");
   await expect(footer.getByRole("link", { name: "Report an issue", exact: true })).toHaveAttribute(
     "href",
-    "https://github.com/DhanushSantosh/AgentComms/issues/new"
+    "/support#report-issue"
   );
   await expect(footer.getByRole("link", { name: "Changelog", exact: true })).toHaveAttribute(
     "href",
@@ -205,10 +243,8 @@ test("points to private advisories on the security page", async ({ page }) => {
   await page.goto("/security");
 
   await expect(page.getByRole("heading", { level: 1 })).toContainText("Found a flaw?");
-  await expect(page.getByRole("link", { name: /Open a private advisory/ })).toHaveAttribute(
-    "href",
-    "https://github.com/DhanushSantosh/AgentComms/security/advisories/new"
-  );
+  await expect(page.locator("#advisory-url")).toHaveText("https://github.com/DhanushSantosh/AgentComms/security/advisories/new");
+  await expect(page.getByRole("button", { name: /Copy the private advisory link/ })).toBeVisible();
 });
 
 test("cross-links support and privacy pages to the security policy", async ({ page }) => {

@@ -29,6 +29,23 @@ const limitations = ["Liability", "Warranty", "Trademark use"];
 
 const licenseText = readRepositoryFile("LICENSE");
 
+// Presentational-only pass over the verbatim license text: every character
+// is preserved exactly as read from disk, this only wraps section-heading
+// lines ("N. Title.", the top-level terms line, and the closing copyright
+// line) in a span for emphasis so the wall of legal text has scannable
+// structure.
+const sectionHeadingPattern = /^(\s*\d+\.\s+[^.]+\.)(.*)$/;
+const licenseLines = licenseText.split("\n").map((line, index) => {
+  const sectionMatch = line.match(sectionHeadingPattern);
+  if (sectionMatch) {
+    return { key: index, line, heading: sectionMatch[1], rest: sectionMatch[2] };
+  }
+  if (line.trim() === "TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION" || /^Copyright \d{4}/.test(line)) {
+    return { key: index, line, heading: line, rest: "" };
+  }
+  return { key: index, line, heading: null, rest: null };
+});
+
 export default function LicensePage() {
   return (
     <>
@@ -62,9 +79,16 @@ export default function LicensePage() {
         <section className={styles.fullText} aria-label="Full license text" data-reveal="license-text">
           <header>
             <p className="eyebrow">Full text</p>
-            <a href="https://github.com/DhanushSantosh/AgentComms/blob/main/LICENSE">View source on GitHub <span>↗</span></a>
           </header>
-          <pre>{licenseText}</pre>
+          <pre>
+            {licenseLines.map(({ key, line, heading, rest }, index) => (
+              <span key={key} className={heading ? styles.sectionHeading : undefined}>
+                {heading ? <strong>{heading}</strong> : line}
+                {rest}
+                {index < licenseLines.length - 1 ? "\n" : ""}
+              </span>
+            ))}
+          </pre>
         </section>
       </main>
 

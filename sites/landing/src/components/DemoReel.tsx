@@ -1,77 +1,33 @@
 const scenes = [
-  {
-    step: "01",
-    tag: "CLAIM",
-    caption: "An agent claims work under a lease.",
-    content: (
-      <div className="reel-claim">
-        <div className="reel-agent"><i />DAMON</div>
-        <div className="reel-arrow">claims →</div>
-        <div className="reel-lease"><span>task/auth-session</span><b>LEASE ACTIVE · 4h</b></div>
-      </div>
-    )
-  },
-  {
-    step: "02",
-    tag: "COLLIDE",
-    caption: "A second agent reaches for the same scope — the project decides, not the fastest terminal.",
-    content: (
-      <div className="reel-collide">
-        <div className="reel-agent"><i />AXIOM</div>
-        <div className="reel-zone"><span>STALE_PRECONDITION</span></div>
-        <div className="reel-agent reel-agent--owner"><i />DAMON<b>OWNER</b></div>
-      </div>
-    )
-  },
-  {
-    step: "03",
-    tag: "ELEVATE",
-    caption: "A sensitive action still needs a human, typing an elevated passphrase, physically present.",
-    content: (
-      <div className="reel-elevate">
-        <div className="reel-passphrase"><span>Elevated-key passphrase</span><b>••••••••••••</b></div>
-        <div className="reel-stamp">OWNER APPROVED · agent.switch-role → ORCHESTRATOR</div>
-      </div>
-    )
-  },
-  {
-    step: "04",
-    tag: "VERIFY",
-    caption: "Every write lands in one signed, append-only chain — checkable without trusting the screen.",
-    content: (
-      <div className="reel-verify">
-        <div className="reel-chain">
-          <span>0144</span><span>0145</span><span className="is-active">0146</span>
-        </div>
-        <div className="reel-receipt"><b>c3283c…6cdc9</b><small>RECEIPT SIGNED · CHAIN VERIFIED</small></div>
-      </div>
-    )
-  }
+  { step: "01", tag: "REQUEST", title: "Bounded intent", event: "invocation.request", proof: "Actor-signed · scope auth/session", caption: "AXIOM commits a bounded verification request to the project record." },
+  { step: "02", tag: "DELIVERY", title: "Transport evidence", event: "transport.delivered", proof: "PTY text echoed · enter sent", caption: "The transport succeeds—but delivery evidence is not acknowledgement." },
+  { step: "03", tag: "AGENT ACK", title: "Target accepts", event: "invocation.claim", proof: "DAMON acknowledged · lease active", caption: "DAMON explicitly accepts the obligation and begins the verification scope." },
+  { step: "04", tag: "RESULT", title: "Verified result", event: "invocation.complete", proof: "24 / 24 tests pass · receipt signed", caption: "The verified result returns and closes the signed handoff chain." }
 ] as const;
 
 export function DemoReel() {
   return (
-    <div className="demo-reel" data-demo-reel>
-      <div className="reel-chrome"><span>AGENT COMMS / WALKTHROUGH</span><span>4 CUTS · NO EDITING</span></div>
-      <div className="reel-stage">
+    <div className="demo-reel evidence-film" data-demo-reel data-scene="0">
+      <div className="evidence-film-label"><span>HANDOFF EVIDENCE</span><span>ONE STORY · FOUR RECORDED FACTS</span></div>
+      <div className="evidence-film-track">
+        <div className="evidence-film-spine" aria-hidden="true" />
         {scenes.map((scene, index) => (
-          <div className="reel-scene" data-reel-scene={index} key={scene.step}>
-            <div className="reel-tag"><b>{scene.step}</b>{scene.tag}</div>
-            {scene.content}
+          <div className="evidence-film-cut" key={scene.step}>
+            <button type="button" className="evidence-film-frame" data-reel-scene={index} data-reel-select={index} aria-pressed={index === 0}>
+              <span className="evidence-film-time">T+0{index === 0 ? "0:00" : index === 1 ? "0:06" : index === 2 ? "7:41" : "7:55"}</span>
+              <span className="evidence-film-index">{scene.step}<i />{scene.tag}</span>
+              <span className="evidence-film-art" aria-hidden="true"><i /><i /><i /></span>
+              <span className="evidence-film-copy"><small>{scene.event}</small><strong>{scene.title}</strong><b>{scene.proof}</b></span>
+            </button>
+            {index === 1 && <div className="evidence-film-gap"><span>WAITING FOR ACKNOWLEDGEMENT</span><strong>DELIVERED ≠ ACKNOWLEDGED</strong></div>}
           </div>
         ))}
       </div>
       <div className="reel-foot">
-        <div className="reel-dots" aria-hidden="true">
-          {scenes.map((scene, index) => (
-            <i data-reel-dot={index} key={scene.step} />
-          ))}
-        </div>
-        <p aria-live="polite">
-          {scenes.map((scene, index) => (
-            <span data-reel-caption={index} key={scene.step}>{scene.caption}</span>
-          ))}
-        </p>
+        <div className="evidence-film-progress" aria-hidden="true"><i /></div>
+        <button type="button" className="reel-replay" data-reel-replay aria-label="Replay handoff evidence film">PLAY FILM ↻</button>
+        <p tabIndex={-1} aria-live="polite" data-reel-live>{scenes[0].caption}</p>
+        <div hidden aria-hidden="true">{scenes.map((scene, index) => <span data-reel-caption-source={index} key={scene.step}>{scene.caption}</span>)}</div>
       </div>
     </div>
   );

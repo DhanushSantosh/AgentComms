@@ -37,11 +37,13 @@ export default function SecurityPage() {
           <p>Report suspected vulnerabilities privately through GitHub Security Advisories. Do not open a public issue containing exploit details or credentials.</p>
         </header>
 
-        <section className={styles.section} data-reveal="security-process">
+        <section className={styles.section} id="report-vulnerability" data-reveal="security-process">
           <h2>What happens after you report</h2>
           <p>Maintainers aim to acknowledge credible reports within three business days. Validation and fix development happen privately, disclosure is coordinated with the reporter, and fixes ship before any detailed publication. CVEs and contributor credit are given when appropriate.</p>
-          <div className={styles.cta}>
-            <a className="action action--ink" href="https://github.com/DhanushSantosh/AgentComms/security/advisories/new">Open a private advisory <span>↗</span></a>
+          <p className={styles.externalLabel}>Private advisory</p>
+          <div className={styles.externalAction}>
+            <code id="advisory-url">https://github.com/DhanushSantosh/AgentComms/security/advisories/new</code>
+            <button type="button" data-copy-command data-command-source="advisory-url" aria-live="polite" aria-label="Copy the private advisory link"><span data-copy-label>Copy</span></button>
           </div>
         </section>
 

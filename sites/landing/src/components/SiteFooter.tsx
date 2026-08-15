@@ -24,7 +24,7 @@ export function SiteFooter() {
           <div>
             <p>Community</p>
             <a href="/support">Contact</a>
-            <a href="https://github.com/DhanushSantosh/AgentComms/issues/new">Report an issue</a>
+            <a href="/support#report-issue">Report an issue</a>
             <a href="https://github.com/DhanushSantosh/AgentComms">GitHub</a>
           </div>
           <div>

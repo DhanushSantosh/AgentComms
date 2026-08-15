@@ -75,6 +75,8 @@ export function ProtocolInstrument() {
           <div><dt>DOES NOT PROVE</dt><dd data-stage-excludes>{initialStage.excludes}</dd></div>
         </dl>
         <div className="readout-event"><span>project.event</span><code data-stage-event>{initialStage.event}</code><i>VERIFIED</i></div>
+        <div className="readout-gap" data-protocol-gap hidden><strong>DELIVERED ≠ ACKNOWLEDGED</strong><span>The terminal received it. The agent has not claimed it yet.</span></div>
+        <button type="button" className="protocol-replay" data-protocol-replay>Replay lifecycle ↻</button>
       </div>
     </div>
   );
