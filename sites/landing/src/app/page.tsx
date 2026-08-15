@@ -2,6 +2,7 @@ import { CollisionLab } from "@/components/CollisionLab";
 import { ControlRoomFrame } from "@/components/ControlRoomFrame";
 import { CoordinationField } from "@/components/CoordinationField";
 import { DemoReel } from "@/components/DemoReel";
+import { ModeBridge } from "@/components/ModeBridge";
 import { ProtocolInstrument } from "@/components/ProtocolInstrument";
 import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
@@ -109,6 +110,7 @@ export default function HomePage() {
             <p>Most coordination tools make you stand up a database before the first agent can register, or quietly cap out once work spans more than one laptop. Agent Comms starts local and free — the same project moves to a shared authority the moment more than one machine needs to see it, with nothing to migrate by hand.</p>
           </header>
           <div className="mode-split">
+            <ModeBridge />
             <article className="mode mode--personal">
               <div><span>PERSONAL</span><i>DEFAULT</i></div>
               <h3>No account.<br />No database setup.</h3>
@@ -130,7 +132,23 @@ export default function HomePage() {
             <h2>It is the shape of every write.</h2>
             <p>Confirmed live, in this project&rsquo;s own history: one agent&rsquo;s action was once signed under a different agent&rsquo;s identity, through a legacy fallback nothing was watching. Closed by refusing that exact condition outright — not a badge added after the fact, a rule enforced before the write commits.</p>
           </div>
-          <div className="trust-sequence"><span>actor signs intent</span><i>→</i><span>authority checks rules</span><i>→</i><span>event commits</span><i>→</i><span>receipt signs the head</span></div>
+          <div className="trust-chain">
+            <div className="trust-sequence">
+              <span>actor signs intent</span><i>→</i>
+              <span>authority checks rules</span><i>→</i>
+              <span>event commits</span><i>→</i>
+              <span>receipt signs the head</span>
+              <b className="trust-stamp">SIGNED</b>
+            </div>
+            <div className="trust-proof" aria-label="Two identity checks: a mismatched signer is refused, a matching signer is signed">
+              <div className="trust-proof-row trust-proof-row--refused">
+                <span>actor AXIOM · session identity DAMON</span><i>→</i><strong>REFUSED</strong>
+              </div>
+              <div className="trust-proof-row trust-proof-row--signed">
+                <span>actor AXIOM · session identity AXIOM</span><i>→</i><strong>SIGNED</strong>
+              </div>
+            </div>
+          </div>
         </section>
 
       </main>

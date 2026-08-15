@@ -10,7 +10,10 @@ const activity = [
   { seq: "0143", type: "task.claim", actor: "AXIOM · auth/session" },
   { seq: "0144", type: "invocation.request", actor: "OWNER · AXIOM" },
   { seq: "0145", type: "invocation.claim", actor: "AXIOM · AXIOM" },
-  { seq: "0146", type: "approval.approve", actor: "OWNER · elevated" }
+  { seq: "0146", type: "approval.approve", actor: "OWNER · elevated" },
+  { seq: "0147", type: "invocation.start", actor: "AXIOM · lease renewed" },
+  { seq: "0148", type: "message.deliver", actor: "AXIOM → GORGE" },
+  { seq: "0149", type: "invocation.complete", actor: "AXIOM · auth/session" }
 ] as const;
 
 const roleClassName: Record<string, string> = {
@@ -75,11 +78,25 @@ export function ControlRoomFrame() {
         <div className="tui-panel tui-panel--activity">
           <span>LIVE ACTIVITY</span>
           <small>append-only, signed project history</small>
-          <ul data-tui-activity>
-            {activity.map((row) => (
-              <li key={row.seq}><i>{row.seq}</i><b>{row.type}</b><em>{row.actor}</em></li>
-            ))}
-          </ul>
+          <div className="tui-activity-window">
+            {/* Two identical passes back to back inside one track, scrolled
+                by exactly one pass's height on an infinite linear loop -- a
+                real live-tail effect with no JS timer, matching this
+                project's pure-CSS motion convention. The second pass is
+                aria-hidden so assistive tech only ever hears the feed once. */}
+            <div className="tui-activity-track">
+              <ul data-tui-activity>
+                {activity.map((row) => (
+                  <li key={row.seq}><i>{row.seq}</i><b>{row.type}</b><em>{row.actor}</em></li>
+                ))}
+              </ul>
+              <ul aria-hidden="true">
+                {activity.map((row) => (
+                  <li key={`${row.seq}-repeat`}><i>{row.seq}</i><b>{row.type}</b><em>{row.actor}</em></li>
+                ))}
+              </ul>
+            </div>
+          </div>
         </div>
         <div className="tui-footer">
           <span>[g] agents</span><span>[i] invocations</span><span>[n] create</span><span>[r] refresh</span><span>[/] commands</span>
