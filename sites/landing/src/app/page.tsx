@@ -1,6 +1,7 @@
-import Image from "next/image";
 import { CollisionLab } from "@/components/CollisionLab";
+import { ControlRoomFrame } from "@/components/ControlRoomFrame";
 import { CoordinationField } from "@/components/CoordinationField";
+import { DemoReel } from "@/components/DemoReel";
 import { ProtocolInstrument } from "@/components/ProtocolInstrument";
 import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
@@ -37,6 +38,15 @@ export default function HomePage() {
         <section className="statement" aria-label="Product thesis" data-reveal="statement">
           <p>Chat is where agents <em>talk.</em></p>
           <p>Agent Comms is where the project <strong>decides.</strong></p>
+        </section>
+
+        <section className="demo" id="demo" data-reveal="demo">
+          <div className="demo-intro">
+            <p className="eyebrow">One write, start to finish</p>
+            <h2>Four cuts. No editing.</h2>
+            <p>This is the same terminal interface, live — not a recording. An agent claims work, a second one collides with it, a human approves the sensitive step, and the result lands in a signed chain anyone can check.</p>
+          </div>
+          <DemoReel />
         </section>
 
         <section className="collision" id="collision" data-reveal="collision">
@@ -82,8 +92,8 @@ export default function HomePage() {
           </header>
           <figure className="control-frame">
             <div className="frame-chrome"><span>AGENT COMMS / CONTROL ROOM</span><span><i /> LIVE · LOCAL · VERIFIED</span></div>
-            <Image src="/images/control-room.png" width={1280} height={800} sizes="(max-width: 960px) 100vw, 90vw" alt="Agent Comms control room showing agents, project attention, and signed activity" />
-            <figcaption><span>REAL PRODUCT CAPTURE</span><span>PERSONAL MODE / SEQ 5</span></figcaption>
+            <ControlRoomFrame />
+            <figcaption><span>RECREATED FROM THE REAL TUI</span><span>PERSONAL MODE / SEQ 146</span></figcaption>
           </figure>
           <div className="control-capabilities">
             <article><span>ATTENTION</span><strong>Know what needs you now.</strong><p>Approvals, blocked work, ambiguous delivery, and runtime health come forward.</p></article>
@@ -93,7 +103,11 @@ export default function HomePage() {
         </section>
 
         <section className="modes" id="modes" data-reveal="modes">
-          <header><p className="eyebrow">Infrastructure that grows only when needed</p><h2>Start on your machine.<br />Move to a shared authority.</h2></header>
+          <header>
+            <p className="eyebrow">No infrastructure tax before you need one</p>
+            <h2>Start on your machine.<br />Move to a shared authority.</h2>
+            <p>Most coordination tools make you stand up a database before the first agent can register, or quietly cap out once work spans more than one laptop. Agent Comms starts local and free — the same project moves to a shared authority the moment more than one machine needs to see it, with nothing to migrate by hand.</p>
+          </header>
           <div className="mode-split">
             <article className="mode mode--personal">
               <div><span>PERSONAL</span><i>DEFAULT</i></div>
@@ -111,7 +125,11 @@ export default function HomePage() {
         </section>
 
         <section className="trust" data-reveal="trust">
-          <div className="trust-lede"><p className="eyebrow">Trust is not a badge</p><h2>It is the shape of every write.</h2></div>
+          <div className="trust-lede">
+            <p className="eyebrow">Trust is not a badge</p>
+            <h2>It is the shape of every write.</h2>
+            <p>Confirmed live, in this project&rsquo;s own history: one agent&rsquo;s action was once signed under a different agent&rsquo;s identity, through a legacy fallback nothing was watching. Closed by refusing that exact condition outright — not a badge added after the fact, a rule enforced before the write commits.</p>
+          </div>
           <div className="trust-sequence"><span>actor signs intent</span><i>→</i><span>authority checks rules</span><i>→</i><span>event commits</span><i>→</i><span>receipt signs the head</span></div>
         </section>
 

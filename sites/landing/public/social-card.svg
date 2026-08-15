@@ -1,14 +1,14 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" fill="none">
-  <rect width="1200" height="630" fill="#3341F0"/>
-  <path d="M620 0v630M0 548h1200" stroke="#EFF4F6" stroke-opacity=".22"/>
-  <path d="M730 150C820 150 830 258 918 258M1090 150C1005 150 995 258 934 258M1090 470C1002 470 990 368 934 368M926 276v158" stroke="#EFF4F6" stroke-opacity=".7" stroke-width="2" stroke-dasharray="7 7"/>
-  <circle cx="730" cy="150" r="9" fill="#24D6C8"/><circle cx="1090" cy="150" r="9" fill="#B9A7FF"/><circle cx="1090" cy="470" r="9" fill="#FF765D"/>
-  <rect x="854" y="234" width="152" height="70" fill="#08121B"/><text x="875" y="276" fill="#EFF4F6" font-family="monospace" font-size="18">auth/session</text>
-  <rect x="858" y="326" width="144" height="62" fill="#24D6C8"/><text x="879" y="363" fill="#08121B" font-family="monospace" font-size="17">AUTHORITY</text>
-  <rect x="810" y="434" width="232" height="76" fill="#B9A7FF"/><text x="830" y="464" fill="#08121B" font-family="monospace" font-size="14">receipt / 9f2a…e8c1</text><text x="830" y="489" fill="#08121B" font-family="monospace" font-size="12">ACTOR GORGE · VERIFIED</text>
-  <text x="66" y="82" fill="#24D6C8" font-family="monospace" font-size="18" letter-spacing="2">AGENT COMMS / PROJECT AUTHORITY</text>
-  <text x="66" y="230" fill="#EFF4F6" font-family="sans-serif" font-size="76" font-weight="700" letter-spacing="-4">Let agents work</text>
-  <text x="66" y="306" fill="#24D6C8" font-family="sans-serif" font-size="76" font-weight="700" letter-spacing="-4">at once.</text>
-  <text x="66" y="382" fill="#EFF4F6" font-family="sans-serif" font-size="38" font-weight="600" letter-spacing="-1">Keep the project in one piece.</text>
-  <text x="66" y="585" fill="#EFF4F6" font-family="monospace" font-size="15" letter-spacing="1">OWNERSHIP · DIRECT RELAY · SIGNED EVIDENCE</text>
+  <rect width="1200" height="630" fill="#000000"/>
+  <path d="M620 0v630M0 548h1200" stroke="#D7E5E3" stroke-opacity=".18"/>
+  <path d="M730 150C820 150 830 258 918 258M1090 150C1005 150 995 258 934 258M1090 470C1002 470 990 368 934 368M926 276v158" stroke="#D7E5E3" stroke-opacity=".55" stroke-width="2" stroke-dasharray="7 7"/>
+  <circle cx="730" cy="150" r="9" fill="#56D6C9"/><circle cx="1090" cy="150" r="9" fill="#B9A7E8"/><circle cx="1090" cy="470" r="9" fill="#F07167"/>
+  <rect x="854" y="234" width="152" height="70" fill="#0D2024"/><text x="875" y="276" fill="#D7E5E3" font-family="monospace" font-size="18">auth/session</text>
+  <rect x="858" y="326" width="144" height="62" fill="#56D6C9"/><text x="879" y="363" fill="#000000" font-family="monospace" font-size="17">AUTHORITY</text>
+  <rect x="810" y="434" width="232" height="76" fill="#B9A7E8"/><text x="830" y="464" fill="#000000" font-family="monospace" font-size="14">receipt / 9f2a…e8c1</text><text x="830" y="489" fill="#000000" font-family="monospace" font-size="12">ACTOR GORGE · VERIFIED</text>
+  <text x="66" y="82" fill="#56D6C9" font-family="monospace" font-size="18" letter-spacing="2">AGENT COMMS / PROJECT AUTHORITY</text>
+  <text x="66" y="230" fill="#D7E5E3" font-family="sans-serif" font-size="76" font-weight="700" letter-spacing="-4">Let agents work</text>
+  <text x="66" y="306" fill="#56D6C9" font-family="sans-serif" font-size="76" font-weight="700" letter-spacing="-4">at once.</text>
+  <text x="66" y="382" fill="#D7E5E3" font-family="sans-serif" font-size="38" font-weight="600" letter-spacing="-1">Keep the project in one piece.</text>
+  <text x="66" y="585" fill="#D7E5E3" font-family="monospace" font-size="15" letter-spacing="1">OWNERSHIP · DIRECT RELAY · SIGNED EVIDENCE</text>
 </svg>

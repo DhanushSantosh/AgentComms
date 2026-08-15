@@ -7,16 +7,16 @@
   --download-reveal-delay-tertiary: 280ms;
   --download-reveal-duration: 920ms;
   --download-scan-duration: 1.6s;
-  background: var(--ice);
-  color: var(--ink);
+  background: var(--ink);
+  color: var(--text);
   min-width: 0;
   overflow: hidden;
 }
 
 .downloadDesk {
   background:
-    linear-gradient(90deg, transparent calc(50% - 0.5px), color-mix(in srgb, var(--ink) 9%, transparent) 50%, transparent calc(50% + 0.5px)),
-    var(--ice);
+    linear-gradient(90deg, transparent calc(50% - 0.5px), color-mix(in srgb, var(--text) 9%, transparent) 50%, transparent calc(50% + 0.5px)),
+    var(--ink);
   min-height: 100svh;
   padding: 2rem var(--gutter) clamp(6rem, 10vw, 10rem);
 }
@@ -63,12 +63,12 @@
 }
 
 .introNote {
-  border-left: 1px solid var(--ink);
+  border-left: 1px solid var(--line-dark);
   padding-left: 1.4rem;
 }
 
 .introNote p {
-  color: color-mix(in srgb, var(--ink) 76%, transparent);
+  color: var(--steel-light);
   font-size: clamp(0.88rem, 1.2vw, 1.02rem);
   line-height: 1.65;
   margin: 0 0 1.5rem;
@@ -76,7 +76,7 @@
 
 .introNote a {
   align-items: center;
-  border-bottom: 1px solid var(--ink);
+  border-bottom: 1px solid color-mix(in srgb, var(--text) 40%, transparent);
   color: inherit;
   display: flex;
   font-family: var(--mono);
@@ -139,6 +139,7 @@
 .releaseStatus {
   align-items: start;
   background: var(--lilac);
+  color: var(--ink);
   display: grid;
   gap: 0.8rem;
   grid-template-columns: auto 1fr;
@@ -160,10 +161,10 @@
 .releaseStatus p { font-size: 0.62rem; line-height: 1.5; margin: 0; }
 .releaseStatus strong { display: block; font-size: 0.65rem; margin-bottom: 0.3rem; }
 
-.platformShelf { border-top: 1px solid var(--ink); }
+.platformShelf { border-top: 1px solid var(--line-dark); }
 
 .platform {
-  border-bottom: 1px solid var(--ink);
+  border-bottom: 1px solid var(--line-dark);
   display: grid;
   gap: clamp(1.8rem, 3vw, 2.8rem);
   grid-template-columns: 1fr;
@@ -194,8 +195,8 @@
 
 .platform > header > span {
   align-items: center;
-  background: var(--ink);
-  color: var(--ice);
+  background: var(--panel);
+  color: var(--text);
   display: flex;
   font-family: var(--mono);
   font-size: 0.52rem;
@@ -226,10 +227,10 @@
 
 .installCommand {
   align-items: center;
-  background: var(--ice);
-  border: 1px solid var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--line-dark);
   box-shadow: 0.45rem 0.45rem 0 var(--cyan);
-  color: var(--ink);
+  color: var(--text);
   display: grid;
   grid-template-columns: 4rem minmax(0, 1fr) auto;
   min-height: 6.4rem;
@@ -295,7 +296,7 @@
 }
 
 .nightly > div:first-child > p:last-child {
-  color: color-mix(in srgb, var(--ink) 66%, transparent);
+  color: var(--steel-light);
   font-size: 0.82rem;
   line-height: 1.55;
   margin: 0;
@@ -386,14 +387,15 @@
 .handoff aside strong { font-size: 0.7rem; line-height: 1.55; }
 
 .supportLinks {
-  background: var(--coral);
+  background: var(--panel);
+  color: var(--text);
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   padding: 0 var(--gutter);
 }
 
 .supportLinks a {
-  border-left: 1px solid color-mix(in srgb, var(--ink) 25%, transparent);
+  border-left: 1px solid var(--line-dark);
   color: inherit;
   display: grid;
   gap: 0.35rem;
@@ -402,8 +404,8 @@
   text-decoration: none;
 }
 
-.supportLinks a:last-child { border-right: 1px solid color-mix(in srgb, var(--ink) 25%, transparent); }
-.supportLinks a:hover { background: var(--ink); color: var(--ice); }
+.supportLinks a:last-child { border-right: 1px solid var(--line-dark); }
+.supportLinks a:hover { background: var(--coral); color: var(--ink); }
 .supportLinks span { font-size: 0.74rem; font-weight: 760; }
 .supportLinks i { color: color-mix(in srgb, currentColor 68%, transparent); font-family: var(--mono); font-size: 0.48rem; font-style: normal; grid-column: 1; text-transform: uppercase; }
 .supportLinks b { grid-column: 2; grid-row: 1 / span 2; }
@@ -440,10 +442,10 @@
   .installCommand button[data-copy-state="success"] { animation: copy-confirm var(--download-feedback-duration) var(--ease-authority) both; }
 }
 
-@keyframes headline-signal { 0%, 82%, 100% { color: var(--coral); } 88% { color: var(--ink); } 92% { color: var(--cyan); } }
+@keyframes headline-signal { 0%, 82%, 100% { color: var(--coral); } 88% { color: var(--steel); } 92% { color: var(--cyan); } }
 @keyframes warning-ping { 0%, 72%, 100% { background: transparent; color: var(--ink); } 82%, 90% { background: var(--ink); color: var(--lilac); } }
 @keyframes platform-scan { from { transform: scaleX(0); } to { transform: scaleX(1); } }
-@keyframes platform-index { 0%, 76%, 100% { background: var(--ink); color: var(--ice); } 85%, 92% { background: var(--cyan); color: var(--ink); } }
+@keyframes platform-index { 0%, 76%, 100% { background: var(--panel); color: var(--text); } 85%, 92% { background: var(--cyan); color: var(--ink); } }
 @keyframes prompt-ready { 0%, 72%, 100% { background: var(--cyan); } 84%, 91% { background: var(--coral); } }
 @keyframes handoff-cursor { 0%, 66%, 100% { color: var(--cyan); } 78%, 88% { color: var(--coral); } }
 @keyframes copy-confirm { 0% { transform: scale(0.94); } 70% { transform: scale(1.04); } 100% { transform: scale(1); } }
@@ -456,7 +458,7 @@
 }
 
 @media (max-width: 48rem) {
-  .downloadDesk { background: var(--ice); padding-top: 1.5rem; }
+  .downloadDesk { background: var(--ink); padding-top: 1.5rem; }
   .introGrid,
   .buildPicker,
   .handoff { grid-template-columns: 1fr; }
@@ -475,6 +477,6 @@
   .handoff aside { grid-column: auto; }
   .supportLinks { grid-template-columns: 1fr; }
   .supportLinks a,
-  .supportLinks a:last-child { border-bottom: 1px solid color-mix(in srgb, var(--ink) 25%, transparent); border-left: 0; border-right: 0; padding-left: 0; padding-right: 0; }
+  .supportLinks a:last-child { border-bottom: 1px solid var(--line-dark); border-left: 0; border-right: 0; padding-left: 0; padding-right: 0; }
   :global(.motion-ready) :is(.intro, .buildPicker, .platform, .handoff, .supportLinks):not(:global(.is-revealed)) > * { transform: translateY(0.7rem); }
 }

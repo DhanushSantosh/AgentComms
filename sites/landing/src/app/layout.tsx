@@ -49,7 +49,7 @@ export const metadata: Metadata = {
   twitter: { card: "summary_large_image", title, description, images: ["/social-card.svg"] }
 };
 
-export const viewport: Viewport = { themeColor: "#3341f0", width: "device-width", initialScale: 1 };
+export const viewport: Viewport = { themeColor: "#071216", width: "device-width", initialScale: 1 };
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
   return (
