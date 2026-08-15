@@ -106,6 +106,16 @@ img { max-width: 100%; }
 .skip-link { background: var(--ice); color: var(--ink); font-weight: 750; left: 1rem; padding: 0.7rem 1rem; position: fixed; top: -5rem; z-index: 200; }
 .skip-link:focus { top: 0.8rem; }
 
+/* The signed-ledger rail: a small persistent readout, positioned in the
+   dead space below the header and above the hero kicker so it never
+   collides with .hero-foot's own bottom bar (which sits at the viewport
+   bottom on first paint, since .hero is at least 100svh tall). */
+.ledger-rail { align-items: center; background: var(--panel); border: 1px solid var(--line-dark); display: flex; font-family: var(--mono); font-size: 0.56rem; gap: 0.55rem; left: 1.4rem; letter-spacing: 0.03em; padding: 0.5rem 0.7rem; position: fixed; top: calc(var(--header-height) + 1.1rem); text-transform: uppercase; z-index: 60; }
+.ledger-rail i { background: var(--cyan); border-radius: 50%; display: block; flex-shrink: 0; height: 0.34rem; width: 0.34rem; }
+.ledger-rail span { color: var(--steel-light); }
+.ledger-seq { color: var(--cyan); }
+.ledger-rail.is-updating .ledger-label { animation: ledger-flash 640ms ease; }
+
 .page-breadcrumb {
   align-items: center;
   border-bottom: 1px solid var(--line-light);
@@ -284,8 +294,19 @@ img { max-width: 100%; }
 
 .section-index { border-bottom: 1px solid var(--line-light); font-family: var(--mono); font-size: 0.51rem; grid-column: 1 / -1; letter-spacing: 0.06em; padding-bottom: 0.8rem; }
 .eyebrow { color: var(--blue); font-family: var(--mono); font-size: 0.56rem; font-weight: 700; letter-spacing: 0.09em; margin: 0 0 1.3rem; text-transform: uppercase; }
-.collision { background: var(--ink); display: grid; gap: clamp(3rem, 7vw, 8rem); grid-template-columns: minmax(18rem, 0.62fr) minmax(30rem, 1.38fr); padding: clamp(6rem, 10vw, 10rem) var(--gutter); }
-.demo-intro h2, .collision-copy h2, .protocol h2, .relay h2, .control h2, .modes h2, .trust h2 { font-family: var(--display); font-size: clamp(3rem, 5.8vw, 6rem); font-weight: 620; letter-spacing: -0.066em; line-height: 0.9; margin: 0; text-wrap: balance; }
+/* Visually flipped from the copy-left/panel-right rhythm every other split
+   section uses -- reading order stays copy-first for keyboard/AT users
+   (DOM is unchanged), only the visual position moves via order. */
+.collision { background: var(--ink); display: grid; gap: clamp(3rem, 7vw, 8rem); grid-template-columns: minmax(30rem, 1.38fr) minmax(18rem, 0.62fr); padding: clamp(6rem, 10vw, 10rem) var(--gutter); }
+.collision-copy { order: 2; }
+.collision-lab { order: 1; }
+/* Type scale is deliberately NOT uniform across sections. A single shared
+   size made every section read as the same slide with a different panel
+   swapped in -- full-width/stacked sections (which own the whole row) get
+   the large size; sections sharing the row with a dense panel get a
+   tighter size so the panel carries its share of the visual weight. */
+.demo-intro h2, .protocol-intro h2, .control-heading h2, .modes header h2 { font-family: var(--display); font-size: clamp(3rem, 5.8vw, 6rem); font-weight: 620; letter-spacing: -0.066em; line-height: 0.9; margin: 0; text-wrap: balance; }
+.collision-copy h2, .relay-copy h2, .trust-lede h2 { font-family: var(--display); font-size: clamp(2.3rem, 4.2vw, 4.2rem); font-weight: 620; letter-spacing: -0.058em; line-height: 0.96; margin: 0; text-wrap: balance; }
 .collision-copy > p:last-child, .protocol-intro > p:last-child, .relay-copy > p, .control-heading > p:last-child { color: var(--steel-light); font-size: clamp(0.92rem, 1.25vw, 1.1rem); line-height: 1.7; margin: 1.8rem 0 0; max-width: 34rem; }
 .collision-lab { align-self: end; background: var(--panel); border: 1px solid var(--line-dark); color: var(--text); min-width: 0; }
 .lab-toolbar { align-items: center; border-bottom: 1px solid var(--line-dark); display: flex; font-family: var(--mono); font-size: 0.52rem; justify-content: space-between; padding: 0.7rem; }
@@ -319,7 +340,11 @@ img { max-width: 100%; }
 .lab-proof strong { color: var(--coral); font-weight: 400; margin-left: auto; }
 .collision-lab[data-mode="governed"] .lab-proof strong { color: var(--cyan); }
 
-.protocol { background: var(--ink); color: var(--ice); display: grid; gap: clamp(4rem, 8vw, 9rem); grid-template-columns: minmax(18rem, 0.67fr) minmax(32rem, 1.33fr); padding: clamp(7rem, 12vw, 12rem) var(--gutter); }
+/* Stacked full-width, not the copy/panel split every other section uses --
+   the instrument is dense enough to earn the whole row, and stacking
+   breaks up the page's otherwise-relentless two-column rhythm. */
+.protocol { background: var(--ink); color: var(--ice); padding: clamp(7rem, 12vw, 12rem) var(--gutter); }
+.protocol-intro { margin: 0 0 clamp(3rem, 6vw, 5rem); max-width: 46rem; }
 .protocol .eyebrow { color: var(--cyan); }
 .protocol-intro > p:last-child { color: var(--steel-light); }
 .protocol-instrument { border-bottom: 1px solid var(--line-dark); border-top: 1px solid var(--line-dark); display: grid; grid-template-columns: 0.86fr 1.14fr; min-width: 0; }
@@ -532,7 +557,11 @@ img { max-width: 100%; }
 .mode li { font-family: var(--mono); font-size: 0.55rem; padding: 0.42rem 0; }
 .mode li::before { color: var(--cyan); content: "↳"; margin-right: 0.7rem; }
 
-.trust { align-items: end; background: var(--ink); display: grid; gap: clamp(3rem, 8vw, 9rem); grid-template-columns: 0.72fr 1.28fr; padding: clamp(6rem, 10vw, 9rem) var(--gutter); }
+/* Flipped like .collision -- visual panel-first, copy-second; DOM/reading
+   order is untouched. */
+.trust { align-items: end; background: var(--ink); display: grid; gap: clamp(3rem, 8vw, 9rem); grid-template-columns: 1.28fr 0.72fr; padding: clamp(6rem, 10vw, 9rem) var(--gutter); }
+.trust-lede { order: 2; }
+.trust-chain { order: 1; }
 .trust .eyebrow { color: var(--amber); }
 .trust-lede > p:last-child { color: var(--steel-light); font-size: clamp(0.88rem, 1.1vw, 1rem); line-height: 1.7; margin: 1.6rem 0 0; max-width: 30rem; }
 .trust-chain { display: grid; gap: 1.6rem; }
@@ -894,6 +923,11 @@ img { max-width: 100%; }
 .motion-ready .site-footer:not(.is-revealed) > * { opacity: 0; transform: translateY(1rem); }
 .motion-ready .site-footer.is-revealed > :nth-child(2) { transition-delay: calc(var(--motion-stagger) * 1); }
 
+@keyframes ledger-flash {
+  0% { background: var(--cyan); color: var(--ink); }
+  100% { background: transparent; color: var(--steel-light); }
+}
+
 @keyframes header-lock {
   from { clip-path: inset(0 100% 0 0); opacity: 0; transform: translateY(-0.6rem); }
   to { clip-path: inset(0); opacity: 1; transform: translateY(0); }
@@ -1162,6 +1196,7 @@ img { max-width: 100%; }
   .hero h1 { max-width: 10ch; }
   .coordination-field { height: 38rem; justify-self: stretch; max-width: 58rem; width: 100%; }
   .collision, .protocol, .relay, .trust { grid-template-columns: 1fr; }
+  .collision-copy, .collision-lab, .trust-lede, .trust-chain { order: initial; }
   .collision-copy, .protocol-intro, .relay-copy { max-width: 44rem; }
   .control-heading { grid-template-columns: 1fr; }
   .control-heading > p:last-child { margin: 0; }
@@ -1173,6 +1208,7 @@ img { max-width: 100%; }
   .menu-toggle { display: block; grid-column: 2; }
   .site-navigation { align-items: stretch; background: var(--ink); border-bottom: 1px solid var(--line-dark); display: none; flex-direction: column; gap: 0; left: 0; padding: 0.7rem var(--gutter) 1.2rem; position: absolute; right: 0; top: var(--header-height); }
   .site-navigation[data-open] { display: flex; }
+  .ledger-rail { display: none; }
   .site-navigation a { border-bottom: 1px solid var(--line-dark); color: var(--ice); font-size: 0.85rem; opacity: 1; padding: 1rem 0; }
   .header-action { display: none; }
   .mode-split { grid-template-columns: 1fr; }

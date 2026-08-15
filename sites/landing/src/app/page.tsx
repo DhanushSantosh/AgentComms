@@ -14,6 +14,17 @@ export default function HomePage() {
       <a className="skip-link" href="#main-content">Skip to content</a>
       <SiteHeader documentationUrl={site.documentationUrl} />
 
+      {/* A live, append-only reading log -- the same idea the product
+          applies to a project's history, applied to this page. Ticks a
+          new signed-looking event as each section first enters view.
+          Decorative: aria-hidden, and the JS-only update is a pure
+          progressive enhancement over the static "page.enter" first paint. */}
+      <div className="ledger-rail" data-ledger-rail aria-hidden="true">
+        <i />
+        <span className="ledger-seq" data-ledger-seq>0001</span>
+        <span className="ledger-label" data-ledger-label>page.enter</span>
+      </div>
+
       <main id="main-content" tabIndex={-1}>
         <section className="hero" id="top" data-reveal="hero">
           <div className="hero-grain" aria-hidden="true" />

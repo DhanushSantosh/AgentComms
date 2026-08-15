@@ -214,8 +214,10 @@ function initializeRevealMotion() {
   const revealObserver = new IntersectionObserver((entries) => {
     for (const entry of entries) {
       if (entry.isIntersecting) {
+        const isFirstReveal = !entry.target.classList.contains(revealedClassName);
         revealElement(entry.target);
         scheduleElementActivation(entry.target);
+        if (isFirstReveal) pushLedgerEntry(entry.target);
       } else {
         deactivateElement(entry.target);
       }
@@ -259,6 +261,24 @@ function attemptPageMotionInitialization() {
 
 function revealElement(element) {
   element.classList.add(revealedClassName);
+}
+
+let ledgerSequence = 1;
+const ledgerFlashDurationMilliseconds = 640;
+
+function pushLedgerEntry(element) {
+  const sectionName = element.dataset.reveal;
+  if (!sectionName) return;
+  const ledgerRail = document.querySelector("[data-ledger-rail]");
+  if (!ledgerRail) return;
+  ledgerSequence += 1;
+  setText(ledgerRail, "[data-ledger-seq]", String(ledgerSequence).padStart(4, "0"));
+  setText(ledgerRail, "[data-ledger-label]", `${sectionName}.viewed`);
+  ledgerRail.classList.remove("is-updating");
+  window.requestAnimationFrame(() => {
+    ledgerRail.classList.add("is-updating");
+    window.setTimeout(() => ledgerRail.classList.remove("is-updating"), ledgerFlashDurationMilliseconds);
+  });
 }
 
 function scheduleElementActivation(element) {
