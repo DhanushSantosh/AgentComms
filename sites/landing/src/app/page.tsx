@@ -1,11 +1,12 @@
 import { CollisionLab } from "@/components/CollisionLab";
 import { ControlRoomFrame } from "@/components/ControlRoomFrame";
-import { CoordinationField } from "@/components/CoordinationField";
 import { DemoReel } from "@/components/DemoReel";
 import { ModeBridge } from "@/components/ModeBridge";
-import { ProtocolInstrument } from "@/components/ProtocolInstrument";
 import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
+import { LiveAuthorityStream } from "@/components/LiveAuthorityStream";
+import { LifecycleOrbit } from "@/components/LifecycleOrbit";
+import { Reveal } from "@/components/Reveal";
 import { documentationPage, site } from "@/lib/site";
 
 export default function HomePage() {
@@ -14,22 +15,11 @@ export default function HomePage() {
       <a className="skip-link" href="#main-content">Skip to content</a>
       <SiteHeader documentationUrl={site.documentationUrl} />
 
-      {/* A live, append-only reading log -- the same idea the product
-          applies to a project's history, applied to this page. Ticks a
-          new signed-looking event as each section first enters view.
-          Decorative: aria-hidden, and the JS-only update is a pure
-          progressive enhancement over the static "page.enter" first paint. */}
-      <div className="ledger-rail" data-ledger-rail aria-hidden="true">
-        <i />
-        <span className="ledger-seq" data-ledger-seq>0001</span>
-        <span className="ledger-label" data-ledger-label>page.enter</span>
-      </div>
-
       <main id="main-content" tabIndex={-1}>
         <section className="hero" id="top" data-reveal="hero">
           <div className="hero-grain" aria-hidden="true" />
           <div className="hero-copy">
-            <p className="hero-kicker"><span>Project authority</span><span>for concurrent coding agents</span></p>
+            <p className="hero-kicker"><span>PROJECT AUTHORITY</span><span>FOR CONCURRENT CODING AGENTS</span></p>
             <h1><span>Let agents work</span><span>at once.</span><strong>Keep the project in one piece.</strong></h1>
             <p className="hero-summary">Agent Comms gives every person and agent the same live answer to three questions: who owns the work, who has been reached, and what the project can prove.</p>
             <div className="hero-actions">
@@ -39,68 +29,86 @@ export default function HomePage() {
           </div>
 
           <div className="hero-field-stage" data-motion-stage="hero-field">
-            <CoordinationField />
+            <LiveAuthorityStream />
           </div>
 
           <div className="hero-foot">
-            <span>LOCAL FIRST</span><span>APACHE 2.0</span><span>NO TELEMETRY</span><strong>AC / {site.productVersion}</strong>
+            <span>• LOCAL FIRST</span><span>• APACHE 2.0</span><span>• NO TELEMETRY</span><strong>AC / {site.productVersion}</strong>
           </div>
         </section>
 
         <section className="statement" aria-label="Product thesis" data-reveal="statement">
-          <p>Chat is where agents <em>talk.</em></p>
-          <p>Agent Comms is where the project <strong>decides.</strong></p>
-        </section>
-
-        <section className="demo" id="demo" data-reveal="demo">
-          <div className="demo-intro">
-            <p className="eyebrow">One write, start to finish</p>
-            <h2>Four cuts. No editing.</h2>
-            <p>This is the same terminal interface, live — not a recording. An agent claims work, a second one collides with it, a human approves the sensitive step, and the result lands in a signed chain anyone can check.</p>
+          <div className="statement-inner">
+            <p>Chat is where agents <em>talk.</em></p>
+            <p>Agent Comms is where the project <strong>decides.</strong></p>
           </div>
-          <DemoReel />
         </section>
 
         <section className="collision" id="collision" data-reveal="collision">
-          <div className="section-index" aria-hidden="true">CONCURRENCY / OWNERSHIP</div>
-          <header className="collision-copy">
-            <p className="eyebrow">Collision control</p>
-            <h2>Parallel work without parallel confusion.</h2>
-            <p>When two agents reach for the same scope, the project—not the fastest terminal—decides who owns it.</p>
-          </header>
-          <CollisionLab />
+          <Reveal>
+            <header className="collision-copy">
+              <p className="eyebrow"><span>02</span> / COLLISION CONTROL</p>
+              <h2>Stop collisions before they ship.</h2>
+              <p>Parallel work without parallel confusion. When two agents reach for the same scope, the project—not the fastest terminal—decides who owns it. Agent Comms grants a scope lease early and gives every agent a clear, conflict-free path.</p>
+            </header>
+            <CollisionLab />
+          </Reveal>
+        </section>
+
+        <section className="demo" id="demo" data-reveal="demo">
+          <Reveal>
+            <div className="demo-intro">
+              <p className="eyebrow"><span>03</span> / HANDOFF EVIDENCE</p>
+              <h2>Every handoff leaves a trail.</h2>
+              <p>Four cuts. No editing. One live product-state simulation: an agent claims work, an overlapping claim is stopped, verification is handed off, and the result lands in a signed chain anyone can check. Requests, delivery, acknowledgement, and verification—captured in order.</p>
+            </div>
+            <DemoReel />
+          </Reveal>
         </section>
 
         <section className="protocol" id="protocol" data-reveal="protocol">
-          <div className="protocol-intro">
-            <p className="eyebrow">One lifecycle, five different facts</p>
-            <h2>“Done” is not a state.</h2>
-            <p>A transport can succeed while the agent never acknowledges the work. Agent Comms keeps every boundary explicit.</p>
-          </div>
-          <ProtocolInstrument />
+          <Reveal>
+            <div className="protocol-intro">
+              <p className="eyebrow"><span>04</span> / LIFECYCLE PROTOCOL</p>
+              <h2>Delivery isn’t acknowledgement.<br />The map makes the gap unmistakable.</h2>
+              <p>“Done” is not a state. A transport can succeed while the agent never acknowledges the work. Agent Comms keeps every boundary explicit.</p>
+            </div>
+            <LifecycleOrbit />
+          </Reveal>
         </section>
 
         <section className="relay" id="relay" data-reveal="relay">
           <div className="relay-copy">
-            <p className="eyebrow">Direct agent relay</p>
+            <p className="eyebrow"><span>05</span> / DIRECT AGENT RELAY</p>
             <h2>Take yourself out of the message loop.</h2>
             <p>Bind a live Codex, Claude, or OpenCode session once. Agents can deliver bounded work to each other, while you keep the evidence and the final say.</p>
             <a href={documentationPage("/agents/interactive/")}>Connect an interactive session <span>↗</span></a>
           </div>
-          <div className="relay-sequence" aria-label="DAMON sends an invocation to GORGE and GORGE acknowledges it">
+          <div className="relay-sequence" data-relay-sequence aria-label="DAMON sends bounded work to GORGE; transport is evidenced, GORGE acknowledges it, and a verified result returns">
             <div className="relay-party relay-party--source"><span>REQUESTER</span><strong>DAMON</strong><small>CODEX / INTERACTIVE</small></div>
-            <div className="relay-message"><span>Verify the auth session changes.</span><small>invocation.request</small></div>
-            <div className="relay-evidence"><i /><span>PTY_TEXT_ECHOED</span><i /><span>PTY_ENTER_SENT</span><i /></div>
+            <div className="relay-message"><span>Verify the auth session changes.</span><small>EXPECTED · pass/fail report</small></div>
+            <div className="relay-evidence"><i /><span data-relay-evidence="echo">PTY_TEXT_ECHOED</span><i /><span data-relay-evidence="enter">PTY_ENTER_SENT</span><i /></div>
             <div className="relay-party relay-party--target"><span>TARGET</span><strong>GORGE</strong><small>OPENCODE / INTERACTIVE</small></div>
+            <div className="relay-gap"><strong>DELIVERED ≠ ACKNOWLEDGED</strong><small>transport evidence is not a claim</small></div>
             <div className="relay-claim"><b>ACKNOWLEDGED</b><span>invocation.claim</span></div>
+            <div className="relay-result"><span>RESULT RETURNED</span><b>24 / 24 auth tests pass</b><small>invocation.complete · receipt signed</small></div>
+            <button type="button" className="relay-replay" data-relay-replay aria-label="Replay agent relay demonstration">REPLAY ↻</button>
+            <p className="relay-outcome" aria-live="polite" data-relay-outcome>Bounded request committed.</p>
           </div>
         </section>
 
         <section className="control" id="control" data-reveal="control">
           <header className="control-heading">
-            <p className="eyebrow">One human control surface</p>
-            <h2>See the whole project move.</h2>
-            <p>Agents, work leases, invocations, approvals, blockers, messages, and signed activity—without opening every terminal to reconstruct the truth.</p>
+            <p className="eyebrow"><span>06</span> / HUMAN CONTROL</p>
+            <h2>Human control when it matters.</h2>
+            <p>See the whole project move. Approvals rise from the stream, show exactly who asked for what and why, and resolve into a signed record without opening every terminal to reconstruct the truth.</p>
+            <div className="control-flow-steps" aria-hidden="true">
+              <span>1. RISES FROM THE STREAM</span>
+              <i>→</i>
+              <span>2. SHOWS WHO &amp; WHY</span>
+              <i>→</i>
+              <span>3. RESOLVES TO RECORD</span>
+            </div>
           </header>
           <figure className="control-frame">
             <div className="frame-chrome"><span>AGENT COMMS / CONTROL ROOM</span><span><i /> LIVE · LOCAL · VERIFIED</span></div>
@@ -116,9 +124,9 @@ export default function HomePage() {
 
         <section className="modes" id="modes" data-reveal="modes">
           <header>
-            <p className="eyebrow">No infrastructure tax before you need one</p>
-            <h2>Start on your machine.<br />Move to a shared authority.</h2>
-            <p>Most coordination tools make you stand up a database before the first agent can register, or quietly cap out once work spans more than one laptop. Agent Comms starts local and free — the same project moves to a shared authority the moment more than one machine needs to see it, with nothing to migrate by hand.</p>
+            <p className="eyebrow"><span>07</span> / LOCAL TO SHARED</p>
+            <h2>Same map. Same interfaces. More minds.</h2>
+            <p>Start local. Go shared. Nothing changes about the concepts or the controls. The project expands without a mode switch or infrastructure tax before you need one.</p>
           </header>
           <div className="mode-split">
             <ModeBridge />
@@ -139,8 +147,8 @@ export default function HomePage() {
 
         <section className="trust" data-reveal="trust">
           <div className="trust-lede">
-            <p className="eyebrow">Trust is not a badge</p>
-            <h2>It is the shape of every write.</h2>
+            <p className="eyebrow"><span>08</span> / PROVABLE TRUST</p>
+            <h2>Trust is not a badge.<br />It is the shape of every write.</h2>
             <p>Confirmed live, in this project&rsquo;s own history: one agent&rsquo;s action was once signed under a different agent&rsquo;s identity, through a legacy fallback nothing was watching. Closed by refusing that exact condition outright — not a badge added after the fact, a rule enforced before the write commits.</p>
           </div>
           <div className="trust-chain">
@@ -151,13 +159,24 @@ export default function HomePage() {
               <span>receipt signs the head</span>
               <b className="trust-stamp">SIGNED</b>
             </div>
-            <div className="trust-proof" aria-label="Two identity checks: a mismatched signer is refused, a matching signer is signed">
+            <div className="trust-proof" data-trust-proof aria-label="Two identity checks: a mismatched signer is refused before commit, a matching signer commits and advances the chain">
               <div className="trust-proof-row trust-proof-row--refused">
-                <span>actor AXIOM · session identity DAMON</span><i>→</i><strong>REFUSED</strong>
+                <span>actor AXIOM · session identity DAMON</span><i>→</i><strong>REFUSED BEFORE COMMIT</strong>
               </div>
               <div className="trust-proof-row trust-proof-row--signed">
-                <span>actor AXIOM · session identity AXIOM</span><i>→</i><strong>SIGNED</strong>
+                <span>actor AXIOM · session identity AXIOM</span><i>→</i><strong>ACTOR VERIFIED · CHAIN +1</strong>
               </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="cta-banner" data-reveal="cta">
+          <div className="cta-banner-inner">
+            <h2>One record. One truth. No guesswork.</h2>
+            <p>Agent Comms keeps every action bounded, every handoff provable, and every decision in human control.</p>
+            <div className="cta-banner-actions">
+              <a className="action action--ink" href="/download">Get started <span>↘</span></a>
+              <a className="action action--line" href={documentationPage("/start/overview/")}>Read the docs <span>↗</span></a>
             </div>
           </div>
         </section>

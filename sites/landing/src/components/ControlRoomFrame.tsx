@@ -1,6 +1,6 @@
 const workforce = [
   { signal: "online", agent: "OWNER", role: "OWNER", work: "reviewing approvals" },
-  { signal: "online", agent: "AXIOM", role: "ORCHESTRATOR", work: "auth/session" },
+  { signal: "online", agent: "AXIOM", role: "Release-Coordinator", work: "awaiting approval" },
   { signal: "online", agent: "DAMON", role: "Frontend-Architect", work: "test/auth" },
   { signal: "offline", agent: "GORGE", role: "Tester", work: "available" }
 ] as const;
@@ -10,7 +10,7 @@ const activity = [
   { seq: "0143", type: "task.claim", actor: "AXIOM · auth/session" },
   { seq: "0144", type: "invocation.request", actor: "OWNER · AXIOM" },
   { seq: "0145", type: "invocation.claim", actor: "AXIOM · AXIOM" },
-  { seq: "0146", type: "approval.approve", actor: "OWNER · elevated" },
+  { seq: "0146", type: "approval.request", actor: "AXIOM · HUMAN tier" },
   { seq: "0147", type: "invocation.start", actor: "AXIOM · lease renewed" },
   { seq: "0148", type: "message.deliver", actor: "AXIOM → GORGE" },
   { seq: "0149", type: "invocation.complete", actor: "AXIOM · auth/session" }
@@ -23,7 +23,7 @@ const roleClassName: Record<string, string> = {
 
 export function ControlRoomFrame() {
   return (
-    <div className="tui-frame" data-tui-frame role="img" aria-label="Agent Comms control room: agent workforce, attention items, and signed live activity">
+    <div className="tui-frame" data-tui-frame data-control-state="pending" aria-label="Agent Comms control room: an owner reviews and resolves a human-tier approval">
       <div className="tui-sidebar">
         <div className="tui-brand"><i /><span>AGENT COMMS</span></div>
         <small>ac-c940e6ee-1234…</small>
@@ -62,18 +62,31 @@ export function ControlRoomFrame() {
                   <tr key={row.agent}>
                     <td><i className={row.signal === "online" ? "is-online" : undefined} />{row.signal === "online" ? "ONLINE" : "OFFLINE"}</td>
                     <td>{row.agent}</td>
-                    <td className={roleClassName[row.role] ?? "role-custom"}>{row.role}</td>
-                    <td>{row.work}</td>
+                    <td className={roleClassName[row.role] ?? "role-custom"} data-control-role={row.agent === "AXIOM" ? "true" : undefined}>{row.role}</td>
+                    <td data-control-work={row.agent === "AXIOM" ? "true" : undefined}>{row.work}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-          <div className="tui-panel tui-panel--attention">
+          <div className="tui-panel tui-panel--attention" data-control-attention>
             <span>ATTENTION</span>
             <small>items requiring intervention</small>
-            <p>→ approval-orchestrator-axiom <br />pending HUMAN-tier review</p>
+            <button type="button" data-control-open aria-expanded="false">
+              <i>!</i><span>approval-orchestrator-axiom</span><small data-control-status>pending HUMAN-tier review</small>
+            </button>
           </div>
+        </div>
+        <div className="tui-approval-detail" data-control-detail hidden>
+          <div className="tui-approval-head"><span>HUMAN AUTHORITY REQUIRED</span><button type="button" data-control-close aria-label="Close approval details">×</button></div>
+          <dl>
+            <div><dt>REQUESTER</dt><dd>AXIOM</dd></div>
+            <div><dt>ACTION</dt><dd>agent.activate:AXIOM</dd></div>
+            <div><dt>ROLE</dt><dd>ORCHESTRATOR</dd></div>
+            <div><dt>REASON</dt><dd>Coordinate the auth-session release</dd></div>
+          </dl>
+          <label><span>Elevated-key passphrase</span><input type="password" value="••••••••••••" readOnly aria-label="Simulated elevated-key passphrase" /></label>
+          <div className="tui-approval-actions"><button type="button" data-control-approve>Approve with human authority</button><button type="button" data-control-close>Not now</button></div>
         </div>
         <div className="tui-panel tui-panel--activity">
           <span>LIVE ACTIVITY</span>
@@ -87,7 +100,7 @@ export function ControlRoomFrame() {
             <div className="tui-activity-track">
               <ul data-tui-activity>
                 {activity.map((row) => (
-                  <li key={row.seq}><i>{row.seq}</i><b>{row.type}</b><em>{row.actor}</em></li>
+                  <li key={row.seq} data-control-event={row.seq === "0146" ? "true" : undefined}><i>{row.seq}</i><b>{row.type}</b><em>{row.actor}</em></li>
                 ))}
               </ul>
               <ul aria-hidden="true">
@@ -98,6 +111,7 @@ export function ControlRoomFrame() {
             </div>
           </div>
         </div>
+        <p className="tui-control-outcome" role="status" aria-live="polite" data-control-outcome>One attention item needs a human decision.</p>
         <div className="tui-footer">
           <span>[g] agents</span><span>[i] invocations</span><span>[n] create</span><span>[r] refresh</span><span>[/] commands</span>
         </div>

@@ -1,0 +1,191 @@
+.lifecycle-orbit {
+  background: var(--ink);
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1.1;
+  max-width: 48rem;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+@media (min-width: 48rem) {
+  .lifecycle-orbit {
+    aspect-ratio: 1 / 1;
+  }
+}
+
+.orbit-particles {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.orbit-particles svg {
+  width: 100%;
+  height: 100%;
+}
+
+.orbit-center {
+  position: absolute;
+  z-index: 20;
+  text-align: center;
+  font-family: var(--mono);
+}
+.semantic-gap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.semantic-gap span {
+  font-size: 0.65rem;
+  color: var(--coral);
+  letter-spacing: 0.05em;
+  margin-bottom: 0.4rem;
+}
+.semantic-gap strong {
+  font-size: 0.75rem;
+  color: var(--coral);
+  background: color-mix(in srgb, var(--coral) 12%, transparent);
+  padding: 0.3rem 0.6rem;
+  border: 1px solid var(--coral);
+  margin-bottom: 0.3rem;
+}
+.semantic-gap small {
+  font-size: 0.55rem;
+  color: var(--steel-light);
+}
+
+.orbit-ring-container {
+  position: relative;
+  width: 75%;
+  height: 75%;
+  border-radius: 50%;
+}
+
+.orbit-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg); /* Start 0 deg at top */
+}
+
+.orbit-node {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  z-index: 30;
+}
+.orbit-node i {
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+  background: var(--cyan);
+  box-shadow: 0 0 0 4px var(--ink);
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+.orbit-node i.is-active {
+  box-shadow: 0 0 0 4px var(--ink), 0 0 12px 2px var(--cyan);
+}
+.orbit-node--requested { top: 0; left: 50%; transform: translate(-50%, -50%); }
+.orbit-node--delivered { top: 25%; right: 5%; transform: translate(50%, -50%); }
+.orbit-node--acknowledged { bottom: 25%; right: 5%; transform: translate(50%, 50%); }
+.orbit-node--running { bottom: 0; left: 50%; transform: translate(-50%, 50%); }
+.orbit-node--completed { top: 50%; left: 0; transform: translate(-50%, -50%); }
+
+.orbit-node--acknowledged i { background: var(--lilac); }
+.orbit-node--completed i { background: var(--cyan); }
+
+.node-label {
+  position: absolute;
+  top: 1rem;
+  left: 1rem;
+  display: flex;
+  flex-direction: column;
+  font-family: var(--mono);
+  white-space: nowrap;
+}
+.node-label--left {
+  left: auto;
+  right: 1rem;
+  text-align: right;
+  align-items: flex-end;
+}
+.node-label strong {
+  font-size: 0.6rem;
+  color: var(--text);
+  letter-spacing: 0.05em;
+  margin-bottom: 0.15rem;
+}
+.node-label small {
+  font-size: 0.5rem;
+  color: var(--steel-light);
+}
+
+.orbit-legend {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  align-items: flex-start;
+  font-family: var(--mono);
+  font-size: 0.55rem;
+  color: var(--steel-light);
+  text-transform: lowercase;
+}
+
+@media (min-width: 48rem) {
+  .orbit-legend {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: flex-end;
+  }
+}
+
+.orbit-legend-items {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.orbit-legend-items span {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.legend-dot {
+  display: inline-block;
+  width: 0.35rem;
+  height: 0.35rem;
+  border-radius: 50%;
+  background: var(--cyan);
+}
+.legend-line {
+  display: inline-block;
+  width: 1.2rem;
+  height: 1px;
+}
+.legend-line--happy { background: var(--steel-light); }
+.legend-line--alternate { border-top: 1px dashed var(--steel-light); background: transparent; }
+.legend-line--evidence { border-top: 2px dotted var(--steel); background: transparent; }
+.legend-line--gap { border-top: 2px dotted var(--coral); background: transparent; }
+
+.orbit-replay {
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  text-transform: uppercase;
+}
+.orbit-replay:hover { color: var(--cyan); }

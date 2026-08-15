@@ -2,7 +2,6 @@ const scrolledHeaderThresholdPixels = 24;
 const copyFeedbackDurationMilliseconds = 4_000;
 const defaultInstallButtonLabel = "Copy command";
 const defaultDownloadButtonLabel = "Copy";
-const pointerCenterOffset = 0.5;
 const minimumScrollableDistancePixels = 1;
 const revealIntersectionThreshold = 0.12;
 const revealRootMargin = "0px";
@@ -18,6 +17,7 @@ const revealSelector = "[data-reveal], [data-motion-stage]";
 const scrollProgressProperty = "--scroll-progress";
 const scrollHeadPositionProperty = "--scroll-head-position";
 const activeMotionTimers = new WeakMap();
+const featureDemoTimers = new WeakMap();
 
 document.addEventListener("click", async (event) => {
   const target = event.target;
@@ -46,7 +46,55 @@ document.addEventListener("click", async (event) => {
 
   const stageButton = target.closest("[data-stage]");
   if (stageButton instanceof HTMLElement) {
+    const instrument = stageButton.closest("[data-protocol-instrument]");
+    if (instrument instanceof HTMLElement) clearFeatureTimers(instrument);
     updateProtocolInstrument(stageButton);
+    return;
+  }
+
+  const protocolReplayButton = target.closest("[data-protocol-replay]");
+  if (protocolReplayButton instanceof HTMLButtonElement) {
+    const instrument = protocolReplayButton.closest("[data-protocol-instrument]");
+    if (instrument instanceof HTMLElement) playProtocolInstrument(instrument);
+    return;
+  }
+
+  const reelSceneButton = target.closest("[data-reel-select]");
+  if (reelSceneButton instanceof HTMLButtonElement) {
+    const reel = reelSceneButton.closest("[data-demo-reel]");
+    if (reel instanceof HTMLElement) selectReelScene(reel, Number(reelSceneButton.dataset.reelSelect), true);
+    return;
+  }
+
+  const reelReplayButton = target.closest("[data-reel-replay]");
+  if (reelReplayButton instanceof HTMLButtonElement) {
+    const reel = reelReplayButton.closest("[data-demo-reel]");
+    if (reel instanceof HTMLElement) playDemoReel(reel, true);
+    return;
+  }
+
+  const relayReplayButton = target.closest("[data-relay-replay]");
+  if (relayReplayButton instanceof HTMLButtonElement) {
+    const relay = relayReplayButton.closest("[data-relay-sequence]");
+    if (relay instanceof HTMLElement) playRelaySequence(relay);
+    return;
+  }
+
+  const controlOpenButton = target.closest("[data-control-open]");
+  if (controlOpenButton instanceof HTMLButtonElement) {
+    setControlDetail(controlOpenButton.closest("[data-tui-frame]"), true);
+    return;
+  }
+
+  const controlCloseButton = target.closest("[data-control-close]");
+  if (controlCloseButton instanceof HTMLButtonElement) {
+    setControlDetail(controlCloseButton.closest("[data-tui-frame]"), false);
+    return;
+  }
+
+  const controlApproveButton = target.closest("[data-control-approve]");
+  if (controlApproveButton instanceof HTMLButtonElement) {
+    approveControlItem(controlApproveButton.closest("[data-tui-frame]"));
     return;
   }
 
@@ -109,29 +157,6 @@ window.addEventListener("load", markPageLoaded, { once: true });
 window.addEventListener(hydrationEventName, markFrameworkHydrated, { once: true });
 attemptPageMotionInitialization();
 
-document.addEventListener("pointermove", (event) => {
-  const target = event.target;
-  if (!(target instanceof Element)) return;
-  const field = target.closest("[data-coordination-field]");
-  if (!(field instanceof HTMLElement)) return;
-  const bounds = field.getBoundingClientRect();
-  const horizontalPosition = (event.clientX - bounds.left) / bounds.width - pointerCenterOffset;
-  const verticalPosition = (event.clientY - bounds.top) / bounds.height - pointerCenterOffset;
-  field.style.setProperty("--pointer-x", horizontalPosition.toFixed(3));
-  field.style.setProperty("--pointer-y", verticalPosition.toFixed(3));
-}, { passive: true });
-
-document.addEventListener("pointerout", (event) => {
-  const target = event.target;
-  if (!(target instanceof Element)) return;
-  const field = target.closest("[data-coordination-field]");
-  if (!(field instanceof HTMLElement)) return;
-  const relatedTarget = event.relatedTarget;
-  if (relatedTarget instanceof Node && field.contains(relatedTarget)) return;
-  field.style.setProperty("--pointer-x", "0");
-  field.style.setProperty("--pointer-y", "0");
-}, { passive: true });
-
 function updateCollisionLab(button) {
   const mode = button.dataset.collisionMode;
   if (mode !== "governed" && mode !== "ungoverned") return;
@@ -142,7 +167,7 @@ function updateCollisionLab(button) {
     candidate.setAttribute("aria-pressed", String(candidate === button));
   });
   setText(collisionLab, "[data-collision-state]", mode === "governed" ? "RESOLVED" : "COLLISION");
-  setText(collisionLab, "[data-proof-outcome]", mode === "governed" ? "one owner" : "two writers");
+  setText(collisionLab, "[data-proof-outcome]", mode === "governed" ? "one owner before writing" : "conflict discovered late");
 }
 
 function updateProtocolInstrument(button) {
@@ -162,6 +187,8 @@ function updateProtocolInstrument(button) {
   setText(instrument, "[data-stage-proves]", button.dataset.proves);
   setText(instrument, "[data-stage-excludes]", button.dataset.excludes);
   setText(instrument, "[data-stage-event]", button.dataset.event);
+  const gap = instrument.querySelector("[data-protocol-gap]");
+  if (gap instanceof HTMLElement) gap.hidden = stageIndex !== 1;
   restartReadoutAnimation(instrument);
 }
 
@@ -208,16 +235,15 @@ function initializeRevealMotion() {
   const prefersReducedMotion = window.matchMedia(reducedMotionMediaQuery).matches;
   if (prefersReducedMotion || !("IntersectionObserver" in window)) {
     revealElements.forEach(revealElement);
+    settleFeatureDemos();
     return;
   }
 
   const revealObserver = new IntersectionObserver((entries) => {
     for (const entry of entries) {
       if (entry.isIntersecting) {
-        const isFirstReveal = !entry.target.classList.contains(revealedClassName);
         revealElement(entry.target);
         scheduleElementActivation(entry.target);
-        if (isFirstReveal) pushLedgerEntry(entry.target);
       } else {
         deactivateElement(entry.target);
       }
@@ -263,31 +289,120 @@ function revealElement(element) {
   element.classList.add(revealedClassName);
 }
 
-let ledgerSequence = 1;
-const ledgerFlashDurationMilliseconds = 640;
-
-function pushLedgerEntry(element) {
-  const sectionName = element.dataset.reveal;
-  if (!sectionName) return;
-  const ledgerRail = document.querySelector("[data-ledger-rail]");
-  if (!ledgerRail) return;
-  ledgerSequence += 1;
-  setText(ledgerRail, "[data-ledger-seq]", String(ledgerSequence).padStart(4, "0"));
-  setText(ledgerRail, "[data-ledger-label]", `${sectionName}.viewed`);
-  ledgerRail.classList.remove("is-updating");
-  window.requestAnimationFrame(() => {
-    ledgerRail.classList.add("is-updating");
-    window.setTimeout(() => ledgerRail.classList.remove("is-updating"), ledgerFlashDurationMilliseconds);
-  });
-}
-
 function scheduleElementActivation(element) {
   if (element.classList.contains(activeClassName) || activeMotionTimers.has(element)) return;
   const timer = window.setTimeout(() => {
     activeMotionTimers.delete(element);
     element.classList.add(activeClassName);
+    startFeatureDemo(element);
   }, activeMotionDelayMilliseconds);
   activeMotionTimers.set(element, timer);
+}
+
+function startFeatureDemo(element) {
+  const reel = element.querySelector("[data-demo-reel]");
+  if (reel instanceof HTMLElement && !reel.dataset.demoPlayed) playDemoReel(reel, false);
+  const relay = element.matches("[data-relay-sequence]") ? element : element.querySelector("[data-relay-sequence]");
+  if (relay instanceof HTMLElement && !relay.dataset.demoPlayed) playRelaySequence(relay);
+  const protocolInstrument = element.querySelector("[data-protocol-instrument]");
+  if (protocolInstrument instanceof HTMLElement && !protocolInstrument.dataset.demoPlayed) playProtocolInstrument(protocolInstrument);
+}
+
+function clearFeatureTimers(element) {
+  const timers = featureDemoTimers.get(element) ?? [];
+  timers.forEach((timer) => window.clearTimeout(timer));
+  featureDemoTimers.delete(element);
+}
+
+function scheduleFeatureSteps(element, steps) {
+  clearFeatureTimers(element);
+  const timers = steps.map(({ delay, run }) => window.setTimeout(run, delay));
+  featureDemoTimers.set(element, timers);
+}
+
+function selectReelScene(reel, index, userSelected) {
+  if (!Number.isInteger(index) || index < 0 || index > 3) return;
+  if (userSelected) {
+    clearFeatureTimers(reel);
+    reel.dataset.demoPlayed = "true";
+  }
+  reel.dataset.scene = String(index);
+  reel.querySelectorAll("[data-reel-select]").forEach((button) => {
+    button.setAttribute("aria-pressed", String(button.dataset.reelSelect === String(index)));
+  });
+  const caption = reel.querySelector(`[data-reel-caption-source="${index}"]`)?.textContent;
+  setText(reel, "[data-reel-live]", caption);
+}
+
+function playDemoReel(reel, replayed) {
+  reel.dataset.demoPlayed = "true";
+  selectReelScene(reel, 0, false);
+  scheduleFeatureSteps(reel, [1, 2, 3].map((index) => ({ delay: index * 3_600, run: () => selectReelScene(reel, index, false) })));
+  if (replayed) reel.querySelector("[data-reel-live]")?.focus?.();
+}
+
+function playRelaySequence(relay) {
+  relay.dataset.demoPlayed = "true";
+  relay.dataset.relayState = "requested";
+  setText(relay, "[data-relay-outcome]", "Bounded request committed.");
+  scheduleFeatureSteps(relay, [
+    { delay: 1_100, run: () => { relay.dataset.relayState = "delivered"; setText(relay, "[data-relay-outcome]", "Transport evidenced. The target has not acknowledged yet."); } },
+    { delay: 3_200, run: () => { relay.dataset.relayState = "claimed"; setText(relay, "[data-relay-outcome]", "GORGE acknowledged the obligation and started work."); } },
+    { delay: 5_500, run: () => { relay.dataset.relayState = "completed"; setText(relay, "[data-relay-outcome]", "Result returned and committed: 24 / 24 auth tests pass."); } }
+  ]);
+}
+
+function playProtocolInstrument(instrument) {
+  instrument.dataset.demoPlayed = "true";
+  const buttons = [...instrument.querySelectorAll("[data-stage]")];
+  if (buttons.length === 0) return;
+  updateProtocolInstrument(buttons[0]);
+  scheduleFeatureSteps(instrument, buttons.slice(1).map((button, index) => ({
+    delay: index === 0 ? 2_000 : 4_500 + ((index - 1) * 2_000),
+    run: () => updateProtocolInstrument(button)
+  })));
+}
+
+function setControlDetail(frame, open) {
+  if (!(frame instanceof HTMLElement)) return;
+  const detail = frame.querySelector("[data-control-detail]");
+  const trigger = frame.querySelector("[data-control-open]");
+  if (detail instanceof HTMLElement) detail.hidden = !open;
+  trigger?.setAttribute("aria-expanded", String(open));
+  frame.dataset.controlState = open ? "reviewing" : frame.dataset.controlState === "approved" ? "approved" : "pending";
+}
+
+function approveControlItem(frame) {
+  if (!(frame instanceof HTMLElement)) return;
+  frame.dataset.controlState = "approved";
+  setText(frame, "[data-control-status]", "approved by project owner");
+  setText(frame, "[data-control-role]", "ORCHESTRATOR");
+  setText(frame, "[data-control-work]", "coordinating auth/session");
+  const role = frame.querySelector("[data-control-role]");
+  role?.classList.remove("role-custom");
+  role?.classList.add("role-orchestrator");
+  const event = frame.querySelector("[data-control-event]");
+  setText(event, "b", "approval.approve");
+  setText(event, "em", "OWNER · elevated");
+  setText(frame, "[data-control-outcome]", "Human approval committed. AXIOM is now ORCHESTRATOR · seq 0147.");
+  setControlDetail(frame, false);
+}
+
+function settleFeatureDemos() {
+  document.querySelectorAll("[data-demo-reel]").forEach((reel) => {
+    reel.dataset.demoPlayed = "true";
+    selectReelScene(reel, 3, false);
+  });
+  document.querySelectorAll("[data-relay-sequence]").forEach((relay) => {
+    relay.dataset.demoPlayed = "true";
+    relay.dataset.relayState = "completed";
+    setText(relay, "[data-relay-outcome]", "Result returned and committed: 24 / 24 auth tests pass.");
+  });
+  document.querySelectorAll("[data-protocol-instrument]").forEach((instrument) => {
+    instrument.dataset.demoPlayed = "true";
+    const buttons = [...instrument.querySelectorAll("[data-stage]")];
+    if (buttons.length > 0) updateProtocolInstrument(buttons[buttons.length - 1]);
+  });
 }
 
 function deactivateElement(element) {
