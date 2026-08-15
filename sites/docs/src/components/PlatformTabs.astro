@@ -126,9 +126,13 @@ if (tabs.length === 0) throw new Error(`PlatformTabs ${id} requires at least one
   }
 
   [role="tab"][aria-selected="true"] {
-    background: var(--brand);
-    box-shadow: 0 -2px var(--signal) inset;
-    color: #ffffff;
+    /* --signal, not --brand -- see Sidebar.astro's identical fix: --brand
+       flips per theme and a fixed white text color fails contrast against
+       whichever value is brighter (confirmed by a real Lighthouse
+       failure). --signal is the same cyan in both --root blocks. */
+    background: var(--signal);
+    box-shadow: 0 -2px var(--receipt) inset;
+    color: #000000;
   }
 
   .platform-tabs__copy {
