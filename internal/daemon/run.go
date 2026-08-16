@@ -1,3 +1,13 @@
+// The daemon's process-level entry point (Run/RunConfig) is excluded from
+// js/wasm builds: it opens the SQLite-backed local cache, personal authority
+// and draft stores, and binds a local listener -- none of which exist inside
+// a browser sandbox, and all of which drag modernc.org/libc (which has no js
+// port) into any package that merely imports internal/daemon. The daemon
+// TYPES and in-process handler in daemon.go stay available under js so the
+// WASM demo can drive a daemon instance directly; only this file's real
+// process-hosting path is dropped.
+//go:build !js
+
 package daemon
 
 import (
