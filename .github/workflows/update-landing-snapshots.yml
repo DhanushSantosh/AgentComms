@@ -1,0 +1,28 @@
+name: update-landing-snapshots
+# Temporary, one-off workflow: regenerates the landing site's Playwright
+# visual-regression baselines on the same ubuntu-latest/chromium combo CI
+# uses, so the resulting PNGs match what `ci.yml`'s `landing` job expects
+# (snapshot files are platform-specific, hence the `-linux.png` suffix).
+# Removed again once the refreshed baselines are committed.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  update-snapshots:
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+        with: {fetch-depth: 0}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22', cache: npm}
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run build --workspace @agent-comms/landing
+      - run: npx playwright test --update-snapshots
+        working-directory: sites/landing
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: landing-visual-snapshots
+          path: sites/landing/tests/visual.spec.ts-snapshots
+          if-no-files-found: error
