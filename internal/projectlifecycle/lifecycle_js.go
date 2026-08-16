@@ -2,7 +2,11 @@
 
 package projectlifecycle
 
-import "github.com/DhanushSantosh/AgentComms/internal/store"
+import (
+	"context"
+
+	"github.com/DhanushSantosh/AgentComms/internal/store"
+)
 
 // js/wasm entry points for the lifecycle operations that packages in the
 // WASM demo's dependency graph reach for. They cannot be carried out inside
@@ -32,4 +36,20 @@ func Inspect(root, version, buildID string) (Plan, store.Config, error) {
 		Code:    CodeUpgradeUnsupported,
 		Message: unavailableMessage,
 	}
+}
+
+// StopDaemon reports that no daemon was stopped, because a js/wasm build has
+// no separate daemon process to stop. The real implementation health-checks
+// config.DaemonEndpoint and, only if something answers, asks it to shut down
+// and waits for it to stop answering; (false, nil) is exactly what it returns
+// when nothing was reachable -- "there was nothing to stop", which is not an
+// error there either. Its one caller outside Reconcile, internal/service's
+// DeleteProject, treats a StopDaemon error as a warning on an otherwise
+// successful delete and carries on with local cleanup regardless, so this
+// value keeps that path on its normal, non-warning course. In the WASM demo
+// the daemon is hosted in-process and its teardown is the page going away,
+// not an HTTP shutdown call to a local endpoint.
+func StopDaemon(ctx context.Context, config store.Config) (bool, error) {
+	_, _ = ctx, config
+	return false, nil
 }
