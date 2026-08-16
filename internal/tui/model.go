@@ -16,7 +16,6 @@ import (
 	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
 	"github.com/DhanushSantosh/AgentComms/internal/doctor"
 	"github.com/DhanushSantosh/AgentComms/internal/identity"
-	"github.com/DhanushSantosh/AgentComms/internal/interactiveserve"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 	"github.com/DhanushSantosh/AgentComms/internal/projectlifecycle"
 	"github.com/DhanushSantosh/AgentComms/internal/service"
@@ -1458,10 +1457,7 @@ func (m Model) integrity(p palette) string {
 	if !m.state.Integrity.Verified {
 		mark = "✕"
 	}
-	compatibility := "CURRENT"
-	if len(m.lifecycle.Actions) > 0 {
-		compatibility = fmt.Sprintf("%d UPGRADE ACTION(S)", len(m.lifecycle.Actions))
-	}
+	compatibility := lifecycleCompatibility(m.lifecycle)
 	summary := fmt.Sprintf("%s Chain verified: %t\n  Signed events: %d\n  Head: %s\n  Consistency: %s\n  Connectivity: %s\n  Server sequence: %d\n  Cache sequence: %d\n\nProject lifecycle\n  Compatibility: %s\n  Installed build: %s\n  Project build: %s\n  Interrupted upgrade: %t",
 		mark, m.state.Integrity.Verified, m.state.Integrity.EventCount, m.state.Integrity.Head,
 		empty(m.state.Integrity.Consistency, "UNKNOWN"), empty(m.state.Integrity.Connectivity, "UNKNOWN"),
@@ -1824,7 +1820,7 @@ func (m Model) fetchSelectedRuntimePTYSnapshotCmd() tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 		defer cancel()
-		snapshot, err := interactiveserve.Snapshot(ctx, root, id)
+		snapshot, err := ptySnapshot(ctx, root, id)
 		return ptySnapshotMsg{runtimeID: id, snapshot: snapshot, err: err}
 	}
 }

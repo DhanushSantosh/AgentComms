@@ -20,7 +20,6 @@ import (
 	"time"
 
 	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
-	"github.com/DhanushSantosh/AgentComms/internal/interactiveserve"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 	"github.com/google/uuid"
 )
@@ -256,20 +255,14 @@ func (d *Dispatcher) SetLocalInteractive(projectRoot, hostID string) {
 		if config.Type != "INTERACTIVE" {
 			return d.deliverConfiguredConnector(ctx, config, envelope)
 		}
-		receipt, err := interactiveserve.NotifyInvocationWithEvidence(
+		evidence, err := notifyLocalInteractive(
 			ctx, projectRoot, envelope.Runtime.ID, envelope.Runtime.AgentID,
 			envelope.Invocation.ID, envelope.Invocation.RequestedBy,
 		)
 		if err != nil {
 			return DeliveryResult{}, err
 		}
-		return DeliveryResult{
-			EndpointID: envelope.Runtime.EndpointID,
-			Evidence: []model.DeliveryEvidence{
-				{Stage: "PTY_TEXT_ECHOED", At: receipt.TextEchoedAt},
-				{Stage: "PTY_ENTER_SENT", At: receipt.EnterSentAt},
-			},
-		}, nil
+		return DeliveryResult{EndpointID: envelope.Runtime.EndpointID, Evidence: evidence}, nil
 	}
 }
 
