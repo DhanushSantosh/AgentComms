@@ -189,3 +189,30 @@
   text-transform: uppercase;
 }
 .orbit-replay:hover { color: var(--cyan); }
+
+/* Node labels sit outside the ring at a fixed nowrap width -- on narrow
+   phones that pushes DELIVERED/COMPLETED etc. past the viewport edge.
+   Shrink the ring so labels have room, and let them wrap instead of
+   running off-screen. */
+@media (max-width: 48rem) {
+  .orbit-ring-container {
+    width: 52%;
+    height: 52%;
+  }
+  .node-label {
+    top: 0.35rem;
+    left: 0.35rem;
+    max-width: 4.6rem;
+    white-space: normal;
+  }
+  .node-label--left {
+    left: auto;
+    right: 0.35rem;
+  }
+  .node-label strong {
+    font-size: 0.48rem;
+  }
+  .node-label small {
+    font-size: 0.42rem;
+  }
+}
