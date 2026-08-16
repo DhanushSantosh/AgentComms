@@ -39,14 +39,27 @@ func New(endpoint string, timeout time.Duration) (*Client, error) {
 	if endpoint == "" {
 		return nil, errors.New("daemon endpoint is required")
 	}
-	if timeout <= 0 {
-		timeout = controlplane.DefaultRequestTimeout
-	}
 	transport := &http.Transport{
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 			return dialLocal(ctx, endpoint)
 		},
 		MaxIdleConns: 32, MaxIdleConnsPerHost: 32, IdleConnTimeout: time.Minute,
+	}
+	return NewWithTransport(endpoint, timeout, transport)
+}
+
+// NewWithTransport builds a Client that issues requests through the given
+// transport instead of dialing a real Unix domain socket (or Windows named
+// pipe) via New. This is the seam an in-process caller uses to supply a
+// hand-rolled http.RoundTripper -- one whose RoundTrip method calls an
+// http.Handler directly with no real networking involved, such as a WASM
+// build talking to an in-process daemon.
+func NewWithTransport(endpoint string, timeout time.Duration, transport http.RoundTripper) (*Client, error) {
+	if endpoint == "" {
+		return nil, errors.New("daemon endpoint is required")
+	}
+	if timeout <= 0 {
+		timeout = controlplane.DefaultRequestTimeout
 	}
 	return &Client{http: &http.Client{Transport: transport, Timeout: timeout}}, nil
 }
