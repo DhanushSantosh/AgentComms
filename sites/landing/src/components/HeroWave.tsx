@@ -41,7 +41,7 @@ export function HeroWave() {
     }
 
     function waveY(x: number, time: number) {
-      const baseY = height * 0.82;
+      const baseY = height * 0.74;
       return baseY
         + Math.sin(x * 0.006 + time) * height * 0.022
         + Math.sin(x * 0.014 - time * 1.4) * height * 0.012;
@@ -56,7 +56,7 @@ export function HeroWave() {
       for (let x = 0; x <= width; x += 6) ctx.lineTo(x, waveY(x, t));
       ctx.lineTo(width, height);
       ctx.closePath();
-      const fill = ctx.createLinearGradient(0, height * 0.77, 0, height);
+      const fill = ctx.createLinearGradient(0, height * 0.69, 0, height);
       fill.addColorStop(0, `rgba(${CYAN_RGB}, 0.14)`);
       fill.addColorStop(1, `rgba(${CYAN_RGB}, 0.015)`);
       ctx.fillStyle = fill;
