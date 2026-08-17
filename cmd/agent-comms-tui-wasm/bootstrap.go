@@ -101,6 +101,23 @@ func bootstrapDemoService() (*service.Service, error) {
 		return nil, fmt.Errorf("construct in-process daemon: %w", err)
 	}
 	d.SetPersonalMode(true)
+	// daemon.New already defaults draftStorage to cache (see its own struct
+	// literal, "draftStorage: cache") -- unlike internal/daemon/run.go's real
+	// daemon-start path, which calls SetDraftStore to install a genuinely
+	// separate on-disk internal/draftstore, this demo has no second draft
+	// store: *wasmdemo.MemoryCache implements draftStore itself (SaveDraft/
+	// Drafts) precisely so it can double as one. This call is therefore a
+	// no-op relative to New's default -- confirmed empirically, not just by
+	// reading the struct literal: cmd/agent-comms-tui-wasm/bootstrap_test.go's
+	// TestBootstrapDemoServiceDraftsDoesNotPanic exercises the exact real
+	// call chain tui.New takes (Service.Drafts -> daemonclient -> the
+	// in-process HTTP handler -> d.draftStorage.Drafts) with and without this
+	// line and passes either way. It's made explicit anyway, alongside
+	// SetPersonalMode/SetIdentity, purely so this wiring sequence reads as a
+	// complete, self-documenting reproduction of run.go's real one rather
+	// than one relying silently on an internal default a future reader might
+	// not notice.
+	d.SetDraftStore(cache)
 
 	remote, err := daemonclient.NewWithTransport(
 		"in-process", controlplane.DefaultRequestTimeout, inProcessTransport{handler: d.Handler()},

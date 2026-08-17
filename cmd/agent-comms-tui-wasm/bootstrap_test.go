@@ -11,8 +11,54 @@ import (
 
 	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
 	"github.com/DhanushSantosh/AgentComms/internal/daemon"
+	"github.com/DhanushSantosh/AgentComms/internal/tui"
 	"github.com/DhanushSantosh/AgentComms/internal/wasmdemo"
 )
+
+// TestBootstrapDemoServiceDraftsDoesNotPanic is the regression test for a
+// re-review finding that turned out not to reproduce: the claim was that
+// bootstrapDemoService never wires a draft store, leaving
+// internal/daemon.Daemon's draftStorage field nil, so tui.New's
+// unconditional s.Drafts(50) call (internal/tui/model.go) would panic on a
+// nil-interface method call inside the daemon's /drafts HTTP handler, taking
+// down the whole WASM program on every session start.
+//
+// Investigation (see bootstrap.go's SetDraftStore comment for the full
+// account): daemon.New's own struct literal already defaults draftStorage to
+// the cache argument it's given, and *wasmdemo.MemoryCache implements
+// draftStore (SaveDraft/Drafts) precisely so it can serve as one -- unlike
+// internal/daemon/run.go's real daemon-start path, which calls SetDraftStore
+// to install a genuinely different, dedicated on-disk internal/draftstore.
+// There is also no way to construct a *daemon.Daemon through this package's
+// exported API with a nil draftStorage at all: New rejects a nil cache
+// outright, and SetDraftStore's own nil-guard ("if store != nil") means even
+// calling it with nil can't null the field out. So the claimed panic path
+// was not reachable to begin with.
+//
+// This test exercises the exact real call chain the finding described --
+// tui.New (called on every real TUI startup, inside tui.Run) -> its internal
+// s.Drafts(50) call -> Service.Drafts -> the daemonclient -> this package's
+// in-process HTTP RoundTripper -> the daemon's real /v1/projects/{id}/drafts
+// handler -> d.draftStorage.Drafts -- with an explicit recover() so a real
+// panic fails this test with a clear message instead of crashing the whole
+// test binary silently.
+func TestBootstrapDemoServiceDraftsDoesNotPanic(t *testing.T) {
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("tui.New panicked (draftStorage was reached as a nil interface): %v", r)
+		}
+	}()
+	svc, err := bootstrapDemoService()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := seedDemoProject(svc); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tui.New(svc, demoOwner); err != nil {
+		t.Fatal(err)
+	}
+}
 
 // TestSeedDemoProjectSupportsAddingAnArtifact is the regression test for a
 // real, reachable bug a code-review pass caught: internal/runtimeinit.go's
