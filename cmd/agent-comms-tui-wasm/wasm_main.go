@@ -1,12 +1,9 @@
 //go:build js && wasm
 
-// This file is the actual GOOS=js GOARCH=wasm entrypoint. It is deliberately
-// minimal: real I/O wiring to xterm.js (the in/out this program's TUI reads
-// from and writes to) is a later task's job, not this one. os.Stdin/
-// os.Stdout are the simplest possible placeholder here -- under GOOS=js
-// neither is a real terminal, but tui.Run only needs an io.Reader/io.Writer,
-// and this proves the entrypoint compiles and the demo project seeds
-// correctly; a later task swaps these two lines for the real bridge.
+// This file is the actual GOOS=js GOARCH=wasm entrypoint. Terminal I/O is
+// bridged to xterm.js in the browser via jsbridge.go's syscall/js exports
+// (agentCommsTUIWrite/agentCommsTUIResize) and its window.agentCommsTUIOnOutput
+// output callback -- see jsbridge.go for the full contract.
 package main
 
 import (
@@ -14,6 +11,15 @@ import (
 	"os"
 
 	"github.com/DhanushSantosh/AgentComms/internal/tui"
+)
+
+// defaultCols/defaultRows match internal/tui/model.go's own Model defaults
+// (width: 100, height: 30) so the TUI has a sane initial size to render at
+// before xterm.js's real onResize fires with the browser's actual terminal
+// dimensions.
+const (
+	defaultCols = 100
+	defaultRows = 30
 )
 
 func main() {
@@ -27,8 +33,17 @@ func main() {
 		select {}
 	}
 
+	input := newJSInputBuffer()
+	output := jsOutputWriter{}
+	registerJSBridge(input)
+
+	// No real terminal exists to auto-detect a size from under GOOS=js --
+	// seed a synthetic resize event up front so the TUI has a size to render
+	// at even before xterm.js's onResize fires for the first time.
+	input.write(encodeWindowSizeEvent(defaultCols, defaultRows))
+
 	go func() {
-		if runErr := tui.Run(svc, demoOwner, os.Stdin, os.Stdout); runErr != nil {
+		if runErr := tui.Run(svc, demoOwner, input, output); runErr != nil {
 			fmt.Fprintln(os.Stderr, "agent-comms-tui-wasm: tui exited:", runErr)
 		}
 	}()
