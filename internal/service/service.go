@@ -83,6 +83,23 @@ func configure(instance *Service, cfg store.Config, err error) *Service {
 	return instance
 }
 
+// NewWithRemote constructs a Service around an already-open Store and an
+// already-built daemon client, bypassing the on-disk config read and
+// real-socket dial that New/NewTolerant perform via configure. Its only real
+// caller is the WASM demo entrypoint, which builds both projectStore and
+// remote itself against an in-process daemon -- no real filesystem or
+// network involved -- so there is no store.Config to read here and nothing
+// for configure to validate. remoteErr is left nil (remote is assumed
+// already valid), and recoverRemote/PassphrasePrompt/AmbiguousActor are left
+// at their zero values exactly as New/NewTolerant leave them on their own
+// success path -- those are populated later by whichever caller needs them
+// (SetRemoteRecovery, internal/app's PersistentPreRunE), never by the
+// constructor itself. Every other real caller keeps using New/NewTolerant
+// unchanged.
+func NewWithRemote(projectStore *store.Store, remote *daemonclient.Client) *Service {
+	return &Service{Store: projectStore, remote: remote}
+}
+
 func (s *Service) SetRemoteRecovery(recoverRemote func() error) {
 	s.recoverRemote = recoverRemote
 }

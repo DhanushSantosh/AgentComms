@@ -1,4 +1,7 @@
-//go:build !windows
+// !js as well as !windows: syscall.Flock does not exist in js/wasm, and the
+// only caller (Reconcile, in the !js-constrained lifecycle.go) is not built
+// there either.
+//go:build !windows && !js
 
 package projectlifecycle
 

@@ -403,13 +403,36 @@ img { max-width: 100%; }
 .control-frame figcaption span:first-child { color: var(--cyan); }
 
 /*
- * ControlRoomFrame recreates the real TUI's Command / Overview screen in
- * markup, not a screenshot -- see internal/tui/{model,rowlist}.go for the
- * layout and colors this is built from. Rebuilt rather than captured for
- * two reasons: a static image goes stale the moment the TUI's own layout
- * changes (which the original control-room.png already had, silently),
- * and this can carry the same live-reveal motion language every other
- * section on the page uses instead of sitting there as a dead pixel grid.
+ * LiveControlRoom shows a centered launch button in place of the terminal
+ * until clicked; only one of the button or the terminal is ever mounted at
+ * a time (state is lifted into LiveControlRoom, not split across CSS
+ * layers). .control-launcher is sized to .control-live's own min-height so
+ * the button sits centered in the same footprint the terminal will occupy
+ * a moment later -- no layout jump on launch, without needing a static
+ * preview behind the button to hold that space.
+ */
+.control-launcher { align-items: center; display: flex; justify-content: center; min-height: 32rem; }
+.control-launch { margin: 0; }
+.control-launch-error { color: var(--coral); font-family: var(--mono); font-size: 0.66rem; letter-spacing: 0.03em; margin: 1.6rem auto 1.8rem; text-align: center; }
+.control-launch-error button { background: none; border: 0; color: var(--cyan); cursor: pointer; font: inherit; padding: 0; text-decoration: underline; }
+.control-launch-error button:hover { color: var(--text); }
+.control-live { display: flex; flex-direction: column; min-height: 32rem; }
+.control-loading { color: var(--steel-light); font-family: var(--mono); font-size: 0.6rem; letter-spacing: 0.04em; margin: 0; padding: 1rem 1.3rem 0; text-transform: uppercase; }
+.control-terminal { flex: 1; min-height: 32rem; padding: 0.5rem 0.7rem; }
+.control-reset { align-self: flex-end; margin: 0 1rem 1rem auto; min-height: 2.4rem; padding: 0 1rem; }
+@media (max-width: 60rem) {
+  .control-launcher { min-height: 22rem; }
+  .control-terminal { min-height: 22rem; }
+  .control-live { min-height: 22rem; }
+}
+
+/*
+ * .tui-* below styled ControlRoomFrame, a static pre-launch recreation of
+ * the TUI's Command / Overview screen that stood in for the real thing
+ * before LiveControlRoom could launch it live. Superseded and removed --
+ * these rules are unused dead weight now (harmless, but a real cleanup
+ * candidate; not swept out here to keep this change scoped to the
+ * launch-button/animation request that prompted it).
  */
 .tui-frame { color: var(--text); display: grid; font-family: var(--mono); font-size: 0.62rem; grid-template-columns: 12rem 1fr; min-height: 32rem; }
 .tui-sidebar { background: var(--ink); border-right: 1px solid var(--line-dark); padding: 1rem; }

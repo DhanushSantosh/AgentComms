@@ -16,7 +16,6 @@ import (
 	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
 	"github.com/DhanushSantosh/AgentComms/internal/doctor"
 	"github.com/DhanushSantosh/AgentComms/internal/identity"
-	"github.com/DhanushSantosh/AgentComms/internal/interactiveserve"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 	"github.com/DhanushSantosh/AgentComms/internal/projectlifecycle"
 	"github.com/DhanushSantosh/AgentComms/internal/service"
@@ -1458,10 +1457,7 @@ func (m Model) integrity(p palette) string {
 	if !m.state.Integrity.Verified {
 		mark = "✕"
 	}
-	compatibility := "CURRENT"
-	if len(m.lifecycle.Actions) > 0 {
-		compatibility = fmt.Sprintf("%d UPGRADE ACTION(S)", len(m.lifecycle.Actions))
-	}
+	compatibility := lifecycleCompatibility(m.lifecycle)
 	summary := fmt.Sprintf("%s Chain verified: %t\n  Signed events: %d\n  Head: %s\n  Consistency: %s\n  Connectivity: %s\n  Server sequence: %d\n  Cache sequence: %d\n\nProject lifecycle\n  Compatibility: %s\n  Installed build: %s\n  Project build: %s\n  Interrupted upgrade: %t",
 		mark, m.state.Integrity.Verified, m.state.Integrity.EventCount, m.state.Integrity.Head,
 		empty(m.state.Integrity.Consistency, "UNKNOWN"), empty(m.state.Integrity.Connectivity, "UNKNOWN"),
@@ -1777,7 +1773,15 @@ func wrapText(text string, width int) string {
 	lines = append(lines, current)
 	return strings.Join(lines, "\n")
 }
-func Run(s *service.Service, actor string, in io.Reader, out io.Writer) error {
+
+// Run starts the TUI program against in/out. opts is appended after the
+// input/output options are set, so a caller can pass e.g.
+// tea.WithColorProfile(...) or tea.WithEnvironment(...) to override
+// bubbletea's default terminal auto-detection -- needed by callers (like the
+// WASM entrypoint) whose out is not a real tty and can't be auto-detected
+// from at all. Real CLI callers pass no opts and get the previous behavior
+// unchanged.
+func Run(s *service.Service, actor string, in io.Reader, out io.Writer, opts ...tea.ProgramOption) error {
 	m, e := New(s, actor)
 	if e != nil {
 		return e
@@ -1786,7 +1790,8 @@ func Run(s *service.Service, actor string, in io.Reader, out io.Writer) error {
 	if m.watcher != nil {
 		defer m.watcher.Close()
 	}
-	p := tea.NewProgram(m, tea.WithInput(in), tea.WithOutput(out))
+	progOpts := append([]tea.ProgramOption{tea.WithInput(in), tea.WithOutput(out)}, opts...)
+	p := tea.NewProgram(m, progOpts...)
 	final, e := p.Run()
 	if e != nil {
 		return e
@@ -1824,7 +1829,7 @@ func (m Model) fetchSelectedRuntimePTYSnapshotCmd() tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 		defer cancel()
-		snapshot, err := interactiveserve.Snapshot(ctx, root, id)
+		snapshot, err := ptySnapshot(ctx, root, id)
 		return ptySnapshotMsg{runtimeID: id, snapshot: snapshot, err: err}
 	}
 }

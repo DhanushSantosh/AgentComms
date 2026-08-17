@@ -13,7 +13,6 @@ import (
 
 	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
 	"github.com/DhanushSantosh/AgentComms/internal/identity"
-	"github.com/DhanushSantosh/AgentComms/internal/localcache"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 	"github.com/DhanushSantosh/AgentComms/internal/service"
 	"github.com/google/uuid"
@@ -27,7 +26,7 @@ const (
 )
 
 type Daemon struct {
-	cache                *localcache.Cache
+	cache                cacheStore
 	remote               authorityClient
 	syncMu               sync.Mutex
 	syncing              map[string]*syncState
@@ -55,12 +54,21 @@ type draftStore interface {
 	Drafts(context.Context, string, int) ([]controlplane.Draft, error)
 }
 
+type cacheStore interface {
+	VerifyRange(ctx context.Context, projectID string, from, to uint64) error
+	Apply(ctx context.Context, event controlplane.Event, receipt controlplane.Receipt) error
+	State(ctx context.Context, projectID string) (model.State, controlplane.ResultMetadata, error)
+	Events(ctx context.Context, projectID string, page controlplane.PageRequest) (controlplane.EventPage, error)
+	SaveDraft(ctx context.Context, draft controlplane.Draft) error
+	Drafts(ctx context.Context, projectID string, limit int) ([]controlplane.Draft, error)
+}
+
 type syncState struct {
 	done chan struct{}
 	err  error
 }
 
-func New(cache *localcache.Cache, client authorityClient) (*Daemon, error) {
+func New(cache cacheStore, client authorityClient) (*Daemon, error) {
 	if cache == nil || client == nil {
 		return nil, errors.New("cache and authority client are required")
 	}

@@ -1,3 +1,12 @@
+// The real, on-disk project lifecycle implementation. Excluded from js/wasm
+// builds: every path in this file reads or migrates real SQLite databases
+// (modernc.org/sqlite -> modernc.org/libc, which has no js port) or talks to
+// a real local daemon over a real local endpoint, and a browser sandbox has
+// neither. The declarations callers need in order to name lifecycle state
+// live in types.go, which is unconstrained; lifecycle_js.go supplies the
+// honest "not available here" entry points for js.
+//go:build !js
+
 package projectlifecycle
 
 import (
@@ -28,69 +37,9 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const (
-	PersonalAuthoritySchemaVersion = 1
-	ProjectionCacheSchemaVersion   = 3
-	DraftStoreSchemaVersion        = 1
-	journalName                    = "upgrade-state.json"
-)
+const journalName = "upgrade-state.json"
 
 var errLifecycleLocked = errors.New("project lifecycle is locked by another process")
-
-type ErrorCode string
-
-const (
-	CodeUpgradeRequired    ErrorCode = "UPGRADE_REQUIRED"
-	CodeProjectTooNew      ErrorCode = "PROJECT_TOO_NEW"
-	CodeUpgradeUnsupported ErrorCode = "UPGRADE_UNSUPPORTED"
-	CodeUpgradeFailed      ErrorCode = "UPGRADE_FAILED"
-	CodeConflict           ErrorCode = "CONFLICT"
-)
-
-type Error struct {
-	Code    ErrorCode
-	Message string
-}
-
-func (e *Error) Error() string { return e.Message }
-
-type Action struct {
-	Component string `json:"component"`
-	From      string `json:"from"`
-	To        string `json:"to"`
-	Operation string `json:"operation"`
-	Automatic bool   `json:"automatic"`
-}
-
-type Plan struct {
-	ProjectRoot          string   `json:"project_root"`
-	ProjectID            string   `json:"project_id"`
-	CurrentBuildID       string   `json:"current_build_id,omitempty"`
-	TargetBuildID        string   `json:"target_build_id"`
-	Actions              []Action `json:"actions"`
-	RequiresConfirmation bool     `json:"requires_confirmation"`
-	Interrupted          bool     `json:"interrupted"`
-}
-
-type Result struct {
-	Plan             Plan   `json:"plan"`
-	Changed          bool   `json:"changed"`
-	Resumed          bool   `json:"resumed"`
-	BackupPath       string `json:"backup_path,omitempty"`
-	DaemonStopped    bool   `json:"daemon_stopped"`
-	CacheInvalidated bool   `json:"cache_invalidated"`
-	Verified         bool   `json:"verified"`
-}
-
-type Options struct {
-	Root       string
-	Version    string
-	BuildID    string
-	Apply      bool
-	Approved   bool
-	Timeout    time.Duration
-	StopDaemon bool
-}
 
 type journal struct {
 	ID         string    `json:"id"`

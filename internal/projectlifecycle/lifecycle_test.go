@@ -1,3 +1,7 @@
+// Mirrors lifecycle.go's own !js constraint -- the real on-disk
+// implementation these tests exercise does not exist in a js/wasm build.
+//go:build !js
+
 package projectlifecycle
 
 import (

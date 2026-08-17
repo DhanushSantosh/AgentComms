@@ -11,7 +11,6 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/DhanushSantosh/AgentComms/internal/daemon"
 	"github.com/DhanushSantosh/AgentComms/internal/identity"
-	"github.com/DhanushSantosh/AgentComms/internal/interactiveserve"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 	"github.com/DhanushSantosh/AgentComms/internal/service"
 	"github.com/DhanushSantosh/AgentComms/internal/sessionbind"
@@ -172,16 +171,8 @@ func (r runtimeRowSource) detailFor(id string, state model.State) (runtimeDetail
 			ptyState = "foreign host"
 		} else {
 			ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-			alive, busy := interactiveserve.Probe(ctx, r.root, id)
+			ptyState = probePTYState(ctx, r.root, id)
 			cancel()
-			switch {
-			case alive && busy:
-				ptyState = "live · busy"
-			case alive:
-				ptyState = "live · idle"
-			default:
-				ptyState = "not dialable"
-			}
 		}
 	}
 	provider, session := r.sessionBinding(id)

@@ -13,7 +13,6 @@ import (
 	"github.com/DhanushSantosh/AgentComms/internal/buildinfo"
 	"github.com/DhanushSantosh/AgentComms/internal/daemon"
 	"github.com/DhanushSantosh/AgentComms/internal/identity"
-	"github.com/DhanushSantosh/AgentComms/internal/interactiveserve"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 	"github.com/DhanushSantosh/AgentComms/internal/service"
 )
@@ -131,7 +130,7 @@ func Findings(ctx context.Context, svc *service.Service) ([]Finding, error) {
 		}
 		if runtimeState.Status == "ONLINE" {
 			interactiveByAgent[runtimeState.AgentID]++
-			if !interactiveserve.Alive(ctx, svc.Store.Root, id) {
+			if alive, probed := interactiveSocketProbe(ctx, svc.Store.Root, id); probed && !alive {
 				add("WARNING", "INTERACTIVE_SOCKET_UNAVAILABLE",
 					fmt.Sprintf("runtime %s is governed online but its local PTY socket is not dialable", id),
 					"Restart runtime interactive-serve; it will clear stale presence and establish a new endpoint.")

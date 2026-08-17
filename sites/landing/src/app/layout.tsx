@@ -56,6 +56,27 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
     <html lang="en" suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: `document.documentElement.classList.add("motion-ready");` }} />
+        {/*
+          LiveControlRoom lazy-loads Task 4's public/tui/wasm-bridge.js at
+          runtime via a native, unbundled `import()`. That file in turn
+          imports "@xterm/xterm" and "@xterm/addon-fit" as bare specifiers,
+          which only resolve in a browser via an import map -- the npm
+          packages themselves ship CommonJS/UMD, not ES modules, so this
+          points those specifiers at the real ESM bundles
+          scripts/build-tui-wasm.mjs produces in public/tui/vendor/. Must
+          stay in <head>, ahead of any module script/import() on the page.
+        */}
+        <script
+          type="importmap"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify({
+              imports: {
+                "@xterm/xterm": "/tui/vendor/xterm.js",
+                "@xterm/addon-fit": "/tui/vendor/addon-fit.js"
+              }
+            })
+          }}
+        />
       </head>
       <body className={fontVariables}>
         <MotionHydrationBridge />
