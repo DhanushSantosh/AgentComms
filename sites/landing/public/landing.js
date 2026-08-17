@@ -80,6 +80,24 @@ document.addEventListener("click", async (event) => {
     return;
   }
 
+  const controlOpenButton = target.closest("[data-control-open]");
+  if (controlOpenButton instanceof HTMLButtonElement) {
+    setControlDetail(controlOpenButton.closest("[data-tui-frame]"), true);
+    return;
+  }
+
+  const controlCloseButton = target.closest("[data-control-close]");
+  if (controlCloseButton instanceof HTMLButtonElement) {
+    setControlDetail(controlCloseButton.closest("[data-tui-frame]"), false);
+    return;
+  }
+
+  const controlApproveButton = target.closest("[data-control-approve]");
+  if (controlApproveButton instanceof HTMLButtonElement) {
+    approveControlItem(controlApproveButton.closest("[data-tui-frame]"));
+    return;
+  }
+
   const copyButton = target.closest("[data-copy-install]");
   if (copyButton instanceof HTMLButtonElement) {
     await copyInstallCommand(copyButton);
@@ -343,6 +361,31 @@ function playProtocolInstrument(instrument) {
     delay: index === 0 ? 2_000 : 4_500 + ((index - 1) * 2_000),
     run: () => updateProtocolInstrument(button)
   })));
+}
+
+function setControlDetail(frame, open) {
+  if (!(frame instanceof HTMLElement)) return;
+  const detail = frame.querySelector("[data-control-detail]");
+  const trigger = frame.querySelector("[data-control-open]");
+  if (detail instanceof HTMLElement) detail.hidden = !open;
+  trigger?.setAttribute("aria-expanded", String(open));
+  frame.dataset.controlState = open ? "reviewing" : frame.dataset.controlState === "approved" ? "approved" : "pending";
+}
+
+function approveControlItem(frame) {
+  if (!(frame instanceof HTMLElement)) return;
+  frame.dataset.controlState = "approved";
+  setText(frame, "[data-control-status]", "approved by project owner");
+  setText(frame, "[data-control-role]", "ORCHESTRATOR");
+  setText(frame, "[data-control-work]", "coordinating auth/session");
+  const role = frame.querySelector("[data-control-role]");
+  role?.classList.remove("role-custom");
+  role?.classList.add("role-orchestrator");
+  const event = frame.querySelector("[data-control-event]");
+  setText(event, "b", "approval.approve");
+  setText(event, "em", "OWNER · elevated");
+  setText(frame, "[data-control-outcome]", "Human approval committed. AXIOM is now ORCHESTRATOR · seq 0147.");
+  setControlDetail(frame, false);
 }
 
 function settleFeatureDemos() {

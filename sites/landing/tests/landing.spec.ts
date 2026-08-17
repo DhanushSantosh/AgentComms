@@ -76,12 +76,32 @@ test("relay separates transport from acknowledgement and returns a result", asyn
   await expect(relay.getByText("24 / 24 auth tests pass", { exact: true })).toBeVisible();
 });
 
-// This drives the *real*, WASM-compiled product TUI (there is no static
-// poster/simulation left to test separately -- LiveControlRoom.tsx now
-// shows a centered launch button that swaps directly for the live
-// terminal) -- LiveControlRoom.tsx lazy-loads cmd/agent-comms-tui-wasm +
-// xterm.js and mounts it live. The keystroke sequence below is not
-// guessed: it is the
+// ControlRoomFrame's own static, pre-existing fake-approval simulation --
+// unrelated to the real WASM TUI below -- now only ever renders on
+// mobile/tablet viewports (CSS-toggled in globals.css at the same 60rem
+// breakpoint LiveControlRoom's own sizing already used): xterm's fixed
+// character grid doesn't have room to render the real product's
+// responsive layout below that width (see the real-TUI test's own comment
+// a few lines down), so small screens keep this recreation permanently
+// instead of a launch button that would open an unusable terminal.
+test("control room resolves a human-tier approval coherently", async ({ page, isMobile }) => {
+  test.skip(!isMobile, "the mobile-only static poster; desktop shows the real TUI instead");
+  await page.goto("/#control");
+
+  const frame = page.locator("[data-tui-frame]");
+  await page.getByRole("button", { name: /approval-orchestrator-axiom/ }).click();
+  await expect(page.getByText("HUMAN AUTHORITY REQUIRED")).toBeVisible();
+  await page.getByRole("button", { name: "Approve with human authority" }).click();
+  await expect(frame).toHaveAttribute("data-control-state", "approved");
+  await expect(frame.locator("[data-control-role]")).toHaveText("ORCHESTRATOR");
+  await expect(frame.locator("[data-control-event] b")).toHaveText("approval.approve");
+});
+
+// This drives the *real*, WASM-compiled product TUI -- LiveControlRoom.tsx
+// lazy-loads cmd/agent-comms-tui-wasm + xterm.js and mounts it live, in
+// place of the static poster above, on desktop/tablet-landscape viewports
+// wide enough for the real product's layout. The keystroke sequence below
+// is not guessed: it is the
 // exact real key binding internal/tui/model.go's key handling uses to
 // reach the seeded Approvals row --
 //   - "]" -> Model.moveHubView(1): cycles the *current hub's* own tabs.

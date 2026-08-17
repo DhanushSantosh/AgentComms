@@ -427,13 +427,28 @@ img { max-width: 100%; }
 }
 
 /*
- * .tui-* below styled ControlRoomFrame, a static pre-launch recreation of
- * the TUI's Command / Overview screen that stood in for the real thing
- * before LiveControlRoom could launch it live. Superseded and removed --
- * these rules are unused dead weight now (harmless, but a real cleanup
- * candidate; not swept out here to keep this change scoped to the
- * launch-button/animation request that prompted it).
+ * xterm.js renders into a fixed character grid: below ~60rem there isn't
+ * enough real terminal width/height for the product's own responsive TUI
+ * layout to render anything legible (confirmed empirically -- at phone
+ * viewports the fitted grid loses the sidebar and tab strip entirely).
+ * Rather than expose that on small screens, the pre-launch, mobile-only
+ * ControlRoomFrame recreation below stands in permanently: no launch, no
+ * live WASM terminal, just the same static-but-interactive tui-* markup
+ * this section always showed before LiveControlRoom existed. Desktop gets
+ * .control-live-wrap (the real, live launch flow); mobile gets
+ * .control-mobile-poster. Both render in the DOM always -- CSS display:none
+ * (not JS) decides which one is visible, so there's no hydration mismatch
+ * and no focusable-but-invisible control on the hidden side.
  */
+.control-mobile-poster { display: none; }
+.control-live-wrap { display: block; }
+.control-caption-mobile { display: none; }
+@media (max-width: 60rem) {
+  .control-mobile-poster { display: block; }
+  .control-live-wrap { display: none; }
+  .control-caption-desktop { display: none; }
+  .control-caption-mobile { display: inline; }
+}
 .tui-frame { color: var(--text); display: grid; font-family: var(--mono); font-size: 0.62rem; grid-template-columns: 12rem 1fr; min-height: 32rem; }
 .tui-sidebar { background: var(--ink); border-right: 1px solid var(--line-dark); padding: 1rem; }
 .tui-brand { align-items: center; display: flex; gap: 0.5rem; margin-bottom: 0.2rem; }
