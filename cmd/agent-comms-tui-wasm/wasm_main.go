@@ -10,7 +10,9 @@ import (
 	"fmt"
 	"os"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/DhanushSantosh/AgentComms/internal/tui"
+	"github.com/charmbracelet/colorprofile"
 )
 
 // defaultCols/defaultRows match internal/tui/model.go's own Model defaults
@@ -42,8 +44,23 @@ func main() {
 	// at even before xterm.js's onResize fires for the first time.
 	input.write(encodeWindowSizeEvent(defaultCols, defaultRows))
 
+	// bubbletea's default color-profile auto-detection
+	// (colorprofile.Detect(p.output, p.environ)) can never see a real
+	// terminal here: jsOutputWriter has no Fd() method so it never satisfies
+	// term.File, which forces isatty=false regardless of any TERM/COLORTERM
+	// environment variables -- detection falls back to NoTTY and every ANSI
+	// color code lipgloss emits gets stripped before it reaches xterm.js.
+	// Setting the profile explicitly sidesteps that detection entirely:
+	// xterm.js always supports truecolor, so this is simply always correct
+	// for this entrypoint (verified in
+	// cmd/agent-comms-tui-wasm/colorprofile_test.go, which also proves the
+	// alternative -- setting TERM/COLORTERM alone via a JS-side environment
+	// override -- is NOT sufficient, since isatty is never true no matter
+	// what environment variables are set).
+	colorOpt := tea.WithColorProfile(colorprofile.TrueColor)
+
 	go func() {
-		if runErr := tui.Run(svc, demoOwner, input, output); runErr != nil {
+		if runErr := tui.Run(svc, demoOwner, input, output, colorOpt); runErr != nil {
 			fmt.Fprintln(os.Stderr, "agent-comms-tui-wasm: tui exited:", runErr)
 		}
 	}()

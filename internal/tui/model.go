@@ -1773,7 +1773,15 @@ func wrapText(text string, width int) string {
 	lines = append(lines, current)
 	return strings.Join(lines, "\n")
 }
-func Run(s *service.Service, actor string, in io.Reader, out io.Writer) error {
+
+// Run starts the TUI program against in/out. opts is appended after the
+// input/output options are set, so a caller can pass e.g.
+// tea.WithColorProfile(...) or tea.WithEnvironment(...) to override
+// bubbletea's default terminal auto-detection -- needed by callers (like the
+// WASM entrypoint) whose out is not a real tty and can't be auto-detected
+// from at all. Real CLI callers pass no opts and get the previous behavior
+// unchanged.
+func Run(s *service.Service, actor string, in io.Reader, out io.Writer, opts ...tea.ProgramOption) error {
 	m, e := New(s, actor)
 	if e != nil {
 		return e
@@ -1782,7 +1790,8 @@ func Run(s *service.Service, actor string, in io.Reader, out io.Writer) error {
 	if m.watcher != nil {
 		defer m.watcher.Close()
 	}
-	p := tea.NewProgram(m, tea.WithInput(in), tea.WithOutput(out))
+	progOpts := append([]tea.ProgramOption{tea.WithInput(in), tea.WithOutput(out)}, opts...)
+	p := tea.NewProgram(m, progOpts...)
 	final, e := p.Run()
 	if e != nil {
 		return e
