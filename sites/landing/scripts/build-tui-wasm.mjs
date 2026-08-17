@@ -12,7 +12,7 @@
 // CommonJS/UMD only. An import map in src/app/layout.tsx points the bare
 // specifiers at these bundles.
 import { execFileSync } from "node:child_process";
-import { copyFileSync, mkdirSync, existsSync } from "node:fs";
+import { mkdirSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import * as esbuild from "esbuild";
 
@@ -36,7 +36,14 @@ const wasmExecSrc = wasmExecCandidates.find(existsSync);
 if (!wasmExecSrc) {
   throw new Error(`wasm_exec.js not found in either of: ${wasmExecCandidates.join(", ")}`);
 }
-copyFileSync(wasmExecSrc, resolve(outDir, "wasm_exec.js"));
+// fs.copyFileSync uses a platform copy-acceleration syscall (e.g. Linux's
+// copy_file_range) that some CI runners reject with EACCES for files inside
+// a read-only Go toolchain module cache (golang.org/toolchain@.../lib/wasm/
+// wasm_exec.js), even though the file is perfectly readable by a plain
+// open()+read(). A manual read-then-write only ever needs read permission
+// on the source and write permission on the destination, sidestepping
+// whatever the accelerated copy path is tripping on.
+writeFileSync(resolve(outDir, "wasm_exec.js"), readFileSync(wasmExecSrc));
 console.log(`Built agent-comms-tui.wasm -> ${wasmOut}`);
 
 const vendorOutDir = resolve(outDir, "vendor");
