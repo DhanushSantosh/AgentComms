@@ -177,6 +177,19 @@
   flex-direction: column;
   font-family: var(--mono);
 }
+/* .text-cyan/.text-steel are shared color-only utilities reused elsewhere
+   (.scenario-footer, .scenario-header strong) at their own sizes -- this
+   modal's headline span was the one place with no size/weight rule at
+   all, so it fell back to the browser default (16px, regular weight)
+   instead of the small, bold, uppercase mono treatment every other label
+   in the component uses. Scoped to this container only, not the shared
+   classes themselves. */
+.lease-details > span {
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
 .lease-details strong {
   color: var(--text);
   font-size: 0.65rem;
