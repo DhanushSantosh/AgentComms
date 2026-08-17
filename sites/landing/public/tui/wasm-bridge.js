@@ -49,6 +49,32 @@ function resolveFontFamily(container) {
   return resolved;
 }
 
+// The WASM module's syscall/js exports (agentCommsTUIWrite/agentCommsTUIResize
+// -- see jsbridge.go's registerJSBridge) don't exist as `window` globals until
+// sometime after go.run(wasm.instance) starts executing main() -- which is
+// itself asynchronous with respect to this file, since go.run() is
+// fire-and-forget (it never resolves; the Go program runs forever). Polls
+// (via requestAnimationFrame, so it's cheap and tied to the browser's own
+// paint cadence) until `window[name]` becomes a function, or gives up after
+// timeoutMs so a WASM load failure can't hang this forever.
+function waitForGlobalFn(name, timeoutMs = 15000) {
+  return new Promise((resolve, reject) => {
+    const start = performance.now();
+    function check() {
+      if (typeof window[name] === "function") {
+        resolve(window[name]);
+        return;
+      }
+      if (performance.now() - start > timeoutMs) {
+        reject(new Error(`timed out waiting for window.${name} to be defined`));
+        return;
+      }
+      requestAnimationFrame(check);
+    }
+    check();
+  });
+}
+
 export async function launchAgentCommsTUI(container) {
   const { Terminal } = await import("@xterm/xterm");
   const { FitAddon } = await import("@xterm/addon-fit");
@@ -78,7 +104,6 @@ export async function launchAgentCommsTUI(container) {
   const fit = new FitAddon();
   term.loadAddon(fit);
   term.open(container);
-  fit.fit();
 
   // Output side: the WASM program calls this on every write to its
   // io.Writer (jsOutputWriter in jsbridge.go).
@@ -90,11 +115,21 @@ export async function launchAgentCommsTUI(container) {
     window.agentCommsTUIWrite(new TextEncoder().encode(data));
   });
 
-  // Every resize (including the initial fit() above, which fires onResize)
-  // becomes a synthetic WindowSizeEvent in the same input stream.
+  // Registered BEFORE the first fit() call below (unlike the original,
+  // buggy ordering) so that fit()'s own onResize firing doesn't get lost.
+  // Even so, agentCommsTUIResize may not exist yet at that point -- go.run()
+  // below hasn't even been called, let alone finished registering the WASM
+  // module's exports -- so this only delivers when it can; the guaranteed
+  // delivery is the waitForGlobalFn handshake after go.run() below, which
+  // reads term.cols/term.rows directly rather than relying on having
+  // captured any particular onResize event.
   term.onResize(({ cols, rows }) => {
-    window.agentCommsTUIResize(cols, rows);
+    if (typeof window.agentCommsTUIResize === "function") {
+      window.agentCommsTUIResize(cols, rows);
+    }
   });
+
+  fit.fit();
 
   const go = new Go(); // eslint-disable-line no-undef -- wasm_exec.js global
   const wasm = await WebAssembly.instantiateStreaming(
@@ -105,6 +140,23 @@ export async function launchAgentCommsTUI(container) {
   // never exits (its main is `select {}` forever) -- don't await it inline,
   // just let it run in the background.
   go.run(wasm.instance);
+
+  // The Go program starts up with a hardcoded default size (see
+  // wasm_main.go's defaultCols/defaultRows) so it has something to render
+  // before any real size is known. fit() above already computed the
+  // terminal's real, correct cols/rows -- but that computation fired its
+  // onResize event before agentCommsTUIResize existed (registerJSBridge
+  // hasn't run inside Go's main() yet at that point), so it was silently
+  // dropped by the guard above. This is the one delivery that's guaranteed
+  // to land: it waits for the export to actually exist, then sends term's
+  // *current* size (not whatever fit() computed earlier -- if a real
+  // browser resize happened in the meantime, term.cols/term.rows already
+  // reflect it).
+  waitForGlobalFn("agentCommsTUIResize")
+    .then((resize) => resize(term.cols, term.rows))
+    .catch((err) => {
+      console.error("agent-comms-tui: initial resize handshake with WASM failed:", err);
+    });
 
   window.addEventListener("resize", () => fit.fit());
 
