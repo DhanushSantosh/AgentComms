@@ -1,6 +1,7 @@
 import { CollisionLab } from "@/components/CollisionLab";
 import { ControlRoomFrame } from "@/components/ControlRoomFrame";
 import { DemoReel } from "@/components/DemoReel";
+import { LiveControlRoom } from "@/components/LiveControlRoom";
 import { ModeBridge } from "@/components/ModeBridge";
 import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
@@ -109,8 +110,8 @@ export default function HomePage() {
           </header>
           <figure className="control-frame">
             <div className="frame-chrome"><span>AGENT COMMS / CONTROL ROOM</span><span><i /> LIVE · LOCAL · VERIFIED</span></div>
-            <ControlRoomFrame />
-            <figcaption><span>RECREATED FROM THE REAL TUI</span><span>PERSONAL MODE / SEQ 146</span></figcaption>
+            <LiveControlRoom poster={<ControlRoomFrame />} />
+            <figcaption><span>THE REAL TUI, SEEDED WITH A DEMO PROJECT</span><span>PERSONAL MODE / SEQ 146</span></figcaption>
           </figure>
           <div className="control-capabilities">
             <article><span>ATTENTION</span><strong>Know what needs you now.</strong><p>Approvals, blocked work, ambiguous delivery, and runtime health come forward.</p></article>

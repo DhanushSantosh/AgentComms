@@ -403,6 +403,27 @@ img { max-width: 100%; }
 .control-frame figcaption span:first-child { color: var(--cyan); }
 
 /*
+ * LiveControlRoom swaps the ControlRoomFrame poster below for a real,
+ * live WASM instance of the TUI once launched. Only one of the poster or
+ * the terminal is ever mounted at a time (state is lifted into
+ * LiveControlRoom, not split across CSS layers), so these rules size both
+ * states to match rather than stacking or overlaying anything.
+ */
+.control-launcher { display: flex; flex-direction: column; }
+.control-launch { margin: 1.6rem auto 1.8rem; }
+.control-launch-error { color: var(--coral); font-family: var(--mono); font-size: 0.66rem; letter-spacing: 0.03em; margin: 1.6rem auto 1.8rem; text-align: center; }
+.control-launch-error button { background: none; border: 0; color: var(--cyan); cursor: pointer; font: inherit; padding: 0; text-decoration: underline; }
+.control-launch-error button:hover { color: var(--text); }
+.control-live { display: flex; flex-direction: column; min-height: 32rem; }
+.control-loading { color: var(--steel-light); font-family: var(--mono); font-size: 0.6rem; letter-spacing: 0.04em; margin: 0; padding: 1rem 1.3rem 0; text-transform: uppercase; }
+.control-terminal { flex: 1; min-height: 32rem; padding: 0.5rem 0.7rem; }
+.control-reset { align-self: flex-end; margin: 0 1rem 1rem auto; min-height: 2.4rem; padding: 0 1rem; }
+@media (max-width: 60rem) {
+  .control-terminal { min-height: 22rem; }
+  .control-live { min-height: 22rem; }
+}
+
+/*
  * ControlRoomFrame recreates the real TUI's Command / Overview screen in
  * markup, not a screenshot -- see internal/tui/{model,rowlist}.go for the
  * layout and colors this is built from. Rebuilt rather than captured for
