@@ -120,3 +120,5 @@ require (
 )
 
 replace charm.land/bubbletea/v2 => ./third_party/bubbletea-v2-js
+
+replace github.com/atotto/clipboard => ./third_party/clipboard-js
