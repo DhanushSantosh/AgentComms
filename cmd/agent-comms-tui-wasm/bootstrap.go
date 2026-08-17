@@ -159,6 +159,13 @@ func bootstrapProject(
 		return nil, fmt.Errorf("store owner credential: %w", err)
 	}
 
+	// Matches internal/daemon/run.go's real daemon-start path (which always
+	// calls this before serving any request) -- only affects /health/live's
+	// JSON fields (runtime_mode, project_id), which the TUI itself never
+	// consults, but this keeps the in-process daemon's wiring sequence a
+	// complete reproduction of the real one rather than a partial one.
+	d.SetIdentity("personal", projectID)
+
 	for _, command := range ownerBootstrapCommands(projectID, ownerCredential) {
 		if _, _, err = authority.Command(ctx, command); err != nil {
 			return nil, fmt.Errorf("bootstrap owner principal: %w", err)
@@ -184,8 +191,23 @@ func bootstrapProject(
 	config.ManagedFileHashes = store.ManagedHashes(config)
 
 	runtimePath := filepath.Join(root, store.Runtime)
-	if err = os.MkdirAll(filepath.Join(runtimePath, "cache"), 0o700); err != nil {
-		return nil, err
+	// "cache" mirrors internal/runtimeinit.go's writeRuntimeFiles. Of that
+	// function's other three directories ("artifacts/sha256", "data",
+	// "tmp"), only "artifacts/sha256" is actually reachable from the live
+	// TUI: service.Service.AddArtifact (internal/service/service.go, wired
+	// to internal/tui/artifacts.go) writes directly to
+	// filepath.Join(root, store.Runtime, "artifacts", "sha256", sum) via
+	// os.WriteFile with no MkdirAll of its own -- it assumes a real
+	// project's directory already exists. "data" and "tmp" have no
+	// reachable caller anywhere in internal/service or internal/tui (grepped
+	// for both literal path segments across both packages; the only
+	// callers of DraftPath/ProjectionPath/DatabasePath are runtimeinit and
+	// daemon.Run, neither of which this in-process demo daemon uses), so
+	// they are deliberately left out rather than created speculatively.
+	for _, directory := range []string{"cache", filepath.Join("artifacts", "sha256")} {
+		if err = os.MkdirAll(filepath.Join(runtimePath, directory), 0o700); err != nil {
+			return nil, err
+		}
 	}
 	configJSON, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
