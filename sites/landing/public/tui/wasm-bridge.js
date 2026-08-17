@@ -22,6 +22,33 @@
 //   cyan               #56D6C9   amber               #E8B85C
 //   coral (red)        #F07167   lilac (violet)      #B9A7E8
 //   steel (muted)      #78918F
+// xterm.js measures its own cell size with an OffscreenCanvas 2D context
+// (`ctx.font = "<size>px <fontFamily>"`, then `ctx.measureText("W")`'s
+// fontBoundingBoxAscent/Descent -- see @xterm/xterm's RendererMetrics /
+// DomMeasureStrategy fallback chain). An OffscreenCanvas has no DOM
+// cascade, so a raw CSS custom property like "var(--mono)" cannot resolve
+// there: the browser silently rejects the `ctx.font` assignment and keeps
+// its built-in default ("10px sans-serif"), which measures to an
+// ascent+descent around 11px. Meanwhile the *rendered* row divs live in
+// the real DOM, where "var(--mono)" resolves normally against whatever
+// font (here, next/font's self-hosted commit-mono, ~15px tall glyphs at
+// the default fontSize) actually loaded. That 11px-measured-cell vs.
+// 15px-rendered-glyph mismatch is what makes adjacent terminal rows
+// visually overlap/cramp -- not a font-metrics quirk of commit-mono
+// itself. Resolving the custom property to a literal, already-cascaded
+// font-family string before handing it to xterm keeps measurement and
+// rendering using the exact same metrics.
+function resolveFontFamily(container) {
+  const probe = document.createElement("span");
+  probe.style.fontFamily = "var(--mono)";
+  probe.style.position = "absolute";
+  probe.style.visibility = "hidden";
+  container.appendChild(probe);
+  const resolved = getComputedStyle(probe).fontFamily;
+  container.removeChild(probe);
+  return resolved;
+}
+
 export async function launchAgentCommsTUI(container) {
   const { Terminal } = await import("@xterm/xterm");
   const { FitAddon } = await import("@xterm/addon-fit");
@@ -44,7 +71,7 @@ export async function launchAgentCommsTUI(container) {
       white: "#D7E5E3",
       brightWhite: "#D7E5E3",
     },
-    fontFamily: "var(--mono)",
+    fontFamily: resolveFontFamily(container),
     convertEol: true,
   });
 
