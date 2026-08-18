@@ -18,7 +18,7 @@ export default function HomePage() {
 
       <main id="main-content" tabIndex={-1}>
         <section className="hero" id="top" data-reveal="hero">
-          <HeroWave />
+          <div className="hero-wave-band"><HeroWave /></div>
           <div className="hero-grain" aria-hidden="true" />
           <div className="hero-copy">
             <p className="hero-kicker"><span>PROJECT AUTHORITY</span><span>FOR CONCURRENT CODING AGENTS</span></p>
@@ -30,8 +30,19 @@ export default function HomePage() {
             </div>
           </div>
 
-          <div className="hero-foot">
-            <span>• LOCAL FIRST</span><span>• APACHE 2.0</span><span>• NO TELEMETRY</span><strong>AC / {site.productVersion}</strong>
+          <div className="hero-control-frame-window">
+            <figure className="control-frame hero-control-frame">
+              <div className="frame-chrome"><span>AGENT COMMS / CONTROL ROOM</span><span><i /> LIVE · LOCAL · VERIFIED</span></div>
+              <div className="control-live-wrap"><LiveControlRoom /></div>
+              <div className="control-mobile-poster"><ControlRoomFrame /></div>
+              <figcaption>
+                <span>
+                  <span className="control-caption-desktop">THE REAL TUI, SEEDED WITH A DEMO PROJECT</span>
+                  <span className="control-caption-mobile">RECREATED FROM THE REAL TUI</span>
+                </span>
+                <span>PERSONAL MODE / SEQ 146</span>
+              </figcaption>
+            </figure>
           </div>
         </section>
 
@@ -42,10 +53,30 @@ export default function HomePage() {
           </div>
         </section>
 
+        <section className="control" id="control" data-reveal="control">
+          <header className="control-heading">
+            <p className="eyebrow"><span>02</span> / HUMAN CONTROL</p>
+            <h2>Human control when it matters.</h2>
+            <p>See the whole project move. Approvals rise from the stream, show exactly who asked for what and why, and resolve into a signed record without opening every terminal to reconstruct the truth.</p>
+            <div className="control-flow-steps" aria-hidden="true">
+              <span>1. RISES FROM THE STREAM</span>
+              <i>→</i>
+              <span>2. SHOWS WHO &amp; WHY</span>
+              <i>→</i>
+              <span>3. RESOLVES TO RECORD</span>
+            </div>
+          </header>
+          <div className="control-capabilities">
+            <article><span>ATTENTION</span><strong>Know what needs you now.</strong><p>Approvals, blocked work, ambiguous delivery, and runtime health come forward.</p></article>
+            <article><span>AUTHORITY</span><strong>Control who can do what.</strong><p>Roles, scopes, identities, runtimes, suspensions, revocations, and elevated actions stay governed.</p></article>
+            <article><span>HISTORY</span><strong>Verify without trusting the screen.</strong><p>Actor signatures, authority receipts, and the append-only event chain remain independently checkable.</p></article>
+          </div>
+        </section>
+
         <section className="collision" id="collision" data-reveal="collision">
           <Reveal className="collision-reveal">
             <header className="collision-copy">
-              <p className="eyebrow"><span>02</span> / COLLISION CONTROL</p>
+              <p className="eyebrow"><span>03</span> / COLLISION CONTROL</p>
               <h2>Stop collisions before they ship.</h2>
               <p>Parallel work without parallel confusion. When two agents reach for the same scope, the project—not the fastest terminal—decides who owns it. Agent Comms grants a scope lease early and gives every agent a clear, conflict-free path.</p>
             </header>
@@ -56,7 +87,7 @@ export default function HomePage() {
         <section className="demo" id="demo" data-reveal="demo">
           <Reveal className="demo-reveal">
             <div className="demo-intro">
-              <p className="eyebrow"><span>03</span> / HANDOFF EVIDENCE</p>
+              <p className="eyebrow"><span>04</span> / HANDOFF EVIDENCE</p>
               <h2>Every handoff leaves a trail.</h2>
               <p>Four cuts. No editing. One live product-state simulation: an agent claims work, an overlapping claim is stopped, verification is handed off, and the result lands in a signed chain anyone can check. Requests, delivery, acknowledgement, and verification—captured in order.</p>
             </div>
@@ -67,7 +98,7 @@ export default function HomePage() {
         <section className="protocol" id="protocol" data-reveal="protocol">
           <Reveal className="protocol-reveal">
             <div className="protocol-intro">
-              <p className="eyebrow"><span>04</span> / LIFECYCLE PROTOCOL</p>
+              <p className="eyebrow"><span>05</span> / LIFECYCLE PROTOCOL</p>
               <h2>Delivery isn’t acknowledgement.<br />The map makes the gap unmistakable.</h2>
               <p>“Done” is not a state. A transport can succeed while the agent never acknowledges the work. Agent Comms keeps every boundary explicit.</p>
             </div>
@@ -77,7 +108,7 @@ export default function HomePage() {
 
         <section className="relay" id="relay" data-reveal="relay">
           <div className="relay-copy">
-            <p className="eyebrow"><span>05</span> / DIRECT AGENT RELAY</p>
+            <p className="eyebrow"><span>06</span> / DIRECT AGENT RELAY</p>
             <h2>Take yourself out of the message loop.</h2>
             <p>Bind a live Codex, Claude, or OpenCode session once. Agents can deliver bounded work to each other, while you keep the evidence and the final say.</p>
             <a href={documentationPage("/agents/interactive/")}>Connect an interactive session <span>↗</span></a>
@@ -92,38 +123,6 @@ export default function HomePage() {
             <div className="relay-result"><span>RESULT RETURNED</span><b>24 / 24 auth tests pass</b><small>invocation.complete · receipt signed</small></div>
             <button type="button" className="relay-replay" data-relay-replay aria-label="Replay agent relay demonstration">REPLAY ↻</button>
             <p className="relay-outcome" aria-live="polite" data-relay-outcome>Bounded request committed.</p>
-          </div>
-        </section>
-
-        <section className="control" id="control" data-reveal="control">
-          <header className="control-heading">
-            <p className="eyebrow"><span>06</span> / HUMAN CONTROL</p>
-            <h2>Human control when it matters.</h2>
-            <p>See the whole project move. Approvals rise from the stream, show exactly who asked for what and why, and resolve into a signed record without opening every terminal to reconstruct the truth.</p>
-            <div className="control-flow-steps" aria-hidden="true">
-              <span>1. RISES FROM THE STREAM</span>
-              <i>→</i>
-              <span>2. SHOWS WHO &amp; WHY</span>
-              <i>→</i>
-              <span>3. RESOLVES TO RECORD</span>
-            </div>
-          </header>
-          <figure className="control-frame">
-            <div className="frame-chrome"><span>AGENT COMMS / CONTROL ROOM</span><span><i /> LIVE · LOCAL · VERIFIED</span></div>
-            <div className="control-live-wrap"><LiveControlRoom /></div>
-            <div className="control-mobile-poster"><ControlRoomFrame /></div>
-            <figcaption>
-              <span>
-                <span className="control-caption-desktop">THE REAL TUI, SEEDED WITH A DEMO PROJECT</span>
-                <span className="control-caption-mobile">RECREATED FROM THE REAL TUI</span>
-              </span>
-              <span>PERSONAL MODE / SEQ 146</span>
-            </figcaption>
-          </figure>
-          <div className="control-capabilities">
-            <article><span>ATTENTION</span><strong>Know what needs you now.</strong><p>Approvals, blocked work, ambiguous delivery, and runtime health come forward.</p></article>
-            <article><span>AUTHORITY</span><strong>Control who can do what.</strong><p>Roles, scopes, identities, runtimes, suspensions, revocations, and elevated actions stay governed.</p></article>
-            <article><span>HISTORY</span><strong>Verify without trusting the screen.</strong><p>Actor signatures, authority receipts, and the append-only event chain remain independently checkable.</p></article>
           </div>
         </section>
 

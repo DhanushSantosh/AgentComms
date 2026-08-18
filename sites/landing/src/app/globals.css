@@ -189,16 +189,23 @@ img { max-width: 100%; }
   color: var(--text);
   display: grid;
   justify-items: center;
-  min-height: max(46rem, 100svh);
+  min-height: max(40rem, 78svh);
   overflow: hidden;
   padding: calc(var(--header-height) + 4.5rem) var(--gutter) 5rem;
   position: relative;
   text-align: center;
 }
 .hero-grain { background-image: radial-gradient(color-mix(in srgb, var(--cyan) 22%, transparent) 0.65px, transparent 0.65px); background-size: 6px 6px; inset: 0; opacity: 0.16; pointer-events: none; position: absolute; }
-/* A single soft wave band anchored low in the hero, well clear of the
-   centered headline -- masked so its own top edge fades in rather than
-   cutting off hard. */
+/* The wave used to size itself off .hero directly, which was fine while
+   .hero was one screen tall -- now that the full Control Room frame lives
+   inside .hero too, that made the section much taller and pushed the
+   wave's visible band (HeroWave's own canvas draws its curve at 74% of
+   whatever height it measures) down near the TUI instead of up near the
+   headline. This wrapper gives HeroWave a fixed-height box of its own,
+   anchored to the top of .hero, so the canvas measures THAT instead of
+   the full section -- restoring the wave to the upper part of the hero,
+   above the content, regardless of how tall the section grows below it. */
+.hero-wave-band { height: 50rem; inset: 0 0 auto 0; position: absolute; z-index: 1; }
 .hero-wave { -webkit-mask-image: linear-gradient(180deg, transparent, var(--ink) 55%); inset: 0; mask-image: linear-gradient(180deg, transparent, var(--ink) 55%); position: absolute; z-index: 1; }
 .hero-copy { max-width: 58rem; position: relative; z-index: 2; }
 .hero-kicker { align-items: center; display: flex; flex-wrap: wrap; font-family: var(--mono); font-size: 0.58rem; gap: 0.65rem 1.5rem; justify-content: center; letter-spacing: 0.06em; margin: 0 0 2.6rem; text-transform: uppercase; }
@@ -217,9 +224,66 @@ img { max-width: 100%; }
 .action--ink:hover { background: var(--cyan); color: var(--ink); }
 .action--line { border: 1px solid color-mix(in srgb, var(--text) 40%, transparent); color: var(--text); }
 .action--line:hover { background: var(--text); color: var(--ink); }
-.hero-foot { align-items: center; bottom: 1.4rem; display: flex; font-family: var(--mono); font-size: 0.5rem; gap: 1.5rem; left: var(--gutter); letter-spacing: 0.06em; position: absolute; right: var(--gutter); z-index: 2; }
-.hero-foot > span::before { color: var(--steel); content: "•"; margin-right: 0.5rem; }
-.hero-foot strong { font-weight: 400; margin-left: auto; }
+
+/* The Control Room frame now lives directly inside .hero as its own full,
+   uncropped grid item (not a separate section, not a cropped "peek") --
+   the big "Human control when it matters." text that used to introduce it
+   sits in its own .control section immediately after, so it reads as the
+   TUI's caption rather than the other way around. Width-capped and
+   centered independently of hero-copy's own narrower max-width so the
+   frame can be as wide as the terminal actually needs. z-index/margin-top
+   come from .control-frame's own base rule (shared with its other
+   context, the .control section's own capabilities block below) --
+   nothing overridden here except the extra breathing room below it,
+   before .hero's own bottom padding takes over. */
+.hero-control-frame { position: relative; width: 100%; z-index: 3; }
+/* .control-frame's own base rule sets margin: clamp(4rem,7vw,7rem) 0 0
+   (its 3-value shorthand zeroes left+right) -- same specificity as this
+   single-class selector, so whichever rule is LAST in source order wins
+   the left/right margins regardless of what's written here. Qualified as
+   .control-frame.hero-control-frame (two classes, higher specificity) so
+   the centering margins win deterministically, not by source-order luck. */
+.control-frame.hero-control-frame { margin-bottom: 4rem; margin-left: auto; margin-right: auto; max-width: 84rem; }
+@media (max-width: 60rem) {
+  .control-frame.hero-control-frame { margin-bottom: 2.5rem; }
+}
+/* Desktop shows the frame in full (above). Below 60rem the mobile poster
+   inside it is tall enough (the full workforce table + live activity
+   feed) that showing all of it in the hero pushes everything else much
+   further down the page -- crop the window to roughly half that natural
+   height and fade the cut edge to --ink rather than hard-clipping it, so
+   it still reads as "there's more, scroll to it in its own section"
+   instead of looking broken. .hero-control-frame itself is untouched;
+   the crop lives on this wrapper only, same reasoning as the desktop
+   .hero-control-frame width rule above -- never redefine .control-frame's
+   own box directly, since .control-frame's ::before/::after corner-tick
+   decoration is shared with .demo-reel/.collision-lab/.trust-chain. */
+.hero-control-frame-window { position: relative; width: 100%; }
+@media (max-width: 60rem) {
+  /* Shrinking the window was the wrong lever -- it dodged the "fade
+     lands on a hard edge" problem by showing less content instead of
+     actually fixing the fade, and made the crop feel stingier than
+     intended. Sized up past the original 24rem instead; the fade
+     proportion (not the window height) is what has to carry the "smooth,
+     not abrupt" requirement, so it's kept generous below regardless of
+     how tall this box is. */
+  /* A ::after overlay was the wrong mechanism here -- pixel-sampled the
+     actual screenshot output (magick convert ... txt:-) and confirmed
+     it rendered as a hard 1px binary jump from the panel color straight
+     to black, not a gradient, regardless of how the gradient stops were
+     tuned. mask-image fades the window's OWN rendered pixels (text,
+     borders, everything) to transparent directly, revealing .hero's real
+     --ink background behind it -- no separate overlay element, no
+     stacking/z-index/clip interaction that overlay approach kept
+     breaking on. Verified this one by sampling actual output pixels
+     across the transition, not just trusting the CSS. */
+  .hero-control-frame-window {
+    -webkit-mask-image: linear-gradient(180deg, black, black 55%, transparent);
+    mask-image: linear-gradient(180deg, black, black 55%, transparent);
+    max-height: 28rem;
+    overflow: hidden;
+  }
+}
 
 /* Instrument corner ticks: calibration marks borrowed from real diagnostic
    equipment, not a rounded card. Two pseudo-elements cover the diagonal
@@ -241,6 +305,27 @@ img { max-width: 100%; }
 .control-frame::after, .demo-reel::after, .collision-lab::after, .trust-chain::after { border-bottom: 2px solid var(--cyan); border-right: 2px solid var(--cyan); bottom: -1px; right: -1px; }
 
 .statement { background: var(--ink); color: var(--text); padding: clamp(6rem, 10vw, 10rem) var(--gutter); }
+/* .statement's own bottom padding + .control's own top padding is the
+   same clamp(6-10rem)+clamp(7-11rem) every other section-to-section
+   transition on the page uses -- consistent site-wide, but the two
+   biggest paddings on the page landing back-to-back (now that .control
+   follows .statement directly instead of .relay) reads as an unusually
+   large gap in THIS specific pairing. Scoped down to just this adjacency
+   with :has()/+ rather than shrinking either section's own base padding
+   (which every other section-to-section transition still relies on) --
+   reused clamp(4rem, 7vw, 7rem), the same "related content" spacing
+   .control-frame's own margin-top already uses elsewhere on this page,
+   so the tighter gap still reads as an intentional site value, not an
+   arbitrary one-off number. */
+.statement:has(+ .control) { padding-bottom: clamp(4rem, 7vw, 7rem); }
+.statement + .control { padding-top: clamp(4rem, 7vw, 7rem); }
+/* Same adjacency-scoped tightening as above, for .hero -> .statement (the
+   hero's own fixed 5rem bottom padding + .statement's own top padding
+   otherwise stack into the same oversized gap, most visible on mobile
+   where the cropped TUI window already ends abruptly -- the extra void
+   after it read as broken rather than intentional). */
+.hero:has(+ .statement) { padding-bottom: clamp(3rem, 6vw, 5rem); }
+.hero + .statement { padding-top: clamp(3rem, 6vw, 5rem); }
 .statement p { font-family: var(--display); font-size: clamp(3rem, 7.7vw, 8.7rem); font-weight: 560; letter-spacing: -0.07em; line-height: 0.88; margin: 0; }
 .statement p + p { margin-left: 7vw; margin-top: 0.18em; }
 .statement em { color: var(--steel); font-style: normal; position: relative; text-decoration: line-through; text-decoration-thickness: 0.07em; }
@@ -671,8 +756,7 @@ img { max-width: 100%; }
 .motion-ready .hero h1 > span,
 .motion-ready .hero h1 > strong,
 .motion-ready .hero-summary,
-.motion-ready .hero-actions,
-.motion-ready .hero-foot > * {
+.motion-ready .hero-actions {
   transition-duration: var(--motion-slow);
   transition-property: clip-path, opacity, transform;
   transition-timing-function: var(--ease-authority);
@@ -683,7 +767,6 @@ img { max-width: 100%; }
 .motion-ready .hero:not(.is-revealed) h1 > strong { clip-path: inset(0 0 100% 0); opacity: 0; transform: translateY(1.5rem); }
 .motion-ready .hero:not(.is-revealed) .hero-summary,
 .motion-ready .hero:not(.is-revealed) .hero-actions { opacity: 0; transform: translateY(1.5rem); }
-.motion-ready .hero:not(.is-revealed) .hero-foot > * { opacity: 0; transform: translateY(0.8rem); }
 .motion-ready .hero.is-revealed h1 > span:nth-child(2) { transform: rotate(-1deg); }
 .motion-ready .hero.is-revealed .hero-kicker { transition-delay: calc(var(--motion-stagger) * 1); }
 .motion-ready .hero.is-revealed h1 > span:first-child { transition-delay: calc(var(--motion-stagger) * 2); }
@@ -691,10 +774,6 @@ img { max-width: 100%; }
 .motion-ready .hero.is-revealed h1 > strong { transition-delay: calc(var(--motion-stagger) * 4); }
 .motion-ready .hero.is-revealed .hero-summary { transition-delay: calc(var(--motion-stagger) * 5); }
 .motion-ready .hero.is-revealed .hero-actions { transition-delay: calc(var(--motion-stagger) * 6); }
-.motion-ready .hero.is-revealed .hero-foot > :nth-child(1) { transition-delay: calc(var(--motion-stagger) * 7); }
-.motion-ready .hero.is-revealed .hero-foot > :nth-child(2) { transition-delay: calc(var(--motion-stagger) * 8); }
-.motion-ready .hero.is-revealed .hero-foot > :nth-child(3) { transition-delay: calc(var(--motion-stagger) * 9); }
-.motion-ready .hero.is-revealed .hero-foot > :nth-child(4) { transition-delay: calc(var(--motion-stagger) * 10); }
 
 .motion-ready .statement p {
   transition: clip-path var(--motion-slow) var(--ease-authority), transform var(--motion-slow) var(--ease-authority);
@@ -1376,8 +1455,6 @@ img { max-width: 100%; }
   .hero-summary { font-size: 0.91rem; }
   .hero-actions { align-items: stretch; flex-direction: column; }
   .action { justify-content: space-between; }
-  .hero-foot { align-items: flex-start; bottom: 1.2rem; flex-wrap: wrap; gap: 0.6rem 1rem; }
-  .hero-foot strong { margin-left: 0; width: 100%; }
   .authority-stream-window { height: 18rem; }
   .motion-ready .hero:not(.is-revealed) .hero-kicker,
   .motion-ready .hero:not(.is-revealed) .hero-summary,
