@@ -56,8 +56,9 @@ func (c *cli) artifactCmd() *cobra.Command {
 		if c.json {
 			return c.emit("artifact.verify", result)
 		}
-		return (cliui.Presenter{Out: c.out, Mode: cliui.Mode(c.output)}).Render(cliui.Document{
-			Title: "Artifact verified",
+		return (cliui.Presenter{Out: c.out, Mode: cliui.Mode(c.output), Capabilities: cliui.DetectCapabilities(c.out, c.noColor)}).Render(cliui.Document{
+			Title:  "Artifact verified",
+			Status: cliui.StatusSuccess,
 			Fields: []cliui.Field{
 				{Label: "SHA-256", Value: hash},
 				{Label: "Size", Value: fmt.Sprintf("%d bytes", len(b))},

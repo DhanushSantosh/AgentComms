@@ -24,18 +24,42 @@ type Field struct {
 	Value string
 }
 
+// Status gives a result semantic meaning without coupling commands to colors
+// or terminal glyphs.
+type Status string
+
+const (
+	StatusNone    Status = ""
+	StatusSuccess Status = "success"
+	StatusInfo    Status = "info"
+	StatusWarning Status = "warning"
+	StatusDanger  Status = "danger"
+)
+
+// Capabilities describes presentation features supported by the destination.
+// Commands do not infer these themselves, which keeps rendering deterministic
+// in tests and consistent across the CLI.
+type Capabilities struct {
+	Interactive bool
+	Color       bool
+	Unicode     bool
+	Width       int
+}
+
 // Document is the smallest semantic result rendered by Presenter. Richer
 // result shapes build on this contract rather than printing backend objects.
 type Document struct {
 	Title  string
+	Status Status
 	Fields []Field
 }
 
 // Presenter owns terminal-facing result rendering. Serialization of the
 // stable JSON envelope remains in internal/app.
 type Presenter struct {
-	Out  io.Writer
-	Mode Mode
+	Out          io.Writer
+	Mode         Mode
+	Capabilities Capabilities
 }
 
 // Render writes a bounded semantic document in human or plain mode.
@@ -46,7 +70,14 @@ func (p Presenter) Render(document Document) error {
 	if p.Mode != ModeHuman && p.Mode != ModePlain {
 		return fmt.Errorf("CLI presenter cannot render mode %q", p.Mode)
 	}
-	if _, err := fmt.Fprintln(p.Out, safeText(document.Title)); err != nil {
+	title := safeText(document.Title)
+	if p.Mode == ModeHuman && p.Capabilities.Interactive {
+		title = statusPrefix(document.Status, p.Capabilities.Unicode) + title
+		if p.Capabilities.Color {
+			title = statusStyle(document.Status) + "\x1b[1m" + title + "\x1b[0m"
+		}
+	}
+	if _, err := fmt.Fprintln(p.Out, title); err != nil {
 		return err
 	}
 	if len(document.Fields) == 0 {
@@ -70,6 +101,47 @@ func (p Presenter) Render(document Document) error {
 		}
 	}
 	return nil
+}
+
+func statusPrefix(status Status, unicode bool) string {
+	if status == StatusNone {
+		return ""
+	}
+	if !unicode {
+		switch status {
+		case StatusSuccess:
+			return "[ok] "
+		case StatusWarning:
+			return "[!] "
+		case StatusDanger:
+			return "[x] "
+		default:
+			return "[i] "
+		}
+	}
+	switch status {
+	case StatusSuccess:
+		return "✓ "
+	case StatusWarning:
+		return "▲ "
+	case StatusDanger:
+		return "✕ "
+	default:
+		return "◆ "
+	}
+}
+
+func statusStyle(status Status) string {
+	switch status {
+	case StatusSuccess:
+		return "\x1b[32m"
+	case StatusWarning:
+		return "\x1b[33m"
+	case StatusDanger:
+		return "\x1b[31m"
+	default:
+		return "\x1b[36m"
+	}
 }
 
 func safeText(value string) string {

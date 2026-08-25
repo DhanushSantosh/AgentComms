@@ -497,8 +497,9 @@ func (c *cli) versionCmd() *cobra.Command {
 		if mode == "" {
 			mode = cliui.ModeHuman
 		}
-		return (cliui.Presenter{Out: c.out, Mode: mode}).Render(cliui.Document{
-			Title: "Agent Comms",
+		return (cliui.Presenter{Out: c.out, Mode: mode, Capabilities: cliui.DetectCapabilities(c.out, c.noColor)}).Render(cliui.Document{
+			Title:  "Agent Comms",
+			Status: cliui.StatusInfo,
 			Fields: []cliui.Field{
 				{Label: "Version", Value: Version},
 				{Label: "Build", Value: buildinfo.ResolvedBuildID()},
