@@ -17,10 +17,9 @@ export const metadata: Metadata = {
     type: "website",
     title: pageTitle,
     description: pageDescription,
-    url: "/license",
-    images: [{ url: "/social-card.svg", width: 1200, height: 630, alt: pageTitle }]
+    url: "/license"
   },
-  twitter: { card: "summary_large_image", title: pageTitle, description: pageDescription, images: ["/social-card.svg"] }
+  twitter: { card: "summary_large_image", title: pageTitle, description: pageDescription }
 };
 
 const permissions = ["Commercial use", "Modification", "Distribution", "Patent use", "Private use"];

@@ -9,7 +9,12 @@ if (!productVersion) {
 export const site = {
   documentationUrl: process.env.NEXT_PUBLIC_DOCS_URL ?? fallbackDocumentationUrl,
   marketingSiteUrl: process.env.NEXT_PUBLIC_SITE_URL ?? fallbackMarketingSiteUrl,
-  productVersion
+  productVersion,
+  // Shared with sites/landing/src/lib/downloads.ts's own copy -- kept here
+  // too since RFC 0021's structured data (Organization/SoftwareApplication
+  // JSON-LD) needs it independent of the download-page-specific data that
+  // module builds around it.
+  repositoryUrl: "https://github.com/DhanushSantosh/AgentComms"
 } as const;
 
 export function documentationPage(path: string): string {
