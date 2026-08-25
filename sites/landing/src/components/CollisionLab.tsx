@@ -19,10 +19,10 @@ export function CollisionLab() {
             <span>T+18:42</span>
           </div>
 
-          {/* Axiom Track */}
+          {/* Reviewer Track */}
           <div className="agent-track track-pos-1">
             <div className="track-agent-info">
-              <span className="track-agent track-agent--axiom">AXIOM</span>
+              <span className="track-agent track-agent--reviewer">REVIEWER</span>
               <small className="track-file">auth/session.ts<br/>changes</small>
             </div>
             
@@ -37,10 +37,10 @@ export function CollisionLab() {
             </motion.div>
           </div>
 
-          {/* Damon Track */}
+          {/* Developer Track */}
           <div className="agent-track track-pos-2">
             <div className="track-agent-info">
-              <span className="track-agent track-agent--damon">DAMON</span>
+              <span className="track-agent track-agent--developer">DEVELOPER</span>
               <small className="track-file">auth/session.ts<br/>changes</small>
             </div>
             
@@ -87,10 +87,10 @@ export function CollisionLab() {
             <span>T+01:12</span>
           </div>
 
-          {/* Axiom Track */}
+          {/* Reviewer Track */}
           <div className="agent-track track-pos-1">
             <div className="track-agent-info">
-              <span className="track-agent track-agent--axiom">AXIOM</span>
+              <span className="track-agent track-agent--reviewer">REVIEWER</span>
               <small className="track-file">auth/session.ts<br/>changes</small>
             </div>
             
@@ -116,15 +116,15 @@ export function CollisionLab() {
               <div className="lease-details">
                 <span className="text-cyan">SCOPE LEASE GRANTED</span>
                 <strong>auth/session</strong>
-                <small>AXIOM · T+00:12</small>
+                <small>REVIEWER · T+00:12</small>
               </div>
             </motion.div>
           </div>
 
-          {/* Damon Track */}
+          {/* Developer Track */}
           <div className="agent-track track-pos-2">
             <div className="track-agent-info">
-              <span className="track-agent track-agent--damon">DAMON</span>
+              <span className="track-agent track-agent--developer">DEVELOPER</span>
               <small className="track-file">test/auth.ts<br/>changes</small>
             </div>
             
@@ -150,7 +150,7 @@ export function CollisionLab() {
               <div className="lease-details">
                 <span className="text-steel">ALTERNATE TASK ASSIGNED</span>
                 <strong>test/auth</strong>
-                <small>DAMON · T+00:13</small>
+                <small>DEVELOPER · T+00:13</small>
               </div>
             </motion.div>
           </div>

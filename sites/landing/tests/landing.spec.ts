@@ -136,7 +136,7 @@ test("launches the real TUI in the control room and can act on the seeded approv
   // the sidebar and the Command hub's tab strip entirely (confirmed
   // empirically: at Pixel 7's 412x839 viewport the rendered terminal ends
   // up ~372x358px, and its text contains neither "Command" nor
-  // "Approvals" nor "AXIOM" once layout and xterm's resize settle) --
+  // "Approvals" nor "reviewer" once layout and xterm's resize settle) --
   // exactly the same real, content-driven responsive behavior a physical
   // terminal app would show in that little space, not a bug to route
   // around. Desktop already exercises the identical WASM binary and key
@@ -160,14 +160,14 @@ test("launches the real TUI in the control room and can act on the seeded approv
   await expect(terminal.locator(".xterm-rows")).toBeVisible({ timeout: 20_000 });
 
   // Real seeded content from cmd/agent-comms-tui-wasm/seed.go, not
-  // decorative: AXIOM is one of the three demo agents the workforce table
-  // renders, and "Approvals" is the Command hub's fourth tab label,
+  // decorative: reviewer is one of the three demo agents the workforce
+  // table renders, and "Approvals" is the Command hub's fourth tab label,
   // visible on the very first (Overview) screen before any navigation.
-  // Scoped to the terminal: "AXIOM"/"Approvals" both also appear
+  // Scoped to the terminal: "reviewer"/"Approvals" both also appear
   // elsewhere on the static landing page (the walkthrough reel, the mode
   // map, ...), so an unscoped getByText is ambiguous -- this is real
   // xterm.js DOM content, not the surrounding marketing page.
-  await expect(terminal.getByText("AXIOM", { exact: false }).first()).toBeVisible({ timeout: 20_000 });
+  await expect(terminal.getByText("reviewer", { exact: false }).first()).toBeVisible({ timeout: 20_000 });
   await expect(terminal.getByText("Approvals", { exact: false }).first()).toBeVisible();
 
   // Drive the real keybinding into the seeded Approvals row list and
@@ -182,7 +182,7 @@ test("launches the real TUI in the control room and can act on the seeded approv
   // a screenshot of the real render -- asserting a prefix that survives
   // truncation is more robust than assuming the full word always fits.
   await expect(terminal.getByText(/PEND/i).first()).toBeVisible();
-  await expect(terminal.getByText("agent.activate:AXIOM", { exact: false }).first()).toBeVisible();
+  await expect(terminal.getByText("agent.activate:reviewer", { exact: false }).first()).toBeVisible();
 
   // Reject the seeded approval (key "x") -- a real, signed, terminal state
   // transition (approvals.go's appReject -> approval.reject), not a

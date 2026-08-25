@@ -347,7 +347,7 @@ function playRelaySequence(relay) {
   setText(relay, "[data-relay-outcome]", "Bounded request committed.");
   scheduleFeatureSteps(relay, [
     { delay: 1_100, run: () => { relay.dataset.relayState = "delivered"; setText(relay, "[data-relay-outcome]", "Transport evidenced. The target has not acknowledged yet."); } },
-    { delay: 3_200, run: () => { relay.dataset.relayState = "claimed"; setText(relay, "[data-relay-outcome]", "GORGE acknowledged the obligation and started work."); } },
+    { delay: 3_200, run: () => { relay.dataset.relayState = "claimed"; setText(relay, "[data-relay-outcome]", "TESTER acknowledged the obligation and started work."); } },
     { delay: 5_500, run: () => { relay.dataset.relayState = "completed"; setText(relay, "[data-relay-outcome]", "Result returned and committed: 24 / 24 auth tests pass."); } }
   ]);
 }
@@ -384,7 +384,7 @@ function approveControlItem(frame) {
   const event = frame.querySelector("[data-control-event]");
   setText(event, "b", "approval.approve");
   setText(event, "em", "OWNER · elevated");
-  setText(frame, "[data-control-outcome]", "Human approval committed. AXIOM is now ORCHESTRATOR · seq 0147.");
+  setText(frame, "[data-control-outcome]", "Human approval committed. \"reviewer\" is now ORCHESTRATOR · seq 0147.");
   setControlDetail(frame, false);
 }
 

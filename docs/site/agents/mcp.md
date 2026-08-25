@@ -19,7 +19,7 @@ Use the equivalent fields supported by your MCP client:
   "mcpServers": {
     "agent-comms": {
       "command": "agent-comms",
-      "args": ["--project", "/absolute/project/path", "--actor", "DAMON", "mcp"]
+      "args": ["--project", "/absolute/project/path", "--actor", "<agent-id>", "mcp"]
     }
   }
 }

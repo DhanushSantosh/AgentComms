@@ -5,8 +5,8 @@ import "testing"
 // TestSeedDemoProjectLeavesAPendingApprovalAndInvocation proves
 // seedDemoProject drives real state -- not mocked -- into the in-process
 // demo service: a pending HUMAN-tier approval and enough seeded agents to
-// match the AXIOM/DAMON/GORGE story, read back via a real service.State()
-// call through the in-process daemon.
+// match the reviewer/developer/tester story, read back via
+// a real service.State() call through the in-process daemon.
 func TestSeedDemoProjectLeavesAPendingApprovalAndInvocation(t *testing.T) {
 	svc, err := bootstrapDemoService()
 	if err != nil {
@@ -30,9 +30,9 @@ func TestSeedDemoProjectLeavesAPendingApprovalAndInvocation(t *testing.T) {
 		t.Error("expected the seeded demo to leave a pending approval for the visitor to resolve")
 	}
 
-	// AXIOM, DAMON, GORGE, plus the owner itself.
+	// reviewer, developer, tester, plus the owner itself.
 	if len(state.Agents) < 4 {
-		t.Errorf("expected at least 4 seeded agents (owner + AXIOM/DAMON/GORGE), got %d", len(state.Agents))
+		t.Errorf("expected at least 4 seeded agents (owner + reviewer/developer/tester), got %d", len(state.Agents))
 	}
 
 	foundActiveInvocation := false
@@ -45,24 +45,24 @@ func TestSeedDemoProjectLeavesAPendingApprovalAndInvocation(t *testing.T) {
 		t.Error("expected the seeded demo to leave a running invocation for the visitor to act on")
 	}
 
-	axiom, ok := state.Agents["AXIOM"]
-	if !ok || string(axiom.Role) != "Release-Coordinator" {
-		t.Errorf("expected AXIOM to be activated as Release-Coordinator, got %+v", axiom)
+	reviewer, ok := state.Agents["reviewer"]
+	if !ok || string(reviewer.Role) != "Release-Coordinator" {
+		t.Errorf("expected reviewer to be activated as Release-Coordinator, got %+v", reviewer)
 	}
-	damon, ok := state.Agents["DAMON"]
-	if !ok || string(damon.Role) != "Frontend-Architect" {
-		t.Errorf("expected DAMON to have switched to Frontend-Architect, got %+v", damon)
+	developer, ok := state.Agents["developer"]
+	if !ok || string(developer.Role) != "Frontend-Architect" {
+		t.Errorf("expected developer to have switched to Frontend-Architect, got %+v", developer)
 	}
-	gorge, ok := state.Agents["GORGE"]
-	if !ok || string(gorge.Role) != "Tester" {
-		t.Errorf("expected GORGE to be activated as Tester, got %+v", gorge)
+	tester, ok := state.Agents["tester"]
+	if !ok || string(tester.Role) != "Tester" {
+		t.Errorf("expected tester to be activated as Tester, got %+v", tester)
 	}
-	if _, online := state.AgentRuntimes["gorge-runtime-1"]; online {
-		t.Error("expected GORGE to have no registered runtime (stays offline)")
+	if _, online := state.AgentRuntimes["tester-runtime-1"]; online {
+		t.Error("expected tester to have no registered runtime (stays offline)")
 	}
 
 	task, ok := state.Tasks["task-auth-session"]
-	if !ok || task.Owner != "DAMON" {
-		t.Errorf("expected DAMON to have claimed the test/auth task, got %+v", task)
+	if !ok || task.Owner != "developer" {
+		t.Errorf("expected developer to have claimed the test/auth task, got %+v", task)
 	}
 }

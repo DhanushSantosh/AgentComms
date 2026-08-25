@@ -31,24 +31,24 @@ resuming a session you aren't certain has already finished.
 ## Codex
 
 ```sh
-agent-comms --actor DAMON runtime interactive-serve \
-  --id DAMON \
+agent-comms --actor <agent-id> runtime interactive-serve \
+  --id <agent-id> \
   -- codex resume --last
 ```
 
 ## OpenCode
 
 ```sh
-agent-comms --actor GORGE runtime interactive-serve \
-  --id GORGE \
+agent-comms --actor <agent-id> runtime interactive-serve \
+  --id <agent-id> \
   -- opencode
 ```
 
 ## Claude Code
 
 ```sh
-agent-comms --actor AXIOM runtime interactive-serve \
-  --id AXIOM \
+agent-comms --actor <agent-id> runtime interactive-serve \
+  --id <agent-id> \
   --claude-allow-agent-comms \
   -- claude --continue
 ```
@@ -60,8 +60,8 @@ The `--` separator is required. Everything after it belongs to the wrapped provi
 If an existing runtime has the wrong kind or connector, stop it and apply the exact `doctor` repair while it is offline:
 
 ```sh
-agent-comms --actor DAMON runtime configure \
-  --id DAMON \
+agent-comms --actor <agent-id> runtime configure \
+  --id <agent-id> \
   --kind INTERACTIVE \
   --connector INTERACTIVE \
   --max-concurrent 1

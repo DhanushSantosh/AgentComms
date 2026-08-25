@@ -8,37 +8,48 @@ import (
 	"github.com/DhanushSantosh/AgentComms/internal/service"
 )
 
-// The AXIOM/DAMON/GORGE demo agents and the story they tell, reproduced
-// through real service.Execute transition calls -- not hand-authored
-// fixtures -- matching sites/landing/src/components/ControlRoomFrame.tsx's
-// workforce/activity arrays:
+// The reviewer/developer/tester demo agents and the story they tell,
+// reproduced through real service.Execute transition calls -- not
+// hand-authored fixtures -- matching
+// sites/landing/src/components/ControlRoomFrame.tsx's workforce/activity
+// arrays. These are generic, role-descriptive identities (not a real
+// project's actual agent names) deliberately, so nothing here reads as a
+// canonical or reserved example id -- docs/site's own CLI examples use
+// placeholder tokens for the same reason. Kept short on purpose:
+// internal/tui/model.go's real workforce table truncates the AGENT column
+// to 13 characters (see workforce()'s `truncate(name, 13)`), a genuine
+// constraint any real user's agent ids are already subject to -- "reviewer"/
+// "developer"/"tester" all render in full, unlike the "agent-"-prefixed
+// forms first tried here, which got cut to "agent-develo…" mid-word.
 //
-//   - AXIOM (Release-Coordinator): online, an active runtime, mid-invocation
-//     from owner, and requesting its own HUMAN-tier ORCHESTRATOR approval --
-//     left PENDING for a live visitor to approve or reject.
-//   - DAMON (Frontend-Architect): online, an active runtime, self-switched
-//     into its role, and holding a claimed task (test/auth).
-//   - GORGE (Tester): registered and activated, but never given a runtime --
-//     shows up OFFLINE, exactly as the landing page's static story has it.
+//   - reviewer (Release-Coordinator): online, an active runtime,
+//     mid-invocation from owner, and requesting its own HUMAN-tier
+//     ORCHESTRATOR approval -- left PENDING for a live visitor to approve or
+//     reject.
+//   - developer (Frontend-Architect): online, an active runtime,
+//     self-switched into its role, and holding a claimed task (test/auth).
+//   - tester (Tester): registered and activated, but never given a
+//     runtime -- shows up OFFLINE, exactly as the landing page's static
+//     story has it.
 const (
-	agentAxiom = "AXIOM"
-	agentDamon = "DAMON"
-	agentGorge = "GORGE"
+	agentReviewer  = "reviewer"
+	agentDeveloper = "developer"
+	agentTester    = "tester"
 
-	axiomRuntimeID = "axiom-runtime-1"
-	damonRuntimeID = "damon-runtime-1"
+	reviewerRuntimeID  = "reviewer-runtime-1"
+	developerRuntimeID = "developer-runtime-1"
 
 	authTaskID          = "task-auth-session"
-	pendingInvocationID = "inv-axiom-release"
-	pendingApprovalID   = "approval-orchestrator-axiom"
-	gorgeMessageID      = "msg-axiom-gorge"
+	pendingInvocationID = "inv-release-coordination"
+	pendingApprovalID   = "approval-orchestrator-reviewer"
+	reviewMessageID     = "msg-reviewer-tester"
 )
 
-// seedDemoProject drives the AXIOM/DAMON/GORGE story into s through real
-// Execute/Register calls, in narrative order, and returns the first error
-// encountered -- a broken seed should never silently produce a half-empty
-// demo. Leaves one HUMAN-tier approval and one invocation genuinely pending
-// so a live visitor has something real to act on.
+// seedDemoProject drives the reviewer/developer/tester story into s through
+// real Execute/Register calls, in narrative order, and returns the first
+// error encountered -- a broken seed should never silently produce a
+// half-empty demo. Leaves one HUMAN-tier approval and one invocation
+// genuinely pending so a live visitor has something real to act on.
 func seedDemoProject(s *service.Service) error {
 	if err := seedAgents(s); err != nil {
 		return fmt.Errorf("seed agents: %w", err)
@@ -64,33 +75,33 @@ func seedDemoProject(s *service.Service) error {
 	return nil
 }
 
-// seedAgents registers and activates AXIOM, DAMON, and GORGE. DAMON is
-// activated under a placeholder role here -- seedActivityPrelude switches it
-// to its real "Frontend-Architect" label, mirroring
+// seedAgents registers and activates reviewer, developer, and tester.
+// developer is activated under a placeholder role here -- seedActivityPrelude
+// switches it to its real "Frontend-Architect" label, mirroring
 // ControlRoomFrame.tsx's activity seq 0142 (agent.switch-role).
 func seedAgents(s *service.Service) error {
-	if _, err := s.Register(agentAxiom, agentAxiom, model.PrincipalAgent); err != nil {
+	if _, err := s.Register(agentReviewer, agentReviewer, model.PrincipalAgent); err != nil {
 		return err
 	}
-	if _, err := s.Execute(demoOwner, "agent.activate", agentAxiom, model.AgentActivated{
+	if _, err := s.Execute(demoOwner, "agent.activate", agentReviewer, model.AgentActivated{
 		Role: model.Role("Release-Coordinator"), Capabilities: []string{"*"}, Scopes: []string{"*"},
 	}); err != nil {
 		return err
 	}
 
-	if _, err := s.Register(agentDamon, agentDamon, model.PrincipalAgent); err != nil {
+	if _, err := s.Register(agentDeveloper, agentDeveloper, model.PrincipalAgent); err != nil {
 		return err
 	}
-	if _, err := s.Execute(demoOwner, "agent.activate", agentDamon, model.AgentActivated{
+	if _, err := s.Execute(demoOwner, "agent.activate", agentDeveloper, model.AgentActivated{
 		Role: model.Role("MEMBER"), Capabilities: []string{"*"}, Scopes: []string{"*"},
 	}); err != nil {
 		return err
 	}
 
-	if _, err := s.Register(agentGorge, agentGorge, model.PrincipalAgent); err != nil {
+	if _, err := s.Register(agentTester, agentTester, model.PrincipalAgent); err != nil {
 		return err
 	}
-	if _, err := s.Execute(demoOwner, "agent.activate", agentGorge, model.AgentActivated{
+	if _, err := s.Execute(demoOwner, "agent.activate", agentTester, model.AgentActivated{
 		Role: model.Role("Tester"), Capabilities: []string{"*"}, Scopes: []string{"*"},
 	}); err != nil {
 		return err
@@ -98,13 +109,14 @@ func seedAgents(s *service.Service) error {
 	return nil
 }
 
-// seedRuntimes registers an ONLINE, healthy runtime for AXIOM and DAMON
-// only -- GORGE stays offline/unregistered as a runtime, per the story.
+// seedRuntimes registers an ONLINE, healthy runtime for reviewer and
+// developer only -- tester stays offline/unregistered as a runtime, per the
+// story.
 func seedRuntimes(s *service.Service) error {
-	if err := seedOnlineRuntime(s, agentAxiom, axiomRuntimeID, 2); err != nil {
+	if err := seedOnlineRuntime(s, agentReviewer, reviewerRuntimeID, 2); err != nil {
 		return err
 	}
-	return seedOnlineRuntime(s, agentDamon, damonRuntimeID, 1)
+	return seedOnlineRuntime(s, agentDeveloper, developerRuntimeID, 1)
 }
 
 func seedOnlineRuntime(s *service.Service, agentID, runtimeID string, maxConcurrent int) error {
@@ -117,7 +129,7 @@ func seedOnlineRuntime(s *service.Service, agentID, runtimeID string, maxConcurr
 	return err
 }
 
-// seedTaskHandoff creates the test/auth task and has DAMON claim it,
+// seedTaskHandoff creates the test/auth task and has developer claim it,
 // matching the workforce table's "test/auth" current-work entry.
 func seedTaskHandoff(s *service.Service) error {
 	if _, err := s.Execute(demoOwner, "task.create", authTaskID, model.TaskCreated{
@@ -126,63 +138,64 @@ func seedTaskHandoff(s *service.Service) error {
 	}); err != nil {
 		return err
 	}
-	_, err := s.Execute(agentDamon, "task.claim", authTaskID, model.TaskClaimed{})
+	_, err := s.Execute(agentDeveloper, "task.claim", authTaskID, model.TaskClaimed{})
 	return err
 }
 
-// seedActivityPrelude switches DAMON into its real "Frontend-Architect"
+// seedActivityPrelude switches developer into its real "Frontend-Architect"
 // label -- ControlRoomFrame.tsx's activity seq 0142 (agent.switch-role,
-// actor "DAMON · OWNER").
+// actor "developer · OWNER").
 func seedActivityPrelude(s *service.Service) error {
-	_, err := s.Execute(agentDamon, "agent.switch-role", agentDamon, model.AgentRoleSwitched{
+	_, err := s.Execute(agentDeveloper, "agent.switch-role", agentDeveloper, model.AgentRoleSwitched{
 		Role: model.Role("Frontend-Architect"),
 	})
 	return err
 }
 
-// seedPendingInvocation drives owner -> AXIOM through
+// seedPendingInvocation drives owner -> reviewer through
 // invocation.request/claim/start, mirroring ControlRoomFrame.tsx's activity
 // seq 0144-0147, and deliberately stops there: invocation.complete is never
 // called, leaving a real RUNNING invocation a live visitor can still act on.
 func seedPendingInvocation(s *service.Service) error {
 	if _, err := s.Execute(demoOwner, "invocation.request", pendingInvocationID, model.InvocationRequested{
-		Target: agentAxiom, Instruction: "Coordinate the auth-session release",
+		Target: agentReviewer, Instruction: "Coordinate the auth-session release",
 		ExpectedResult: "Confirm auth/session is ready to ship", Priority: "HIGH",
 	}); err != nil {
 		return err
 	}
-	if _, err := s.Execute(agentAxiom, "invocation.claim", pendingInvocationID, model.InvocationClaimed{
-		RuntimeID: axiomRuntimeID,
+	if _, err := s.Execute(agentReviewer, "invocation.claim", pendingInvocationID, model.InvocationClaimed{
+		RuntimeID: reviewerRuntimeID,
 	}); err != nil {
 		return err
 	}
-	_, err := s.Execute(agentAxiom, "invocation.start", pendingInvocationID, model.InvocationProgress{
+	_, err := s.Execute(agentReviewer, "invocation.start", pendingInvocationID, model.InvocationProgress{
 		Summary: "Coordinating the auth/session release",
 	})
 	return err
 }
 
-// seedPendingApproval has AXIOM request the exact HUMAN-tier approval
-// protocol.OrchestratorGrantApprovalAction expects for its own
-// ORCHESTRATOR grant, matching ControlRoomFrame.tsx's attention panel
-// (REQUESTER AXIOM, ACTION agent.activate:AXIOM, ROLE ORCHESTRATOR, REASON
+// seedPendingApproval has reviewer request the exact HUMAN-tier approval
+// protocol.OrchestratorGrantApprovalAction expects for its own ORCHESTRATOR
+// grant, matching ControlRoomFrame.tsx's attention panel (REQUESTER
+// reviewer, ACTION agent.activate:reviewer, ROLE ORCHESTRATOR, REASON
 // "Coordinate the auth-session release"). Left PENDING -- approval.approve
 // is never called here, so a live visitor has a real decision to make.
 func seedPendingApproval(s *service.Service) error {
-	_, err := s.Execute(agentAxiom, "approval.request", pendingApprovalID, model.ApprovalRequested{
-		Tier: "HUMAN", Action: protocol.OrchestratorGrantApprovalAction(agentAxiom),
+	_, err := s.Execute(agentReviewer, "approval.request", pendingApprovalID, model.ApprovalRequested{
+		Tier: "HUMAN", Action: protocol.OrchestratorGrantApprovalAction(agentReviewer),
 		Reason: "Coordinate the auth-session release",
 	})
 	return err
 }
 
-// seedMessage posts AXIOM's FYI to GORGE, the real-transition equivalent of
-// ControlRoomFrame.tsx's activity seq 0148 ("AXIOM → GORGE") -- there is no
-// "message.deliver" transition type in this codebase; message.post is the
-// real primitive a delivered message is built from.
+// seedMessage posts reviewer's FYI to tester, the real-transition
+// equivalent of ControlRoomFrame.tsx's activity seq 0148 ("reviewer →
+// tester") -- there is no "message.deliver" transition type in this
+// codebase; message.post is the real primitive a delivered message is built
+// from.
 func seedMessage(s *service.Service) error {
-	_, err := s.Execute(agentAxiom, "message.post", gorgeMessageID, model.MessagePosted{
-		Kind: "FYI", To: []string{agentGorge}, Subject: "Auth/session release coordination",
+	_, err := s.Execute(agentReviewer, "message.post", reviewMessageID, model.MessagePosted{
+		Kind: "FYI", To: []string{agentTester}, Subject: "Auth/session release coordination",
 		Body: "Flagging the auth/session release for your visibility once you're back online.",
 	})
 	return err

@@ -874,7 +874,7 @@ img { max-width: 100%; }
    the exchange -- message, evidence, claim -- replay their own arrival on
    one shared clock, so every cycle re-tells the real sequence in order:
    send, evidence captured one tick at a time, target receives, claim
-   stamps in. DAMON and GORGE's cards are the constant scene and never
+   stamps in. DEVELOPER and TESTER's cards are the constant scene and never
    hide; only the event between them repeats. */
 .relay-evidence i { background: color-mix(in srgb, var(--text) 20%, transparent); transform-origin: left; }
 .motion-ready .relay.is-active .relay-message { animation: relay-message-in var(--motion-loop-long) var(--ease-authority) infinite; }
