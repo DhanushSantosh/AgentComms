@@ -4,6 +4,7 @@ import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
 import { downloadRelease, installerMethods, nightlyBuild } from "@/lib/downloads";
 import { documentationPage, site } from "@/lib/site";
+import { softwareApplicationJsonLd } from "@/lib/structuredData";
 import styles from "./download.module.css";
 
 const pageTitle = `Install Agent Comms ${downloadRelease.tag}`;
@@ -17,10 +18,9 @@ export const metadata: Metadata = {
     type: "website",
     title: pageTitle,
     description: pageDescription,
-    url: "/download",
-    images: [{ url: "/social-card.svg", width: 1200, height: 630, alt: "Install Agent Comms" }]
+    url: "/download"
   },
-  twitter: { card: "summary_large_image", title: pageTitle, description: pageDescription, images: ["/social-card.svg"] }
+  twitter: { card: "summary_large_image", title: pageTitle, description: pageDescription }
 };
 
 const downloadNavItems = [
@@ -32,6 +32,10 @@ const downloadNavItems = [
 export default function DownloadPage() {
   return (
     <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(softwareApplicationJsonLd) }}
+      />
       <a className="skip-link" href="#installer">Skip to installer</a>
       <SiteHeader documentationUrl={site.documentationUrl} navItems={downloadNavItems} />
 

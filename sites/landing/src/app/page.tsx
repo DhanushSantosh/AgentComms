@@ -9,10 +9,15 @@ import { LifecycleOrbit } from "@/components/LifecycleOrbit";
 import { Reveal } from "@/components/Reveal";
 import { HeroWave } from "@/components/HeroWave";
 import { documentationPage, site } from "@/lib/site";
+import { softwareApplicationJsonLd } from "@/lib/structuredData";
 
 export default function HomePage() {
   return (
     <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(softwareApplicationJsonLd) }}
+      />
       <a className="skip-link" href="#main-content">Skip to content</a>
       <SiteHeader documentationUrl={site.documentationUrl} />
 

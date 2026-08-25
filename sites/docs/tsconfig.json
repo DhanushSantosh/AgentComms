@@ -5,7 +5,8 @@
     "paths": {
       "@components/*": ["src/components/*"],
       "@data/*": ["src/data/*"],
-      "@layouts/*": ["src/layouts/*"]
+      "@layouts/*": ["src/layouts/*"],
+      "@lib/*": ["src/lib/*"]
     },
     "resolveJsonModule": true
   },
