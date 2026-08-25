@@ -33,6 +33,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -87,6 +93,12 @@
           "usage": "never prompt",
           "default": "false",
           "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
         },
         {
           "name": "profile",
@@ -155,6 +167,12 @@
           "usage": "never prompt",
           "default": "false",
           "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
         },
         {
           "name": "profile",
@@ -231,6 +249,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -293,6 +317,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -347,6 +377,12 @@
           "usage": "never prompt",
           "default": "false",
           "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
         },
         {
           "name": "profile",
@@ -415,6 +451,12 @@
           "usage": "never prompt",
           "default": "false",
           "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
         },
         {
           "name": "principal-type",
@@ -491,6 +533,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -551,6 +599,12 @@
           "usage": "never prompt",
           "default": "false",
           "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
         },
         {
           "name": "profile",
@@ -615,6 +669,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -677,6 +737,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -731,6 +797,12 @@
           "usage": "never prompt",
           "default": "false",
           "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
         },
         {
           "name": "profile",
@@ -795,6 +867,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -849,6 +927,12 @@
           "usage": "never prompt",
           "default": "false",
           "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
         },
         {
           "name": "profile",
@@ -913,6 +997,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -967,6 +1057,12 @@
           "usage": "never prompt",
           "default": "false",
           "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
         },
         {
           "name": "profile",
@@ -1029,6 +1125,12 @@
           "usage": "never prompt",
           "default": "false",
           "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
         },
         {
           "name": "profile",
@@ -1105,6 +1207,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -1173,6 +1281,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -1229,6 +1343,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -1283,6 +1403,12 @@
           "usage": "never prompt",
           "default": "false",
           "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
         },
         {
           "name": "path",
@@ -1347,6 +1473,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -1407,6 +1539,12 @@
           "usage": "never prompt",
           "default": "false",
           "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
         },
         {
           "name": "profile",
@@ -1471,6 +1609,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -1525,6 +1669,12 @@
           "usage": "never prompt",
           "default": "false",
           "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
         },
         {
           "name": "profile",
@@ -1601,6 +1751,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -1661,6 +1817,12 @@
           "usage": "never prompt",
           "default": "false",
           "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
         },
         {
           "name": "profile",
@@ -1731,6 +1893,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -1785,6 +1953,12 @@
           "usage": "never prompt",
           "default": "false",
           "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
         },
         {
           "name": "profile",
@@ -1861,6 +2035,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -1915,6 +2095,12 @@
           "usage": "never prompt",
           "default": "false",
           "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
         },
         {
           "name": "profile",
@@ -1973,6 +2159,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -2027,6 +2219,12 @@
           "usage": "never prompt",
           "default": "false",
           "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
         },
         {
           "name": "profile",
@@ -2085,6 +2283,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -2139,6 +2343,12 @@
           "usage": "never prompt",
           "default": "false",
           "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
         },
         {
           "name": "profile",
@@ -2197,6 +2407,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -2251,6 +2467,12 @@
           "usage": "never prompt",
           "default": "false",
           "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
         },
         {
           "name": "profile",
@@ -2313,6 +2535,12 @@
           "usage": "never prompt",
           "default": "false",
           "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
         },
         {
           "name": "profile",
@@ -2401,6 +2629,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -2487,6 +2721,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -2541,6 +2781,12 @@
           "usage": "never prompt",
           "default": "false",
           "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
         },
         {
           "name": "profile",
@@ -2617,6 +2863,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -2685,6 +2937,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -2747,6 +3005,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -2807,6 +3071,12 @@
           "usage": "never prompt",
           "default": "false",
           "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
         },
         {
           "name": "profile",
@@ -2889,6 +3159,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -2957,6 +3233,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -3017,6 +3299,12 @@
           "usage": "never prompt",
           "default": "false",
           "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
         },
         {
           "name": "profile",
@@ -3099,6 +3387,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -3153,6 +3447,12 @@
           "usage": "never prompt",
           "default": "false",
           "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
         },
         {
           "name": "profile",
@@ -3217,6 +3517,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -3279,6 +3585,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -3333,6 +3645,12 @@
           "usage": "never prompt",
           "default": "false",
           "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
         },
         {
           "name": "profile",
@@ -3395,6 +3713,12 @@
           "usage": "never prompt",
           "default": "false",
           "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
         },
         {
           "name": "profile",
@@ -3540,6 +3864,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -3612,6 +3942,12 @@
           "usage": "never prompt",
           "default": "false",
           "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
         },
         {
           "name": "owner",
@@ -3689,6 +4025,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -3749,6 +4091,12 @@
           "usage": "never prompt",
           "default": "false",
           "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
         },
         {
           "name": "profile",
@@ -3819,6 +4167,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -3885,6 +4239,12 @@
           "usage": "never prompt",
           "default": "false",
           "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
         },
         {
           "name": "profile",
@@ -3961,6 +4321,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -4029,6 +4395,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -4083,6 +4455,12 @@
           "usage": "never prompt",
           "default": "false",
           "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
         },
         {
           "name": "profile",
@@ -4159,6 +4537,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -4227,6 +4611,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -4287,6 +4677,12 @@
           "usage": "never prompt",
           "default": "false",
           "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
         },
         {
           "name": "profile",
@@ -4375,6 +4771,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -4455,6 +4857,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -4515,6 +4923,12 @@
           "usage": "never prompt",
           "default": "false",
           "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
         },
         {
           "name": "profile",
@@ -4583,6 +4997,12 @@
           "usage": "never prompt",
           "default": "false",
           "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
         },
         {
           "name": "profile",
@@ -4683,6 +5103,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "priority",
           "usage": "LOW, NORMAL, HIGH, or URGENT",
           "default": "NORMAL",
@@ -4775,6 +5201,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -4841,6 +5273,12 @@
           "usage": "never prompt",
           "default": "false",
           "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
         },
         {
           "name": "profile",
@@ -4911,6 +5349,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -4979,6 +5423,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -5033,6 +5483,12 @@
           "usage": "never prompt",
           "default": "false",
           "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
         },
         {
           "name": "profile",
@@ -5097,6 +5553,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -5157,6 +5619,12 @@
           "usage": "never prompt",
           "default": "false",
           "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
         },
         {
           "name": "profile",
@@ -5225,6 +5693,12 @@
           "usage": "never prompt",
           "default": "false",
           "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
         },
         {
           "name": "profile",
@@ -5313,6 +5787,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -5393,6 +5873,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -5455,6 +5941,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -5509,6 +6001,12 @@
           "usage": "never prompt",
           "default": "false",
           "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
         },
         {
           "name": "profile",
@@ -5567,6 +6065,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -5621,6 +6125,12 @@
           "usage": "never prompt",
           "default": "false",
           "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
         },
         {
           "name": "profile",
@@ -5685,6 +6195,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -5741,6 +6257,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -5795,6 +6317,12 @@
           "usage": "never prompt",
           "default": "false",
           "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
         },
         {
           "name": "profile",
@@ -5857,6 +6385,12 @@
           "usage": "never prompt",
           "default": "false",
           "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
         },
         {
           "name": "profile",
@@ -5928,6 +6462,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -5990,6 +6530,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -6044,6 +6590,12 @@
           "usage": "never prompt",
           "default": "false",
           "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
         },
         {
           "name": "profile",
@@ -6106,6 +6658,12 @@
           "usage": "never prompt",
           "default": "false",
           "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
         },
         {
           "name": "profile",
@@ -6200,6 +6758,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -6268,6 +6832,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -6334,6 +6904,12 @@
           "usage": "never prompt",
           "default": "false",
           "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
         },
         {
           "name": "profile",
@@ -6422,6 +6998,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -6496,6 +7078,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -6564,6 +7152,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -6618,6 +7212,12 @@
           "usage": "never prompt",
           "default": "false",
           "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
         },
         {
           "name": "profile",
@@ -6718,6 +7318,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -6784,6 +7390,12 @@
           "usage": "never prompt",
           "default": "false",
           "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
         },
         {
           "name": "profile",
@@ -6854,6 +7466,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -6920,6 +7538,12 @@
           "usage": "never prompt",
           "default": "false",
           "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
         },
         {
           "name": "profile",
@@ -6989,6 +7613,12 @@
           "usage": "never prompt",
           "default": "false",
           "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
         },
         {
           "name": "profile",
@@ -7131,6 +7761,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -7211,6 +7847,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -7265,6 +7907,12 @@
           "usage": "never prompt",
           "default": "false",
           "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
         },
         {
           "name": "profile",
@@ -7329,6 +7977,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -7383,6 +8037,12 @@
           "usage": "never prompt",
           "default": "false",
           "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
         },
         {
           "name": "profile",
@@ -7447,6 +8107,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -7503,6 +8169,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -7557,6 +8229,12 @@
           "usage": "never prompt",
           "default": "false",
           "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
         },
         {
           "name": "profile",
@@ -7619,6 +8297,12 @@
           "usage": "never prompt",
           "default": "false",
           "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
         },
         {
           "name": "profile",
@@ -7687,6 +8371,12 @@
           "usage": "never prompt",
           "default": "false",
           "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
         },
         {
           "name": "profile",
@@ -7763,6 +8453,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -7835,6 +8531,12 @@
           "usage": "never prompt",
           "default": "false",
           "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
         },
         {
           "name": "profile",
@@ -7915,6 +8617,12 @@
           "usage": "never prompt",
           "default": "false",
           "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
         },
         {
           "name": "profile",
@@ -8021,6 +8729,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -8089,6 +8803,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -8155,6 +8875,12 @@
           "name": "note",
           "usage": "what you're about to do -- used as the ad hoc task's title/summary",
           "default": "",
+          "type": "string"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
           "type": "string"
         },
         {
@@ -8232,6 +8958,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -8298,6 +9030,12 @@
           "usage": "never prompt",
           "default": "false",
           "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
         },
         {
           "name": "profile",
@@ -8368,6 +9106,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -8436,6 +9180,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -8496,6 +9246,12 @@
           "usage": "never prompt",
           "default": "false",
           "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
         },
         {
           "name": "profile",
@@ -8560,6 +9316,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -8622,6 +9384,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -8678,6 +9446,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -8732,6 +9506,12 @@
           "usage": "never prompt",
           "default": "false",
           "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
         },
         {
           "name": "profile",
@@ -8806,6 +9586,12 @@
           "usage": "never prompt",
           "default": "false",
           "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
         },
         {
           "name": "profile",
@@ -8889,6 +9675,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -8949,6 +9741,12 @@
           "usage": "never prompt",
           "default": "false",
           "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
         },
         {
           "name": "profile",
@@ -9013,6 +9811,12 @@
           "type": "bool"
         },
         {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
           "name": "profile",
           "usage": "user profile name",
           "default": "",
@@ -9073,6 +9877,12 @@
           "usage": "never prompt",
           "default": "false",
           "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
         },
         {
           "name": "profile",

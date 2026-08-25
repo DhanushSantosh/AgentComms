@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/DhanushSantosh/AgentComms/internal/buildinfo"
+	"github.com/DhanushSantosh/AgentComms/internal/cliui"
 	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
 	"github.com/DhanushSantosh/AgentComms/internal/doctor"
 	"github.com/DhanushSantosh/AgentComms/internal/failure"
@@ -116,6 +117,7 @@ func ContainsJSONFlag(args []string) bool {
 type cli struct {
 	out, err                             io.Writer
 	json, nonInteractive, noColor, quiet bool
+	output                               string
 	project, profile, actor              string
 	timeout                              time.Duration
 	svc                                  *service.Service
@@ -199,6 +201,18 @@ func Run(args []string, stdout, stderr io.Writer) error {
 func (c *cli) root() *cobra.Command {
 	r := &cobra.Command{Use: "agent-comms", Short: "Governed coordination for concurrent agents", Version: Version, PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		c.cmd = cmd.CommandPath()
+		if c.json && cmd.Flags().Changed("output") && c.output != string(cliui.ModeJSON) {
+			return errors.New("conflicting output modes: --json requires --output json")
+		}
+		switch c.output {
+		case "", string(cliui.ModeHuman), string(cliui.ModePlain):
+		case string(cliui.ModeJSON):
+			c.json = true
+		case string(cliui.ModeJSONL):
+			return errors.New("--output jsonl is not supported by this command")
+		default:
+			return fmt.Errorf("invalid output mode %q (expected human, plain, json, or jsonl)", c.output)
+		}
 		if cmd.Name() == "version" || cmd.Name() == "init" || cmd.Name() == "completion" ||
 			(cmd.Name() == "update" && cmd.Parent() == cmd.Root()) ||
 			strings.HasPrefix(cmd.CommandPath(), "agent-comms project upgrade") ||
@@ -308,6 +322,7 @@ func (c *cli) root() *cobra.Command {
 	f.StringVar(&c.profile, "profile", "", "user profile name")
 	f.StringVar(&c.actor, "actor", "", "actor override (credential must match)")
 	f.BoolVar(&c.json, "json", false, "emit a versioned JSON envelope")
+	f.StringVar(&c.output, "output", "human", "output format: human, plain, json, or jsonl")
 	f.BoolVar(&c.nonInteractive, "non-interactive", false, "never prompt")
 	f.DurationVar(&c.timeout, "timeout", 10*time.Second, "transaction lock timeout")
 	f.BoolVar(&c.noColor, "no-color", false, "disable ANSI color")
@@ -474,7 +489,25 @@ func exitCode(e error) int {
 }
 func (c *cli) versionCmd() *cobra.Command {
 	return &cobra.Command{Use: "version", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
-		return c.emit("version", map[string]any{"version": Version, "build_id": buildinfo.ResolvedBuildID(), "schema_version": model.SchemaVersion, "project_format_version": store.ProjectFormatVersion, "go": runtime.Version(), "os": runtime.GOOS, "arch": runtime.GOARCH})
+		result := map[string]any{"version": Version, "build_id": buildinfo.ResolvedBuildID(), "schema_version": model.SchemaVersion, "project_format_version": store.ProjectFormatVersion, "go": runtime.Version(), "os": runtime.GOOS, "arch": runtime.GOARCH}
+		if c.json {
+			return c.emit("version", result)
+		}
+		mode := cliui.Mode(c.output)
+		if mode == "" {
+			mode = cliui.ModeHuman
+		}
+		return (cliui.Presenter{Out: c.out, Mode: mode}).Render(cliui.Document{
+			Title: "Agent Comms",
+			Fields: []cliui.Field{
+				{Label: "Version", Value: Version},
+				{Label: "Build", Value: buildinfo.ResolvedBuildID()},
+				{Label: "Schema", Value: model.SchemaVersion},
+				{Label: "Project format", Value: fmt.Sprint(store.ProjectFormatVersion)},
+				{Label: "Runtime", Value: runtime.Version()},
+				{Label: "Platform", Value: runtime.GOOS + "/" + runtime.GOARCH},
+			},
+		})
 	}}
 }
 

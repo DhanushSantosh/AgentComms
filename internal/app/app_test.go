@@ -3,8 +3,10 @@ package app
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -30,6 +32,57 @@ import (
 	"github.com/DhanushSantosh/AgentComms/internal/store"
 	"github.com/creack/pty"
 )
+
+func TestArtifactVerifyPlainOutputIsAReadableReceipt(t *testing.T) {
+	project := t.TempDir()
+	cleanupProjectDaemon(t, project)
+	var stdout, stderr bytes.Buffer
+	if err := Run([]string{"init", "--project", project, "--non-interactive", "--owner", "owner", "--json"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+
+	contents := []byte("release bundle")
+	digest := sha256.Sum256(contents)
+	hash := fmt.Sprintf("%x", digest)
+	artifactPath := filepath.Join(project, store.Runtime, "artifacts", "sha256", hash)
+	if err := os.MkdirAll(filepath.Dir(artifactPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(artifactPath, contents, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if err := Run([]string{"artifact", "verify", "--project", project, "--sha256", hash, "--output", "plain"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	plain := stdout.String()
+	if strings.HasPrefix(strings.TrimSpace(plain), "{") {
+		t.Fatalf("plain artifact verification exposed JSON: %s", plain)
+	}
+	for _, want := range []string{"Artifact verified", hash, "14 bytes"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("plain artifact verification is missing %q: %s", want, plain)
+		}
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("plain artifact verification wrote diagnostics: %s", stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if err := Run([]string{"artifact", "verify", "--project", project, "--sha256", hash, "--json"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	var envelope Envelope
+	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+		t.Fatalf("artifact verification JSON contract is invalid: %v\n%s", err, stdout.String())
+	}
+	if !envelope.OK || envelope.Command != "artifact.verify" {
+		t.Fatalf("artifact verification JSON contract changed: %#v", envelope)
+	}
+}
 
 func TestMain(testingMain *testing.M) {
 	launchDaemonProcess = func(_, projectRoot string, _ io.Writer) error {
@@ -153,6 +206,52 @@ func TestVersionEnvelope(t *testing.T) {
 	}
 	if !v.OK || v.APIVersion != APIVersion {
 		t.Fatalf("bad envelope: %#v", v)
+	}
+}
+
+func TestVersionPlainOutputIsHumanReadableAndJSONStaysCompatible(t *testing.T) {
+	var out, err bytes.Buffer
+	if e := Run([]string{"version", "--output", "plain"}, &out, &err); e != nil {
+		t.Fatal(e)
+	}
+	plain := out.String()
+	if strings.HasPrefix(strings.TrimSpace(plain), "{") {
+		t.Fatalf("plain version output exposed JSON: %s", plain)
+	}
+	for _, want := range []string{"Agent Comms", "Version", "Schema", "Project format", "Platform"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("plain version output is missing %q: %s", want, plain)
+		}
+	}
+	if err.Len() != 0 {
+		t.Fatalf("plain version output wrote diagnostics: %s", err.String())
+	}
+
+	out.Reset()
+	err.Reset()
+	if e := Run([]string{"version", "--json"}, &out, &err); e != nil {
+		t.Fatal(e)
+	}
+	var envelope Envelope
+	if e := json.Unmarshal(out.Bytes(), &envelope); e != nil {
+		t.Fatalf("--json output is not valid JSON: %v\n%s", e, out.String())
+	}
+	if !envelope.OK || envelope.APIVersion != APIVersion || envelope.Command != "version" {
+		t.Fatalf("--json envelope changed: %#v", envelope)
+	}
+}
+
+func TestConflictingOutputModesAreRejected(t *testing.T) {
+	var out, err bytes.Buffer
+	e := Run([]string{"version", "--json", "--output", "plain"}, &out, &err)
+	if e == nil {
+		t.Fatal("expected conflicting --json and --output plain flags to fail")
+	}
+	if !strings.Contains(e.Error(), "conflicting output") {
+		t.Fatalf("expected an actionable conflict error, got %v", e)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("conflicting output modes wrote a result: %s", out.String())
 	}
 }
 

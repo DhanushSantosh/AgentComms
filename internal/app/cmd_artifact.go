@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/DhanushSantosh/AgentComms/internal/cliui"
 	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 	"github.com/DhanushSantosh/AgentComms/internal/store"
@@ -51,7 +52,17 @@ func (c *cli) artifactCmd() *cobra.Command {
 		if hex.EncodeToString(h[:]) != hash {
 			return errors.New("artifact hash mismatch")
 		}
-		return c.emit("artifact.verify", map[string]any{"verified": true, "sha256": hash, "size": len(b)})
+		result := map[string]any{"verified": true, "sha256": hash, "size": len(b)}
+		if c.json {
+			return c.emit("artifact.verify", result)
+		}
+		return (cliui.Presenter{Out: c.out, Mode: cliui.Mode(c.output)}).Render(cliui.Document{
+			Title: "Artifact verified",
+			Fields: []cliui.Field{
+				{Label: "SHA-256", Value: hash},
+				{Label: "Size", Value: fmt.Sprintf("%d bytes", len(b))},
+			},
+		})
 	}}
 	verify.Flags().StringVar(&hash, "sha256", "", "artifact digest")
 	root.AddCommand(add, show, verify)
