@@ -415,6 +415,9 @@ func (c *cli) emitWithDelivery(command string, v, delivery any, warnings ...stri
 	if c.quiet {
 		return nil
 	}
+	if event, ok := v.(model.Event); ok {
+		return c.emitDocument(command, v, mutationReceipt(command, event, delivery), warnings...)
+	}
 	mode := cliui.Mode(c.output)
 	if mode == "" {
 		mode = cliui.ModeHuman
@@ -432,6 +435,55 @@ func (c *cli) emitWithDelivery(command string, v, delivery any, warnings ...stri
 		}
 	}
 	return nil
+}
+
+func mutationReceipt(command string, event model.Event, delivery any) cliui.Document {
+	parts := strings.Split(command, ".")
+	domain, operation := "Operation", "completed"
+	if len(parts) > 0 {
+		domain = strings.ToUpper(parts[0][:1]) + parts[0][1:]
+	}
+	if len(parts) > 1 {
+		operation = mutationVerb(parts[len(parts)-1])
+	}
+	fields := []cliui.Field{
+		{Label: "Entity", Value: event.EntityID},
+		{Label: "Actor", Value: event.Actor},
+		{Label: "Event", Value: event.Type},
+		{Label: "Sequence", Value: fmt.Sprint(event.Sequence)},
+	}
+	if event.Consistency != "" {
+		fields = append(fields, cliui.Field{Label: "Consistency", Value: event.Consistency})
+	}
+	if event.KeyFingerprint != "" {
+		fields = append(fields, cliui.Field{Label: "Signing key", Value: event.KeyFingerprint})
+	}
+	if outcome, ok := delivery.(service.InvocationDeliveryResult); ok {
+		fields = append(fields,
+			cliui.Field{Label: "Delivery", Value: outcome.Outcome},
+			cliui.Field{Label: "Runtime", Value: outcome.RuntimeID},
+		)
+	}
+	return cliui.Document{Title: domain + " " + operation, Status: cliui.StatusSuccess, Fields: fields}
+}
+
+func mutationVerb(operation string) string {
+	verbs := map[string]string{
+		"create": "created", "register": "registered", "activate": "activated",
+		"configure": "configured", "update": "updated", "set": "updated",
+		"add": "added", "save": "saved", "post": "posted", "request": "requested",
+		"offer": "offered", "claim": "claimed", "start": "started", "renew": "renewed",
+		"complete": "completed", "resolve": "resolved", "approve": "approved",
+		"reject": "rejected", "cancel": "cancelled", "delete": "deleted",
+		"revoke": "revoked", "suspend": "suspended", "rename": "renamed",
+		"supersede": "superseded", "takeover": "taken over", "handoff": "handed off",
+		"heartbeat": "heartbeat recorded", "drain": "draining", "expire": "expired",
+		"redeliver": "redelivered", "rotate-key": "key rotated", "elevate-key": "elevated key registered",
+	}
+	if verb := verbs[operation]; verb != "" {
+		return verb
+	}
+	return strings.ReplaceAll(operation, "-", " ")
 }
 
 type invocationDeliveryResult = service.InvocationDeliveryResult

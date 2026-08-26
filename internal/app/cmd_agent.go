@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/DhanushSantosh/AgentComms/internal/cliui"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 	"github.com/DhanushSantosh/AgentComms/internal/service"
 	"github.com/spf13/cobra"
@@ -43,11 +44,22 @@ func (c *cli) agentCmd() *cobra.Command {
 		if cfgErr != nil {
 			return c.emit("agent.register", v)
 		}
-		return c.emit("agent.register", registerResult{
+		result := registerResult{
 			Event:       v,
 			ProfileName: cfg.ProjectID + ":" + id,
 			ProjectRoot: c.svc.Store.Root,
 			ActorSource: actorSource,
+		}
+		return c.emitDocument("agent.register", result, cliui.Document{
+			Title:  "Agent registered",
+			Status: cliui.StatusSuccess,
+			Fields: []cliui.Field{
+				{Label: "Agent", Value: id},
+				{Label: "Registered by", Value: c.actor},
+				{Label: "Profile", Value: result.ProfileName},
+				{Label: "Project", Value: result.ProjectRoot},
+				{Label: "Sequence", Value: fmt.Sprint(v.Sequence)},
+			},
 		})
 	}}
 	reg.Flags().String("id", "", "principal ID")

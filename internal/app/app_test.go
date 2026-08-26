@@ -105,7 +105,7 @@ func TestGenericBoundedCommandPlainOutputNeverFallsBackToJSON(t *testing.T) {
 	if strings.HasPrefix(strings.TrimSpace(plain), "{") || strings.Contains(plain, "\"api_version\"") {
 		t.Fatalf("bounded command fell back to JSON:\n%s", plain)
 	}
-	for _, want := range []string{"Artifact add", "Sha256", "release.txt"} {
+	for _, want := range []string{"Artifact added", "Entity", "Event", "artifact.add"} {
 		if !strings.Contains(strings.ToLower(plain), strings.ToLower(want)) {
 			t.Fatalf("bounded command output is missing %q:\n%s", want, plain)
 		}
@@ -142,6 +142,32 @@ func TestFoundationHealthCommandsHaveIntentionalPlainViews(t *testing.T) {
 		}
 		if strings.ContainsAny(strings.TrimSpace(stdout.String())[:1], "{[") {
 			t.Fatalf("%s exposed a serialization shape:\n%s", strings.Join(test.command, " "), stdout.String())
+		}
+	}
+}
+
+func TestMutationCommandPlainOutputIsAConciseReceipt(t *testing.T) {
+	project := t.TempDir()
+	cleanupProjectDaemon(t, project)
+	var stdout, stderr bytes.Buffer
+	if err := Run([]string{"init", "--project", project, "--non-interactive", "--owner", "owner", "--json"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if err := Run([]string{"agent", "register", "--project", project, "--id", "builder", "--output", "plain"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	plain := stdout.String()
+	for _, want := range []string{"Agent registered", "Agent", "builder", "Registered by", "owner", "Sequence"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("mutation receipt is missing %q:\n%s", want, plain)
+		}
+	}
+	for _, unwanted := range []string{"Previous hash", "Signature", "Public key", "Schema version"} {
+		if strings.Contains(plain, unwanted) {
+			t.Fatalf("mutation receipt exposed secondary field %q:\n%s", unwanted, plain)
 		}
 	}
 }
