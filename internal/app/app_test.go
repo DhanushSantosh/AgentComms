@@ -3,8 +3,10 @@ package app
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -30,6 +32,266 @@ import (
 	"github.com/DhanushSantosh/AgentComms/internal/store"
 	"github.com/creack/pty"
 )
+
+func TestArtifactVerifyPlainOutputIsAReadableReceipt(t *testing.T) {
+	project := t.TempDir()
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
+	cleanupProjectDaemon(t, project)
+	var stdout, stderr bytes.Buffer
+	if err := Run([]string{"init", "--project", project, "--non-interactive", "--owner", "owner", "--json"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+
+	contents := []byte("release bundle")
+	digest := sha256.Sum256(contents)
+	hash := fmt.Sprintf("%x", digest)
+	artifactPath := filepath.Join(project, store.Runtime, "artifacts", "sha256", hash)
+	if err := os.MkdirAll(filepath.Dir(artifactPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(artifactPath, contents, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if err := Run([]string{"artifact", "verify", "--project", project, "--sha256", hash, "--output", "plain"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	plain := stdout.String()
+	if strings.HasPrefix(strings.TrimSpace(plain), "{") {
+		t.Fatalf("plain artifact verification exposed JSON: %s", plain)
+	}
+	for _, want := range []string{"Artifact verified", hash, "14 bytes"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("plain artifact verification is missing %q: %s", want, plain)
+		}
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("plain artifact verification wrote diagnostics: %s", stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if err := Run([]string{"artifact", "verify", "--project", project, "--sha256", hash, "--json"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	var envelope Envelope
+	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+		t.Fatalf("artifact verification JSON contract is invalid: %v\n%s", err, stdout.String())
+	}
+	if !envelope.OK || envelope.Command != "artifact.verify" {
+		t.Fatalf("artifact verification JSON contract changed: %#v", envelope)
+	}
+}
+
+func TestGenericBoundedCommandPlainOutputNeverFallsBackToJSON(t *testing.T) {
+	project := t.TempDir()
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
+	cleanupProjectDaemon(t, project)
+	var stdout, stderr bytes.Buffer
+	if err := Run([]string{"init", "--project", project, "--non-interactive", "--owner", "owner", "--json"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+
+	source := filepath.Join(project, "release.txt")
+	if err := os.WriteFile(source, []byte("release"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if err := Run([]string{"artifact", "add", "--project", project, "--path", source, "--output", "plain"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	plain := stdout.String()
+	if strings.HasPrefix(strings.TrimSpace(plain), "{") || strings.Contains(plain, "\"api_version\"") {
+		t.Fatalf("bounded command fell back to JSON:\n%s", plain)
+	}
+	for _, want := range []string{"Artifact added", "Entity", "Event", "artifact.add"} {
+		if !strings.Contains(strings.ToLower(plain), strings.ToLower(want)) {
+			t.Fatalf("bounded command output is missing %q:\n%s", want, plain)
+		}
+	}
+}
+
+func TestFoundationHealthCommandsHaveIntentionalPlainViews(t *testing.T) {
+	project := t.TempDir()
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
+	cleanupProjectDaemon(t, project)
+	var stdout, stderr bytes.Buffer
+	if err := Run([]string{"init", "--project", project, "--non-interactive", "--owner", "owner", "--json"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		command []string
+		want    []string
+	}{
+		{command: []string{"status"}, want: []string{"Project status", "Agents", "Tasks", "Invocations", "Integrity"}},
+		{command: []string{"verify"}, want: []string{"Integrity verified", "Events", "Consistency", "Connectivity"}},
+		{command: []string{"doctor"}, want: []string{"Project health", "Integrity", "Findings", "Binary"}},
+	}
+	for _, test := range tests {
+		stdout.Reset()
+		stderr.Reset()
+		args := append(test.command, "--project", project, "--output", "plain")
+		if err := Run(args, &stdout, &stderr); err != nil {
+			t.Fatalf("%s: %v", strings.Join(test.command, " "), err)
+		}
+		for _, want := range test.want {
+			if !strings.Contains(stdout.String(), want) {
+				t.Fatalf("%s output is missing %q:\n%s", strings.Join(test.command, " "), want, stdout.String())
+			}
+		}
+		if strings.ContainsAny(strings.TrimSpace(stdout.String())[:1], "{[") {
+			t.Fatalf("%s exposed a serialization shape:\n%s", strings.Join(test.command, " "), stdout.String())
+		}
+	}
+}
+
+func TestMutationCommandPlainOutputIsAConciseReceipt(t *testing.T) {
+	project := t.TempDir()
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
+	cleanupProjectDaemon(t, project)
+	var stdout, stderr bytes.Buffer
+	if err := Run([]string{"init", "--project", project, "--non-interactive", "--owner", "owner", "--json"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if err := Run([]string{"agent", "register", "--project", project, "--id", "builder", "--output", "plain"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	plain := stdout.String()
+	for _, want := range []string{"Agent registered", "Agent", "builder", "Registered by", "owner", "Sequence"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("mutation receipt is missing %q:\n%s", want, plain)
+		}
+	}
+	for _, unwanted := range []string{"Previous hash", "Signature", "Public key", "Schema version"} {
+		if strings.Contains(plain, unwanted) {
+			t.Fatalf("mutation receipt exposed secondary field %q:\n%s", unwanted, plain)
+		}
+	}
+}
+
+func TestVerboseAndDetailsExpandHumanOutputWithoutChangingJSONMode(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if err := Run([]string{"version", "--output", "plain", "--verbose", "--details"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Command", "agent-comms version", "Output", "plain", "Details", "Build id"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("expanded version output is missing %q:\n%s", want, stdout.String())
+		}
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if err := Run([]string{"version", "--json", "--verbose", "--details"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	var envelope Envelope
+	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil || !envelope.OK || envelope.Command != "version" {
+		t.Fatalf("JSON mode changed under verbosity flags: err=%v envelope=%#v output=%s", err, envelope, stdout.String())
+	}
+}
+
+func TestHumanErrorsAreFormattedOnStderr(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := Run([]string{"version", "--output", "plain", "--not-a-real-flag\x1b[31m"}, &stdout, &stderr)
+	if err == nil {
+		t.Fatal("expected invalid flag to fail")
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("error wrote result data to stdout: %s", stdout.String())
+	}
+	for _, want := range []string{"error [", "unknown flag", "hint:"} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Fatalf("formatted error is missing %q: %s", want, stderr.String())
+		}
+	}
+	if strings.Contains(stderr.String(), "\x1b") {
+		t.Fatalf("formatted error leaked terminal controls: %q", stderr.String())
+	}
+	exitError, ok := err.(*ExitError)
+	if !ok || !exitError.Reported {
+		t.Fatalf("formatted error was not marked reported: %#v", err)
+	}
+}
+
+func TestWatchSupportsVersionedJSONLAndBoundedCommandsRejectIt(t *testing.T) {
+	project := t.TempDir()
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
+	cleanupProjectDaemon(t, project)
+	var stdout, stderr bytes.Buffer
+	if err := Run([]string{"init", "--project", project, "--non-interactive", "--owner", "owner", "--json"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if err := Run([]string{"watch", "--project", project, "--interval", "1ms", "--count", "1", "--output", "jsonl"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
+	if len(lines) != 1 {
+		t.Fatalf("watch emitted %d JSONL records, want 1: %s", len(lines), stdout.String())
+	}
+	var event StreamEnvelope
+	if err := json.Unmarshal([]byte(lines[0]), &event); err != nil {
+		t.Fatalf("watch JSONL record is invalid: %v\n%s", err, lines[0])
+	}
+	if event.APIVersion != APIVersion || event.Command != "watch" || event.Event != "attention.changed" || event.Timestamp.IsZero() {
+		t.Fatalf("watch JSONL contract is incomplete: %#v", event)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	err := Run([]string{"version", "--output", "jsonl"}, &stdout, &stderr)
+	if err == nil || !strings.Contains(err.Error(), "not supported") {
+		t.Fatalf("bounded command accepted JSONL: err=%v output=%s", err, stdout.String())
+	}
+}
+
+func TestRootHelpIsGroupedAndExplainsOutputContracts(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if err := Run([]string{"--help"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	help := stdout.String()
+	for _, want := range []string{
+		"Getting started", "Coordination", "Identity and runtimes", "Knowledge and state", "Operations and integrations",
+		"--output human|plain|json|jsonl", "agent-comms status", "agent-comms watch --output jsonl",
+	} {
+		if !strings.Contains(help, want) {
+			t.Fatalf("root help is missing %q:\n%s", want, help)
+		}
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("root help wrote diagnostics: %s", stderr.String())
+	}
+}
+
+func TestQuietSuppressesSuccessButNotWarnings(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	command := &cli{out: &stdout, err: &stderr, output: "plain", quiet: true}
+	if err := command.emit("test.command", map[string]any{"ok": true}, "delivery is still pending"); err != nil {
+		t.Fatal(err)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("quiet mode wrote success output: %s", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "warning: delivery is still pending") {
+		t.Fatalf("quiet mode suppressed an essential warning: %s", stderr.String())
+	}
+}
 
 func TestMain(testingMain *testing.M) {
 	launchDaemonProcess = func(_, projectRoot string, _ io.Writer) error {
@@ -153,6 +415,52 @@ func TestVersionEnvelope(t *testing.T) {
 	}
 	if !v.OK || v.APIVersion != APIVersion {
 		t.Fatalf("bad envelope: %#v", v)
+	}
+}
+
+func TestVersionPlainOutputIsHumanReadableAndJSONStaysCompatible(t *testing.T) {
+	var out, err bytes.Buffer
+	if e := Run([]string{"version", "--output", "plain"}, &out, &err); e != nil {
+		t.Fatal(e)
+	}
+	plain := out.String()
+	if strings.HasPrefix(strings.TrimSpace(plain), "{") {
+		t.Fatalf("plain version output exposed JSON: %s", plain)
+	}
+	for _, want := range []string{"Agent Comms", "Version", "Schema", "Project format", "Platform"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("plain version output is missing %q: %s", want, plain)
+		}
+	}
+	if err.Len() != 0 {
+		t.Fatalf("plain version output wrote diagnostics: %s", err.String())
+	}
+
+	out.Reset()
+	err.Reset()
+	if e := Run([]string{"version", "--json"}, &out, &err); e != nil {
+		t.Fatal(e)
+	}
+	var envelope Envelope
+	if e := json.Unmarshal(out.Bytes(), &envelope); e != nil {
+		t.Fatalf("--json output is not valid JSON: %v\n%s", e, out.String())
+	}
+	if !envelope.OK || envelope.APIVersion != APIVersion || envelope.Command != "version" {
+		t.Fatalf("--json envelope changed: %#v", envelope)
+	}
+}
+
+func TestConflictingOutputModesAreRejected(t *testing.T) {
+	var out, err bytes.Buffer
+	e := Run([]string{"version", "--json", "--output", "plain"}, &out, &err)
+	if e == nil {
+		t.Fatal("expected conflicting --json and --output plain flags to fail")
+	}
+	if !strings.Contains(e.Error(), "conflicting output") {
+		t.Fatalf("expected an actionable conflict error, got %v", e)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("conflicting output modes wrote a result: %s", out.String())
 	}
 }
 

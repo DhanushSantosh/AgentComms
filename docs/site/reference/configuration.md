@@ -4,7 +4,7 @@ description: Find global flags, connector boundaries, runtime metadata, consiste
 section: Reference
 order: 3
 audience: Everyone
-lastVerified: 2026-08-01
+lastVerified: 2026-08-26
 related: [agents/cli-json, guide/maintenance]
 ---
 
@@ -15,11 +15,19 @@ related: [agents/cli-json, guide/maintenance]
 | `--project` | Target project root instead of the working directory. |
 | `--profile` | Select a named user identity profile. |
 | `--actor` | Select an actor only when its credential matches. |
+| `--output human\|plain\|json\|jsonl` | Select the presentation contract. JSONL is accepted only by supported streams. |
 | `--json` | Emit the versioned JSON envelope. |
 | `--non-interactive` | Refuse prompts. |
 | `--timeout` | Bound transaction and connection waits. |
 | `--no-color` | Disable ANSI output. |
 | `--quiet`, `-q` | Suppress non-essential output. |
+| `--verbose`, `-v` | Add operational metadata to human/plain output. |
+| `--details` | Add secondary and nested fields to human/plain summaries. |
+
+Human output uses semantic styling only on a capable terminal. Redirected
+output, `TERM=dumb`, `NO_COLOR`, and `--no-color` automatically fall back to
+clean text. Requested result data stays on stdout; warnings, progress, and
+classified errors use stderr. JSON and JSONL never contain terminal styling.
 
 ## Local connector configuration
 

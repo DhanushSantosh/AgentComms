@@ -3,9 +3,11 @@ package app
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
+	"github.com/DhanushSantosh/AgentComms/internal/cliui"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 	"github.com/spf13/cobra"
 )
@@ -62,11 +64,22 @@ func (c *cli) taskCmd() *cobra.Command {
 		if worktree == "" {
 			worktree = claimRepo
 		}
-		v, e := c.svc.Execute(c.actor, "task.claim", id, model.TaskClaimed{LeaseUntil: lease, Worktree: worktree})
+		payload := model.TaskClaimed{LeaseUntil: lease, Worktree: worktree}
+		v, e := c.svc.Execute(c.actor, "task.claim", id, payload)
 		if e != nil {
 			return e
 		}
-		return c.emit("task.claim", v)
+		return c.emitDocument("task.claim", v, cliui.Document{
+			Title:  "Task claimed",
+			Status: cliui.StatusSuccess,
+			Fields: []cliui.Field{
+				{Label: "Task", Value: id},
+				{Label: "Actor", Value: c.actor},
+				{Label: "Lease until", Value: lease.Format(time.RFC3339)},
+				{Label: "Worktree", Value: worktree},
+			},
+			Hint: "Start the task when work begins, then renew the lease with progress before it expires.",
+		})
 	}}
 	claim.Flags().String("id", "", "task ID")
 	_ = claim.MarkFlagRequired("id")
@@ -108,7 +121,17 @@ func (c *cli) taskCmd() *cobra.Command {
 		if e != nil {
 			return e
 		}
-		return c.emit("task.list", st.Tasks)
+		ids := make([]string, 0, len(st.Tasks))
+		for id := range st.Tasks {
+			ids = append(ids, id)
+		}
+		sort.Strings(ids)
+		rows := make([][]string, 0, len(ids))
+		for _, id := range ids {
+			task := st.Tasks[id]
+			rows = append(rows, []string{id, task.Title, task.Status, task.Owner, task.Branch})
+		}
+		return c.emitTable("task.list", st.Tasks, []string{"ID", "TITLE", "STATUS", "OWNER", "BRANCH"}, rows)
 	}}
 	var lockWorktree, lockNote string
 	var lockDuration time.Duration
@@ -179,7 +202,18 @@ func (c *cli) taskCmd() *cobra.Command {
 			if e != nil {
 				return fmt.Errorf("claim ad hoc task %s: %w", id, e)
 			}
-			return c.emit("task.lock", v)
+			return c.emitDocument("task.lock", v, cliui.Document{
+				Title:  "Worktree locked",
+				Status: cliui.StatusSuccess,
+				Fields: []cliui.Field{
+					{Label: "Task", Value: id},
+					{Label: "Actor", Value: c.actor},
+					{Label: "Worktree", Value: lockWorktree},
+					{Label: "Branch", Value: branch},
+					{Label: "Lease until", Value: lease.Format(time.RFC3339)},
+				},
+				Hint: "Use the printed task ID to complete or cancel this lock when the work is done.",
+			})
 		},
 	}
 	lock.Flags().StringVar(&lockWorktree, "worktree", "", "worktree path to lock (required)")

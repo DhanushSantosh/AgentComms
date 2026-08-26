@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/DhanushSantosh/AgentComms/internal/buildinfo"
+	"github.com/DhanushSantosh/AgentComms/internal/cliui"
 	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
 	"github.com/DhanushSantosh/AgentComms/internal/doctor"
 	"github.com/DhanushSantosh/AgentComms/internal/failure"
@@ -83,15 +84,27 @@ type Envelope struct {
 	Error      *ErrorBody `json:"error,omitempty"`
 	Warnings   []string   `json:"warnings,omitempty"`
 }
+
+// StreamEnvelope is the stable one-record-per-line contract for commands
+// whose natural result is a stream.
+type StreamEnvelope struct {
+	APIVersion string     `json:"api_version"`
+	Command    string     `json:"command"`
+	Event      string     `json:"event"`
+	Timestamp  time.Time  `json:"timestamp"`
+	Data       any        `json:"data,omitempty"`
+	Error      *ErrorBody `json:"error,omitempty"`
+}
 type ErrorBody struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
 	Details any    `json:"details,omitempty"`
 }
 type ExitError struct {
-	Code int
-	Kind string
-	Err  error
+	Code     int
+	Kind     string
+	Err      error
+	Reported bool
 }
 
 func (e *ExitError) Error() string { return e.Err.Error() }
@@ -114,16 +127,18 @@ func ContainsJSONFlag(args []string) bool {
 }
 
 type cli struct {
-	out, err                             io.Writer
-	json, nonInteractive, noColor, quiet bool
-	project, profile, actor              string
-	timeout                              time.Duration
-	svc                                  *service.Service
-	cmd                                  string
-	actorResolution                      identity.ActorResolution
-	pendingWarnings                      []string
-	processExitCode                      int
-	handoffRunner                        commandRunner
+	out, err                                    io.Writer
+	json, jsonl, nonInteractive, noColor, quiet bool
+	verbose, details                            bool
+	output                                      string
+	project, profile, actor                     string
+	timeout                                     time.Duration
+	svc                                         *service.Service
+	cmd                                         string
+	actorResolution                             identity.ActorResolution
+	pendingWarnings                             []string
+	processExitCode                             int
+	handoffRunner                               commandRunner
 }
 
 type commandRunner func(
@@ -184,11 +199,29 @@ func Run(args []string, stdout, stderr io.Writer) error {
 		// literally present. Falling back to a raw scan of args here
 		// closes that gap without either layer needing to trust the
 		// other's assumption about who's responsible.
-		if c.json || ContainsJSONFlag(args) {
+		reported := false
+		if containsOutputJSONL(args) {
+			_ = json.NewEncoder(stderr).Encode(StreamEnvelope{
+				APIVersion: APIVersion, Command: c.cmd, Event: "error", Timestamp: time.Now().UTC(),
+				Error: &ErrorBody{Code: errorCode(e), Message: e.Error()},
+			})
+			reported = true
+		} else if c.json || ContainsJSONFlag(args) || containsOutputJSON(args) {
 			body := Envelope{APIVersion: APIVersion, OK: false, Command: c.cmd, Error: &ErrorBody{Code: errorCode(e), Message: e.Error()}}
 			_ = json.NewEncoder(stderr).Encode(body)
+			reported = true
+		} else {
+			mode := cliui.Mode(c.output)
+			if mode != cliui.ModePlain {
+				mode = cliui.ModeHuman
+			}
+			_ = (cliui.Presenter{
+				Out: stderr, Mode: mode,
+				Capabilities: cliui.DetectCapabilities(stderr, c.noColor),
+			}).RenderError(errorCode(e), e.Error(), errorHint(errorCode(e)))
+			reported = true
 		}
-		return &ExitError{Code: exitCode(e), Kind: errorCode(e), Err: e}
+		return &ExitError{Code: exitCode(e), Kind: errorCode(e), Err: e, Reported: reported}
 	}
 	if c.processExitCode != 0 {
 		err := fmt.Errorf("wrapped process exited with status %d", c.processExitCode)
@@ -196,140 +229,303 @@ func Run(args []string, stdout, stderr io.Writer) error {
 	}
 	return nil
 }
+
+func containsOutputJSON(args []string) bool {
+	for index, argument := range args {
+		if argument == "--output=json" {
+			return true
+		}
+		if argument == "--output" && index+1 < len(args) && args[index+1] == "json" {
+			return true
+		}
+	}
+	return false
+}
+
+func containsOutputJSONL(args []string) bool {
+	for index, argument := range args {
+		if argument == "--output=jsonl" {
+			return true
+		}
+		if argument == "--output" && index+1 < len(args) && args[index+1] == "jsonl" {
+			return true
+		}
+	}
+	return false
+}
+
+func errorHint(code string) string {
+	switch code {
+	case "VALIDATION":
+		return "Run the command with --help to review required flags and accepted values."
+	case "AUTHORIZATION":
+		return "Check the active actor, profile, role, and granted scopes."
+	case "CONFLICT", "STALE_PRECONDITION":
+		return "Refresh the current project state, then retry against the latest sequence."
+	case "OFFLINE", "UNAVAILABLE":
+		return "Check runtime connectivity and retry."
+	default:
+		return "Run the command with --help or use --verbose for more operational context."
+	}
+}
 func (c *cli) root() *cobra.Command {
-	r := &cobra.Command{Use: "agent-comms", Short: "Governed coordination for concurrent agents", Version: Version, PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		c.cmd = cmd.CommandPath()
-		if cmd.Name() == "version" || cmd.Name() == "init" || cmd.Name() == "completion" ||
-			(cmd.Name() == "update" && cmd.Parent() == cmd.Root()) ||
-			strings.HasPrefix(cmd.CommandPath(), "agent-comms project upgrade") ||
-			cmd.CommandPath() == "agent-comms daemon serve" ||
-			cmd.CommandPath() == "agent-comms claude serve" ||
-			cmd.CommandPath() == "agent-comms claude attach" ||
-			cmd.CommandPath() == "agent-comms codex serve" ||
-			cmd.CommandPath() == "agent-comms codex attach" ||
-			cmd.CommandPath() == "agent-comms runtime verify-adapter" {
+	r := &cobra.Command{
+		Use:   "agent-comms",
+		Short: "Governed coordination for concurrent agents",
+		Long: "Agent Comms coordinates agents through signed project state, explicit ownership, and auditable transitions.\n\n" +
+			"Output contracts: --output human|plain|json|jsonl. Human is TTY-aware; plain is stable text; JSON preserves the versioned envelope; JSONL is available only for natural streams.",
+		Example: "  agent-comms status\n" +
+			"  agent-comms task list --output plain\n" +
+			"  agent-comms watch --output jsonl\n" +
+			"  agent-comms invocation request --to builder --instruction \"Run tests\" --json",
+		Version: Version, PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			c.cmd = cmd.CommandPath()
+			if c.json && cmd.Flags().Changed("output") && c.output != string(cliui.ModeJSON) {
+				return errors.New("conflicting output modes: --json requires --output json")
+			}
+			switch c.output {
+			case "", string(cliui.ModeHuman), string(cliui.ModePlain):
+			case string(cliui.ModeJSON):
+				c.json = true
+			case string(cliui.ModeJSONL):
+				if cmd.CommandPath() != "agent-comms watch" && cmd.CommandPath() != "agent-comms invocation listen" {
+					return errors.New("--output jsonl is not supported by this command")
+				}
+				c.jsonl = true
+			default:
+				return fmt.Errorf("invalid output mode %q (expected human, plain, json, or jsonl)", c.output)
+			}
+			if cmd.Name() == "version" || cmd.Name() == "init" || cmd.Name() == "completion" ||
+				(cmd.Name() == "update" && cmd.Parent() == cmd.Root()) ||
+				strings.HasPrefix(cmd.CommandPath(), "agent-comms project upgrade") ||
+				cmd.CommandPath() == "agent-comms daemon serve" ||
+				cmd.CommandPath() == "agent-comms claude serve" ||
+				cmd.CommandPath() == "agent-comms claude attach" ||
+				cmd.CommandPath() == "agent-comms codex serve" ||
+				cmd.CommandPath() == "agent-comms codex attach" ||
+				cmd.CommandPath() == "agent-comms runtime verify-adapter" {
+				return nil
+			}
+			if cmd.CommandPath() == "agent-comms profile list" ||
+				cmd.CommandPath() == "agent-comms profile use" {
+				warnings, e := c.reconcileUserInstallation(cmd.Context(), "")
+				c.pendingWarnings = append(c.pendingWarnings, warnings...)
+				return e
+			}
+			root := c.project
+			if root == "" {
+				var e error
+				root, e = os.Getwd()
+				if e != nil {
+					return e
+				}
+			}
+			applyLifecycle := cmd.Name() != "doctor"
+			if applyLifecycle {
+				warnings, e := c.reconcileUserInstallation(cmd.Context(), root)
+				c.pendingWarnings = append(c.pendingWarnings, warnings...)
+				if e != nil {
+					return e
+				}
+			}
+			if _, e := projectlifecycle.Reconcile(cmd.Context(), projectlifecycle.Options{
+				Root: root, Version: Version, BuildID: buildinfo.ResolvedBuildID(),
+				Apply: applyLifecycle, Timeout: c.timeout, StopDaemon: applyLifecycle,
+			}); e != nil {
+				return e
+			}
+			if cmd.Name() == "doctor" {
+				c.svc = service.NewTolerant(root)
+			} else {
+				c.svc = service.New(root)
+			}
+			if _, err := runtimeworker.LoadProjectAdapters(root); err != nil {
+				c.pendingWarnings = append(c.pendingWarnings, fmt.Sprintf("project adapters: %v", err))
+			}
+			switch cmd.Name() {
+			case "mcp":
+				c.svc.PassphrasePrompt = nonInteractivePassphrasePrompt("an MCP connection")
+			case "tui":
+				c.svc.PassphrasePrompt = nonInteractivePassphrasePrompt("the TUI")
+			default:
+				c.svc.PassphrasePrompt = promptPassphrase
+			}
+			cfg, e := c.svc.Store.Config()
+			if e != nil {
+				return fmt.Errorf("open project runtime: %w", e)
+			}
+			if e = c.svc.Store.EnsureRuntimeHidden(); e != nil {
+				return e
+			}
+			c.svc.Store.LockTimeout = c.timeout
+			c.svc.SetRemoteRecovery(func() error { return ensureDaemon(root, cfg) })
+			if cmd.Name() != "doctor" && (cfg.RuntimeMode == "service" || cfg.RuntimeMode == "personal") {
+				if e = ensureDaemon(root, cfg); e != nil {
+					return e
+				}
+			}
+			environmentActor := os.Getenv("AGENT_COMMS_ACTOR")
+			userConfig := identity.UserConfig{Profiles: map[string]identity.Profile{}}
+			needsUserConfig := c.actor == "" && (c.profile != "" || environmentActor == "")
+			if needsUserConfig {
+				userConfig, e = identity.LoadUserConfig()
+				if e != nil {
+					return fmt.Errorf("load identity profiles: %w", e)
+				}
+			}
+			providerSessionID, _ := sessionbind.Capture()
+			c.actorResolution, e = identity.ResolveActor(identity.ActorResolutionRequest{
+				ProjectID: cfg.ProjectID, ProjectOwner: cfg.Owner,
+				ExplicitActor: c.actor, ExplicitProfile: c.profile,
+				EnvironmentActor: environmentActor, HostLabel: os.Getenv("AGENT_COMMS_HOST_LABEL"),
+				ProviderSessionID: providerSessionID,
+				UserConfig:        userConfig,
+				// Only the TUI: a real, attached, interactive terminal session
+				// nothing session-less could plausibly be driving -- see RFC
+				// 0019. CLI/MCP/worker are unaffected, matching cmd.Name() !=
+				// "doctor" above as the established per-command check pattern.
+				PreferOwnerOnAmbiguousLegacy: cmd.Name() == "tui",
+			})
+			if e != nil {
+				return e
+			}
+			c.actor = c.actorResolution.Actor
+			// Refuse to sign anything under an actor this ambiguously resolved
+			// -- see RFC 0017. Only ActorSourceActiveProfile (the legacy,
+			// machine-wide fallback used when no recognized provider session
+			// is present at all) is ever ambiguous; every other resolution
+			// source is either explicit or already provably unambiguous.
+			c.svc.AmbiguousActor = c.actorResolution.Source == identity.ActorSourceActiveProfile &&
+				userConfig.ProfileCountForProject(cfg.ProjectID) > 1
 			return nil
-		}
-		if cmd.CommandPath() == "agent-comms profile list" ||
-			cmd.CommandPath() == "agent-comms profile use" {
-			warnings, e := c.reconcileUserInstallation(cmd.Context(), "")
-			c.pendingWarnings = append(c.pendingWarnings, warnings...)
-			return e
-		}
-		root := c.project
-		if root == "" {
-			var e error
-			root, e = os.Getwd()
-			if e != nil {
-				return e
-			}
-		}
-		applyLifecycle := cmd.Name() != "doctor"
-		if applyLifecycle {
-			warnings, e := c.reconcileUserInstallation(cmd.Context(), root)
-			c.pendingWarnings = append(c.pendingWarnings, warnings...)
-			if e != nil {
-				return e
-			}
-		}
-		if _, e := projectlifecycle.Reconcile(cmd.Context(), projectlifecycle.Options{
-			Root: root, Version: Version, BuildID: buildinfo.ResolvedBuildID(),
-			Apply: applyLifecycle, Timeout: c.timeout, StopDaemon: applyLifecycle,
-		}); e != nil {
-			return e
-		}
-		if cmd.Name() == "doctor" {
-			c.svc = service.NewTolerant(root)
-		} else {
-			c.svc = service.New(root)
-		}
-		if _, err := runtimeworker.LoadProjectAdapters(root); err != nil {
-			c.pendingWarnings = append(c.pendingWarnings, fmt.Sprintf("project adapters: %v", err))
-		}
-		switch cmd.Name() {
-		case "mcp":
-			c.svc.PassphrasePrompt = nonInteractivePassphrasePrompt("an MCP connection")
-		case "tui":
-			c.svc.PassphrasePrompt = nonInteractivePassphrasePrompt("the TUI")
-		default:
-			c.svc.PassphrasePrompt = promptPassphrase
-		}
-		cfg, e := c.svc.Store.Config()
-		if e != nil {
-			return fmt.Errorf("open project runtime: %w", e)
-		}
-		if e = c.svc.Store.EnsureRuntimeHidden(); e != nil {
-			return e
-		}
-		c.svc.Store.LockTimeout = c.timeout
-		c.svc.SetRemoteRecovery(func() error { return ensureDaemon(root, cfg) })
-		if cmd.Name() != "doctor" && (cfg.RuntimeMode == "service" || cfg.RuntimeMode == "personal") {
-			if e = ensureDaemon(root, cfg); e != nil {
-				return e
-			}
-		}
-		environmentActor := os.Getenv("AGENT_COMMS_ACTOR")
-		userConfig := identity.UserConfig{Profiles: map[string]identity.Profile{}}
-		needsUserConfig := c.actor == "" && (c.profile != "" || environmentActor == "")
-		if needsUserConfig {
-			userConfig, e = identity.LoadUserConfig()
-			if e != nil {
-				return fmt.Errorf("load identity profiles: %w", e)
-			}
-		}
-		providerSessionID, _ := sessionbind.Capture()
-		c.actorResolution, e = identity.ResolveActor(identity.ActorResolutionRequest{
-			ProjectID: cfg.ProjectID, ProjectOwner: cfg.Owner,
-			ExplicitActor: c.actor, ExplicitProfile: c.profile,
-			EnvironmentActor: environmentActor, HostLabel: os.Getenv("AGENT_COMMS_HOST_LABEL"),
-			ProviderSessionID: providerSessionID,
-			UserConfig:        userConfig,
-			// Only the TUI: a real, attached, interactive terminal session
-			// nothing session-less could plausibly be driving -- see RFC
-			// 0019. CLI/MCP/worker are unaffected, matching cmd.Name() !=
-			// "doctor" above as the established per-command check pattern.
-			PreferOwnerOnAmbiguousLegacy: cmd.Name() == "tui",
-		})
-		if e != nil {
-			return e
-		}
-		c.actor = c.actorResolution.Actor
-		// Refuse to sign anything under an actor this ambiguously resolved
-		// -- see RFC 0017. Only ActorSourceActiveProfile (the legacy,
-		// machine-wide fallback used when no recognized provider session
-		// is present at all) is ever ambiguous; every other resolution
-		// source is either explicit or already provably unambiguous.
-		c.svc.AmbiguousActor = c.actorResolution.Source == identity.ActorSourceActiveProfile &&
-			userConfig.ProfileCountForProject(cfg.ProjectID) > 1
-		return nil
-	}}
+		}}
+	r.AddGroup(
+		&cobra.Group{ID: "start", Title: "Getting started"},
+		&cobra.Group{ID: "coordinate", Title: "Coordination"},
+		&cobra.Group{ID: "identity", Title: "Identity and runtimes"},
+		&cobra.Group{ID: "knowledge", Title: "Knowledge and state"},
+		&cobra.Group{ID: "operations", Title: "Operations and integrations"},
+	)
 	f := r.PersistentFlags()
 	f.StringVar(&c.project, "project", "", "target project root")
 	f.StringVar(&c.profile, "profile", "", "user profile name")
 	f.StringVar(&c.actor, "actor", "", "actor override (credential must match)")
 	f.BoolVar(&c.json, "json", false, "emit a versioned JSON envelope")
+	f.StringVar(&c.output, "output", "human", "output format: human, plain, json, or jsonl")
 	f.BoolVar(&c.nonInteractive, "non-interactive", false, "never prompt")
 	f.DurationVar(&c.timeout, "timeout", 10*time.Second, "transaction lock timeout")
 	f.BoolVar(&c.noColor, "no-color", false, "disable ANSI color")
 	f.BoolVarP(&c.quiet, "quiet", "q", false, "suppress non-essential output")
+	f.BoolVarP(&c.verbose, "verbose", "v", false, "show operational metadata in human output")
+	f.BoolVar(&c.details, "details", false, "show secondary and nested fields in human output")
 	r.AddCommand(c.versionCmd(), c.initCmd(), c.projectCmd(), c.doctorCmd(), c.verifyCmd(), c.statusCmd(), c.controlCmd(), c.historyCmd(), c.searchCmd(), c.agentCmd(), c.runtimeCmd(), c.invocationCmd(), c.sessionCmd(), c.taskCmd(), c.messageCmd(), c.decisionCmd(), c.approvalCmd(), c.artifactCmd(), c.documentCmd(), c.envCmd(), c.draftCmd(), c.archiveCmd(), c.exportCmd(), c.profileCmd(), c.configCmd(), c.themeCmd(), c.updateCmd(), c.completionCmd(r), c.agentInstructionsCmd(), c.mcpCmd(), c.watchCmd(), c.tuiCmd(), c.daemonCmd(), c.claudeCmd(), c.codexCmd())
+	configureRootHelp(r)
 	return r
+}
+
+func configureRootHelp(root *cobra.Command) {
+	groups := map[string]string{
+		"version": "start", "init": "start", "status": "start", "doctor": "start", "verify": "start", "tui": "start",
+		"task": "coordinate", "message": "coordinate", "decision": "coordinate", "approval": "coordinate", "invocation": "coordinate",
+		"agent": "identity", "runtime": "identity", "session": "identity", "profile": "identity",
+		"artifact": "knowledge", "document": "knowledge", "env": "knowledge", "draft": "knowledge", "archive": "knowledge", "history": "knowledge", "search": "knowledge",
+		"control": "operations", "project": "operations", "config": "operations", "theme": "operations", "update": "operations", "watch": "operations", "export": "operations", "agent-instructions": "operations", "completion": "operations", "mcp": "operations", "claude": "operations", "codex": "operations",
+	}
+	descriptions := map[string]string{
+		"agent": "Manage governed identities, roles, scopes, and keys", "approval": "Request and resolve governed approvals",
+		"archive": "Archive eligible completed project state", "artifact": "Store, inspect, and verify content-addressed artifacts",
+		"completion": "Generate shell completion source", "config": "Inspect resolved user and project configuration",
+		"decision": "Record and supersede durable decisions", "doctor": "Diagnose project health and actionable findings",
+		"document": "Create and manage governed project documents", "env": "Manage governed project environment values",
+		"export": "Export project history as JSONL or Markdown", "history": "Inspect the signed event timeline",
+		"message": "Post messages and manage recipient obligations", "mcp": "Serve the protocol-only MCP stdio interface",
+		"profile": "Inspect and select local signing profiles", "search": "Search the current signed event page",
+		"session": "Manage durable invocation sessions", "status": "Show a concise project operational summary",
+		"task": "Coordinate ownership, leases, handoffs, and task lifecycle", "tui": "Open the full-screen control room",
+		"update": "Check for and install verified Agent Comms releases", "verify": "Verify the signed project event chain",
+		"version": "Show binary, schema, and project format versions", "watch": "Stream changes that require operator attention",
+	}
+	for _, command := range root.Commands() {
+		command.GroupID = groups[command.Name()]
+		if command.Short == "" {
+			command.Short = descriptions[command.Name()]
+		}
+	}
 }
 func (c *cli) emit(command string, v any, warnings ...string) error {
 	return c.emitWithDelivery(command, v, nil, warnings...)
 }
 
-// emitTable is emit's counterpart for list-shaped output. With --json (or
-// scripting against this command generally), behavior is byte-for-byte
-// identical to emit(command, v) -- the same JSON envelope, so nothing that
-// already parses this command's output breaks. Only the human-facing,
-// non-JSON default differs: emit's own non-JSON fallback still prints
-// pretty-*indented* JSON, not an actual table -- a human doing an ad hoc
-// check has to mentally parse it either way. Confirmed friction all
-// session: reading agent/runtime/invocation state by eye meant piping
-// through `python3 -m json.tool`/`jq` every single time, for exactly this
-// reason. emitTable renders headers/rows as an aligned plain-text table
-// instead.
+func (c *cli) emitStream(command, event string, data any) error {
+	return json.NewEncoder(c.out).Encode(StreamEnvelope{
+		APIVersion: APIVersion, Command: command, Event: event,
+		Timestamp: time.Now().UTC(), Data: data,
+	})
+}
+
+func (c *cli) emitDocument(command string, value any, document cliui.Document, warnings ...string) error {
+	if c.json {
+		return c.emit(command, value, warnings...)
+	}
+	if len(c.pendingWarnings) > 0 {
+		warnings = append(append([]string{}, c.pendingWarnings...), warnings...)
+	}
+	mode := cliui.Mode(c.output)
+	if mode == "" {
+		mode = cliui.ModeHuman
+	}
+	if c.quiet {
+		return c.renderWarnings(mode, warnings)
+	}
+	if c.verbose {
+		document.Fields = append(document.Fields,
+			cliui.Field{Label: "Command", Value: c.cmd},
+			cliui.Field{Label: "Output", Value: string(mode)},
+			cliui.Field{Label: "Project", Value: c.project},
+			cliui.Field{Label: "Actor", Value: c.actor},
+		)
+	}
+	presenter := cliui.Presenter{
+		Out:          c.out,
+		Mode:         mode,
+		Capabilities: cliui.DetectCapabilities(c.out, c.noColor),
+	}
+	if err := presenter.Render(document); err != nil {
+		return err
+	}
+	if c.details {
+		if err := presenter.RenderDetails(value); err != nil {
+			return err
+		}
+	}
+	return c.renderWarnings(mode, warnings)
+}
+
+func (c *cli) renderWarnings(mode cliui.Mode, warnings []string) error {
+	presenter := cliui.Presenter{
+		Out:          c.err,
+		Mode:         mode,
+		Capabilities: cliui.DetectCapabilities(c.err, c.noColor),
+	}
+	for _, warning := range warnings {
+		if err := presenter.RenderWarning(warning); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (c *cli) progress() *cliui.Progress {
+	mode := cliui.Mode(c.output)
+	if c.json {
+		mode = cliui.ModeJSON
+	}
+	return cliui.NewProgress(c.err, mode, cliui.DetectCapabilities(c.err, c.noColor), c.quiet)
+}
+
+// emitTable is emit's counterpart for list-shaped output. JSON mode retains
+// the same envelope and payload as emit. Human and plain modes use the shared,
+// display-width-aware table presenter.
 func (c *cli) emitTable(command string, v any, headers []string, rows [][]string, warnings ...string) error {
 	if c.json || c.quiet {
 		return c.emit(command, v, warnings...)
@@ -337,13 +533,67 @@ func (c *cli) emitTable(command string, v any, headers []string, rows [][]string
 	if len(c.pendingWarnings) > 0 {
 		warnings = append(append([]string{}, c.pendingWarnings...), warnings...)
 	}
-	renderTable(c.out, headers, rows)
-	for _, w := range warnings {
-		if _, e := fmt.Fprintln(c.err, "warning:", w); e != nil {
-			return e
+	mode := cliui.Mode(c.output)
+	if mode == "" {
+		mode = cliui.ModeHuman
+	}
+	if err := (cliui.Presenter{
+		Out:          c.out,
+		Mode:         mode,
+		Capabilities: cliui.DetectCapabilities(c.out, c.noColor),
+	}).RenderTable(cliui.Table{Headers: headers, Rows: rows}); err != nil {
+		return err
+	}
+	presenter := cliui.Presenter{Out: c.out, Mode: mode, Capabilities: cliui.DetectCapabilities(c.out, c.noColor)}
+	if c.verbose {
+		if err := presenter.RenderSection("Operational context", map[string]any{"command": c.cmd, "project": c.project, "actor": c.actor}); err != nil {
+			return err
 		}
 	}
-	return nil
+	if c.details {
+		if err := presenter.RenderDetails(v); err != nil {
+			return err
+		}
+	}
+	return c.renderWarnings(mode, warnings)
+}
+
+func (c *cli) emitTimeline(command string, value any, timeline cliui.Timeline, warnings ...string) error {
+	if c.json {
+		return c.emit(command, value, warnings...)
+	}
+	if c.quiet {
+		if len(c.pendingWarnings) > 0 {
+			warnings = append(append([]string{}, c.pendingWarnings...), warnings...)
+		}
+		mode := cliui.Mode(c.output)
+		if mode == "" {
+			mode = cliui.ModeHuman
+		}
+		return c.renderWarnings(mode, warnings)
+	}
+	if len(c.pendingWarnings) > 0 {
+		warnings = append(append([]string{}, c.pendingWarnings...), warnings...)
+	}
+	mode := cliui.Mode(c.output)
+	if mode == "" {
+		mode = cliui.ModeHuman
+	}
+	presenter := cliui.Presenter{Out: c.out, Mode: mode, Capabilities: cliui.DetectCapabilities(c.out, c.noColor)}
+	if err := presenter.RenderTimeline(timeline); err != nil {
+		return err
+	}
+	if c.verbose {
+		if err := presenter.RenderSection("Operational context", map[string]any{"command": c.cmd, "project": c.project, "actor": c.actor}); err != nil {
+			return err
+		}
+	}
+	if c.details {
+		if err := presenter.RenderDetails(value); err != nil {
+			return err
+		}
+	}
+	return c.renderWarnings(mode, warnings)
 }
 
 // renderTable writes headers and rows as a plain-text table, columns
@@ -353,73 +603,105 @@ func (c *cli) emitTable(command string, v any, headers []string, rows [][]string
 // and this output is meant to copy-paste cleanly into another command or
 // a message, which a bordered table doesn't do as well.
 func renderTable(out io.Writer, headers []string, rows [][]string) {
-	if len(rows) == 0 {
-		fmt.Fprintln(out, "(no rows)")
-		return
-	}
-	widths := make([]int, len(headers))
-	for i, h := range headers {
-		widths[i] = len(h)
-	}
-	for _, row := range rows {
-		for i, cell := range row {
-			if i < len(widths) && len(cell) > widths[i] {
-				widths[i] = len(cell)
-			}
-		}
-	}
-	writeRow := func(cells []string) {
-		parts := make([]string, len(headers))
-		for i := range headers {
-			cell := ""
-			if i < len(cells) {
-				cell = cells[i]
-			}
-			parts[i] = cell + strings.Repeat(" ", widths[i]-len(cell))
-		}
-		fmt.Fprintln(out, strings.TrimRight(strings.Join(parts, "  "), " "))
-	}
-	writeRow(headers)
-	for _, row := range rows {
-		writeRow(row)
-	}
+	_ = (cliui.Presenter{Out: out, Mode: cliui.ModePlain}).RenderTable(cliui.Table{Headers: headers, Rows: rows})
 }
 
 func (c *cli) emitWithDelivery(command string, v, delivery any, warnings ...string) error {
-	if len(c.pendingWarnings) > 0 {
-		warnings = append(append([]string{}, c.pendingWarnings...), warnings...)
-	}
 	if c.json {
+		if len(c.pendingWarnings) > 0 {
+			warnings = append(append([]string{}, c.pendingWarnings...), warnings...)
+		}
 		return json.NewEncoder(c.out).Encode(Envelope{
 			APIVersion: APIVersion, OK: true, Command: command,
 			Result: v, Delivery: delivery, Warnings: warnings,
 		})
 	}
 	if c.quiet {
-		return nil
-	}
-	b, e := json.MarshalIndent(v, "", "  ")
-	if e != nil {
-		return e
-	}
-	if _, e = fmt.Fprintln(c.out, string(b)); e != nil {
-		return e
-	}
-	if delivery != nil {
-		deliveryBody, marshalErr := json.MarshalIndent(delivery, "", "  ")
-		if marshalErr != nil {
-			return marshalErr
+		if len(c.pendingWarnings) > 0 {
+			warnings = append(append([]string{}, c.pendingWarnings...), warnings...)
 		}
-		if _, e = fmt.Fprintln(c.out, "delivery:", string(deliveryBody)); e != nil {
+		mode := cliui.Mode(c.output)
+		if mode == "" {
+			mode = cliui.ModeHuman
+		}
+		return c.renderWarnings(mode, warnings)
+	}
+	if event, ok := v.(model.Event); ok {
+		return c.emitDocument(command, v, mutationReceipt(command, event, delivery), warnings...)
+	}
+	if len(c.pendingWarnings) > 0 {
+		warnings = append(append([]string{}, c.pendingWarnings...), warnings...)
+	}
+	mode := cliui.Mode(c.output)
+	if mode == "" {
+		mode = cliui.ModeHuman
+	}
+	presenter := cliui.Presenter{
+		Out:          c.out,
+		Mode:         mode,
+		Capabilities: cliui.DetectCapabilities(c.out, c.noColor),
+	}
+	if e := presenter.RenderResult(command, v, delivery); e != nil {
+		return e
+	}
+	if c.verbose {
+		if e := presenter.RenderSection("Operational context", map[string]any{"command": c.cmd, "output": mode, "project": c.project, "actor": c.actor}); e != nil {
 			return e
 		}
 	}
-	for _, w := range warnings {
-		if _, e = fmt.Fprintln(c.err, "warning:", w); e != nil {
-			return e
-		}
+	return c.renderWarnings(mode, warnings)
+}
+
+func mutationReceipt(command string, event model.Event, delivery any) cliui.Document {
+	parts := strings.Split(command, ".")
+	domain, operation := "Operation", "completed"
+	if len(parts) > 0 {
+		domain = strings.ToUpper(parts[0][:1]) + parts[0][1:]
 	}
-	return nil
+	if len(parts) > 1 {
+		operation = mutationVerb(parts[len(parts)-1])
+	}
+	fields := []cliui.Field{
+		{Label: "Entity", Value: event.EntityID},
+		{Label: "Actor", Value: event.Actor},
+		{Label: "Event", Value: event.Type},
+		{Label: "Sequence", Value: fmt.Sprint(event.Sequence)},
+	}
+	if event.Consistency != "" {
+		fields = append(fields, cliui.Field{Label: "Consistency", Value: event.Consistency})
+	}
+	if event.KeyFingerprint != "" {
+		fields = append(fields, cliui.Field{Label: "Signing key", Value: event.KeyFingerprint})
+	}
+	if outcome, ok := delivery.(service.InvocationDeliveryResult); ok {
+		fields = append(fields,
+			cliui.Field{Label: "Delivery", Value: outcome.Outcome},
+			cliui.Field{Label: "Runtime", Value: outcome.RuntimeID},
+		)
+	}
+	return cliui.Document{
+		Title: domain + " " + operation, Status: cliui.StatusSuccess, Fields: fields,
+		Hint: "Use --details for signed receipt metadata or --json for the stable machine envelope.",
+	}
+}
+
+func mutationVerb(operation string) string {
+	verbs := map[string]string{
+		"create": "created", "register": "registered", "activate": "activated",
+		"configure": "configured", "update": "updated", "set": "updated",
+		"add": "added", "save": "saved", "post": "posted", "request": "requested",
+		"offer": "offered", "claim": "claimed", "start": "started", "renew": "renewed",
+		"complete": "completed", "resolve": "resolved", "approve": "approved",
+		"reject": "rejected", "cancel": "cancelled", "delete": "deleted",
+		"revoke": "revoked", "suspend": "suspended", "rename": "renamed",
+		"supersede": "superseded", "takeover": "taken over", "handoff": "handed off",
+		"heartbeat": "heartbeat recorded", "drain": "draining", "expire": "expired",
+		"redeliver": "redelivered", "rotate-key": "key rotated", "elevate-key": "elevated key registered",
+	}
+	if verb := verbs[operation]; verb != "" {
+		return verb
+	}
+	return strings.ReplaceAll(operation, "-", " ")
 }
 
 type invocationDeliveryResult = service.InvocationDeliveryResult
@@ -458,7 +740,7 @@ func (c *cli) captureRuntimeSession(runtimeID string) {
 		return
 	}
 	if !c.quiet {
-		_, _ = fmt.Fprintf(c.err, "captured %s session %s for runtime %s\n", adapter, sessionID, runtimeID)
+		_, _ = fmt.Fprintf(c.err, "captured %s session %s for runtime %s\n", cliui.SanitizeInline(adapter), cliui.SanitizeInline(sessionID), cliui.SanitizeInline(runtimeID))
 	}
 }
 
@@ -474,7 +756,22 @@ func exitCode(e error) int {
 }
 func (c *cli) versionCmd() *cobra.Command {
 	return &cobra.Command{Use: "version", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
-		return c.emit("version", map[string]any{"version": Version, "build_id": buildinfo.ResolvedBuildID(), "schema_version": model.SchemaVersion, "project_format_version": store.ProjectFormatVersion, "go": runtime.Version(), "os": runtime.GOOS, "arch": runtime.GOARCH})
+		result := map[string]any{"version": Version, "build_id": buildinfo.ResolvedBuildID(), "schema_version": model.SchemaVersion, "project_format_version": store.ProjectFormatVersion, "go": runtime.Version(), "os": runtime.GOOS, "arch": runtime.GOARCH}
+		if c.json {
+			return c.emit("version", result)
+		}
+		return c.emitDocument("version", result, cliui.Document{
+			Title:  "Agent Comms",
+			Status: cliui.StatusInfo,
+			Fields: []cliui.Field{
+				{Label: "Version", Value: Version},
+				{Label: "Build", Value: buildinfo.ResolvedBuildID()},
+				{Label: "Schema", Value: model.SchemaVersion},
+				{Label: "Project format", Value: fmt.Sprint(store.ProjectFormatVersion)},
+				{Label: "Runtime", Value: runtime.Version()},
+				{Label: "Platform", Value: runtime.GOOS + "/" + runtime.GOARCH},
+			},
+		})
 	}}
 }
 
@@ -511,17 +808,17 @@ func (c *cli) projectDeleteCmd() *cobra.Command {
 				return err
 			}
 			directoryName := filepath.Base(root)
-			fmt.Fprintf(c.out, "\nProject:      %s\n", cfg.ProjectID)
-			fmt.Fprintf(c.out, "Directory:    %s\n", root)
-			fmt.Fprintf(c.out, "Owner:        %s\n", cfg.Owner)
-			fmt.Fprintf(c.out, "Runtime mode: %s\n", cfg.RuntimeMode)
+			fmt.Fprintf(c.out, "\nProject:      %s\n", cliui.SanitizeInline(cfg.ProjectID))
+			fmt.Fprintf(c.out, "Directory:    %s\n", cliui.SanitizeInline(root))
+			fmt.Fprintf(c.out, "Owner:        %s\n", cliui.SanitizeInline(cfg.Owner))
+			fmt.Fprintf(c.out, "Runtime mode: %s\n", cliui.SanitizeInline(cfg.RuntimeMode))
 			if cfg.RuntimeMode == "service" {
-				fmt.Fprintf(c.out, "Authority:    %s\n", cfg.AuthorityURL)
+				fmt.Fprintf(c.out, "Authority:    %s\n", cliui.SanitizeInline(cfg.AuthorityURL))
 				fmt.Fprint(c.out, "\nThis permanently deletes this project's ENTIRE row set from the shared authority above,\n"+
 					"not just this machine's local copy -- every other member's access to it ends too.\n")
 			}
 			fmt.Fprint(c.out, "\nThis is IRREVERSIBLE. There is no backup.\n\n")
-			fmt.Fprintf(c.out, "Type the project directory name (%s) to confirm permanent deletion: ", directoryName)
+			fmt.Fprintf(c.out, "Type the project directory name (%s) to confirm permanent deletion: ", cliui.SanitizeInline(directoryName))
 			scanner := bufio.NewScanner(os.Stdin)
 			confirmed := ""
 			if scanner.Scan() {
@@ -538,7 +835,10 @@ func (c *cli) projectDeleteCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return c.emit("project.delete", result)
+			return c.emitDocument("project.delete", result, cliui.Document{
+				Title: "Project deleted", Status: cliui.StatusDanger,
+				Fields: []cliui.Field{{Label: "Project", Value: cfg.ProjectID}, {Label: "Directory", Value: root}, {Label: "Runtime mode", Value: cfg.RuntimeMode}},
+			})
 		},
 	}
 }
@@ -565,7 +865,7 @@ func (c *cli) projectUpgradeCmd() *cobra.Command {
 					if c.nonInteractive {
 						return &projectlifecycle.Error{Code: projectlifecycle.CodeUpgradeRequired, Message: "project upgrade requires --yes in non-interactive mode"}
 					}
-					fmt.Fprintf(c.out, "Upgrade %s with %d action(s)? [y/N] ", root, len(plan.Actions))
+					fmt.Fprintf(c.out, "Upgrade %s with %d action(s)? [y/N] ", cliui.SanitizeInline(root), len(plan.Actions))
 					scanner := bufio.NewScanner(os.Stdin)
 					if !scanner.Scan() || !strings.EqualFold(strings.TrimSpace(scanner.Text()), "y") {
 						return errors.New("project upgrade cancelled")
@@ -600,8 +900,12 @@ func (c *cli) projectUpgradeCmd() *cobra.Command {
 					return err
 				}
 			}
-			return c.emit("project.upgrade", map[string]any{
+			result := map[string]any{
 				"projects": results, "upgraded": countChangedProjects(results), "verified": true,
+			}
+			return c.emitDocument("project.upgrade", result, cliui.Document{
+				Title: "Project upgrade completed", Status: cliui.StatusSuccess,
+				Fields: []cliui.Field{{Label: "Projects", Value: fmt.Sprint(len(results))}, {Label: "Changed", Value: fmt.Sprint(countChangedProjects(results))}, {Label: "Verified", Value: "yes"}},
 			})
 		},
 	}
@@ -624,7 +928,19 @@ func (c *cli) projectUpgradeCmd() *cobra.Command {
 				}
 				plans = append(plans, plan)
 			}
-			return c.emit("project.upgrade."+operation, map[string]any{"projects": plans})
+			result := map[string]any{"projects": plans}
+			actions, confirmations := 0, 0
+			for _, plan := range plans {
+				actions += len(plan.Actions)
+				if plan.RequiresConfirmation {
+					confirmations++
+				}
+			}
+			return c.emitDocument("project.upgrade."+operation, result, cliui.Document{
+				Title: "Project upgrade " + operation, Status: cliui.StatusInfo,
+				Fields: []cliui.Field{{Label: "Projects", Value: fmt.Sprint(len(plans))}, {Label: "Actions", Value: fmt.Sprint(actions)}, {Label: "Confirmations", Value: fmt.Sprint(confirmations)}},
+				Hint:   "Run project upgrade with --yes when confirmation-required actions are understood and approved.",
+			})
 		}}
 		command.Flags().BoolVar(&operationAllKnown, "all-known", false, "inspect distinct projects recorded in identity profiles")
 		upgrade.AddCommand(command)
@@ -703,7 +1019,7 @@ func (c *cli) initCmd() *cobra.Command {
 			return errors.New("--mode must be personal or service")
 		}
 		if !yes && !c.nonInteractive {
-			fmt.Fprintf(c.out, "\nCreate .agents and isolated .agent-comms runtime in %s? [y/N] ", root)
+			fmt.Fprintf(c.out, "\nCreate .agents and isolated .agent-comms runtime in %s? [y/N] ", cliui.SanitizeInline(root))
 			scan := bufio.NewScanner(os.Stdin)
 			if !scan.Scan() || !strings.EqualFold(strings.TrimSpace(scan.Text()), "y") {
 				return errors.New("initialization cancelled")
@@ -766,7 +1082,7 @@ func (c *cli) initCmd() *cobra.Command {
 					// NO_ELEVATED_KEY finding is the real safety net for
 					// this path -- it nags on every future command until
 					// `agent-comms agent elevate-key` is run.
-					fmt.Fprintf(c.out, "elevated-key setup failed (%v); run `agent-comms agent elevate-key` to finish this later\n", e)
+					fmt.Fprintf(c.out, "elevated-key setup failed (%s); run `agent-comms agent elevate-key` to finish this later\n", cliui.SanitizeInline(e.Error()))
 					result["elevated_key"] = "skipped: " + e.Error()
 				} else {
 					result["elevated_key"] = "registered"
@@ -775,7 +1091,17 @@ func (c *cli) initCmd() *cobra.Command {
 				result["elevated_key"] = "skipped"
 			}
 		}
-		return c.emit("init", result)
+		fields := []cliui.Field{
+			{Label: "Project", Value: root}, {Label: "Owner", Value: owner},
+			{Label: "Runtime mode", Value: initialized.RuntimeMode}, {Label: "Daemon", Value: initialized.DaemonEndpoint},
+		}
+		if initialized.AuthorityURL != "" {
+			fields = append(fields, cliui.Field{Label: "Authority", Value: initialized.AuthorityURL})
+		}
+		return c.emitDocument("init", result, cliui.Document{
+			Title: "Project initialized", Status: cliui.StatusSuccess, Fields: fields,
+			Hint: "Open the control room with agent-comms tui or register the first collaborating agent.",
+		})
 	}}
 	cmd.Flags().StringVar(&owner, "owner", "", "owner principal ID")
 	cmd.Flags().StringVar(&mode, "mode", "personal", "runtime mode: personal or service")
@@ -825,7 +1151,37 @@ func (c *cli) doctorCmd() *cobra.Command {
 			r["resolved_lock_timeout"] = c.timeout.String()
 			r["actor"] = c.actor
 		}
-		return c.emit("doctor", r)
+		status := cliui.StatusSuccess
+		if len(findings) > 0 || verify != nil {
+			status = cliui.StatusWarning
+		}
+		findingSummary := "None"
+		if len(findings) > 0 {
+			items := make([]string, 0, len(findings))
+			for _, finding := range findings {
+				detail := fmt.Sprintf("%s %s — %s", finding.Severity, finding.Code, finding.Message)
+				if finding.Guidance != "" {
+					detail += " Remedy: " + finding.Guidance
+				}
+				items = append(items, detail)
+			}
+			findingSummary = strings.Join(items, "; ")
+		}
+		integrityStatus := "verified"
+		if verify != nil {
+			integrityStatus = "failed: " + verify.Error()
+		}
+		return c.emitDocument("doctor", r, cliui.Document{
+			Title:  "Project health",
+			Status: status,
+			Fields: []cliui.Field{
+				{Label: "Integrity", Value: integrityStatus},
+				{Label: "Findings", Value: findingSummary},
+				{Label: "Runtime mode", Value: cfg.RuntimeMode},
+				{Label: "Schema", Value: cfg.SchemaVersion},
+				{Label: "Binary", Value: Version + " (" + buildinfo.ResolvedBuildID() + ")"},
+			},
+		})
 	}}
 	cmd.Flags().BoolVar(&explain, "explain-config", false, "show configuration precedence and resolved values")
 	return cmd
@@ -840,11 +1196,21 @@ func (c *cli) verifyCmd() *cobra.Command {
 		if e != nil {
 			return e
 		}
-		return c.emit("verify", map[string]any{
+		result := map[string]any{
 			"verified": true, "events": state.Integrity.EventCount, "head": state.Integrity.Head,
 			"from": from, "to": to, "consistency": state.Integrity.Consistency,
 			"server_sequence": state.Integrity.ServerSequence, "cache_sequence": state.Integrity.CacheSequence,
 			"connectivity": state.Integrity.Connectivity,
+		}
+		return c.emitDocument("verify", result, cliui.Document{
+			Title:  "Integrity verified",
+			Status: cliui.StatusSuccess,
+			Fields: []cliui.Field{
+				{Label: "Events", Value: fmt.Sprint(state.Integrity.EventCount)},
+				{Label: "Consistency", Value: state.Integrity.Consistency},
+				{Label: "Connectivity", Value: state.Integrity.Connectivity},
+				{Label: "Head", Value: state.Integrity.Head},
+			},
 		})
 	}}
 	cmd.Flags().Uint64Var(&from, "from", 0, "first event sequence to verify")
@@ -857,7 +1223,36 @@ func (c *cli) statusCmd() *cobra.Command {
 		if e != nil {
 			return e
 		}
-		return c.emit("status", v)
+		onlineRuntimes := 0
+		for _, runtime := range v.AgentRuntimes {
+			if runtime.Status == "ONLINE" {
+				onlineRuntimes++
+			}
+		}
+		pendingApprovals := 0
+		for _, approval := range v.Approvals {
+			if approval.Status == "PENDING" {
+				pendingApprovals++
+			}
+		}
+		integrity := "not verified"
+		status := cliui.StatusWarning
+		if v.Integrity.Verified {
+			integrity = "verified"
+			status = cliui.StatusSuccess
+		}
+		return c.emitDocument("status", v, cliui.Document{
+			Title:  "Project status",
+			Status: status,
+			Fields: []cliui.Field{
+				{Label: "Agents", Value: fmt.Sprint(len(v.Agents))},
+				{Label: "Runtimes", Value: fmt.Sprintf("%d (%d online)", len(v.AgentRuntimes), onlineRuntimes)},
+				{Label: "Tasks", Value: fmt.Sprint(len(v.Tasks))},
+				{Label: "Invocations", Value: fmt.Sprint(len(v.Invocations))},
+				{Label: "Approvals", Value: fmt.Sprintf("%d (%d pending)", len(v.Approvals), pendingApprovals)},
+				{Label: "Integrity", Value: integrity + " · " + v.Integrity.Consistency},
+			},
+		})
 	}}
 }
 func (c *cli) controlCmd() *cobra.Command {
@@ -891,8 +1286,16 @@ func (c *cli) controlCmd() *cobra.Command {
 				counts["pending_approvals"]++
 			}
 		}
-		return c.emit("control.overview", map[string]any{
+		result := map[string]any{
 			"counts": counts, "integrity": state.Integrity,
+		}
+		return c.emitDocument("control.overview", result, cliui.Document{
+			Title: "Control overview", Status: cliui.StatusInfo,
+			Fields: []cliui.Field{
+				{Label: "Agents", Value: fmt.Sprint(counts["agents"])}, {Label: "Runtimes", Value: fmt.Sprintf("%d (%d online)", counts["runtimes"], counts["online_runtimes"])},
+				{Label: "Tasks", Value: fmt.Sprint(counts["tasks"])}, {Label: "Invocations", Value: fmt.Sprint(counts["invocations"])},
+				{Label: "Pending approvals", Value: fmt.Sprint(counts["pending_approvals"])}, {Label: "Integrity", Value: state.Integrity.Consistency},
+			},
 		})
 	}}
 	attention := &cobra.Command{Use: "attention", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
@@ -930,10 +1333,24 @@ func (c *cli) controlCmd() *cobra.Command {
 				degradedRuntimes[id] = runtime
 			}
 		}
-		return c.emit("control.attention", map[string]any{
+		result := map[string]any{
 			"blocked_tasks": blockedTasks, "pending_approvals": pendingApprovals,
 			"waiting_invocations": waitingInvocations, "failed_deliveries": failedDeliveries,
 			"degraded_runtimes": degradedRuntimes,
+		}
+		total := len(blockedTasks) + len(pendingApprovals) + len(waitingInvocations) + len(failedDeliveries) + len(degradedRuntimes)
+		status := cliui.StatusSuccess
+		if total > 0 {
+			status = cliui.StatusWarning
+		}
+		return c.emitDocument("control.attention", result, cliui.Document{
+			Title: "Attention queue", Status: status,
+			Fields: []cliui.Field{
+				{Label: "Blocked tasks", Value: fmt.Sprint(len(blockedTasks))}, {Label: "Pending approvals", Value: fmt.Sprint(len(pendingApprovals))},
+				{Label: "Waiting invocations", Value: fmt.Sprint(len(waitingInvocations))}, {Label: "Failed deliveries", Value: fmt.Sprint(len(failedDeliveries))},
+				{Label: "Degraded runtimes", Value: fmt.Sprint(len(degradedRuntimes))},
+			},
+			Hint: "Use --details to inspect every item requiring intervention.",
 		})
 	}}
 	settings := &cobra.Command{Use: "settings", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
@@ -945,7 +1362,7 @@ func (c *cli) controlCmd() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		return c.emit("control.settings", map[string]any{
+		result := map[string]any{
 			"runtime_mode": config.RuntimeMode, "authority_url": config.AuthorityURL,
 			"invocation_policies": state.InvocationPolicies,
 			"limits": map[string]any{
@@ -953,6 +1370,15 @@ func (c *cli) controlCmd() *cobra.Command {
 				"max_delivery_attempts":   controlplane.MaxDeliveryAttempts,
 				"max_invocation_bytes":    controlplane.MaxInvocationBytes,
 				"max_invocation_ttl":      controlplane.MaxInvocationTTL.String(),
+			},
+		}
+		return c.emitDocument("control.settings", result, cliui.Document{
+			Title: "Control settings", Status: cliui.StatusInfo,
+			Fields: []cliui.Field{
+				{Label: "Runtime mode", Value: config.RuntimeMode}, {Label: "Authority", Value: config.AuthorityURL},
+				{Label: "Invocation policies", Value: fmt.Sprint(len(state.InvocationPolicies))},
+				{Label: "Max concurrency", Value: fmt.Sprint(controlplane.MaxRuntimeConcurrency)},
+				{Label: "Max delivery attempts", Value: fmt.Sprint(controlplane.MaxDeliveryAttempts)},
 			},
 		})
 	}}
@@ -982,7 +1408,18 @@ func (c *cli) historyCmd() *cobra.Command {
 			}
 			v.Items = filtered
 		}
-		return c.emit("history", v)
+		entries := make([]cliui.TimelineEntry, 0, len(v.Items))
+		for _, record := range v.Items {
+			detail := record.Event.Actor
+			if record.Event.EntityID != "" {
+				detail += " · " + record.Event.EntityID
+			}
+			entries = append(entries, cliui.TimelineEntry{
+				Time: record.Event.Time.Format(time.RFC3339), Status: cliui.StatusInfo,
+				Title: fmt.Sprintf("#%d %s", record.Event.Sequence, record.Event.Type), Detail: detail,
+			})
+		}
+		return c.emitTimeline("history", v, cliui.Timeline{Title: "Project history", Entries: entries})
 	}}
 	cmd.Flags().StringVar(&cursor, "cursor", "", "opaque pagination cursor")
 	cmd.Flags().IntVar(&limit, "limit", controlplane.DefaultPageSize, "events per page")
@@ -1010,10 +1447,18 @@ func (c *cli) searchCmd() *cobra.Command {
 				out = append(out, v)
 			}
 		}
-		return c.emit("search", map[string]any{
+		result := map[string]any{
 			"current_events": out,
 			"next_cursor":    page.NextCursor, "metadata": page.Metadata,
-		})
+		}
+		rows := make([][]string, 0, len(out))
+		for _, record := range out {
+			rows = append(rows, []string{
+				fmt.Sprint(record.Event.Sequence), record.Event.Type, record.Event.Actor,
+				record.Event.EntityID, record.Event.Time.Format(time.RFC3339),
+			})
+		}
+		return c.emitTable("search", result, []string{"SEQ", "EVENT", "ACTOR", "ENTITY", "TIME"}, rows)
 	}}
 	cmd.Flags().StringVar(&cursor, "cursor", "", "opaque pagination cursor")
 	cmd.Flags().IntVar(&limit, "limit", controlplane.DefaultPageSize, "events scanned per page")

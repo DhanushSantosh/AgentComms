@@ -14,6 +14,7 @@ import (
 	"github.com/DhanushSantosh/AgentComms/internal/buildinfo"
 	"github.com/DhanushSantosh/AgentComms/internal/claudeserve"
 	"github.com/DhanushSantosh/AgentComms/internal/claudetail"
+	"github.com/DhanushSantosh/AgentComms/internal/cliui"
 	"github.com/DhanushSantosh/AgentComms/internal/codexserve"
 	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
 	"github.com/DhanushSantosh/AgentComms/internal/daemon"
@@ -66,7 +67,18 @@ Use "message post --kind CONTRACT" for binding agreements. Personal mode
 coordinates one machine through SQLite; use service mode with PostgreSQL for
 multi-host coordination. Git is not an authority.
 `, exe)
-		return c.emit("agent-instructions", map[string]any{"instructions": instructions, "binary": exe, "actor_resolution": c.actorResolution})
+		result := map[string]any{"instructions": instructions, "binary": exe, "actor_resolution": c.actorResolution}
+		if c.json {
+			return c.emit("agent-instructions", result)
+		}
+		mode := cliui.Mode(c.output)
+		if mode == "" {
+			mode = cliui.ModeHuman
+		}
+		if c.quiet {
+			return nil
+		}
+		return (cliui.Presenter{Out: c.out, Mode: mode, Capabilities: cliui.DetectCapabilities(c.out, c.noColor)}).RenderText("Agent instructions", instructions)
 	}}
 }
 func (c *cli) mcpCmd() *cobra.Command {
@@ -109,7 +121,7 @@ func (c *cli) claudeCmd() *cobra.Command {
 		ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 		defer cancel()
 		if !c.quiet {
-			_, _ = fmt.Fprintf(c.err, "Claude live broker listening on http://%s\n", listenAddress)
+			_, _ = fmt.Fprintf(c.err, "Claude live broker listening on http://%s\n", cliui.SanitizeInline(listenAddress))
 		}
 		return claudeserve.Serve(ctx, listenAddress)
 	}}
@@ -146,7 +158,7 @@ func (c *cli) codexCmd() *cobra.Command {
 		ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 		defer cancel()
 		if !c.quiet {
-			_, _ = fmt.Fprintf(c.err, "Codex live broker listening on http://%s\n", listenAddress)
+			_, _ = fmt.Fprintf(c.err, "Codex live broker listening on http://%s\n", cliui.SanitizeInline(listenAddress))
 		}
 		return codexserve.Serve(ctx, listenAddress)
 	}}
@@ -177,6 +189,7 @@ func (c *cli) codexCmd() *cobra.Command {
 }
 func (c *cli) watchCmd() *cobra.Command {
 	var interval time.Duration
+	var count int
 	cmd := &cobra.Command{Use: "watch", RunE: func(cmd *cobra.Command, args []string) error {
 		tick := time.NewTicker(interval)
 		defer tick.Stop()
@@ -202,13 +215,26 @@ func (c *cli) watchCmd() *cobra.Command {
 					}
 				}
 				if attention != last {
-					fmt.Fprintf(c.out, "%s attention=%d\n", time.Now().Format(time.RFC3339), attention)
+					if c.jsonl {
+						if err := c.emitStream("watch", "attention.changed", map[string]any{"attention": attention, "previous": last}); err != nil {
+							return err
+						}
+					} else {
+						fmt.Fprintf(c.out, "%s attention=%d\n", time.Now().UTC().Format(time.RFC3339), attention)
+					}
 					last = attention
+					if count > 0 {
+						count--
+						if count == 0 {
+							return nil
+						}
+					}
 				}
 			}
 		}
 	}}
 	cmd.Flags().DurationVar(&interval, "interval", 30*time.Second, "poll interval")
+	cmd.Flags().IntVar(&count, "count", 0, "stop after this many changes (0 = keep watching)")
 	return cmd
 }
 func (c *cli) tuiCmd() *cobra.Command {

@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -78,7 +79,17 @@ func (c *cli) messageCmd() *cobra.Command {
 			}
 			out = trimmed
 		}
-		return c.emit("message.inbox", out)
+		ids := make([]string, 0, len(out))
+		for id := range out {
+			ids = append(ids, id)
+		}
+		sort.Strings(ids)
+		rows := make([][]string, 0, len(ids))
+		for _, id := range ids {
+			message := out[id]
+			rows = append(rows, []string{id, message.Kind, message.From, message.Status, message.Subject})
+		}
+		return c.emitTable("message.inbox", out, []string{"ID", "KIND", "FROM", "STATUS", "SUBJECT"}, rows)
 	}}
 	inbox.Flags().Bool("unread", false, "show only unread messages")
 	inbox.Flags().String("from", "", "filter by sender")
@@ -135,7 +146,17 @@ func (c *cli) approvalCmd() *cobra.Command {
 		if e != nil {
 			return e
 		}
-		return c.emit("approval.list", st.Approvals)
+		ids := make([]string, 0, len(st.Approvals))
+		for id := range st.Approvals {
+			ids = append(ids, id)
+		}
+		sort.Strings(ids)
+		rows := make([][]string, 0, len(ids))
+		for _, id := range ids {
+			approval := st.Approvals[id]
+			rows = append(rows, []string{id, approval.Tier, approval.Status, approval.Requester, approval.Action})
+		}
+		return c.emitTable("approval.list", st.Approvals, []string{"ID", "TIER", "STATUS", "REQUESTER", "ACTION"}, rows)
 	}}
 	root.AddCommand(request, approve, reject, list)
 	return root

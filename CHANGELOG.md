@@ -20,6 +20,17 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
   /v1/projects/{project}` to the authority server (schema migration 4)
   and a permanent, data-free `deleted_projects` tombstone that survives
   the cascade for audit purposes on a shared authority instance.
+- Semantic CLI presentation: a new `--output human|plain|json|jsonl` contract
+  replaces the previous default of printing raw backend JSON to a human
+  terminal. `human` (the interactive default) renders concise summaries,
+  status, and responsive tables; `plain` is the stable uncolored fallback for
+  redirected/non-interactive output; `json` keeps the existing versioned
+  `Envelope` unchanged (`--json` remains a supported alias); `jsonl` is a new,
+  versioned one-record-per-line contract for naturally streaming commands
+  (`watch`, `invocation listen`), rejected for bounded commands. See RFC 0022.
+  Human output is intentionally not byte-compatible across versions; scripts
+  that parse text should use `plain` or `--json`, not `human`. `--no-color`/
+  `NO_COLOR` affect human rendering only and never touch JSON/JSONL.
 
 ## [0.4.0] - 2026-08-14 — “Proof of Presence”
 
