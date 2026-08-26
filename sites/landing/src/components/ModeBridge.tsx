@@ -14,8 +14,8 @@ function MiniMap({ shared, agent }: { shared?: boolean; agent?: string }) {
     <div className={`mode-map ${shared ? "mode-map--shared" : ""}`}>
       <i className="mode-map-contour mode-map-contour--1" /><i className="mode-map-contour mode-map-contour--2" /><i className="mode-map-contour mode-map-contour--3" />
       <span className="mode-map-scope">auth/session</span>
-      <span className="mode-map-cursor mode-map-cursor--a">DAMON</span>
-      <span className="mode-map-cursor mode-map-cursor--b">{agent ?? "AXIOM"}</span>
+      <span className="mode-map-cursor mode-map-cursor--a">DEVELOPER</span>
+      <span className="mode-map-cursor mode-map-cursor--b">{agent ?? "REVIEWER"}</span>
     </div>
   );
 }
@@ -29,7 +29,7 @@ export function ModeBridge() {
         <div className="continuity-arrow"><span>same project model</span><i /></div>
         <div className="continuity-shared">
           <div className="continuity-machine"><b>MACHINE A · OWNER</b><MiniMap shared /></div>
-          <div className="continuity-machine continuity-machine--remote"><b>MACHINE B · PEER</b><MiniMap shared agent="AXIOM" /></div>
+          <div className="continuity-machine continuity-machine--remote"><b>MACHINE B · PEER</b><MiniMap shared agent="REVIEWER" /></div>
         </div>
       </div>
       <div className="continuity-ledgers">

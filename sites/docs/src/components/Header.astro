@@ -9,19 +9,15 @@ import { product } from "@data/product";
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" /></svg>
     </button>
     <BrandMark compact />
-  </div>
-
-  <div class="site-header__actions">
-    <a class="product-link" href={product.marketingSite} aria-label="Agent Comms product website">
-      <span>Product</span><i aria-hidden="true">↗</i>
-    </a>
 
     <span class="channel" title="Documentation channel">
       <span class="channel__signal"></span>
       <span>{product.channel}</span>
       <span class="channel__version">v{product.version}</span>
     </span>
+  </div>
 
+  <div class="site-header__actions">
     <button class="search-trigger" type="button" data-search-trigger aria-haspopup="dialog" aria-label="Search documentation">
       <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5" /><path d="m16 16 4 4" /></svg>
       <span>Search the manual</span>
@@ -36,6 +32,10 @@ import { product } from "@data/product";
       <svg class="theme-icon theme-icon--sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.5" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></svg>
       <svg class="theme-icon theme-icon--moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.4 15.2A8 8 0 0 1 8.8 3.6 8.4 8.4 0 1 0 20.4 15.2Z" /></svg>
     </button>
+
+    <a class="product-link" href={product.marketingSite} aria-label="Agent Comms product website">
+      <span>Product</span><i aria-hidden="true">↗</i>
+    </a>
   </div>
 </header>
 
@@ -167,12 +167,14 @@ import { product } from "@data/product";
 
   .channel {
     align-items: center;
+    border-left: 1px solid color-mix(in srgb, #ffffff 24%, transparent);
     color: color-mix(in srgb, #ffffff 82%, transparent);
     display: flex;
     font-family: var(--font-mono);
     font-size: 0.66rem;
     gap: 0.42rem;
     letter-spacing: 0.04em;
+    padding-left: 0.7rem;
     text-transform: uppercase;
   }
 

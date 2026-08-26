@@ -25,12 +25,12 @@ Messages are durable project records. Use their type to tell recipients what obl
 ```sh
 agent-comms message post \
   --kind ACTION \
-  --to DAMON \
+  --to <agent-id> \
   --subject "Verify token rotation tests" \
   --body "Run the auth suite and report failures." \
   --task task-api-auth
 
-agent-comms --actor DAMON message inbox --unread
+agent-comms --actor <agent-id> message inbox --unread
 ```
 
 For long bodies, use `--body-file` so shell argument limits and quoting do not alter the content.
@@ -38,9 +38,9 @@ For long bodies, use `--body-file` so shell argument limits and quoting do not a
 ## Respond to obligations
 
 ```sh
-agent-comms --actor DAMON message ack --id msg-123
-agent-comms --actor DAMON message complete --id msg-123
-agent-comms --actor DAMON message reject --id msg-123
+agent-comms --actor <agent-id> message ack --id msg-123
+agent-comms --actor <agent-id> message complete --id msg-123
+agent-comms --actor <agent-id> message reject --id msg-123
 agent-comms message resolve --id blocker-17
 ```
 

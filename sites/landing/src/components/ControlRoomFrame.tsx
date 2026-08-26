@@ -1,19 +1,24 @@
+// Mirrors cmd/agent-comms-tui-wasm/seed.go's real seeded identities exactly
+// -- this is the static fallback shown when the live embedded TUI can't
+// run (mobile/tablet), so it must render the same literal agent ids the
+// real WASM TUI would, not a shortened cosmetic label invented for this
+// component alone.
 const workforce = [
   { signal: "online", agent: "OWNER", role: "OWNER", work: "reviewing approvals" },
-  { signal: "online", agent: "AXIOM", role: "Release-Coordinator", work: "awaiting approval" },
-  { signal: "online", agent: "DAMON", role: "Frontend-Architect", work: "test/auth" },
-  { signal: "offline", agent: "GORGE", role: "Tester", work: "available" }
+  { signal: "online", agent: "reviewer", role: "Release-Coordinator", work: "awaiting approval" },
+  { signal: "online", agent: "developer", role: "Frontend-Architect", work: "test/auth" },
+  { signal: "offline", agent: "tester", role: "Tester", work: "available" }
 ] as const;
 
 const activity = [
-  { seq: "0142", type: "agent.switch-role", actor: "DAMON · OWNER" },
-  { seq: "0143", type: "task.claim", actor: "AXIOM · auth/session" },
-  { seq: "0144", type: "invocation.request", actor: "OWNER · AXIOM" },
-  { seq: "0145", type: "invocation.claim", actor: "AXIOM · AXIOM" },
-  { seq: "0146", type: "approval.request", actor: "AXIOM · HUMAN tier" },
-  { seq: "0147", type: "invocation.start", actor: "AXIOM · lease renewed" },
-  { seq: "0148", type: "message.deliver", actor: "AXIOM → GORGE" },
-  { seq: "0149", type: "invocation.complete", actor: "AXIOM · auth/session" }
+  { seq: "0142", type: "agent.switch-role", actor: "developer · OWNER" },
+  { seq: "0143", type: "task.claim", actor: "reviewer · auth/session" },
+  { seq: "0144", type: "invocation.request", actor: "OWNER · reviewer" },
+  { seq: "0145", type: "invocation.claim", actor: "reviewer · reviewer" },
+  { seq: "0146", type: "approval.request", actor: "reviewer · HUMAN tier" },
+  { seq: "0147", type: "invocation.start", actor: "reviewer · lease renewed" },
+  { seq: "0148", type: "message.deliver", actor: "reviewer → tester" },
+  { seq: "0149", type: "invocation.complete", actor: "reviewer · auth/session" }
 ] as const;
 
 const roleClassName: Record<string, string> = {
@@ -62,8 +67,8 @@ export function ControlRoomFrame() {
                   <tr key={row.agent}>
                     <td><i className={row.signal === "online" ? "is-online" : undefined} />{row.signal === "online" ? "ONLINE" : "OFFLINE"}</td>
                     <td>{row.agent}</td>
-                    <td className={roleClassName[row.role] ?? "role-custom"} data-control-role={row.agent === "AXIOM" ? "true" : undefined}>{row.role}</td>
-                    <td data-control-work={row.agent === "AXIOM" ? "true" : undefined}>{row.work}</td>
+                    <td className={roleClassName[row.role] ?? "role-custom"} data-control-role={row.agent === "reviewer" ? "true" : undefined}>{row.role}</td>
+                    <td data-control-work={row.agent === "reviewer" ? "true" : undefined}>{row.work}</td>
                   </tr>
                 ))}
               </tbody>
@@ -73,15 +78,15 @@ export function ControlRoomFrame() {
             <span>ATTENTION</span>
             <small>items requiring intervention</small>
             <button type="button" data-control-open aria-expanded="false">
-              <i>!</i><span>approval-orchestrator-axiom</span><small data-control-status>pending HUMAN-tier review</small>
+              <i>!</i><span>approval-orchestrator-reviewer</span><small data-control-status>pending HUMAN-tier review</small>
             </button>
           </div>
         </div>
         <div className="tui-approval-detail" data-control-detail hidden>
           <div className="tui-approval-head"><span>HUMAN AUTHORITY REQUIRED</span><button type="button" data-control-close aria-label="Close approval details">×</button></div>
           <dl>
-            <div><dt>REQUESTER</dt><dd>AXIOM</dd></div>
-            <div><dt>ACTION</dt><dd>agent.activate:AXIOM</dd></div>
+            <div><dt>REQUESTER</dt><dd>reviewer</dd></div>
+            <div><dt>ACTION</dt><dd>agent.activate:reviewer</dd></div>
             <div><dt>ROLE</dt><dd>ORCHESTRATOR</dd></div>
             <div><dt>REASON</dt><dd>Coordinate the auth-session release</dd></div>
           </dl>
