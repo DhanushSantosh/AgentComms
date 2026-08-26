@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strings"
 	"unicode"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 // RenderResult renders an arbitrary bounded command result through the safe
@@ -43,11 +45,16 @@ func (p Presenter) RenderResult(command string, value, delivery any) error {
 // RenderDetails appends the complete secondary result structure below an
 // intentional summary without changing machine output contracts.
 func (p Presenter) RenderDetails(value any) error {
+	return p.RenderSection("Details", value)
+}
+
+// RenderSection appends a named structured section.
+func (p Presenter) RenderSection(title string, value any) error {
 	normalized, err := normalizeResult(value)
 	if err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintln(p.Out, "\nDetails"); err != nil {
+	if _, err := fmt.Fprintln(p.Out, "\n"+safeText(title)); err != nil {
 		return err
 	}
 	return p.renderTree(normalized, 1)
@@ -80,6 +87,29 @@ func (p Presenter) RenderError(code, message, hint string) error {
 		return err
 	}
 	return nil
+}
+
+// RenderText renders intentional multiline content such as generated agent
+// instructions while stripping terminal escape sequences and unsafe controls.
+func (p Presenter) RenderText(title, value string) error {
+	if err := p.renderTitle(Document{Title: title, Status: StatusInfo}); err != nil {
+		return err
+	}
+	_, err := fmt.Fprintln(p.Out, "\n"+safeMultiline(value))
+	return err
+}
+
+func safeMultiline(value string) string {
+	value = ansi.Strip(value)
+	return strings.Map(func(character rune) rune {
+		if character == '\n' || character == '\t' {
+			return character
+		}
+		if character < 0x20 || character == 0x7f {
+			return -1
+		}
+		return character
+	}, value)
 }
 
 func normalizeResult(value any) (any, error) {

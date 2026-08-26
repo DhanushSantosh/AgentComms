@@ -78,6 +78,7 @@ func (c *cli) taskCmd() *cobra.Command {
 				{Label: "Lease until", Value: lease.Format(time.RFC3339)},
 				{Label: "Worktree", Value: worktree},
 			},
+			Hint: "Start the task when work begins, then renew the lease with progress before it expires.",
 		})
 	}}
 	claim.Flags().String("id", "", "task ID")
@@ -211,6 +212,7 @@ func (c *cli) taskCmd() *cobra.Command {
 					{Label: "Branch", Value: branch},
 					{Label: "Lease until", Value: lease.Format(time.RFC3339)},
 				},
+				Hint: "Use the printed task ID to complete or cancel this lock when the work is done.",
 			})
 		},
 	}

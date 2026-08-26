@@ -84,6 +84,7 @@ func (c *cli) invocationCmd() *cobra.Command {
 				{Label: "Delivery", Value: delivery},
 				{Label: "Runtime", Value: outcome.RuntimeID},
 			},
+			Hint: "Inspect the invocation to review delivery evidence and lifecycle state.",
 		}, warnings...)
 	}}
 	request.Flags().String("id", "", "invocation ID (auto-generated if omitted)")
@@ -173,7 +174,15 @@ func (c *cli) invocationCmd() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		return c.emit("invocation.next", map[string]any{"found": found, "invocation": invocation})
+		result := map[string]any{"found": found, "invocation": invocation}
+		if !found {
+			return c.emitDocument("invocation.next", result, cliui.Document{Title: "No invocation available", Status: cliui.StatusInfo, Fields: []cliui.Field{{Label: "Runtime", Value: runtimeID}}})
+		}
+		return c.emitDocument("invocation.next", result, cliui.Document{
+			Title: "Invocation available", Status: cliui.StatusInfo,
+			Fields: []cliui.Field{{Label: "Invocation", Value: invocation.ID}, {Label: "Target", Value: invocation.Target}, {Label: "Priority", Value: invocation.Priority}, {Label: "Status", Value: invocation.Status}},
+			Hint:   "Claim the invocation with the selected runtime before beginning work.",
+		})
 	}}
 	next.Flags().String("runtime", "", "runtime ID used for capacity filtering")
 
@@ -242,7 +251,13 @@ func (c *cli) invocationCmd() *cobra.Command {
 		if c.jsonl {
 			return c.emitStream("invocation.listen", "invocation.received", result)
 		}
-		return c.emit("invocation.listen", result)
+		if !found {
+			return c.emitDocument("invocation.listen", result, cliui.Document{Title: "Listen window completed", Status: cliui.StatusInfo, Fields: []cliui.Field{{Label: "Invocation found", Value: "no"}, {Label: "Runtime", Value: runtimeID}}})
+		}
+		return c.emitDocument("invocation.listen", result, cliui.Document{
+			Title: "Invocation received", Status: cliui.StatusSuccess,
+			Fields: []cliui.Field{{Label: "Invocation", Value: invocation.ID}, {Label: "Target", Value: invocation.Target}, {Label: "Claimed", Value: fmt.Sprint(result["claimed"])}, {Label: "Runtime", Value: runtimeID}},
+		})
 	}}
 	listen.Flags().StringVar(&runtimeID, "runtime", "", "connected runtime ID")
 	_ = listen.MarkFlagRequired("runtime")
@@ -339,7 +354,11 @@ func (c *cli) invocationPolicyCmd() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		return c.emit("invocation.policy.show", state.InvocationPolicies[agentID])
+		policy := state.InvocationPolicies[agentID]
+		return c.emitDocument("invocation.policy.show", policy, cliui.Document{
+			Title: "Invocation policy", Status: cliui.StatusInfo,
+			Fields: []cliui.Field{{Label: "Agent", Value: policy.AgentID}, {Label: "Mode", Value: policy.Mode}, {Label: "Default consumer", Value: string(policy.DefaultConsumerMode)}, {Label: "Preferred runtime", Value: policy.PreferredInteractiveRuntimeID}, {Label: "Updated by", Value: policy.UpdatedBy}},
+		})
 	}}
 	show.Flags().String("agent", "", "target agent")
 	_ = show.MarkFlagRequired("agent")
@@ -386,7 +405,12 @@ func (c *cli) sessionCmd() *cobra.Command {
 		root.AddCommand(cmd)
 	}
 	heartbeat := &cobra.Command{Use: "heartbeat", RunE: func(cmd *cobra.Command, args []string) error {
-		return c.emit("session.heartbeat", map[string]any{"actor": c.actor, "at": time.Now().UTC(), "durable": false})
+		now := time.Now().UTC()
+		result := map[string]any{"actor": c.actor, "at": now, "durable": false}
+		return c.emitDocument("session.heartbeat", result, cliui.Document{
+			Title: "Ephemeral session heartbeat", Status: cliui.StatusSuccess,
+			Fields: []cliui.Field{{Label: "Actor", Value: c.actor}, {Label: "At", Value: now.Format(time.RFC3339)}, {Label: "Durable", Value: "no"}},
+		})
 	}}
 	root.AddCommand(heartbeat)
 	return root

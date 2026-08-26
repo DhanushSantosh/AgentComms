@@ -467,15 +467,15 @@ func (c *cli) emitDocument(command string, value any, document cliui.Document, w
 	if c.json {
 		return c.emit(command, value, warnings...)
 	}
-	if c.quiet {
-		return nil
-	}
 	if len(c.pendingWarnings) > 0 {
 		warnings = append(append([]string{}, c.pendingWarnings...), warnings...)
 	}
 	mode := cliui.Mode(c.output)
 	if mode == "" {
 		mode = cliui.ModeHuman
+	}
+	if c.quiet {
+		return c.renderWarnings(mode, warnings)
 	}
 	if c.verbose {
 		document.Fields = append(document.Fields,
@@ -544,6 +544,55 @@ func (c *cli) emitTable(command string, v any, headers []string, rows [][]string
 	}).RenderTable(cliui.Table{Headers: headers, Rows: rows}); err != nil {
 		return err
 	}
+	presenter := cliui.Presenter{Out: c.out, Mode: mode, Capabilities: cliui.DetectCapabilities(c.out, c.noColor)}
+	if c.verbose {
+		if err := presenter.RenderSection("Operational context", map[string]any{"command": c.cmd, "project": c.project, "actor": c.actor}); err != nil {
+			return err
+		}
+	}
+	if c.details {
+		if err := presenter.RenderDetails(v); err != nil {
+			return err
+		}
+	}
+	return c.renderWarnings(mode, warnings)
+}
+
+func (c *cli) emitTimeline(command string, value any, timeline cliui.Timeline, warnings ...string) error {
+	if c.json {
+		return c.emit(command, value, warnings...)
+	}
+	if c.quiet {
+		if len(c.pendingWarnings) > 0 {
+			warnings = append(append([]string{}, c.pendingWarnings...), warnings...)
+		}
+		mode := cliui.Mode(c.output)
+		if mode == "" {
+			mode = cliui.ModeHuman
+		}
+		return c.renderWarnings(mode, warnings)
+	}
+	if len(c.pendingWarnings) > 0 {
+		warnings = append(append([]string{}, c.pendingWarnings...), warnings...)
+	}
+	mode := cliui.Mode(c.output)
+	if mode == "" {
+		mode = cliui.ModeHuman
+	}
+	presenter := cliui.Presenter{Out: c.out, Mode: mode, Capabilities: cliui.DetectCapabilities(c.out, c.noColor)}
+	if err := presenter.RenderTimeline(timeline); err != nil {
+		return err
+	}
+	if c.verbose {
+		if err := presenter.RenderSection("Operational context", map[string]any{"command": c.cmd, "project": c.project, "actor": c.actor}); err != nil {
+			return err
+		}
+	}
+	if c.details {
+		if err := presenter.RenderDetails(value); err != nil {
+			return err
+		}
+	}
 	return c.renderWarnings(mode, warnings)
 }
 
@@ -568,7 +617,14 @@ func (c *cli) emitWithDelivery(command string, v, delivery any, warnings ...stri
 		})
 	}
 	if c.quiet {
-		return nil
+		if len(c.pendingWarnings) > 0 {
+			warnings = append(append([]string{}, c.pendingWarnings...), warnings...)
+		}
+		mode := cliui.Mode(c.output)
+		if mode == "" {
+			mode = cliui.ModeHuman
+		}
+		return c.renderWarnings(mode, warnings)
 	}
 	if event, ok := v.(model.Event); ok {
 		return c.emitDocument(command, v, mutationReceipt(command, event, delivery), warnings...)
@@ -589,7 +645,7 @@ func (c *cli) emitWithDelivery(command string, v, delivery any, warnings ...stri
 		return e
 	}
 	if c.verbose {
-		if e := presenter.RenderDetails(map[string]any{"command": c.cmd, "output": mode, "project": c.project, "actor": c.actor}); e != nil {
+		if e := presenter.RenderSection("Operational context", map[string]any{"command": c.cmd, "output": mode, "project": c.project, "actor": c.actor}); e != nil {
 			return e
 		}
 	}
@@ -623,7 +679,10 @@ func mutationReceipt(command string, event model.Event, delivery any) cliui.Docu
 			cliui.Field{Label: "Runtime", Value: outcome.RuntimeID},
 		)
 	}
-	return cliui.Document{Title: domain + " " + operation, Status: cliui.StatusSuccess, Fields: fields}
+	return cliui.Document{
+		Title: domain + " " + operation, Status: cliui.StatusSuccess, Fields: fields,
+		Hint: "Use --details for signed receipt metadata or --json for the stable machine envelope.",
+	}
 }
 
 func mutationVerb(operation string) string {
@@ -681,7 +740,7 @@ func (c *cli) captureRuntimeSession(runtimeID string) {
 		return
 	}
 	if !c.quiet {
-		_, _ = fmt.Fprintf(c.err, "captured %s session %s for runtime %s\n", adapter, sessionID, runtimeID)
+		_, _ = fmt.Fprintf(c.err, "captured %s session %s for runtime %s\n", cliui.SanitizeInline(adapter), cliui.SanitizeInline(sessionID), cliui.SanitizeInline(runtimeID))
 	}
 }
 
@@ -749,17 +808,17 @@ func (c *cli) projectDeleteCmd() *cobra.Command {
 				return err
 			}
 			directoryName := filepath.Base(root)
-			fmt.Fprintf(c.out, "\nProject:      %s\n", cfg.ProjectID)
-			fmt.Fprintf(c.out, "Directory:    %s\n", root)
-			fmt.Fprintf(c.out, "Owner:        %s\n", cfg.Owner)
-			fmt.Fprintf(c.out, "Runtime mode: %s\n", cfg.RuntimeMode)
+			fmt.Fprintf(c.out, "\nProject:      %s\n", cliui.SanitizeInline(cfg.ProjectID))
+			fmt.Fprintf(c.out, "Directory:    %s\n", cliui.SanitizeInline(root))
+			fmt.Fprintf(c.out, "Owner:        %s\n", cliui.SanitizeInline(cfg.Owner))
+			fmt.Fprintf(c.out, "Runtime mode: %s\n", cliui.SanitizeInline(cfg.RuntimeMode))
 			if cfg.RuntimeMode == "service" {
-				fmt.Fprintf(c.out, "Authority:    %s\n", cfg.AuthorityURL)
+				fmt.Fprintf(c.out, "Authority:    %s\n", cliui.SanitizeInline(cfg.AuthorityURL))
 				fmt.Fprint(c.out, "\nThis permanently deletes this project's ENTIRE row set from the shared authority above,\n"+
 					"not just this machine's local copy -- every other member's access to it ends too.\n")
 			}
 			fmt.Fprint(c.out, "\nThis is IRREVERSIBLE. There is no backup.\n\n")
-			fmt.Fprintf(c.out, "Type the project directory name (%s) to confirm permanent deletion: ", directoryName)
+			fmt.Fprintf(c.out, "Type the project directory name (%s) to confirm permanent deletion: ", cliui.SanitizeInline(directoryName))
 			scanner := bufio.NewScanner(os.Stdin)
 			confirmed := ""
 			if scanner.Scan() {
@@ -776,7 +835,10 @@ func (c *cli) projectDeleteCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return c.emit("project.delete", result)
+			return c.emitDocument("project.delete", result, cliui.Document{
+				Title: "Project deleted", Status: cliui.StatusDanger,
+				Fields: []cliui.Field{{Label: "Project", Value: cfg.ProjectID}, {Label: "Directory", Value: root}, {Label: "Runtime mode", Value: cfg.RuntimeMode}},
+			})
 		},
 	}
 }
@@ -803,7 +865,7 @@ func (c *cli) projectUpgradeCmd() *cobra.Command {
 					if c.nonInteractive {
 						return &projectlifecycle.Error{Code: projectlifecycle.CodeUpgradeRequired, Message: "project upgrade requires --yes in non-interactive mode"}
 					}
-					fmt.Fprintf(c.out, "Upgrade %s with %d action(s)? [y/N] ", root, len(plan.Actions))
+					fmt.Fprintf(c.out, "Upgrade %s with %d action(s)? [y/N] ", cliui.SanitizeInline(root), len(plan.Actions))
 					scanner := bufio.NewScanner(os.Stdin)
 					if !scanner.Scan() || !strings.EqualFold(strings.TrimSpace(scanner.Text()), "y") {
 						return errors.New("project upgrade cancelled")
@@ -838,8 +900,12 @@ func (c *cli) projectUpgradeCmd() *cobra.Command {
 					return err
 				}
 			}
-			return c.emit("project.upgrade", map[string]any{
+			result := map[string]any{
 				"projects": results, "upgraded": countChangedProjects(results), "verified": true,
+			}
+			return c.emitDocument("project.upgrade", result, cliui.Document{
+				Title: "Project upgrade completed", Status: cliui.StatusSuccess,
+				Fields: []cliui.Field{{Label: "Projects", Value: fmt.Sprint(len(results))}, {Label: "Changed", Value: fmt.Sprint(countChangedProjects(results))}, {Label: "Verified", Value: "yes"}},
 			})
 		},
 	}
@@ -862,7 +928,19 @@ func (c *cli) projectUpgradeCmd() *cobra.Command {
 				}
 				plans = append(plans, plan)
 			}
-			return c.emit("project.upgrade."+operation, map[string]any{"projects": plans})
+			result := map[string]any{"projects": plans}
+			actions, confirmations := 0, 0
+			for _, plan := range plans {
+				actions += len(plan.Actions)
+				if plan.RequiresConfirmation {
+					confirmations++
+				}
+			}
+			return c.emitDocument("project.upgrade."+operation, result, cliui.Document{
+				Title: "Project upgrade " + operation, Status: cliui.StatusInfo,
+				Fields: []cliui.Field{{Label: "Projects", Value: fmt.Sprint(len(plans))}, {Label: "Actions", Value: fmt.Sprint(actions)}, {Label: "Confirmations", Value: fmt.Sprint(confirmations)}},
+				Hint:   "Run project upgrade with --yes when confirmation-required actions are understood and approved.",
+			})
 		}}
 		command.Flags().BoolVar(&operationAllKnown, "all-known", false, "inspect distinct projects recorded in identity profiles")
 		upgrade.AddCommand(command)
@@ -941,7 +1019,7 @@ func (c *cli) initCmd() *cobra.Command {
 			return errors.New("--mode must be personal or service")
 		}
 		if !yes && !c.nonInteractive {
-			fmt.Fprintf(c.out, "\nCreate .agents and isolated .agent-comms runtime in %s? [y/N] ", root)
+			fmt.Fprintf(c.out, "\nCreate .agents and isolated .agent-comms runtime in %s? [y/N] ", cliui.SanitizeInline(root))
 			scan := bufio.NewScanner(os.Stdin)
 			if !scan.Scan() || !strings.EqualFold(strings.TrimSpace(scan.Text()), "y") {
 				return errors.New("initialization cancelled")
@@ -1004,7 +1082,7 @@ func (c *cli) initCmd() *cobra.Command {
 					// NO_ELEVATED_KEY finding is the real safety net for
 					// this path -- it nags on every future command until
 					// `agent-comms agent elevate-key` is run.
-					fmt.Fprintf(c.out, "elevated-key setup failed (%v); run `agent-comms agent elevate-key` to finish this later\n", e)
+					fmt.Fprintf(c.out, "elevated-key setup failed (%s); run `agent-comms agent elevate-key` to finish this later\n", cliui.SanitizeInline(e.Error()))
 					result["elevated_key"] = "skipped: " + e.Error()
 				} else {
 					result["elevated_key"] = "registered"
@@ -1013,7 +1091,17 @@ func (c *cli) initCmd() *cobra.Command {
 				result["elevated_key"] = "skipped"
 			}
 		}
-		return c.emit("init", result)
+		fields := []cliui.Field{
+			{Label: "Project", Value: root}, {Label: "Owner", Value: owner},
+			{Label: "Runtime mode", Value: initialized.RuntimeMode}, {Label: "Daemon", Value: initialized.DaemonEndpoint},
+		}
+		if initialized.AuthorityURL != "" {
+			fields = append(fields, cliui.Field{Label: "Authority", Value: initialized.AuthorityURL})
+		}
+		return c.emitDocument("init", result, cliui.Document{
+			Title: "Project initialized", Status: cliui.StatusSuccess, Fields: fields,
+			Hint: "Open the control room with agent-comms tui or register the first collaborating agent.",
+		})
 	}}
 	cmd.Flags().StringVar(&owner, "owner", "", "owner principal ID")
 	cmd.Flags().StringVar(&mode, "mode", "personal", "runtime mode: personal or service")
@@ -1071,7 +1159,11 @@ func (c *cli) doctorCmd() *cobra.Command {
 		if len(findings) > 0 {
 			items := make([]string, 0, len(findings))
 			for _, finding := range findings {
-				items = append(items, fmt.Sprintf("%s %s — %s", finding.Severity, finding.Code, finding.Message))
+				detail := fmt.Sprintf("%s %s — %s", finding.Severity, finding.Code, finding.Message)
+				if finding.Guidance != "" {
+					detail += " Remedy: " + finding.Guidance
+				}
+				items = append(items, detail)
 			}
 			findingSummary = strings.Join(items, "; ")
 		}
@@ -1194,8 +1286,16 @@ func (c *cli) controlCmd() *cobra.Command {
 				counts["pending_approvals"]++
 			}
 		}
-		return c.emit("control.overview", map[string]any{
+		result := map[string]any{
 			"counts": counts, "integrity": state.Integrity,
+		}
+		return c.emitDocument("control.overview", result, cliui.Document{
+			Title: "Control overview", Status: cliui.StatusInfo,
+			Fields: []cliui.Field{
+				{Label: "Agents", Value: fmt.Sprint(counts["agents"])}, {Label: "Runtimes", Value: fmt.Sprintf("%d (%d online)", counts["runtimes"], counts["online_runtimes"])},
+				{Label: "Tasks", Value: fmt.Sprint(counts["tasks"])}, {Label: "Invocations", Value: fmt.Sprint(counts["invocations"])},
+				{Label: "Pending approvals", Value: fmt.Sprint(counts["pending_approvals"])}, {Label: "Integrity", Value: state.Integrity.Consistency},
+			},
 		})
 	}}
 	attention := &cobra.Command{Use: "attention", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
@@ -1233,10 +1333,24 @@ func (c *cli) controlCmd() *cobra.Command {
 				degradedRuntimes[id] = runtime
 			}
 		}
-		return c.emit("control.attention", map[string]any{
+		result := map[string]any{
 			"blocked_tasks": blockedTasks, "pending_approvals": pendingApprovals,
 			"waiting_invocations": waitingInvocations, "failed_deliveries": failedDeliveries,
 			"degraded_runtimes": degradedRuntimes,
+		}
+		total := len(blockedTasks) + len(pendingApprovals) + len(waitingInvocations) + len(failedDeliveries) + len(degradedRuntimes)
+		status := cliui.StatusSuccess
+		if total > 0 {
+			status = cliui.StatusWarning
+		}
+		return c.emitDocument("control.attention", result, cliui.Document{
+			Title: "Attention queue", Status: status,
+			Fields: []cliui.Field{
+				{Label: "Blocked tasks", Value: fmt.Sprint(len(blockedTasks))}, {Label: "Pending approvals", Value: fmt.Sprint(len(pendingApprovals))},
+				{Label: "Waiting invocations", Value: fmt.Sprint(len(waitingInvocations))}, {Label: "Failed deliveries", Value: fmt.Sprint(len(failedDeliveries))},
+				{Label: "Degraded runtimes", Value: fmt.Sprint(len(degradedRuntimes))},
+			},
+			Hint: "Use --details to inspect every item requiring intervention.",
 		})
 	}}
 	settings := &cobra.Command{Use: "settings", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
@@ -1248,7 +1362,7 @@ func (c *cli) controlCmd() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		return c.emit("control.settings", map[string]any{
+		result := map[string]any{
 			"runtime_mode": config.RuntimeMode, "authority_url": config.AuthorityURL,
 			"invocation_policies": state.InvocationPolicies,
 			"limits": map[string]any{
@@ -1256,6 +1370,15 @@ func (c *cli) controlCmd() *cobra.Command {
 				"max_delivery_attempts":   controlplane.MaxDeliveryAttempts,
 				"max_invocation_bytes":    controlplane.MaxInvocationBytes,
 				"max_invocation_ttl":      controlplane.MaxInvocationTTL.String(),
+			},
+		}
+		return c.emitDocument("control.settings", result, cliui.Document{
+			Title: "Control settings", Status: cliui.StatusInfo,
+			Fields: []cliui.Field{
+				{Label: "Runtime mode", Value: config.RuntimeMode}, {Label: "Authority", Value: config.AuthorityURL},
+				{Label: "Invocation policies", Value: fmt.Sprint(len(state.InvocationPolicies))},
+				{Label: "Max concurrency", Value: fmt.Sprint(controlplane.MaxRuntimeConcurrency)},
+				{Label: "Max delivery attempts", Value: fmt.Sprint(controlplane.MaxDeliveryAttempts)},
 			},
 		})
 	}}
@@ -1285,14 +1408,18 @@ func (c *cli) historyCmd() *cobra.Command {
 			}
 			v.Items = filtered
 		}
-		rows := make([][]string, 0, len(v.Items))
+		entries := make([]cliui.TimelineEntry, 0, len(v.Items))
 		for _, record := range v.Items {
-			rows = append(rows, []string{
-				fmt.Sprint(record.Event.Sequence), record.Event.Type, record.Event.Actor,
-				record.Event.EntityID, record.Event.Time.Format(time.RFC3339),
+			detail := record.Event.Actor
+			if record.Event.EntityID != "" {
+				detail += " · " + record.Event.EntityID
+			}
+			entries = append(entries, cliui.TimelineEntry{
+				Time: record.Event.Time.Format(time.RFC3339), Status: cliui.StatusInfo,
+				Title: fmt.Sprintf("#%d %s", record.Event.Sequence, record.Event.Type), Detail: detail,
 			})
 		}
-		return c.emitTable("history", v, []string{"SEQ", "EVENT", "ACTOR", "ENTITY", "TIME"}, rows)
+		return c.emitTimeline("history", v, cliui.Timeline{Title: "Project history", Entries: entries})
 	}}
 	cmd.Flags().StringVar(&cursor, "cursor", "", "opaque pagination cursor")
 	cmd.Flags().IntVar(&limit, "limit", controlplane.DefaultPageSize, "events per page")

@@ -2,9 +2,18 @@
 
 ## Status
 
-**Accepted, 2026-08-25.** Owner: Dhanush Santosh. Implementation branch:
+**Implemented, 2026-08-26.** Owner: Dhanush Santosh. Implementation branch:
 `codex/cli-ux-redesign`. The project owner accepted the output contract and
-the four public test seams before implementation began.
+the four public test seams before implementation began. The implementation is
+split into verified phase commits covering output modes, terminal capability
+detection, bounded semantic rendering, foundation views, collection/detail
+views, mutation receipts, diagnostics/progress, JSONL streams, and help/docs.
+
+The implemented presentation vocabulary includes documents, semantic status,
+responsive tables, timelines, detail sections, next-action hints, classified
+diagnostics, and TTY-only progress. `watch` and `invocation listen` own the
+versioned JSONL contract; bounded commands reject JSONL. Native pass-through
+surfaces remain outside decorative rendering.
 
 This RFC changes the human-facing CLI contract and adds output modes, so it
 requires review before implementation under `docs/rfcs/README.md` and

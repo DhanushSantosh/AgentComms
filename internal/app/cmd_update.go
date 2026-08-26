@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/DhanushSantosh/AgentComms/internal/cliui"
 	"github.com/DhanushSantosh/AgentComms/internal/durablefs"
 	"github.com/DhanushSantosh/AgentComms/internal/projectlifecycle"
 	"github.com/DhanushSantosh/AgentComms/internal/releaseverify"
@@ -33,7 +34,17 @@ func (c *cli) updateCmd() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		return c.emit("update.check", map[string]any{"current": Version, "latest": release.Tag, "channel": channel, "update_available": strings.TrimPrefix(release.Tag, "v") != Version, "telemetry": false})
+		available := strings.TrimPrefix(release.Tag, "v") != Version
+		result := map[string]any{"current": Version, "latest": release.Tag, "channel": channel, "update_available": available, "telemetry": false}
+		status, title := cliui.StatusSuccess, "Agent Comms is up to date"
+		if available {
+			status, title = cliui.StatusInfo, "Update available"
+		}
+		return c.emitDocument("update.check", result, cliui.Document{
+			Title: title, Status: status,
+			Fields: []cliui.Field{{Label: "Current", Value: Version}, {Label: "Latest", Value: release.Tag}, {Label: "Channel", Value: channel}},
+			Hint:   "Run agent-comms update apply to install a verified available release.",
+		})
 	}}
 	check.Flags().StringVar(&channel, "channel", "stable", "stable or preview")
 	var version string
@@ -63,7 +74,7 @@ func (c *cli) updateCmd() *cobra.Command {
 			result["project_upgrade"] = map[string]any{"skipped": true, "reason": "requested by --skip-project-upgrade"}
 			completed = true
 			_ = progress.Stop(true, "Update installed")
-			return c.emit("update.apply", result)
+			return c.emitUpdateApply(result)
 		}
 		projectRoot, projectFound := currentInitializedProject(c.project)
 		if currentProjectOnly {
@@ -97,7 +108,7 @@ func (c *cli) updateCmd() *cobra.Command {
 		}
 		completed = true
 		_ = progress.Stop(true, "Update and project reconciliation completed")
-		return c.emit("update.apply", result)
+		return c.emitUpdateApply(result)
 	}}
 	apply.Flags().StringVar(&channel, "channel", "stable", "stable or preview")
 	apply.Flags().StringVar(&version, "version", "", "exact release tag")
@@ -107,6 +118,19 @@ func (c *cli) updateCmd() *cobra.Command {
 	apply.Flags().BoolVar(&skipProjectUpgrade, "skip-project-upgrade", false, "install the binary without reconciling projects")
 	root.AddCommand(check, apply)
 	return root
+}
+
+func (c *cli) emitUpdateApply(result map[string]any) error {
+	return c.emitDocument("update.apply", result, cliui.Document{
+		Title: "Agent Comms updated", Status: cliui.StatusSuccess,
+		Fields: []cliui.Field{
+			{Label: "Version", Value: fmt.Sprint(result["version"])},
+			{Label: "Installed", Value: fmt.Sprint(result["installed"])},
+			{Label: "Previous", Value: fmt.Sprint(result["previous"])},
+			{Label: "Verified", Value: fmt.Sprint(result["verified"])},
+		},
+		Hint: "Run agent-comms doctor in upgraded projects to confirm runtime and managed-file health.",
+	})
 }
 
 func currentInitializedProject(explicit string) (string, bool) {

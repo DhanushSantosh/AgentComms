@@ -72,7 +72,11 @@ func (c *cli) profileCmd() *cobra.Command {
 		if e = identity.SaveUserConfig(u); e != nil {
 			return e
 		}
-		return c.emit("profile.use", map[string]any{"active": name, "session_scoped": sessionID != ""})
+		result := map[string]any{"active": name, "session_scoped": sessionID != ""}
+		return c.emitDocument("profile.use", result, cliui.Document{
+			Title: "Profile selected", Status: cliui.StatusSuccess,
+			Fields: []cliui.Field{{Label: "Profile", Value: name}, {Label: "Session scoped", Value: map[bool]string{true: "yes", false: "no"}[sessionID != ""]}},
+		})
 	}}
 	use.Flags().StringVar(&name, "name", "", "profile name")
 	root.AddCommand(current, list, use)
@@ -88,7 +92,15 @@ func (c *cli) configCmd() *cobra.Command {
 		if e != nil {
 			return e
 		}
-		return c.emit("config", map[string]any{"user": u, "project": p, "precedence": []string{"flags", "environment", "project", "user", "defaults"}})
+		result := map[string]any{"user": u, "project": p, "precedence": []string{"flags", "environment", "project", "user", "defaults"}}
+		return c.emitDocument("config", result, cliui.Document{
+			Title: "Resolved configuration", Status: cliui.StatusInfo,
+			Fields: []cliui.Field{
+				{Label: "Project", Value: p.ProjectID}, {Label: "Runtime mode", Value: p.RuntimeMode},
+				{Label: "Active profile", Value: u.ActiveProfile}, {Label: "Theme", Value: u.Theme}, {Label: "Update channel", Value: u.UpdateChannel},
+			},
+			Hint: "Use --details to inspect sources and the complete resolved configuration.",
+		})
 	}}
 }
 func (c *cli) themeCmd() *cobra.Command {
@@ -103,7 +115,10 @@ func (c *cli) themeCmd() *cobra.Command {
 		if e = identity.SaveUserConfig(u); e != nil {
 			return e
 		}
-		return c.emit("theme.set", map[string]string{"theme": name})
+		result := map[string]string{"theme": name}
+		return c.emitDocument("theme.set", result, cliui.Document{
+			Title: "Theme updated", Status: cliui.StatusSuccess, Fields: []cliui.Field{{Label: "Theme", Value: name}},
+		})
 	}}
 	set.Flags().StringVar(&name, "name", "", "theme (auto, dark, high-contrast)")
 	_ = set.MarkFlagRequired("name")

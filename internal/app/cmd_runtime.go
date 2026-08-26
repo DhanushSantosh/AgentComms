@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/DhanushSantosh/AgentComms/internal/cliui"
 	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
 	"github.com/DhanushSantosh/AgentComms/internal/identity"
 	"github.com/DhanushSantosh/AgentComms/internal/interactiveserve"
@@ -173,7 +174,7 @@ func (c *cli) runtimeCmd() *cobra.Command {
 				if binding, ok, lookupErr := sessionbind.Load(c.svc.Store.Root, runtimeID); lookupErr == nil && ok && binding.Adapter == workerAdapter {
 					workerSessionID = binding.SessionID
 					if !c.quiet {
-						_, _ = fmt.Fprintf(c.err, "using captured %s session %s for runtime %s\n", binding.Adapter, binding.SessionID, runtimeID)
+						_, _ = fmt.Fprintf(c.err, "using captured %s session %s for runtime %s\n", cliui.SanitizeInline(binding.Adapter), cliui.SanitizeInline(binding.SessionID), cliui.SanitizeInline(runtimeID))
 					}
 				}
 			}
@@ -208,7 +209,7 @@ func (c *cli) runtimeCmd() *cobra.Command {
 				ClaudeBudgetUSD: claudeBudget, AgentCommsPath: agentCommsPath, Once: once,
 				Status: func(status string) {
 					if !c.quiet {
-						_, _ = fmt.Fprintln(c.err, status)
+						_, _ = fmt.Fprintln(c.err, cliui.SanitizeInline(status))
 					}
 				},
 			})
@@ -247,8 +248,12 @@ func (c *cli) runtimeCmd() *cobra.Command {
 			if err := sessionbind.Save(c.svc.Store.Root, bindSessionID, sessionID, adapter); err != nil {
 				return err
 			}
-			return c.emit("runtime.bind-session", map[string]any{
+			result := map[string]any{
 				"runtime_id": bindSessionID, "adapter": adapter, "session_id": sessionID,
+			}
+			return c.emitDocument("runtime.bind-session", result, cliui.Document{
+				Title: "Runtime session bound", Status: cliui.StatusSuccess,
+				Fields: []cliui.Field{{Label: "Runtime", Value: bindSessionID}, {Label: "Adapter", Value: adapter}, {Label: "Session", Value: sessionID}},
 			})
 		},
 	}
@@ -266,11 +271,16 @@ func (c *cli) runtimeCmd() *cobra.Command {
 				return err
 			}
 			if !ok {
-				return c.emit("runtime.session", map[string]any{"runtime_id": sessionRuntimeID, "bound": false})
+				result := map[string]any{"runtime_id": sessionRuntimeID, "bound": false}
+				return c.emitDocument("runtime.session", result, cliui.Document{Title: "Runtime session", Status: cliui.StatusWarning, Fields: []cliui.Field{{Label: "Runtime", Value: sessionRuntimeID}, {Label: "Bound", Value: "no"}}})
 			}
-			return c.emit("runtime.session", map[string]any{
+			result := map[string]any{
 				"runtime_id": sessionRuntimeID, "bound": true, "adapter": binding.Adapter,
 				"session_id": binding.SessionID, "captured_at": binding.CapturedAt,
+			}
+			return c.emitDocument("runtime.session", result, cliui.Document{
+				Title: "Runtime session", Status: cliui.StatusSuccess,
+				Fields: []cliui.Field{{Label: "Runtime", Value: sessionRuntimeID}, {Label: "Bound", Value: "yes"}, {Label: "Adapter", Value: binding.Adapter}, {Label: "Session", Value: binding.SessionID}, {Label: "Captured", Value: binding.CapturedAt.Format(time.RFC3339)}},
 			})
 		},
 	}
@@ -325,7 +335,12 @@ func (c *cli) runtimeCmd() *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			alive := interactiveserve.Alive(cmd.Context(), c.svc.Store.Root, interactiveShowID)
-			return c.emit("runtime.interactive-session", map[string]any{"runtime_id": interactiveShowID, "alive": alive})
+			result := map[string]any{"runtime_id": interactiveShowID, "alive": alive}
+			status := cliui.StatusWarning
+			if alive {
+				status = cliui.StatusSuccess
+			}
+			return c.emitDocument("runtime.interactive-session", result, cliui.Document{Title: "Interactive runtime session", Status: status, Fields: []cliui.Field{{Label: "Runtime", Value: interactiveShowID}, {Label: "Alive", Value: fmt.Sprint(alive)}}})
 		},
 	}
 	interactiveShow.Flags().StringVar(&interactiveShowID, "id", "", "runtime ID")
@@ -349,9 +364,17 @@ func (c *cli) runtimeCmd() *cobra.Command {
 			if e != nil {
 				return e
 			}
-			return c.emit("runtime.verify-adapter", map[string]any{
+			result := map[string]any{
 				"adapter": verifyAdapter, "executable": verifyExecutable,
 				"missing_flags": missing, "clean": len(missing) == 0,
+			}
+			status := cliui.StatusSuccess
+			if len(missing) > 0 {
+				status = cliui.StatusWarning
+			}
+			return c.emitDocument("runtime.verify-adapter", result, cliui.Document{
+				Title: "Adapter verification", Status: status,
+				Fields: []cliui.Field{{Label: "Adapter", Value: verifyAdapter}, {Label: "Executable", Value: verifyExecutable}, {Label: "Missing flags", Value: strings.Join(missing, ", ")}, {Label: "Clean", Value: fmt.Sprint(len(missing) == 0)}},
 			})
 		},
 	}
@@ -398,7 +421,11 @@ func (c *cli) launchInteractiveServeInNewTerminal() error {
 	if err := terminallaunch.Open(c.svc.Store.Root, full); err != nil {
 		return fmt.Errorf("open a new terminal window: %w -- run this command yourself instead: %s", err, strings.Join(full, " "))
 	}
-	return c.emit("runtime.interactive-serve-launched", map[string]any{"command": full, "working_directory": c.svc.Store.Root})
+	result := map[string]any{"command": full, "working_directory": c.svc.Store.Root}
+	return c.emitDocument("runtime.interactive-serve-launched", result, cliui.Document{
+		Title: "Interactive runtime launched", Status: cliui.StatusSuccess,
+		Fields: []cliui.Field{{Label: "Command", Value: strings.Join(full, " ")}, {Label: "Working directory", Value: c.svc.Store.Root}},
+	})
 }
 
 // pinInteractiveServeArgs rewrites args to explicitly resume a previously
@@ -431,7 +458,7 @@ func (c *cli) runInteractiveServe(ctx context.Context, runtimeID string, command
 	runtimeState, exists := state.AgentRuntimes[runtimeID]
 	if !exists {
 		if !c.quiet {
-			fmt.Fprintf(c.err, "runtime %q not found; auto-registering as INTERACTIVE with agent %q\n", runtimeID, c.actor)
+			fmt.Fprintf(c.err, "runtime %q not found; auto-registering as INTERACTIVE with agent %q\n", cliui.SanitizeInline(runtimeID), cliui.SanitizeInline(c.actor))
 		}
 		if _, err = c.svc.Execute(c.actor, "runtime.register", runtimeID, model.RuntimeRegistered{
 			AgentID: c.actor, Kind: model.RuntimeKindInteractive,

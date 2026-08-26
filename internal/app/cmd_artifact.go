@@ -74,6 +74,7 @@ func (c *cli) artifactCmd() *cobra.Command {
 				{Label: "SHA-256", Value: hash},
 				{Label: "Size", Value: fmt.Sprintf("%d bytes", len(b))},
 			},
+			Hint: "Use artifact show with this digest to inspect its governed metadata.",
 		})
 	}}
 	verify.Flags().StringVar(&hash, "sha256", "", "artifact digest")
@@ -310,7 +311,12 @@ func (c *cli) draftCmd() *cobra.Command {
 		if e = c.svc.SaveDraft(id, strings.ToLower(kind), json.RawMessage(raw)); e != nil {
 			return e
 		}
-		return c.emit("draft.save", map[string]any{"id": id, "kind": strings.ToLower(kind), "authoritative": false})
+		result := map[string]any{"id": id, "kind": strings.ToLower(kind), "authoritative": false}
+		return c.emitDocument("draft.save", result, cliui.Document{
+			Title: "Local draft saved", Status: cliui.StatusSuccess,
+			Fields: []cliui.Field{{Label: "Draft", Value: id}, {Label: "Kind", Value: strings.ToLower(kind)}, {Label: "Authoritative", Value: "no"}},
+			Hint:   "Create the corresponding governed object when the draft is ready to become authoritative.",
+		})
 	}}
 	save.Flags().StringVar(&id, "id", "", "draft ID")
 	save.Flags().StringVar(&kind, "kind", "", "document, message, or artifact")

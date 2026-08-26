@@ -168,6 +168,47 @@ func TestPresenterRenderTableAlignsDisplayCellsAndSanitizesValues(t *testing.T) 
 	}
 }
 
+func TestPresenterTableAdaptsToNarrowTerminalByColumnPriority(t *testing.T) {
+	var output bytes.Buffer
+	presenter := cliui.Presenter{Out: &output, Mode: cliui.ModePlain, Capabilities: cliui.Capabilities{Width: 24}}
+	err := presenter.RenderTable(cliui.Table{
+		Headers:    []string{"ID", "STATUS", "LONG SECONDARY FIELD"},
+		Priorities: []int{0, 1, 2},
+		Rows:       [][]string{{"task-1", "CLAIMED", "secondary metadata"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := output.String(); !strings.Contains(got, "ID") || !strings.Contains(got, "STATUS") || strings.Contains(got, "SECONDARY") {
+		t.Fatalf("narrow table did not retain priority columns: %q", got)
+	}
+}
+
+func TestPresenterRendersTimelineAndNextActionHint(t *testing.T) {
+	var output bytes.Buffer
+	presenter := cliui.Presenter{Out: &output, Mode: cliui.ModePlain}
+	if err := presenter.Render(cliui.Document{Title: "Task claimed", Hint: "Start the task when work begins."}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "Next: Start the task when work begins.") {
+		t.Fatalf("document omitted next action: %q", output.String())
+	}
+
+	output.Reset()
+	err := presenter.RenderTimeline(cliui.Timeline{
+		Title:   "Project history",
+		Entries: []cliui.TimelineEntry{{Time: "10:30", Status: cliui.StatusSuccess, Title: "task.claim", Detail: "builder · task-1"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Project history", "10:30", "task.claim", "builder · task-1"} {
+		if !strings.Contains(output.String(), want) {
+			t.Fatalf("timeline omitted %q: %s", want, output.String())
+		}
+	}
+}
+
 func TestPresenterRendersSanitizedDetailsAndWarnings(t *testing.T) {
 	var output bytes.Buffer
 	presenter := cliui.Presenter{Out: &output, Mode: cliui.ModePlain}

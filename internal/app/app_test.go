@@ -279,6 +279,20 @@ func TestRootHelpIsGroupedAndExplainsOutputContracts(t *testing.T) {
 	}
 }
 
+func TestQuietSuppressesSuccessButNotWarnings(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	command := &cli{out: &stdout, err: &stderr, output: "plain", quiet: true}
+	if err := command.emit("test.command", map[string]any{"ok": true}, "delivery is still pending"); err != nil {
+		t.Fatal(err)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("quiet mode wrote success output: %s", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "warning: delivery is still pending") {
+		t.Fatalf("quiet mode suppressed an essential warning: %s", stderr.String())
+	}
+}
+
 func TestMain(testingMain *testing.M) {
 	launchDaemonProcess = func(_, projectRoot string, _ io.Writer) error {
 		projectStore := store.Open(projectRoot)

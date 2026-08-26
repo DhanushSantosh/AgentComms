@@ -64,6 +64,7 @@ type Document struct {
 	Title  string
 	Status Status
 	Fields []Field
+	Hint   string
 }
 
 // Presenter owns terminal-facing result rendering. Serialization of the
@@ -85,23 +86,27 @@ func (p Presenter) Render(document Document) error {
 	if err := p.renderTitle(document); err != nil {
 		return err
 	}
-	if len(document.Fields) == 0 {
-		return nil
-	}
-	if _, err := fmt.Fprintln(p.Out); err != nil {
-		return err
-	}
-	width := 0
-	for _, field := range document.Fields {
-		label := safeText(field.Label)
-		if len(label) > width {
-			width = len(label)
+	if len(document.Fields) > 0 {
+		if _, err := fmt.Fprintln(p.Out); err != nil {
+			return err
+		}
+		width := 0
+		for _, field := range document.Fields {
+			label := safeText(field.Label)
+			if ansi.StringWidth(label) > width {
+				width = ansi.StringWidth(label)
+			}
+		}
+		for _, field := range document.Fields {
+			label := safeText(field.Label)
+			label += strings.Repeat(" ", width-ansi.StringWidth(label))
+			if _, err := fmt.Fprintf(p.Out, "%s  %s\n", label, safeText(field.Value)); err != nil {
+				return err
+			}
 		}
 	}
-	for _, field := range document.Fields {
-		label := safeText(field.Label)
-		label += strings.Repeat(" ", width-len(label))
-		if _, err := fmt.Fprintf(p.Out, "%s  %s\n", label, safeText(field.Value)); err != nil {
+	if document.Hint != "" {
+		if _, err := fmt.Fprintln(p.Out, "\nNext: "+safeText(document.Hint)); err != nil {
 			return err
 		}
 	}
@@ -178,3 +183,7 @@ func safeText(value string) string {
 		return character
 	}, value)
 }
+
+// SanitizeInline strips terminal escapes and line/control injection from text
+// used by callers in interactive prompts or protocol-adjacent notices.
+func SanitizeInline(value string) string { return safeText(value) }

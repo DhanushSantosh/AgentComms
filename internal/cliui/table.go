@@ -9,8 +9,9 @@ import (
 
 // Table is a copy-friendly, display-width-aware collection view.
 type Table struct {
-	Headers []string
-	Rows    [][]string
+	Headers    []string
+	Priorities []int
+	Rows       [][]string
 }
 
 // RenderTable writes an aligned table without borders so it remains useful
@@ -42,14 +43,54 @@ func (p Presenter) RenderTable(table Table) error {
 			}
 		}
 	}
+	active := make([]bool, len(headers))
+	for index := range active {
+		active[index] = true
+	}
+	totalWidth := func() int {
+		width, columns := 0, 0
+		for index, enabled := range active {
+			if enabled {
+				width += widths[index]
+				columns++
+			}
+		}
+		if columns > 1 {
+			width += (columns - 1) * 2
+		}
+		return width
+	}
+	for p.Capabilities.Width > 0 && totalWidth() > p.Capabilities.Width {
+		remove, score, remaining := -1, -1, 0
+		for index, enabled := range active {
+			if !enabled {
+				continue
+			}
+			remaining++
+			priority := index
+			if index < len(table.Priorities) {
+				priority = table.Priorities[index]
+			}
+			if priority >= score {
+				remove, score = index, priority
+			}
+		}
+		if remaining <= 1 || remove < 0 {
+			break
+		}
+		active[remove] = false
+	}
 	writeRow := func(cells []string) error {
-		parts := make([]string, len(headers))
+		parts := make([]string, 0, len(headers))
 		for index := range headers {
+			if !active[index] {
+				continue
+			}
 			cell := ""
 			if index < len(cells) {
 				cell = cells[index]
 			}
-			parts[index] = cell + strings.Repeat(" ", widths[index]-ansi.StringWidth(cell))
+			parts = append(parts, cell+strings.Repeat(" ", widths[index]-ansi.StringWidth(cell)))
 		}
 		_, err := fmt.Fprintln(p.Out, strings.TrimRight(strings.Join(parts, "  "), " "))
 		return err

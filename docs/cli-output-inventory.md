@@ -4,16 +4,16 @@ Companion to RFC 0022. This records the human presentation shape assigned to
 the current `internal/app` emit sites before migration. Machine-mode payloads
 remain the existing values and envelopes.
 
-Current presentation plumbing:
+Implementation status (2026-08-26): all assigned command families below have
+been migrated. Bounded human/plain output passes through `internal/cliui`; no
+success path uses `json.MarshalIndent` as a human renderer. Purpose-built
+documents, responsive tables, timelines, detail sections, and mutation
+receipts cover the known command surfaces. A deterministic sanitized tree is
+retained only as a defensive presentation fallback for future result shapes.
 
-- 74 direct `c.emit(...)` calls;
-- 2 `c.emitWithDelivery(...)` command calls;
-- 3 `c.emitTable(...)` command calls;
-- every generic human path ultimately falls back to `json.MarshalIndent`.
-
-The additional internal calls between `emit`, `emitTable`, and
-`emitWithDelivery` bring the raw textual search total to 80; they are not
-separate command surfaces.
+Machine serialization remains centralized in the existing JSON `Envelope` or
+the versioned streaming `StreamEnvelope`. Protocol/pass-through commands do
+not cross the presentation boundary.
 
 ## Assigned presentation shapes
 
@@ -78,3 +78,7 @@ A command is migrated only when:
    command can produce them;
 6. user-controlled values cannot inject terminal control sequences.
 
+The completion audit verifies these criteria through exported presenter tests,
+end-to-end `app.Run` tests, JSON compatibility assertions, JSONL runtime tests,
+the full Go suite, generated-document freshness checks, and source searches for
+raw human JSON rendering.
