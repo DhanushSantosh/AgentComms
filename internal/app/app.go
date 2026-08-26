@@ -1078,7 +1078,14 @@ func (c *cli) historyCmd() *cobra.Command {
 			}
 			v.Items = filtered
 		}
-		return c.emit("history", v)
+		rows := make([][]string, 0, len(v.Items))
+		for _, record := range v.Items {
+			rows = append(rows, []string{
+				fmt.Sprint(record.Event.Sequence), record.Event.Type, record.Event.Actor,
+				record.Event.EntityID, record.Event.Time.Format(time.RFC3339),
+			})
+		}
+		return c.emitTable("history", v, []string{"SEQ", "EVENT", "ACTOR", "ENTITY", "TIME"}, rows)
 	}}
 	cmd.Flags().StringVar(&cursor, "cursor", "", "opaque pagination cursor")
 	cmd.Flags().IntVar(&limit, "limit", controlplane.DefaultPageSize, "events per page")
@@ -1106,10 +1113,18 @@ func (c *cli) searchCmd() *cobra.Command {
 				out = append(out, v)
 			}
 		}
-		return c.emit("search", map[string]any{
+		result := map[string]any{
 			"current_events": out,
 			"next_cursor":    page.NextCursor, "metadata": page.Metadata,
-		})
+		}
+		rows := make([][]string, 0, len(out))
+		for _, record := range out {
+			rows = append(rows, []string{
+				fmt.Sprint(record.Event.Sequence), record.Event.Type, record.Event.Actor,
+				record.Event.EntityID, record.Event.Time.Format(time.RFC3339),
+			})
+		}
+		return c.emitTable("search", result, []string{"SEQ", "EVENT", "ACTOR", "ENTITY", "TIME"}, rows)
 	}}
 	cmd.Flags().StringVar(&cursor, "cursor", "", "opaque pagination cursor")
 	cmd.Flags().IntVar(&limit, "limit", controlplane.DefaultPageSize, "events scanned per page")

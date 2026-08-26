@@ -2,7 +2,9 @@ package app
 
 import (
 	"errors"
+	"sort"
 
+	"github.com/DhanushSantosh/AgentComms/internal/cliui"
 	"github.com/DhanushSantosh/AgentComms/internal/identity"
 	"github.com/DhanushSantosh/AgentComms/internal/sessionbind"
 	"github.com/spf13/cobra"
@@ -11,7 +13,16 @@ import (
 func (c *cli) profileCmd() *cobra.Command {
 	root := &cobra.Command{Use: "profile"}
 	current := &cobra.Command{Use: "current", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
-		return c.emit("profile.current", c.actorResolution)
+		return c.emitDocument("profile.current", c.actorResolution, cliui.Document{
+			Title:  "Active profile",
+			Status: cliui.StatusInfo,
+			Fields: []cliui.Field{
+				{Label: "Actor", Value: c.actorResolution.Actor},
+				{Label: "Profile", Value: c.actorResolution.Profile},
+				{Label: "Source", Value: c.actorResolution.Source},
+				{Label: "Project", Value: c.actorResolution.ProjectID},
+			},
+		})
 	}}
 	list := &cobra.Command{Use: "list", RunE: func(cmd *cobra.Command, args []string) error {
 		u, e := identity.LoadUserConfig()
@@ -22,10 +33,26 @@ func (c *cli) profileCmd() *cobra.Command {
 		// session_scoped tells the caller (human or agent) whether "active"
 		// below reflects its own isolated session or the shared,
 		// machine-wide legacy default -- see RFC 0016.
-		return c.emit("profile.list", map[string]any{
+		result := map[string]any{
 			"active": u.ActiveProfileFor(sessionID), "profiles": u.Profiles,
 			"session_scoped": sessionID != "",
-		})
+		}
+		names := make([]string, 0, len(u.Profiles))
+		for name := range u.Profiles {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		active := u.ActiveProfileFor(sessionID)
+		rows := make([][]string, 0, len(names))
+		for _, name := range names {
+			profile := u.Profiles[name]
+			marker := ""
+			if name == active {
+				marker = "active"
+			}
+			rows = append(rows, []string{name, profile.Actor, profile.ProjectID, profile.HostLabel, marker})
+		}
+		return c.emitTable("profile.list", result, []string{"PROFILE", "ACTOR", "PROJECT", "HOST", "STATE"}, rows)
 	}}
 	var name string
 	use := &cobra.Command{Use: "use", RunE: func(cmd *cobra.Command, args []string) error {
