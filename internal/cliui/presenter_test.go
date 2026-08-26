@@ -105,3 +105,64 @@ func TestCapabilitiesForHonorsTerminalFallbacksAndColorPolicy(t *testing.T) {
 		t.Fatalf("dumb terminal did not fall back to deterministic plain capabilities: %#v", dumb)
 	}
 }
+
+func TestPresenterRenderResultProducesDeterministicReadableTree(t *testing.T) {
+	value := map[string]any{
+		"task_id": "task-7\x1b]8;;https://evil.invalid\a",
+		"status":  "CLAIMED",
+		"lease": map[string]any{
+			"owner": "builder",
+			"until": "2026-08-26T10:30:00Z",
+		},
+		"resources": []string{"src/api", "docs"},
+	}
+	var output bytes.Buffer
+	presenter := cliui.Presenter{Out: &output, Mode: cliui.ModePlain}
+	if err := presenter.RenderResult("task.claim", value, nil); err != nil {
+		t.Fatal(err)
+	}
+	got := output.String()
+	for _, want := range []string{"Task claim", "Status", "CLAIMED", "Task id", "task-7", "Lease", "Owner", "builder", "Resources (2)", "src/api"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("readable result is missing %q:\n%s", want, got)
+		}
+	}
+	if strings.ContainsAny(got, "{}") || strings.Contains(got, "\x1b") || strings.Contains(got, "https://evil.invalid") {
+		t.Fatalf("readable result leaked JSON or terminal controls:\n%q", got)
+	}
+
+	output.Reset()
+	if err := presenter.RenderResult("invocation.request", map[string]any{"id": "inv-1"}, map[string]any{"status": "DELIVERED"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := output.String(); !strings.Contains(got, "Delivery") || !strings.Contains(got, "DELIVERED") {
+		t.Fatalf("delivery result was not given a readable section:\n%s", got)
+	}
+}
+
+func TestPresenterRenderTableAlignsDisplayCellsAndSanitizesValues(t *testing.T) {
+	var output bytes.Buffer
+	presenter := cliui.Presenter{Out: &output, Mode: cliui.ModePlain}
+	err := presenter.RenderTable(cliui.Table{
+		Headers: []string{"Agent", "Status"},
+		Rows: [][]string{
+			{"界", "ACTIVE"},
+			{"builder\x1b[31m", "WAITING\nfor approval"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "Agent    Status\n界       ACTIVE\nbuilder  WAITINGfor approval\n"
+	if output.String() != want {
+		t.Fatalf("table output mismatch:\n got %q\nwant %q", output.String(), want)
+	}
+
+	output.Reset()
+	if err := presenter.RenderTable(cliui.Table{Headers: []string{"Agent"}}); err != nil {
+		t.Fatal(err)
+	}
+	if output.String() != "(no rows)\n" {
+		t.Fatalf("empty table output mismatch: %q", output.String())
+	}
+}

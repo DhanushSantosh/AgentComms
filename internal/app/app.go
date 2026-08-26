@@ -334,17 +334,9 @@ func (c *cli) emit(command string, v any, warnings ...string) error {
 	return c.emitWithDelivery(command, v, nil, warnings...)
 }
 
-// emitTable is emit's counterpart for list-shaped output. With --json (or
-// scripting against this command generally), behavior is byte-for-byte
-// identical to emit(command, v) -- the same JSON envelope, so nothing that
-// already parses this command's output breaks. Only the human-facing,
-// non-JSON default differs: emit's own non-JSON fallback still prints
-// pretty-*indented* JSON, not an actual table -- a human doing an ad hoc
-// check has to mentally parse it either way. Confirmed friction all
-// session: reading agent/runtime/invocation state by eye meant piping
-// through `python3 -m json.tool`/`jq` every single time, for exactly this
-// reason. emitTable renders headers/rows as an aligned plain-text table
-// instead.
+// emitTable is emit's counterpart for list-shaped output. JSON mode retains
+// the same envelope and payload as emit. Human and plain modes use the shared,
+// display-width-aware table presenter.
 func (c *cli) emitTable(command string, v any, headers []string, rows [][]string, warnings ...string) error {
 	if c.json || c.quiet {
 		return c.emit(command, v, warnings...)
@@ -352,7 +344,17 @@ func (c *cli) emitTable(command string, v any, headers []string, rows [][]string
 	if len(c.pendingWarnings) > 0 {
 		warnings = append(append([]string{}, c.pendingWarnings...), warnings...)
 	}
-	renderTable(c.out, headers, rows)
+	mode := cliui.Mode(c.output)
+	if mode == "" {
+		mode = cliui.ModeHuman
+	}
+	if err := (cliui.Presenter{
+		Out:          c.out,
+		Mode:         mode,
+		Capabilities: cliui.DetectCapabilities(c.out, c.noColor),
+	}).RenderTable(cliui.Table{Headers: headers, Rows: rows}); err != nil {
+		return err
+	}
 	for _, w := range warnings {
 		if _, e := fmt.Fprintln(c.err, "warning:", w); e != nil {
 			return e
@@ -368,36 +370,7 @@ func (c *cli) emitTable(command string, v any, headers []string, rows [][]string
 // and this output is meant to copy-paste cleanly into another command or
 // a message, which a bordered table doesn't do as well.
 func renderTable(out io.Writer, headers []string, rows [][]string) {
-	if len(rows) == 0 {
-		fmt.Fprintln(out, "(no rows)")
-		return
-	}
-	widths := make([]int, len(headers))
-	for i, h := range headers {
-		widths[i] = len(h)
-	}
-	for _, row := range rows {
-		for i, cell := range row {
-			if i < len(widths) && len(cell) > widths[i] {
-				widths[i] = len(cell)
-			}
-		}
-	}
-	writeRow := func(cells []string) {
-		parts := make([]string, len(headers))
-		for i := range headers {
-			cell := ""
-			if i < len(cells) {
-				cell = cells[i]
-			}
-			parts[i] = cell + strings.Repeat(" ", widths[i]-len(cell))
-		}
-		fmt.Fprintln(out, strings.TrimRight(strings.Join(parts, "  "), " "))
-	}
-	writeRow(headers)
-	for _, row := range rows {
-		writeRow(row)
-	}
+	_ = (cliui.Presenter{Out: out, Mode: cliui.ModePlain}).RenderTable(cliui.Table{Headers: headers, Rows: rows})
 }
 
 func (c *cli) emitWithDelivery(command string, v, delivery any, warnings ...string) error {
@@ -413,24 +386,19 @@ func (c *cli) emitWithDelivery(command string, v, delivery any, warnings ...stri
 	if c.quiet {
 		return nil
 	}
-	b, e := json.MarshalIndent(v, "", "  ")
-	if e != nil {
-		return e
+	mode := cliui.Mode(c.output)
+	if mode == "" {
+		mode = cliui.ModeHuman
 	}
-	if _, e = fmt.Fprintln(c.out, string(b)); e != nil {
+	if e := (cliui.Presenter{
+		Out:          c.out,
+		Mode:         mode,
+		Capabilities: cliui.DetectCapabilities(c.out, c.noColor),
+	}).RenderResult(command, v, delivery); e != nil {
 		return e
-	}
-	if delivery != nil {
-		deliveryBody, marshalErr := json.MarshalIndent(delivery, "", "  ")
-		if marshalErr != nil {
-			return marshalErr
-		}
-		if _, e = fmt.Fprintln(c.out, "delivery:", string(deliveryBody)); e != nil {
-			return e
-		}
 	}
 	for _, w := range warnings {
-		if _, e = fmt.Fprintln(c.err, "warning:", w); e != nil {
+		if _, e := fmt.Fprintln(c.err, "warning:", w); e != nil {
 			return e
 		}
 	}

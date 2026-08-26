@@ -70,14 +70,7 @@ func (p Presenter) Render(document Document) error {
 	if p.Mode != ModeHuman && p.Mode != ModePlain {
 		return fmt.Errorf("CLI presenter cannot render mode %q", p.Mode)
 	}
-	title := safeText(document.Title)
-	if p.Mode == ModeHuman && p.Capabilities.Interactive {
-		title = statusPrefix(document.Status, p.Capabilities.Unicode) + title
-		if p.Capabilities.Color {
-			title = statusStyle(document.Status) + "\x1b[1m" + title + "\x1b[0m"
-		}
-	}
-	if _, err := fmt.Fprintln(p.Out, title); err != nil {
+	if err := p.renderTitle(document); err != nil {
 		return err
 	}
 	if len(document.Fields) == 0 {
@@ -99,6 +92,26 @@ func (p Presenter) Render(document Document) error {
 		if _, err := fmt.Fprintf(p.Out, "%s  %s\n", label, safeText(field.Value)); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func (p Presenter) renderTitle(document Document) error {
+	if p.Out == nil {
+		return fmt.Errorf("CLI presenter output is required")
+	}
+	if p.Mode != ModeHuman && p.Mode != ModePlain {
+		return fmt.Errorf("CLI presenter cannot render mode %q", p.Mode)
+	}
+	title := safeText(document.Title)
+	if p.Mode == ModeHuman && p.Capabilities.Interactive {
+		title = statusPrefix(document.Status, p.Capabilities.Unicode) + title
+		if p.Capabilities.Color {
+			title = statusStyle(document.Status) + "\x1b[1m" + title + "\x1b[0m"
+		}
+	}
+	if _, err := fmt.Fprintln(p.Out, title); err != nil {
+		return err
 	}
 	return nil
 }

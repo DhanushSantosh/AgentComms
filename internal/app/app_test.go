@@ -84,6 +84,34 @@ func TestArtifactVerifyPlainOutputIsAReadableReceipt(t *testing.T) {
 	}
 }
 
+func TestGenericBoundedCommandPlainOutputNeverFallsBackToJSON(t *testing.T) {
+	project := t.TempDir()
+	cleanupProjectDaemon(t, project)
+	var stdout, stderr bytes.Buffer
+	if err := Run([]string{"init", "--project", project, "--non-interactive", "--owner", "owner", "--json"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+
+	source := filepath.Join(project, "release.txt")
+	if err := os.WriteFile(source, []byte("release"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if err := Run([]string{"artifact", "add", "--project", project, "--path", source, "--output", "plain"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	plain := stdout.String()
+	if strings.HasPrefix(strings.TrimSpace(plain), "{") || strings.Contains(plain, "\"api_version\"") {
+		t.Fatalf("bounded command fell back to JSON:\n%s", plain)
+	}
+	for _, want := range []string{"Artifact add", "Sha256", "release.txt"} {
+		if !strings.Contains(strings.ToLower(plain), strings.ToLower(want)) {
+			t.Fatalf("bounded command output is missing %q:\n%s", want, plain)
+		}
+	}
+}
+
 func TestMain(testingMain *testing.M) {
 	launchDaemonProcess = func(_, projectRoot string, _ io.Writer) error {
 		projectStore := store.Open(projectRoot)
