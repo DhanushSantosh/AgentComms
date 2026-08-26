@@ -5,6 +5,54 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-08-26 — “Plain Speech”
+
+*Every command's default human output changes from a raw JSON dump to a
+readable summary — semantic status, tables, and next-action hints, while
+`--json` stays byte-compatible — plus permanent, elevated-key-gated project
+deletion.*
+
+**Added**
+- **Breaking:** a new `--output human|plain|json|jsonl` contract replaces
+  printing raw backend JSON to a human terminal by default. `--json` remains
+  a supported alias and stays byte-compatible; human output does not. See
+  RFC 0022.
+- **Breaking:** `agent-comms project delete` permanently deletes a project,
+  local and remote, with no automatic backup. OWNER-only, elevated-key
+  required, no scripted path. See RFC 0020.
+
+Full technical detail is below and in [CHANGELOG.md](https://github.com/DhanushSantosh/AgentComms/blob/main/CHANGELOG.md).
+
+### Added
+
+- **[RFC 0022](docs/rfcs/0022-semantic-cli-presentation.md): semantic CLI
+  presentation and output contracts.** A new `--output human|plain|json|jsonl`
+  contract replaces the previous default of printing raw backend JSON to a
+  human terminal. `human` (the interactive default) renders concise
+  summaries, status, and responsive tables; `plain` is the stable uncolored
+  fallback for redirected/non-interactive output; `json` keeps the existing
+  versioned `Envelope` unchanged (`--json` remains a supported alias);
+  `jsonl` is a new, versioned one-record-per-line contract for naturally
+  streaming commands (`watch`, `invocation listen`), rejected for bounded
+  commands. Human output is intentionally not byte-compatible across
+  versions; scripts that parse text should use `plain` or `--json`, not
+  `human`. `--no-color`/`NO_COLOR` affect human rendering only and never
+  touch JSON/JSONL.
+- **[RFC 0020](docs/rfcs/0020-elevated-key-gated-project-deletion.md):
+  elevated-key-gated permanent project deletion.** `agent-comms project
+  delete` / the TUI's Danger Zone form permanently deletes a project -- its
+  local runtime always, and its entire remote row set on the shared
+  authority in service mode too. OWNER-only, requires a registered elevated
+  key with no fallback, and is verified independently both locally and
+  server-side (actor role re-checked from live state, signature checked
+  against that exact project's registered elevated key). No `--yes`, no
+  piped-passphrase flag, and refuses outright under `--non-interactive` or
+  from MCP -- there is no scripted path for this one. No automatic backup;
+  this is unrecoverable by design. Adds `DELETE /v1/projects/{project}` to
+  the authority server (schema migration 4) and a permanent, data-free
+  `deleted_projects` tombstone that survives the cascade for audit purposes
+  on a shared authority instance.
+
 ## [0.4.0] - 2026-08-14 — “Proof of Presence”
 
 *Identity resolution can no longer silently misattribute a signed action to

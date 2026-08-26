@@ -1,3 +1,7 @@
+// Mirrors run.go's own !js constraint -- the code under test here does not
+// exist in a js/wasm build.
+//go:build !js
+
 package daemon
 
 import (

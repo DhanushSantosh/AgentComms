@@ -19,7 +19,9 @@ import (
 	"github.com/DhanushSantosh/AgentComms/internal/daemonclient"
 	"github.com/DhanushSantosh/AgentComms/internal/identity"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
+	"github.com/DhanushSantosh/AgentComms/internal/projectlifecycle"
 	"github.com/DhanushSantosh/AgentComms/internal/protocol"
+	"github.com/DhanushSantosh/AgentComms/internal/remote"
 	"github.com/DhanushSantosh/AgentComms/internal/store"
 	"github.com/google/uuid"
 )
@@ -79,6 +81,23 @@ func configure(instance *Service, cfg store.Config, err error) *Service {
 	}
 	instance.remote, instance.remoteErr = daemonclient.New(cfg.DaemonEndpoint, controlplane.DefaultRequestTimeout)
 	return instance
+}
+
+// NewWithRemote constructs a Service around an already-open Store and an
+// already-built daemon client, bypassing the on-disk config read and
+// real-socket dial that New/NewTolerant perform via configure. Its only real
+// caller is the WASM demo entrypoint, which builds both projectStore and
+// remote itself against an in-process daemon -- no real filesystem or
+// network involved -- so there is no store.Config to read here and nothing
+// for configure to validate. remoteErr is left nil (remote is assumed
+// already valid), and recoverRemote/PassphrasePrompt/AmbiguousActor are left
+// at their zero values exactly as New/NewTolerant leave them on their own
+// success path -- those are populated later by whichever caller needs them
+// (SetRemoteRecovery, internal/app's PersistentPreRunE), never by the
+// constructor itself. Every other real caller keeps using New/NewTolerant
+// unchanged.
+func NewWithRemote(projectStore *store.Store, remote *daemonclient.Client) *Service {
+	return &Service{Store: projectStore, remote: remote}
 }
 
 func (s *Service) SetRemoteRecovery(recoverRemote func() error) {
@@ -506,6 +525,23 @@ func (s *Service) elevateCredentialIfNeeded(
 	if err != nil {
 		return primary, nil
 	}
+	return s.decryptElevatedKey(elevated, actor, fmt.Sprintf("%s for %s", typ, actor), overridePassphrase)
+}
+
+// decryptElevatedKey decrypts an already-resolved elevated credential --
+// shared by elevateCredentialIfNeeded above (which falls back to the
+// actor's primary key when no elevated key is registered at all) and
+// DeleteProject below (which requires one to already be registered -- see
+// RFC 0020), so there is exactly one implementation of "decrypt with
+// whatever passphrase source is available," not two that could drift.
+// context names the caller's own action for the "no passphrase prompt
+// available" error (e.g. "agent.activate for builder", "deleting project
+// acme"). overridePassphrase, when non-empty, decrypts directly instead of
+// calling s.PassphrasePrompt -- see ExecuteWithPassphrase's own doc for why
+// (a caller that already collected it through its own UI, e.g. the TUI's
+// masked form field, rather than a separate terminal prompt racing
+// bubbletea's raw-mode stdin).
+func (s *Service) decryptElevatedKey(elevated identity.Credential, actor, context, overridePassphrase string) (identity.Credential, error) {
 	if !elevated.Encrypted {
 		return elevated, nil
 	}
@@ -513,7 +549,7 @@ func (s *Service) elevateCredentialIfNeeded(
 		return elevated.Decrypted(overridePassphrase)
 	}
 	if s.PassphrasePrompt == nil {
-		return identity.Credential{}, fmt.Errorf("%s for %s requires the elevated key, but no passphrase prompt is available in this context", typ, actor)
+		return identity.Credential{}, fmt.Errorf("%s requires the elevated key, but no passphrase prompt is available in this context", context)
 	}
 	passphrase, err := s.PassphrasePrompt(actor)
 	if err != nil {
@@ -727,6 +763,179 @@ func (s *Service) ElevateKey(actor, passphrase string) (model.Event, error) {
 	}
 	return event, nil
 }
+
+// DeleteProjectResult reports exactly what DeleteProject did, itemized --
+// see RFC 0020. If RemoteDeleted is true but a later step fails, remote
+// state is already, correctly, gone (nothing can undo that); the result
+// still reports it faithfully alongside whatever local cleanup did or
+// didn't finish, rather than presenting a false full success or a false
+// full failure.
+type DeleteProjectResult struct {
+	ProjectID        string   `json:"project_id"`
+	RuntimeMode      string   `json:"runtime_mode"`
+	RemoteDeleted    bool     `json:"remote_deleted"`
+	DaemonStopped    bool     `json:"daemon_stopped"`
+	KeyringRemoved   []string `json:"keyring_removed,omitempty"`
+	ProfilesRemoved  []string `json:"profiles_removed,omitempty"`
+	RuntimeRemoved   bool     `json:"runtime_removed"`
+	BootstrapRemoved bool     `json:"bootstrap_removed"`
+	Warnings         []string `json:"warnings,omitempty"`
+}
+
+// DeleteProject permanently destroys the project this Service is opened
+// against -- local runtime state always, and (in service mode) this
+// project's entire row set on the shared authority too. See RFC 0020.
+// OWNER-only, checked from live state, not just client-side trust;
+// requires a registered elevated key; confirmDirectoryName must equal the
+// project root's actual directory name (filepath.Base(s.Store.Root)) --
+// the CLI/TUI's own typed-confirmation step, enforced here once centrally
+// rather than trusted from every call site. Deliberately the directory
+// name, not the internal project ID: the ID is an opaque generated UUID
+// nobody has memorized, so typing it back would just mean copying it from
+// the very screen that already displays it -- brittle to transcribe
+// exactly and no more likely to be actually *read* than any other string.
+// The directory name is something the human already knows without
+// looking anything up (it's the folder they're standing in), and is
+// exactly as effective at catching "right person, wrong project" -- the
+// one mistake this step exists to catch, distinct from what the
+// passphrase below proves. There is no automatic backup: by explicit
+// design, this is unrecoverable.
+//
+// Ordering matters: remote deletion (service mode only) happens first,
+// before anything local is touched, because local state is the only
+// record that a retry is even needed -- it must never be discarded before
+// remote deletion is confirmed. The daemon is stopped next, before any
+// local file removal, because the daemon (personal mode especially) may
+// still hold the runtime directory's files open.
+func (s *Service) DeleteProject(actor, passphrase, confirmDirectoryName string) (DeleteProjectResult, error) {
+	cfg, err := s.Store.Config()
+	if err != nil {
+		return DeleteProjectResult{}, err
+	}
+	result := DeleteProjectResult{ProjectID: cfg.ProjectID, RuntimeMode: cfg.RuntimeMode}
+	state, err := s.State()
+	if err != nil {
+		return DeleteProjectResult{}, err
+	}
+	if state.Agents[actor].Role != model.RoleOwner {
+		return DeleteProjectResult{}, fmt.Errorf("project delete: only the project owner can delete a project (actor: %s)", actor)
+	}
+	directoryName := filepath.Base(s.Store.Root)
+	if confirmDirectoryName != directoryName {
+		return DeleteProjectResult{}, fmt.Errorf("project delete: typed confirmation %q does not match the project directory name %q", confirmDirectoryName, directoryName)
+	}
+	elevated, err := s.Store.Credentials.Get(cfg.ProjectID, identity.ElevatedActor(actor))
+	if err != nil {
+		return DeleteProjectResult{}, fmt.Errorf(
+			"project delete: %s has no registered elevated key -- run `agent-comms agent elevate-key` first: %w", actor, err)
+	}
+	credential, err := s.decryptElevatedKey(elevated, actor, "deleting project "+cfg.ProjectID, passphrase)
+	if err != nil {
+		return DeleteProjectResult{}, err
+	}
+	command := controlplane.Command{
+		ProjectID: cfg.ProjectID, Actor: actor, Type: "project.delete", EntityID: cfg.ProjectID,
+		IdempotencyKey: uuid.NewString(), IssuedAt: time.Now().UTC(),
+	}
+	if err = command.Sign(credential.PrivateKey); err != nil {
+		return DeleteProjectResult{}, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), controlplane.DefaultRequestTimeout)
+	defer cancel()
+	if cfg.RuntimeMode == "service" {
+		client, clientErr := remote.New(cfg.AuthorityURL, controlplane.DefaultRequestTimeout)
+		if clientErr != nil {
+			return DeleteProjectResult{}, clientErr
+		}
+		capabilities, capsErr := client.Capabilities(ctx)
+		if capsErr != nil {
+			return DeleteProjectResult{}, fmt.Errorf("project delete: checking authority capabilities: %w", capsErr)
+		}
+		if schemaVersion, _ := capabilities["schema_version"].(float64); schemaVersion < 4 {
+			return DeleteProjectResult{}, errors.New(
+				"project delete: the authority server does not yet support project deletion -- it needs upgrading first")
+		}
+		if deleteErr := client.DeleteProject(ctx, command); deleteErr != nil {
+			return DeleteProjectResult{}, fmt.Errorf("project delete: %w", deleteErr)
+		}
+		result.RemoteDeleted = true
+	}
+
+	// Everything below is local cleanup. Remote state (if any) is already
+	// gone at this point and cannot be undone -- failures from here on are
+	// reported as warnings on a still-successful result, not returned as
+	// errors, so a partial local cleanup is never mistaken for "nothing
+	// happened, safe to retry the whole thing."
+	daemonStopped, stopErr := projectlifecycle.StopDaemon(ctx, cfg)
+	if stopErr != nil {
+		result.Warnings = append(result.Warnings, "stop daemon: "+stopErr.Error())
+	}
+	result.DaemonStopped = daemonStopped
+
+	actors := make(map[string]bool)
+	for id := range state.Agents {
+		actors[id] = true
+	}
+	if config, cfgErr := identity.LoadUserConfig(); cfgErr != nil {
+		result.Warnings = append(result.Warnings, "load local identity profiles: "+cfgErr.Error())
+	} else {
+		updated, removedProfiles := config.RemoveProfilesForProject(cfg.ProjectID)
+		for _, p := range removedProfiles {
+			actors[p.Actor] = true
+			result.ProfilesRemoved = append(result.ProfilesRemoved, p.Name)
+		}
+		if saveErr := identity.SaveUserConfig(updated); saveErr != nil {
+			result.Warnings = append(result.Warnings, "save local identity profiles: "+saveErr.Error())
+		}
+	}
+	for id := range actors {
+		if deleteErr := s.Store.Credentials.Delete(cfg.ProjectID, id); deleteErr == nil {
+			result.KeyringRemoved = append(result.KeyringRemoved, id)
+		}
+		if deleteErr := s.Store.Credentials.Delete(cfg.ProjectID, identity.ElevatedActor(id)); deleteErr == nil {
+			result.KeyringRemoved = append(result.KeyringRemoved, identity.ElevatedActor(id))
+		}
+	}
+	sort.Strings(result.KeyringRemoved)
+	sort.Strings(result.ProfilesRemoved)
+
+	if removeErr := removeRuntimeDirectoryWithRetry(filepath.Join(s.Store.Root, store.Runtime)); removeErr != nil {
+		result.Warnings = append(result.Warnings, "remove runtime directory: "+removeErr.Error())
+	} else {
+		result.RuntimeRemoved = true
+	}
+	if removeErr := os.Remove(filepath.Join(s.Store.Root, ".agents")); removeErr != nil && !os.IsNotExist(removeErr) {
+		result.Warnings = append(result.Warnings, "remove .agents: "+removeErr.Error())
+	} else {
+		result.BootstrapRemoved = true
+	}
+	return result, nil
+}
+
+// removeRuntimeDirectoryWithRetry retries os.RemoveAll briefly instead of
+// failing on the first attempt. StopDaemon above confirms the daemon stops
+// answering health checks, but that only proves its HTTP listener closed --
+// the personal-authority SQLite file underneath (internal/daemon/run.go)
+// is closed by a deferred Close() that only runs once Run() itself
+// returns, strictly after the health check already started failing. POSIX
+// allows unlinking a still-open file outright, so this race never
+// surfaces there; Windows refuses to remove a file another process still
+// has open at all ("The process cannot access the file because it is
+// being used by another process"), confirmed live in CI. The retry
+// budget roughly matches internal/daemon's own daemonShutdownTimeout (10s)
+// -- generous for the rare slow case, a no-op cost everywhere else since
+// it returns on the first successful attempt.
+func removeRuntimeDirectoryWithRetry(path string) error {
+	var lastErr error
+	for attempt := 0; attempt < 40; attempt++ {
+		if lastErr = os.RemoveAll(path); lastErr == nil {
+			return nil
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+	return lastErr
+}
+
 func (s *Service) AddArtifact(actor, path string) (model.Event, error) {
 	cfg, e := s.Store.Config()
 	if e != nil {

@@ -16,10 +16,9 @@ export const metadata: Metadata = {
     type: "website",
     title: pageTitle,
     description: pageDescription,
-    url: "/support",
-    images: [{ url: "/social-card.svg", width: 1200, height: 630, alt: pageTitle }]
+    url: "/support"
   },
-  twitter: { card: "summary_large_image", title: pageTitle, description: pageDescription, images: ["/social-card.svg"] }
+  twitter: { card: "summary_large_image", title: pageTitle, description: pageDescription }
 };
 
 export default function SupportPage() {
@@ -37,19 +36,23 @@ export default function SupportPage() {
           <p>Security reports belong in a private advisory, not here — see the <a href="/security">security policy</a> instead.</p>
         </header>
 
-        <section className={styles.section} data-reveal="support-bugs">
+        <section className={styles.section} id="report-issue" data-reveal="support-bugs">
           <h2>Reporting a reproducible bug</h2>
-          <p>Use GitHub Issues, and include the Agent Comms version, operating system, <code>doctor --json</code> output with sensitive paths redacted, and exact reproduction steps.</p>
-          <div className={styles.cta}>
-            <a className="action action--ink" href="https://github.com/DhanushSantosh/AgentComms/issues/new">Open an issue <span>↗</span></a>
+          <p>File it in GitHub Issues, and include the Agent Comms version, operating system, <code>doctor --json</code> output with sensitive paths redacted, and exact reproduction steps.</p>
+          <p className={styles.externalLabel}>Issue tracker</p>
+          <div className={styles.externalAction}>
+            <code id="issue-tracker-url">https://github.com/DhanushSantosh/AgentComms/issues/new</code>
+            <button type="button" data-copy-command data-command-source="issue-tracker-url" aria-live="polite" aria-label="Copy the issue tracker link"><span data-copy-label>Copy</span></button>
           </div>
         </section>
 
-        <section className={styles.section} data-reveal="support-ideas">
+        <section className={styles.section} id="discussions" data-reveal="support-ideas">
           <h2>Ideas and open-ended questions</h2>
           <p>Product ideas and community questions belong in GitHub Discussions. Maintainers do not automatically close accepted bugs, roadmap work, security work, or accessibility issues solely because they are old.</p>
-          <div className={styles.cta}>
-            <a className="action action--line" href="https://github.com/DhanushSantosh/AgentComms/discussions">Start a discussion <span>↗</span></a>
+          <p className={styles.externalLabel}>Discussions</p>
+          <div className={styles.externalAction}>
+            <code id="discussions-url">https://github.com/DhanushSantosh/AgentComms/discussions</code>
+            <button type="button" data-copy-command data-command-source="discussions-url" aria-live="polite" aria-label="Copy the discussions link"><span data-copy-label>Copy</span></button>
           </div>
         </section>
 

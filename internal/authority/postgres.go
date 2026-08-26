@@ -237,6 +237,80 @@ func (e *Engine) CreateProject(ctx context.Context, projectID, ownerID string) e
 	return err
 }
 
+// DeleteProject permanently removes command.ProjectID and every row scoped
+// to it -- see RFC 0020. Deliberately not routed through Mutate: that
+// pipeline's entire contract is appending to and projecting a *surviving*
+// event log, and a deletion event would need to be inserted and then
+// immediately cascade-deleted by the very row it authorized. Authorization
+// is verified fully here, server-side, independent of whatever the caller
+// already checked client-side: actor must be the project's OWNER (from
+// live state, not the client's own claim) and must have a registered
+// elevated key, and command must carry that exact key's signature.
+// Idempotent: deleting an already-deleted or never-existing project_id
+// returns a plain CodeValidation "not found" rather than erroring
+// ambiguously, so a client retrying after a dropped response is always
+// safe.
+func (e *Engine) DeleteProject(ctx context.Context, command controlplane.Command) error {
+	now := e.now().Truncate(time.Microsecond)
+	if err := command.Validate(now); err != nil {
+		return err
+	}
+	if command.Type != "project.delete" {
+		return &controlplane.Error{Code: controlplane.CodeValidation, Message: "command type must be project.delete"}
+	}
+	tx, err := e.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	if err != nil {
+		return unavailable(err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var ownerID string
+	if err = tx.QueryRowContext(ctx, `SELECT owner_id FROM projects WHERE project_id = $1 FOR UPDATE`,
+		command.ProjectID).Scan(&ownerID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return &controlplane.Error{Code: controlplane.CodeValidation, Message: "project not found or already deleted"}
+		}
+		return unavailable(err)
+	}
+
+	var stateJSON []byte
+	if err = tx.QueryRowContext(ctx, `SELECT state FROM agents WHERE project_id=$1 AND agent_id=$2`,
+		command.ProjectID, command.Actor).Scan(&stateJSON); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return &controlplane.Error{Code: controlplane.CodeAuthorization, Message: "actor is not registered"}
+		}
+		return unavailable(err)
+	}
+	var agent model.Agent
+	if err = json.Unmarshal(stateJSON, &agent); err != nil {
+		return err
+	}
+	if agent.Role != model.RoleOwner {
+		return &controlplane.Error{Code: controlplane.CodeAuthorization, Message: "only the project owner can delete a project"}
+	}
+	if agent.ElevatedPublicKey == "" {
+		return &controlplane.Error{Code: controlplane.CodeAuthorization,
+			Message: "the owner must register an elevated key (agent elevate-key) before a project can be deleted"}
+	}
+	if !command.Verify(agent.ElevatedPublicKey) {
+		return &controlplane.Error{Code: controlplane.CodeIntegrity, Message: "actor command signature is invalid"}
+	}
+	actorKeyFingerprint := identity.Fingerprint(agent.ElevatedPublicKey)
+	if _, err = tx.ExecContext(ctx,
+		`INSERT INTO deleted_projects (project_id, owner_id, deleted_by, actor_key_fingerprint) VALUES ($1,$2,$3,$4)`,
+		command.ProjectID, ownerID, command.Actor, actorKeyFingerprint,
+	); err != nil {
+		return unavailable(err)
+	}
+	if _, err = tx.ExecContext(ctx, `DELETE FROM projects WHERE project_id = $1`, command.ProjectID); err != nil {
+		return unavailable(err)
+	}
+	if err = tx.Commit(); err != nil {
+		return unavailable(err)
+	}
+	return nil
+}
+
 func (e *Engine) Mutate(ctx context.Context, command controlplane.Command) (controlplane.Event, controlplane.Receipt, error) {
 	tx, err := e.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if err != nil {

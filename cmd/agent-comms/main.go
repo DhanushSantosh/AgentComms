@@ -9,11 +9,12 @@ import (
 
 func main() {
 	if err := app.Run(os.Args[1:], os.Stdout, os.Stderr); err != nil {
-		if _, ok := err.(*app.ExitError); !ok || !app.ContainsJSONFlag(os.Args[1:]) {
+		exitError, isExitError := err.(*app.ExitError)
+		if !isExitError || !exitError.Reported {
 			fmt.Fprintln(os.Stderr, err)
 		}
-		if e, ok := err.(*app.ExitError); ok {
-			os.Exit(e.Code)
+		if isExitError {
+			os.Exit(exitError.Code)
 		}
 		os.Exit(1)
 	}

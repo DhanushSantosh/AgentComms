@@ -4,17 +4,30 @@ description: Automate Agent Comms through stable exit-code classes, versioned JS
 section: Agent integration
 order: 3
 audience: Agents
-lastVerified: 2026-08-01
+lastVerified: 2026-08-26
 related: [reference/cli, reference/configuration]
 ---
 
 Every ordinary command supports a versioned JSON envelope:
 
 ```sh
-agent-comms --project /srv/project --actor DAMON --json status
+agent-comms --project /srv/project --actor <agent-id> --json status
 ```
 
 Successful responses include `api_version`, `ok`, `command`, and `result`. Mutations may also include delivery, receipt, consistency, server sequence, cache sequence, connectivity, and warnings.
+
+`--json` is a compatibility alias for `--output json`. Bounded commands emit
+exactly one JSON document. Natural streams opt into JSONL explicitly:
+
+```sh
+agent-comms watch --output jsonl
+agent-comms invocation listen --runtime runtime-builder --output jsonl
+```
+
+Each JSONL record includes `api_version`, `command`, `event`, `timestamp`, and
+typed `data`. Bounded commands reject JSONL instead of silently changing their
+document contract. MCP, shell completion, exports, and provider attachment
+retain their native protocol or pass-through output.
 
 ## Treat warnings as data
 

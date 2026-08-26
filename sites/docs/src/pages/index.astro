@@ -111,8 +111,8 @@ import Sidebar from "@components/Sidebar.astro";
 
   .hero {
     align-items: center;
-    background: var(--coral);
-    color: var(--chrome);
+    background: var(--chrome);
+    color: var(--chrome-ink);
     display: grid;
     gap: clamp(3rem, 7vw, 7rem);
     grid-template-columns: minmax(0, 1.05fr) minmax(20rem, 0.95fr);
@@ -126,7 +126,7 @@ import Sidebar from "@components/Sidebar.astro";
   }
 
   .hero::before {
-    background-image: radial-gradient(color-mix(in srgb, var(--chrome) 28%, transparent) 0.65px, transparent 0.65px);
+    background-image: radial-gradient(color-mix(in srgb, var(--signal) 22%, transparent) 0.65px, transparent 0.65px);
     background-size: 6px 6px;
     content: "";
     inset: 0;
@@ -141,9 +141,9 @@ import Sidebar from "@components/Sidebar.astro";
   }
 
   .eyebrow {
-    background: var(--chrome);
-    box-shadow: 0.32rem 0.32rem 0 var(--signal);
-    color: var(--chrome-ink);
+    background: var(--signal);
+    box-shadow: 0.32rem 0.32rem 0 var(--receipt);
+    color: var(--chrome);
     display: inline-block;
     font-family: var(--font-mono);
     font-size: 0.68rem;
@@ -166,7 +166,7 @@ import Sidebar from "@components/Sidebar.astro";
   }
 
   .hero__lede {
-    color: color-mix(in srgb, var(--chrome) 80%, transparent);
+    color: var(--chrome-muted);
     font-size: 1.06rem;
     line-height: 1.65;
     margin: 1.7rem 0 0;
@@ -194,28 +194,34 @@ import Sidebar from "@components/Sidebar.astro";
   }
 
   .primary-action {
-    background: var(--chrome);
-    border: 1px solid var(--chrome);
-    color: var(--chrome-ink);
+    background: var(--signal);
+    border: 1px solid var(--signal);
+    color: var(--chrome);
     text-decoration: none;
   }
 
   .primary-action:hover {
-    background: var(--signal);
-    border-color: var(--signal);
+    /* Hardcoded, not var(--warning): the hero (like the rest of "chrome")
+       is always dark regardless of site theme, but --warning still flips
+       per theme (a muddier amber in light mode that fails contrast
+       against --chrome's fixed black text). This bypasses that --
+       always the TUI's own bright amber, since this button only ever
+       sits on the hero's fixed-dark background. */
+    background: #e8b85c;
+    border-color: #e8b85c;
     color: var(--chrome);
   }
 
   .secondary-action {
     background: transparent;
-    border: 1px solid color-mix(in srgb, var(--chrome) 48%, transparent);
-    color: var(--chrome);
+    border: 1px solid color-mix(in srgb, var(--chrome-ink) 40%, transparent);
+    color: var(--chrome-ink);
     cursor: pointer;
   }
 
   .secondary-action:hover {
-    background: var(--chrome);
-    color: var(--chrome-ink);
+    background: var(--chrome-ink);
+    color: var(--chrome);
   }
 
   .secondary-action kbd {
@@ -360,16 +366,16 @@ import Sidebar from "@components/Sidebar.astro";
   }
 
   .section-index--dark {
-    color: #9cafb7;
+    color: #78918f;
   }
 
   .section-index--dark span {
-    color: #58d4d1;
+    color: var(--signal);
   }
 
   .command-window__meta {
-    border-bottom: 1px solid #2d3c44;
-    color: #8fa1aa;
+    border-bottom: 1px solid color-mix(in srgb, #d7e5e3 16%, transparent);
+    color: #78918f;
     display: flex;
     font-family: var(--font-mono);
     font-size: 0.6rem;
@@ -379,7 +385,7 @@ import Sidebar from "@components/Sidebar.astro";
   }
 
   .command-window a {
-    color: #b8c8ce;
+    color: #9fb4b1;
     display: inline-block;
     font-size: 0.72rem;
     margin-top: 1rem;
@@ -387,7 +393,7 @@ import Sidebar from "@components/Sidebar.astro";
   }
 
   .command-window a:hover {
-    color: #58d4d1;
+    color: var(--signal);
   }
 
   .browse-list {

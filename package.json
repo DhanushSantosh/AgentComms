@@ -22,6 +22,11 @@
     "landing:test": "npm run test:e2e --workspace @agent-comms/landing",
     "landing:lighthouse": "npm run lighthouse --workspace @agent-comms/landing",
     "sites:dev": "node scripts/dev-sites.mjs",
-    "sites:build": "npm run landing:build && npm run docs:build"
+    "sites:build": "npm run landing:build && npm run docs:build",
+    "sites:generate-icons": "node scripts/generate-icons.mjs landing && node scripts/generate-icons.mjs docs"
+  },
+  "devDependencies": {
+    "png-to-ico": "^3.0.2",
+    "sharp": "^0.35.3"
   }
 }

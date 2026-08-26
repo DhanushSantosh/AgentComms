@@ -14,3 +14,6 @@ sites/*/.astro/
 sites/*/.next/
 sites/*/dist/
 sites/*/output/
+/sites/landing/public/tui/agent-comms-tui.wasm
+/sites/landing/public/tui/wasm_exec.js
+/sites/landing/public/tui/vendor/

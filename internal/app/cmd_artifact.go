@@ -9,8 +9,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+	"time"
 
+	"github.com/DhanushSantosh/AgentComms/internal/cliui"
 	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 	"github.com/DhanushSantosh/AgentComms/internal/store"
@@ -38,7 +41,16 @@ func (c *cli) artifactCmd() *cobra.Command {
 		if !ok {
 			return errors.New("artifact not found")
 		}
-		return c.emit("artifact.show", a)
+		return c.emitDocument("artifact.show", a, cliui.Document{
+			Title:  "Artifact " + a.Name,
+			Status: cliui.StatusInfo,
+			Fields: []cliui.Field{
+				{Label: "SHA-256", Value: a.SHA256},
+				{Label: "Size", Value: fmt.Sprintf("%d bytes", a.Size)},
+				{Label: "Media type", Value: a.MediaType},
+				{Label: "Storage", Value: a.Storage},
+			},
+		})
 	}}
 	show.Flags().StringVar(&hash, "sha256", "", "artifact digest")
 	verify := &cobra.Command{Use: "verify", RunE: func(cmd *cobra.Command, args []string) error {
@@ -51,7 +63,19 @@ func (c *cli) artifactCmd() *cobra.Command {
 		if hex.EncodeToString(h[:]) != hash {
 			return errors.New("artifact hash mismatch")
 		}
-		return c.emit("artifact.verify", map[string]any{"verified": true, "sha256": hash, "size": len(b)})
+		result := map[string]any{"verified": true, "sha256": hash, "size": len(b)}
+		if c.json {
+			return c.emit("artifact.verify", result)
+		}
+		return c.emitDocument("artifact.verify", result, cliui.Document{
+			Title:  "Artifact verified",
+			Status: cliui.StatusSuccess,
+			Fields: []cliui.Field{
+				{Label: "SHA-256", Value: hash},
+				{Label: "Size", Value: fmt.Sprintf("%d bytes", len(b))},
+			},
+			Hint: "Use artifact show with this digest to inspect its governed metadata.",
+		})
 	}}
 	verify.Flags().StringVar(&hash, "sha256", "", "artifact digest")
 	root.AddCommand(add, show, verify)
@@ -128,7 +152,17 @@ func (c *cli) documentCmd() *cobra.Command {
 		if e != nil {
 			return e
 		}
-		return c.emit("document.list", st.Documents)
+		ids := make([]string, 0, len(st.Documents))
+		for id := range st.Documents {
+			ids = append(ids, id)
+		}
+		sort.Strings(ids)
+		rows := make([][]string, 0, len(ids))
+		for _, id := range ids {
+			document := st.Documents[id]
+			rows = append(rows, []string{id, document.Title, document.Status, fmt.Sprint(document.Version), document.Author})
+		}
+		return c.emitTable("document.list", st.Documents, []string{"ID", "TITLE", "STATUS", "VERSION", "AUTHOR"}, rows)
 	}}
 	show := &cobra.Command{Use: "show", RunE: func(cmd *cobra.Command, args []string) error {
 		id, _ := cmd.Flags().GetString("id")
@@ -146,7 +180,18 @@ func (c *cli) documentCmd() *cobra.Command {
 		if !ok {
 			return fmt.Errorf("document %q not found", id)
 		}
-		return c.emit("document.show", d)
+		return c.emitDocument("document.show", d, cliui.Document{
+			Title:  d.Title,
+			Status: cliui.StatusInfo,
+			Fields: []cliui.Field{
+				{Label: "ID", Value: d.ID},
+				{Label: "Status", Value: d.Status},
+				{Label: "Version", Value: fmt.Sprint(d.Version)},
+				{Label: "Author", Value: d.Author},
+				{Label: "Tags", Value: strings.Join(d.Tags, ", ")},
+				{Label: "Body", Value: d.Body},
+			},
+		})
 	}}
 	show.Flags().String("id", "", "document ID")
 	root.AddCommand(create, update, supersede, list, show)
@@ -188,7 +233,16 @@ func (c *cli) envCmd() *cobra.Command {
 		if !ok {
 			return fmt.Errorf("key %q not found", key)
 		}
-		return c.emit("env.get", entry)
+		return c.emitDocument("env.get", entry, cliui.Document{
+			Title:  "Environment value",
+			Status: cliui.StatusInfo,
+			Fields: []cliui.Field{
+				{Label: "Key", Value: entry.Key},
+				{Label: "Value", Value: entry.Value},
+				{Label: "Updated by", Value: entry.UpdatedBy},
+				{Label: "Updated at", Value: entry.UpdatedAt.Format(time.RFC3339)},
+			},
+		})
 	}}
 	get.Flags().StringVar(&key, "key", "", "key")
 	del := &cobra.Command{Use: "delete", RunE: func(cmd *cobra.Command, args []string) error {
@@ -210,7 +264,17 @@ func (c *cli) envCmd() *cobra.Command {
 		if e != nil {
 			return e
 		}
-		return c.emit("env.list", st.Env)
+		keys := make([]string, 0, len(st.Env))
+		for key := range st.Env {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		rows := make([][]string, 0, len(keys))
+		for _, key := range keys {
+			entry := st.Env[key]
+			rows = append(rows, []string{key, entry.UpdatedBy, entry.UpdatedAt.Format(time.RFC3339)})
+		}
+		return c.emitTable("env.list", st.Env, []string{"KEY", "UPDATED BY", "UPDATED AT"}, rows)
 	}}
 	root.AddCommand(set, get, del, list)
 	return root
@@ -247,7 +311,12 @@ func (c *cli) draftCmd() *cobra.Command {
 		if e = c.svc.SaveDraft(id, strings.ToLower(kind), json.RawMessage(raw)); e != nil {
 			return e
 		}
-		return c.emit("draft.save", map[string]any{"id": id, "kind": strings.ToLower(kind), "authoritative": false})
+		result := map[string]any{"id": id, "kind": strings.ToLower(kind), "authoritative": false}
+		return c.emitDocument("draft.save", result, cliui.Document{
+			Title: "Local draft saved", Status: cliui.StatusSuccess,
+			Fields: []cliui.Field{{Label: "Draft", Value: id}, {Label: "Kind", Value: strings.ToLower(kind)}, {Label: "Authoritative", Value: "no"}},
+			Hint:   "Create the corresponding governed object when the draft is ready to become authoritative.",
+		})
 	}}
 	save.Flags().StringVar(&id, "id", "", "draft ID")
 	save.Flags().StringVar(&kind, "kind", "", "document, message, or artifact")
@@ -259,7 +328,12 @@ func (c *cli) draftCmd() *cobra.Command {
 		if e != nil {
 			return e
 		}
-		return c.emit("draft.list", map[string]any{"drafts": drafts, "authoritative": false})
+		result := map[string]any{"drafts": drafts, "authoritative": false}
+		rows := make([][]string, 0, len(drafts))
+		for _, draft := range drafts {
+			rows = append(rows, []string{draft.ID, draft.Kind, draft.UpdatedAt.Format(time.RFC3339), "local"})
+		}
+		return c.emitTable("draft.list", result, []string{"ID", "KIND", "UPDATED", "AUTHORITY"}, rows)
 	}}
 	list.Flags().IntVar(&limit, "limit", controlplane.DefaultPageSize, "maximum drafts to return")
 	root.AddCommand(save, list)

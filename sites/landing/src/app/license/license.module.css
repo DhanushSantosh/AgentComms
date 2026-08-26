@@ -1,6 +1,6 @@
 .page {
-  background: var(--ice);
-  color: var(--ink);
+  background: var(--ink);
+  color: var(--text);
   min-width: 0;
 }
 
@@ -19,7 +19,7 @@
 }
 
 .intro > p:last-child {
-  color: color-mix(in srgb, var(--ink) 76%, transparent);
+  color: var(--steel-light);
   font-size: clamp(0.92rem, 1.2vw, 1.05rem);
   line-height: 1.65;
   margin: 0;
@@ -45,7 +45,6 @@
 
 .summary > div:nth-child(1) h2 { color: var(--cyan-deep); }
 .summary > div:nth-child(2) h2 { color: var(--blue); }
-.summary > div:nth-child(3) h2 { color: var(--coral); }
 
 .summary ul { list-style: none; margin: 0; padding: 0; }
 .summary li { border-top: 1px solid var(--line-light); font-size: 0.86rem; padding: 0.7rem 0; }
@@ -73,20 +72,90 @@
   text-transform: uppercase;
 }
 
-.fullText > header a:hover { color: var(--coral); }
+.fullText > header a:hover { color: var(--cyan); }
+
+.fullTextBody {
+  align-items: flex-start;
+  display: flex;
+  flex-wrap: wrap;
+  gap: clamp(2rem, 4vw, 3.5rem);
+}
 
 .fullText pre {
-  background: var(--ink);
-  color: var(--ice);
+  background: var(--panel);
+  border: 1px solid var(--line-dark);
+  color: var(--steel-light);
+  flex: 1 1 auto;
   font-family: var(--mono);
   font-size: 0.72rem;
-  line-height: 1.6;
+  line-height: 1.7;
   margin: 0;
+  box-sizing: content-box;
   max-height: 42rem;
+  max-width: 84ch;
+  min-width: 0;
   overflow: auto;
   padding: clamp(1.5rem, 3vw, 2.5rem);
+  position: relative;
   white-space: pre-wrap;
 }
+
+.sectionHeading {
+  color: var(--text);
+  display: inline-block;
+  margin-top: 1.3em;
+  scroll-margin-top: calc(var(--header-height) + 1rem);
+}
+
+.sectionHeading:first-child { margin-top: 0; }
+
+.sectionHeading strong {
+  color: var(--cyan);
+  font-weight: 700;
+}
+
+.sectionNav {
+  flex: 1;
+  min-width: 14rem;
+}
+
+.sectionNav > p {
+  color: var(--steel-light);
+  font-family: var(--mono);
+  font-size: 0.5rem;
+  letter-spacing: 0.08em;
+  margin: 0 0 1rem;
+  text-transform: uppercase;
+}
+
+.sectionNav ol {
+  border-top: 1px solid var(--line-dark);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.sectionNav li { border-bottom: 1px solid var(--line-dark); }
+
+.sectionNav a {
+  align-items: baseline;
+  color: var(--text);
+  display: flex;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  font-weight: 620;
+  gap: 0.8rem;
+  padding: 0.75rem 0;
+  text-decoration: none;
+}
+
+.sectionNav a span {
+  color: var(--steel-light);
+  font-size: 0.55rem;
+}
+
+.sectionNav a:hover,
+.sectionNav a:hover span { color: var(--cyan); }
 
 :global(.motion-ready) :is(.intro, .summary, .fullText):not(:global(.is-revealed)) > * {
   opacity: 0;

@@ -118,3 +118,7 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 )
+
+replace charm.land/bubbletea/v2 => ./third_party/bubbletea-v2-js
+
+replace github.com/atotto/clipboard => ./third_party/clipboard-js

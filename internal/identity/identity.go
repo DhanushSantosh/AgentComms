@@ -495,6 +495,36 @@ func (c UserConfig) ProfileCountForProject(projectID string) int {
 	return count
 }
 
+// RemoveProfilesForProject deletes every profile belonging to projectID
+// from c.Profiles (mutated in place -- Go maps are reference types, so this
+// is visible to c's caller too, but SaveUserConfig(c) is still required to
+// persist it), clearing ActiveProfile and any ActiveProfileBySession entry
+// that pointed at one of them. Returns the removed profiles, sorted by
+// name, so the caller can also purge their keyring credentials -- see RFC
+// 0020's Service.DeleteProject, the only caller.
+func (c UserConfig) RemoveProfilesForProject(projectID string) (UserConfig, []Profile) {
+	removed := make([]Profile, 0)
+	removedNames := make(map[string]bool)
+	for name, p := range c.Profiles {
+		if p.ProjectID != projectID {
+			continue
+		}
+		removed = append(removed, p)
+		removedNames[name] = true
+		delete(c.Profiles, name)
+	}
+	if removedNames[c.ActiveProfile] {
+		c.ActiveProfile = ""
+	}
+	for session, sp := range c.ActiveProfileBySession {
+		if removedNames[sp.Profile] {
+			delete(c.ActiveProfileBySession, session)
+		}
+	}
+	sort.Slice(removed, func(i, j int) bool { return removed[i].Name < removed[j].Name })
+	return c, removed
+}
+
 // DetectProviderSessionID checks the current process environment for the
 // two provider session variables their respective CLIs guarantee to
 // inject into every subprocess they spawn -- CLAUDE_CODE_SESSION_ID and

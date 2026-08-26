@@ -18,10 +18,9 @@ export const metadata: Metadata = {
     type: "website",
     title: pageTitle,
     description: pageDescription,
-    url: "/releases",
-    images: [{ url: "/social-card.svg", width: 1200, height: 630, alt: pageTitle }]
+    url: "/releases"
   },
-  twitter: { card: "summary_large_image", title: pageTitle, description: pageDescription, images: ["/social-card.svg"] }
+  twitter: { card: "summary_large_image", title: pageTitle, description: pageDescription }
 };
 
 export default function ReleasesPage() {
@@ -59,7 +58,11 @@ export default function ReleasesPage() {
           </ol>
           <div className="releases-links">
             <a className="action action--ink" href={documentationPage("/releases/changelog/")}>Read the full changelog <span>↗</span></a>
-            <a className="action action--line" href="https://github.com/DhanushSantosh/AgentComms/releases">Compare tags on GitHub <span>↗</span></a>
+          </div>
+          <p className={contentStyles.externalLabel}>Compare tags</p>
+          <div className={contentStyles.externalAction}>
+            <code id="compare-tags-url">https://github.com/DhanushSantosh/AgentComms/releases</code>
+            <button type="button" data-copy-command data-command-source="compare-tags-url" aria-live="polite" aria-label="Copy the compare-tags link"><span data-copy-label>Copy</span></button>
           </div>
         </section>
       </main>

@@ -118,9 +118,16 @@ const { currentPath = "/" } = Astro.props;
   }
 
   li a[aria-current="page"] {
-    background: var(--brand);
+    /* Deliberately --signal, not --brand: the sidebar is chrome (always
+       dark, regardless of site theme -- see global.css), but --brand's
+       own value flips per theme (amber-deep in light, bright amber in
+       dark). A fixed white text color paired with it fails contrast
+       against whichever one is brighter. --signal is the same cyan value
+       in both --root blocks, so this stays correct without a per-theme
+       override. */
+    background: var(--signal);
     border-left-color: var(--signal);
-    color: #ffffff;
+    color: #000000;
     font-weight: 620;
   }
 

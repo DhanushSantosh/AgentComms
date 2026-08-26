@@ -32,6 +32,26 @@ hash includes the exact verified actor-key fingerprint, so both ordinary key
 rotation and a delete/re-register boundary remain queryable and
 tamper-evident.
 
+`agent-comms project delete` is the single most destructive action in the
+system and sits outside every mechanism above -- see RFC 0020. It is
+OWNER-only, not owner-or-orchestrator (nothing short of the actual project
+Owner may run it), always requires a registered elevated key with no
+fallback, and destroys the project's local runtime unconditionally, plus
+its entire row set on the shared authority in service mode -- every other
+member's access ends with it. Authorization is verified twice,
+independently: locally, before anything is touched, and again fully
+server-side (actor's role re-checked from live state, signature checked
+against that actor's own registered elevated key for that exact project),
+never trusted from the client's own claim alone. It is available from the
+CLI and the TUI's own masked-passphrase Danger Zone form, never MCP or
+`--non-interactive` -- there is no scripted path for this one at all,
+unlike every other elevated-key action above, which at least has a CLI
+route available headless. There is no automatic backup and no undo; a
+permanent, data-free tombstone (who, when, which project) survives only on
+the shared authority in service mode, purely so a multi-tenant instance
+retains non-repudiable proof of who authorized it -- never a way to recover
+what was deleted.
+
 `agent suspend` mirrors this on its temporary side: the Owner can never be suspended (a suspended principal fails every subsequent action, including reactivating itself, so an unprotected Owner-target would be a full, potentially unrecoverable lockout — worse than revoke, which at least leaves the record intact), and suspending an Orchestrator or HUMAN principal needs the same human-only check as revoking one. `agent rotate-key` can only ever target the caller's own principal — rotating someone else's key with no consent check was a full identity-hijack primitive with no legitimate use anywhere in this project, so it's rejected outright rather than gated. `project.settings.update` requires a HUMAN principal (not the elevated key), since an AGENT-principal Orchestrator unilaterally disabling `RequireReview` project-wide is exactly the kind of self-serving change that setting exists to prevent. `env.set`/`env.delete` require ordinary owner-or-orchestrator elevation, same as any other write with log-wide, permanent consequences.
 
 Assignments are expiring offers. Acceptance or eligible self-claim creates a four-hour protected lease. Overlapping write resources are rejected unless a governed shared-write exception exists. Heartbeats show liveness but cannot renew ownership. A renewal is durable and includes a progress summary. Stale work is never automatically reassigned. Handoffs retain ownership until acceptance.

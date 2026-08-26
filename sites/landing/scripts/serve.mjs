@@ -1,5 +1,5 @@
 import { createReadStream } from "node:fs";
-import { stat } from "node:fs/promises";
+import { open, stat } from "node:fs/promises";
 import { createServer } from "node:http";
 import { extname, resolve, sep } from "node:path";
 import { createGzip } from "node:zlib";
@@ -17,10 +17,30 @@ const contentTypes = {
   ".js": "text/javascript; charset=utf-8",
   ".png": "image/png",
   ".svg": "image/svg+xml",
+  ".wasm": "application/wasm",
   ".woff2": "font/woff2",
   ".xml": "application/xml; charset=utf-8"
 };
 const compressibleExtensions = new Set([".css", ".html", ".js", ".svg", ".xml"]);
+
+// Next's app-router file conventions (opengraph-image.tsx, robots.ts,
+// sitemap.ts) emit their static export output with no file extension at all
+// (dist/opengraph-image, dist/download/opengraph-image, ...) -- extname()
+// alone can't classify those, so they'd otherwise fall through to
+// application/octet-stream. Sniffing the real magic bytes handles this
+// generically rather than hardcoding every route's own path.
+async function sniffContentType(path) {
+  const handle = await open(path, "r");
+  try {
+    const buffer = Buffer.alloc(8);
+    await handle.read(buffer, 0, 8, 0);
+    if (buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return "image/png";
+    if (buffer.subarray(0, 2).equals(Buffer.from([0xff, 0xd8]))) return "image/jpeg";
+    return undefined;
+  } finally {
+    await handle.close();
+  }
+}
 
 const server = createServer(async (request, response) => {
   try {
@@ -50,7 +70,8 @@ const server = createServer(async (request, response) => {
       return;
     }
     const extension = extname(path);
-    response.setHeader("Content-Type", contentTypes[extension] ?? "application/octet-stream");
+    const contentType = contentTypes[extension] ?? (extension === "" ? await sniffContentType(path) : undefined);
+    response.setHeader("Content-Type", contentType ?? "application/octet-stream");
     if (url.pathname.startsWith("/_next/") || url.pathname.startsWith("/images/")) {
       response.setHeader("Cache-Control", "public, max-age=31536000, immutable");
     } else {

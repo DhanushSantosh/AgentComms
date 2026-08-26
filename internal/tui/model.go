@@ -16,7 +16,6 @@ import (
 	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
 	"github.com/DhanushSantosh/AgentComms/internal/doctor"
 	"github.com/DhanushSantosh/AgentComms/internal/identity"
-	"github.com/DhanushSantosh/AgentComms/internal/interactiveserve"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 	"github.com/DhanushSantosh/AgentComms/internal/projectlifecycle"
 	"github.com/DhanushSantosh/AgentComms/internal/service"
@@ -98,6 +97,14 @@ type Model struct {
 	lastClickX, lastClickY int
 	lastClickAt            time.Time
 	ptySnapshots           map[string]string
+	// exitNotice, when non-empty, is printed to Run's out writer once the
+	// bubbletea program actually exits -- for a final message that needs to
+	// survive past the alt-screen/raw-mode teardown, unlike m.notice (drawn
+	// inside the still-running View). Its only current use is Danger Zone
+	// project deletion (RFC 0020): once DeleteProject succeeds, the Store
+	// this Model was built against no longer exists, so there is no view
+	// left to return to -- Dispatch sets this and quits, exactly like "q".
+	exitNotice string
 }
 
 // doubleClickWindow bounds how long after a first click a second click on
@@ -1450,10 +1457,7 @@ func (m Model) integrity(p palette) string {
 	if !m.state.Integrity.Verified {
 		mark = "✕"
 	}
-	compatibility := "CURRENT"
-	if len(m.lifecycle.Actions) > 0 {
-		compatibility = fmt.Sprintf("%d UPGRADE ACTION(S)", len(m.lifecycle.Actions))
-	}
+	compatibility := lifecycleCompatibility(m.lifecycle)
 	summary := fmt.Sprintf("%s Chain verified: %t\n  Signed events: %d\n  Head: %s\n  Consistency: %s\n  Connectivity: %s\n  Server sequence: %d\n  Cache sequence: %d\n\nProject lifecycle\n  Compatibility: %s\n  Installed build: %s\n  Project build: %s\n  Interrupted upgrade: %t",
 		mark, m.state.Integrity.Verified, m.state.Integrity.EventCount, m.state.Integrity.Head,
 		empty(m.state.Integrity.Consistency, "UNKNOWN"), empty(m.state.Integrity.Connectivity, "UNKNOWN"),
@@ -1769,7 +1773,15 @@ func wrapText(text string, width int) string {
 	lines = append(lines, current)
 	return strings.Join(lines, "\n")
 }
-func Run(s *service.Service, actor string, in io.Reader, out io.Writer) error {
+
+// Run starts the TUI program against in/out. opts is appended after the
+// input/output options are set, so a caller can pass e.g.
+// tea.WithColorProfile(...) or tea.WithEnvironment(...) to override
+// bubbletea's default terminal auto-detection -- needed by callers (like the
+// WASM entrypoint) whose out is not a real tty and can't be auto-detected
+// from at all. Real CLI callers pass no opts and get the previous behavior
+// unchanged.
+func Run(s *service.Service, actor string, in io.Reader, out io.Writer, opts ...tea.ProgramOption) error {
 	m, e := New(s, actor)
 	if e != nil {
 		return e
@@ -1778,9 +1790,16 @@ func Run(s *service.Service, actor string, in io.Reader, out io.Writer) error {
 	if m.watcher != nil {
 		defer m.watcher.Close()
 	}
-	p := tea.NewProgram(m, tea.WithInput(in), tea.WithOutput(out))
-	_, e = p.Run()
-	return e
+	progOpts := append([]tea.ProgramOption{tea.WithInput(in), tea.WithOutput(out)}, opts...)
+	p := tea.NewProgram(m, progOpts...)
+	final, e := p.Run()
+	if e != nil {
+		return e
+	}
+	if fm, ok := final.(Model); ok && fm.exitNotice != "" {
+		fmt.Fprintln(out, fm.exitNotice)
+	}
+	return nil
 }
 func RenderForTest(s *service.Service, actor string, w, h int) (string, error) {
 	m, e := New(s, actor)
@@ -1810,7 +1829,7 @@ func (m Model) fetchSelectedRuntimePTYSnapshotCmd() tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 		defer cancel()
-		snapshot, err := interactiveserve.Snapshot(ctx, root, id)
+		snapshot, err := ptySnapshot(ctx, root, id)
 		return ptySnapshotMsg{runtimeID: id, snapshot: snapshot, err: err}
 	}
 }

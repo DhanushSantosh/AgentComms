@@ -77,9 +77,31 @@ func (c *Client) Healthy(ctx context.Context) error {
 	return c.doJSON(ctx, http.MethodGet, "/health/ready", nil, &map[string]any{})
 }
 
+// Capabilities returns the authority's raw /v1/capabilities response
+// (product_version, authority_api_version, schema_version, ...). Used by
+// DeleteProject (RFC 0020) to detect an authority server too old to
+// support project deletion before attempting one, for a clear
+// "upgrade the authority server" error instead of a raw 404.
+func (c *Client) Capabilities(ctx context.Context) (map[string]any, error) {
+	var response map[string]any
+	err := c.doJSON(ctx, http.MethodGet, "/v1/capabilities", nil, &response)
+	return response, err
+}
+
 func (c *Client) CreateProject(ctx context.Context, projectID, ownerID string) error {
 	return c.doJSON(ctx, http.MethodPost, "/v1/projects",
 		map[string]string{"project_id": projectID, "owner_id": ownerID}, &map[string]any{})
+}
+
+// DeleteProject permanently deletes projectID and every row scoped to it
+// from the authority -- see RFC 0020. command must be signed with the
+// OWNER actor's elevated key; authorization is verified server-side, not
+// trusted from the caller. Idempotent: deleting an already-deleted or
+// never-existing project returns a CodeValidation error, not a panic or an
+// ambiguous success -- safe to retry after a dropped response.
+func (c *Client) DeleteProject(ctx context.Context, command controlplane.Command) error {
+	return c.doJSON(ctx, http.MethodDelete,
+		fmt.Sprintf("/v1/projects/%s", url.PathEscape(command.ProjectID)), command, &map[string]any{})
 }
 
 func (c *Client) doJSON(ctx context.Context, method, path string, requestBody, responseBody any) error {

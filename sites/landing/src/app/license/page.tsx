@@ -17,10 +17,9 @@ export const metadata: Metadata = {
     type: "website",
     title: pageTitle,
     description: pageDescription,
-    url: "/license",
-    images: [{ url: "/social-card.svg", width: 1200, height: 630, alt: pageTitle }]
+    url: "/license"
   },
-  twitter: { card: "summary_large_image", title: pageTitle, description: pageDescription, images: ["/social-card.svg"] }
+  twitter: { card: "summary_large_image", title: pageTitle, description: pageDescription }
 };
 
 const permissions = ["Commercial use", "Modification", "Distribution", "Patent use", "Private use"];
@@ -28,6 +27,31 @@ const conditions = ["License and copyright notice", "State changes"];
 const limitations = ["Liability", "Warranty", "Trademark use"];
 
 const licenseText = readRepositoryFile("LICENSE");
+
+// Presentational-only pass over the verbatim license text: every character
+// is preserved exactly as read from disk, this only wraps section-heading
+// lines ("N. Title.", the top-level terms line, and the closing copyright
+// line) in a span for emphasis, and gives the 9 numbered sections an id
+// so the jump nav beside the text can link straight to each one, so the
+// wall of legal text has scannable structure instead of just being narrower.
+const numberedSectionPattern = /^(\s*(\d+)\.\s+([^.]+)\.)(.*)$/;
+const sectionIndex: { id: string; number: string; title: string }[] = [];
+const licenseLines = licenseText.split("\n").map((line, index) => {
+  const numberedMatch = line.match(numberedSectionPattern);
+  if (numberedMatch) {
+    const heading = numberedMatch[1] ?? "";
+    const number = numberedMatch[2] ?? "";
+    const title = numberedMatch[3] ?? "";
+    const rest = numberedMatch[4] ?? "";
+    const id = `license-section-${number}`;
+    sectionIndex.push({ id, number, title });
+    return { key: index, line, heading, rest, id };
+  }
+  if (line.trim() === "TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION" || /^Copyright \d{4}/.test(line)) {
+    return { key: index, line, heading: line, rest: "", id: undefined };
+  }
+  return { key: index, line, heading: null, rest: null, id: undefined };
+});
 
 export default function LicensePage() {
   return (
@@ -62,9 +86,26 @@ export default function LicensePage() {
         <section className={styles.fullText} aria-label="Full license text" data-reveal="license-text">
           <header>
             <p className="eyebrow">Full text</p>
-            <a href="https://github.com/DhanushSantosh/AgentComms/blob/main/LICENSE">View source on GitHub <span>↗</span></a>
           </header>
-          <pre>{licenseText}</pre>
+          <div className={styles.fullTextBody}>
+            <pre>
+              {licenseLines.map(({ key, line, heading, rest, id }, index) => (
+                <span key={key} id={id} className={heading ? styles.sectionHeading : undefined}>
+                  {heading ? <strong>{heading}</strong> : line}
+                  {rest}
+                  {index < licenseLines.length - 1 ? "\n" : ""}
+                </span>
+              ))}
+            </pre>
+            <nav className={styles.sectionNav} aria-label="Jump to a license section">
+              <p>Jump to a section</p>
+              <ol>
+                {sectionIndex.map(({ id, number, title }) => (
+                  <li key={id}><a href={`#${id}`}><span>{number.padStart(2, "0")}</span>{title}</a></li>
+                ))}
+              </ol>
+            </nav>
+          </div>
         </section>
       </main>
 

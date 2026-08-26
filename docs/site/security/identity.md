@@ -4,7 +4,7 @@ description: Understand actor credentials, roles, scopes, elevated keys, and the
 section: Security and trust
 order: 1
 audience: Security reviewers
-lastVerified: 2026-08-01
+lastVerified: 2026-08-14
 related: [guide/agents, security/integrity]
 ---
 
@@ -36,6 +36,8 @@ Runtimes are separate records. A runtime proves a process is present and eligibl
 A human principal may register a second passphrase-encrypted key. Argon2id and AES-256-GCM protect the local key material. The passphrase is never written to disk.
 
 Elevated signing is required for orchestrator grants, human-tier approval, revoking another human or orchestrator, and deleting any revoked principal. Do not type the passphrase into an agent chat.
+
+Permanently deleting an entire project (`agent-comms project delete`) also requires elevated signing, but is stricter than every action above: OWNER-only rather than owner-or-orchestrator, with no `--non-interactive` or MCP path at all, and no automatic backup. It destroys the local runtime, and in service mode the project's full row set on the shared authority too. See RFC 0020.
 
 ## Key history
 

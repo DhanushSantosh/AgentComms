@@ -18,14 +18,14 @@ export const installerMethods: readonly InstallerMethod[] = [
     id: "unix",
     name: "Linux + macOS",
     environment: "Terminal",
-    requirements: "curl · Python 3 · Cosign",
+    requirements: "curl · Python 3",
     command: `curl -fsSL ${repositoryRawUrl}/install.sh | sh`
   },
   {
     id: "windows",
     name: "Windows",
     environment: "PowerShell",
-    requirements: "PowerShell 7 · Cosign",
+    requirements: "PowerShell 7",
     command: `Invoke-WebRequest ${repositoryRawUrl}/install.ps1 -OutFile install.ps1\n.\\install.ps1`
   }
 ] as const;

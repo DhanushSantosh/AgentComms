@@ -8,9 +8,9 @@ test("presents the product thesis and truthful lifecycle", async ({ page }) => {
   await expect(page.getByRole("link", { name: /Install Agent Comms/ })).toHaveAttribute("href", "/download");
   await expect(page.getByRole("link", { name: "Docs", exact: true }).first()).toHaveAttribute("href", "https://agentcomms-docs.vercel.app");
 
-  const lifecycle = page.getByRole("list").filter({ hasText: "REQUESTED" });
+  const lifecycle = page.locator(".lifecycle-orbit");
   await expect(lifecycle).toContainText("DELIVERED");
-  await expect(lifecycle).toContainText("CLAIMED");
+  await expect(lifecycle).toContainText("ACKNOWLEDGED");
   await expect(lifecycle).toContainText("COMPLETED");
   await expect(page.getByText(/A transport can succeed while the agent never acknowledges/)).toBeVisible();
 });
@@ -40,19 +40,174 @@ test("supports a keyboard skip path", async ({ page }) => {
 test("resolves a simulated scope collision", async ({ page }) => {
   await page.goto("/#collision");
 
-  await expect(page.getByText("COLLISION", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "With Agent Comms" }).click();
-  await expect(page.getByText("RESOLVED", { exact: true })).toBeVisible();
-  await expect(page.getByText("one owner", { exact: true })).toBeVisible();
+  await expect(page.getByText("WITHOUT COORDINATION", { exact: true })).toBeVisible();
+  await expect(page.getByText("CONFLICT DETECTED", { exact: false })).toBeVisible();
+  await expect(page.getByText("WITH AGENT COMMS", { exact: true })).toBeVisible();
+  await expect(page.getByText("SCOPE LEASE GRANTED", { exact: false })).toBeVisible();
+});
+
+test("walkthrough scenes can be selected and replayed", async ({ page }) => {
+  await page.goto("/#demo");
+
+  const reel = page.locator("[data-demo-reel]");
+  await page.getByRole("button", { name: /03.*AGENT ACK/ }).click();
+  await expect(reel).toHaveAttribute("data-scene", "2");
+  await expect(reel.locator("[data-reel-live]")).toContainText(/explicitly accepts the obligation/);
+  await page.getByRole("button", { name: "Replay handoff evidence film" }).click();
+  await expect(reel).toHaveAttribute("data-scene", "0");
+});
+
+test("selected feature visuals preserve exact product semantics", async ({ page }) => {
+  await page.goto("/");
+
+  const orbit = page.locator(".lifecycle-orbit");
+  await expect(orbit.getByText("Delivered ≠ Acknowledged", { exact: true }).first()).toBeVisible();
+});
+
+test("relay separates transport from acknowledgement and returns a result", async ({ page }) => {
+  await page.goto("/#relay");
+
+  const relay = page.locator("[data-relay-sequence]");
+  await page.getByRole("button", { name: "Replay agent relay demonstration" }).click();
+  await expect(relay).toHaveAttribute("data-relay-state", "requested");
+  await expect(relay).toHaveAttribute("data-relay-state", "delivered", { timeout: 3_000 });
+  await expect(relay.getByText("DELIVERED ≠ ACKNOWLEDGED")).toBeVisible();
+  await expect(relay).toHaveAttribute("data-relay-state", "completed", { timeout: 7_000 });
+  await expect(relay.getByText("24 / 24 auth tests pass", { exact: true })).toBeVisible();
+});
+
+// ControlRoomFrame's own static, pre-existing fake-approval simulation --
+// unrelated to the real WASM TUI below -- now only ever renders on
+// mobile/tablet viewports (CSS-toggled in globals.css at the same 60rem
+// breakpoint LiveControlRoom's own sizing already used): xterm's fixed
+// character grid doesn't have room to render the real product's
+// responsive layout below that width (see the real-TUI test's own comment
+// a few lines down), so small screens keep this recreation permanently
+// instead of a launch button that would open an unusable terminal.
+test("control room resolves a human-tier approval coherently", async ({ page, isMobile }) => {
+  test.skip(!isMobile, "the mobile-only static poster; desktop shows the real TUI instead");
+  await page.goto("/#control");
+
+  const frame = page.locator("[data-tui-frame]");
+  await page.getByRole("button", { name: /approval-orchestrator-reviewer/ }).click();
+  await expect(page.getByText("HUMAN AUTHORITY REQUIRED")).toBeVisible();
+  await page.getByRole("button", { name: "Approve with human authority" }).click();
+  await expect(frame).toHaveAttribute("data-control-state", "approved");
+  await expect(frame.locator("[data-control-role]")).toHaveText("ORCHESTRATOR");
+  await expect(frame.locator("[data-control-event] b")).toHaveText("approval.approve");
+});
+
+// This drives the *real*, WASM-compiled product TUI -- LiveControlRoom.tsx
+// lazy-loads cmd/agent-comms-tui-wasm + xterm.js and mounts it live, in
+// place of the static poster above, on desktop/tablet-landscape viewports
+// wide enough for the real product's layout. The keystroke sequence below
+// is not guessed: it is the
+// exact real key binding internal/tui/model.go's key handling uses to
+// reach the seeded Approvals row --
+//   - "]" -> Model.moveHubView(1): cycles the *current hub's* own tabs.
+//     The default view on launch is "Overview", whose hub ("Command") has
+//     Views: ["Overview", "My work", "Blockers", "Approvals"] (see
+//     navigationHubs in model.go), so three presses of "]" lands on
+//     Approvals. There is no "Tab" binding for this at all in the real
+//     keymap -- "tab"/"shift+tab" are reserved for a *form's* own field
+//     navigation (model.go's updateForm), a different mode entirely.
+//   - "enter" -> focuses the row list (m.rowFocus = true), selecting the
+//     one seeded approval row (seed.go's pendingApprovalID,
+//     "approval-orchestrator-reviewer", left PENDING deliberately so a live
+//     visitor has a real decision to make).
+// This exact sequence (three "]" then "enter") is the same one
+// internal/tui/approvals_test.go's enterApprovalsView helper uses to reach
+// this view in Go's own test suite -- not improvised here.
+//
+// From there, this test rejects the pending approval (RowAction Key "x",
+// approvals.go's appReject) rather than approving it: approving a
+// HUMAN-tier approval opens a masked-passphrase form (approveActionFor),
+// while reject only needs a single "y" to confirm (rowlist.go's
+// updateConfirm) -- both are real, terminal state transitions the seed
+// deliberately leaves available, but reject is the smaller, less brittle
+// keystroke sequence to drive through a real xterm.js terminal while still
+// proving the exact thing the plan's Global Constraints require: driving
+// the seeded approval to completion through the live TUI must actually
+// change what renders.
+test("launches the real TUI in the control room and can act on the seeded approval", async ({ page, isMobile }) => {
+  // The real TUI renders into a fixed character grid (xterm.js); on a
+  // phone-sized viewport the fitted terminal settles at a small enough
+  // rows/cols that internal/tui/model.go's own responsive layout collapses
+  // the sidebar and the Command hub's tab strip entirely (confirmed
+  // empirically: at Pixel 7's 412x839 viewport the rendered terminal ends
+  // up ~372x358px, and its text contains neither "Command" nor
+  // "Approvals" nor "reviewer" once layout and xterm's resize settle) --
+  // exactly the same real, content-driven responsive behavior a physical
+  // terminal app would show in that little space, not a bug to route
+  // around. Desktop already exercises the identical WASM binary and key
+  // bindings; skip here rather than assert against a viewport the real
+  // product's own layout logic doesn't support this interaction at.
+  test.skip(isMobile, "the real TUI's responsive layout needs more grid than a phone-sized terminal fits");
+  await page.goto("/");
+  const controlSection = page.locator("#control");
+  await controlSection.scrollIntoViewIfNeeded();
+  await page.getByRole("button", { name: /Launch the Control Room/ }).click();
+
+  const terminal = page.locator(".control-terminal");
+  await expect(terminal).toBeVisible();
+
+  // xterm.js (no canvas/webgl addon is installed -- see
+  // sites/landing/public/tui/wasm-bridge.js and package.json's
+  // dependencies) renders its default DOM renderer here: real
+  // ".xterm-rows" text nodes Playwright can assert against, not just a
+  // canvas. Confirmed empirically by this very assertion passing against
+  // getByText, not merely assumed from the addon list.
+  await expect(terminal.locator(".xterm-rows")).toBeVisible({ timeout: 20_000 });
+
+  // Real seeded content from cmd/agent-comms-tui-wasm/seed.go, not
+  // decorative: reviewer is one of the three demo agents the workforce
+  // table renders, and "Approvals" is the Command hub's fourth tab label,
+  // visible on the very first (Overview) screen before any navigation.
+  // Scoped to the terminal: "reviewer"/"Approvals" both also appear
+  // elsewhere on the static landing page (the walkthrough reel, the mode
+  // map, ...), so an unscoped getByText is ambiguous -- this is real
+  // xterm.js DOM content, not the surrounding marketing page.
+  await expect(terminal.getByText("reviewer", { exact: false }).first()).toBeVisible({ timeout: 20_000 });
+  await expect(terminal.getByText("Approvals", { exact: false }).first()).toBeVisible();
+
+  // Drive the real keybinding into the seeded Approvals row list and
+  // confirm the pending approval is actually there and actionable.
+  await terminal.click();
+  for (let i = 0; i < 3; i++) {
+    await page.keyboard.press("]");
+  }
+  await page.keyboard.press("Enter");
+  // "PEND" rather than the full "PENDING": the STATUS column truncates to
+  // fit its width at this viewport ("🟡 PENDI…"), confirmed empirically by
+  // a screenshot of the real render -- asserting a prefix that survives
+  // truncation is more robust than assuming the full word always fits.
+  await expect(terminal.getByText(/PEND/i).first()).toBeVisible();
+  await expect(terminal.getByText("agent.activate:reviewer", { exact: false }).first()).toBeVisible();
+
+  // Reject the seeded approval (key "x") -- a real, signed, terminal state
+  // transition (approvals.go's appReject -> approval.reject), not a
+  // decorative animation. Confirm the confirmation prompt rendered from
+  // real Go source text (rowlist.go's confirmYesLabel) before signing.
+  await page.keyboard.press("x");
+  await expect(terminal.getByText(/Sign and apply/i).first()).toBeVisible();
+  await page.keyboard.press("y");
+
+  // The rendered output must actually change as a result: the same
+  // approval row now reads REJECTED instead of PENDING (both truncated to
+  // fit the STATUS column, so matched by prefix the same way as above) --
+  // proof this is a live, stateful program responding to real input, not
+  // a screenshot or a canned animation.
+  await expect(terminal.getByText(/PEND/i)).toHaveCount(0, { timeout: 10_000 });
+  await expect(terminal.getByText(/REJ/i).first()).toBeVisible();
 });
 
 test("keeps delivery evidence separate from acknowledgement", async ({ page }) => {
   await page.goto("/#protocol");
 
-  await page.getByRole("button", { name: "DELIVERED transport evidence" }).click();
-  await expect(page.getByText("The selected transport acted and returned bounded delivery evidence.")).toBeVisible();
-  await expect(page.getByText("semantic consumption", { exact: true })).toBeVisible();
-  await expect(page.getByText("invocation.notify", { exact: true })).toBeVisible();
+  const orbit = page.locator(".lifecycle-orbit");
+  await expect(orbit.getByText("DELIVERED", { exact: true })).toBeVisible();
+  await expect(orbit.getByText("ACKNOWLEDGED", { exact: true })).toBeVisible();
+  await expect(orbit.getByText("Delivered ≠ Acknowledged")).toBeVisible();
 });
 
 test("reveals the footer after a reload", async ({ page }) => {
@@ -124,13 +279,9 @@ test("activates the main hero motion after hydration", async ({ page }) => {
   await page.goto("/");
 
   const hero = page.locator('[data-reveal="hero"]');
-  const coordinationField = page.locator("[data-motion-stage]");
   await expect(hero).toHaveClass(/is-revealed/);
   await expect(hero).toHaveClass(/is-active/);
-  await coordinationField.scrollIntoViewIfNeeded();
-  await expect(coordinationField).toHaveClass(/is-revealed/);
-  await expect(coordinationField).toHaveClass(/is-active/);
-  await expect(coordinationField.locator(".path:not(.path--authority)").first()).toHaveCSS("animation-name", "field-flow");
+  await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
 });
 
 test("waits for meaningful viewport entry before revealing main sections", async ({ page }) => {
@@ -143,10 +294,10 @@ test("waits for meaningful viewport entry before revealing main sections", async
   await expect(statement).toHaveClass(/is-active/);
 });
 
-test("reveals the releases section on the download page", async ({ page }) => {
-  await page.goto("/download");
+test("reveals the release list on the releases page", async ({ page }) => {
+  await page.goto("/releases");
 
-  const releases = page.locator('[data-reveal="releases"]');
+  const releases = page.locator('[data-reveal="releases-list"]');
   await releases.scrollIntoViewIfNeeded();
   await expect(releases).toHaveClass(/is-revealed/);
   await expect(releases).toHaveClass(/is-active/);
@@ -172,7 +323,7 @@ test("footer links to native pages instead of bouncing straight to GitHub", asyn
   await expect(footer.getByRole("link", { name: "Privacy", exact: true })).toHaveAttribute("href", "/privacy");
   await expect(footer.getByRole("link", { name: "Report an issue", exact: true })).toHaveAttribute(
     "href",
-    "https://github.com/DhanushSantosh/AgentComms/issues/new"
+    "/support#report-issue"
   );
   await expect(footer.getByRole("link", { name: "Changelog", exact: true })).toHaveAttribute(
     "href",
@@ -205,10 +356,8 @@ test("points to private advisories on the security page", async ({ page }) => {
   await page.goto("/security");
 
   await expect(page.getByRole("heading", { level: 1 })).toContainText("Found a flaw?");
-  await expect(page.getByRole("link", { name: /Open a private advisory/ })).toHaveAttribute(
-    "href",
-    "https://github.com/DhanushSantosh/AgentComms/security/advisories/new"
-  );
+  await expect(page.locator("#advisory-url")).toHaveText("https://github.com/DhanushSantosh/AgentComms/security/advisories/new");
+  await expect(page.getByRole("button", { name: /Copy the private advisory link/ })).toBeVisible();
 });
 
 test("cross-links support and privacy pages to the security policy", async ({ page }) => {

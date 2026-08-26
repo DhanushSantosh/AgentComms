@@ -38,24 +38,67 @@ export const metadata: Metadata = {
   title,
   description,
   alternates: { canonical: "/" },
-  icons: { icon: "/favicon.svg" },
+  manifest: "/site.webmanifest",
+  icons: {
+    icon: [
+      { url: "/favicon.svg", type: "image/svg+xml" },
+      { url: "/favicon.ico", sizes: "48x48" }
+    ],
+    apple: "/apple-touch-icon.png"
+  },
   openGraph: {
     type: "website",
     title,
     description: "Project authority, direct agent relay, and signed evidence for concurrent coding agents.",
-    url: "/",
-    images: [{ url: "/social-card.svg", width: 1200, height: 630, alt: "Agent Comms" }]
+    url: "/"
   },
-  twitter: { card: "summary_large_image", title, description, images: ["/social-card.svg"] }
+  twitter: { card: "summary_large_image", title, description }
 };
 
-export const viewport: Viewport = { themeColor: "#3341f0", width: "device-width", initialScale: 1 };
+// RFC 0021: Organization JSON-LD, site-wide -- SoftwareApplication is added
+// separately on the homepage and /download only, where it's actually true
+// (a specific installable product), not duplicated on every content page.
+const organizationJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "Organization",
+  name: "Agent Comms",
+  url: site.marketingSiteUrl,
+  logo: new URL("/icon-512.png", site.marketingSiteUrl).toString(),
+  sameAs: [site.repositoryUrl]
+};
+
+export const viewport: Viewport = { themeColor: "#071216", width: "device-width", initialScale: 1 };
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationJsonLd) }}
+        />
         <script dangerouslySetInnerHTML={{ __html: `document.documentElement.classList.add("motion-ready");` }} />
+        {/*
+          LiveControlRoom lazy-loads Task 4's public/tui/wasm-bridge.js at
+          runtime via a native, unbundled `import()`. That file in turn
+          imports "@xterm/xterm" and "@xterm/addon-fit" as bare specifiers,
+          which only resolve in a browser via an import map -- the npm
+          packages themselves ship CommonJS/UMD, not ES modules, so this
+          points those specifiers at the real ESM bundles
+          scripts/build-tui-wasm.mjs produces in public/tui/vendor/. Must
+          stay in <head>, ahead of any module script/import() on the page.
+        */}
+        <script
+          type="importmap"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify({
+              imports: {
+                "@xterm/xterm": "/tui/vendor/xterm.js",
+                "@xterm/addon-fit": "/tui/vendor/addon-fit.js"
+              }
+            })
+          }}
+        />
       </head>
       <body className={fontVariables}>
         <MotionHydrationBridge />
