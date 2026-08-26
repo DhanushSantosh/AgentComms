@@ -90,9 +90,10 @@ type ErrorBody struct {
 	Details any    `json:"details,omitempty"`
 }
 type ExitError struct {
-	Code int
-	Kind string
-	Err  error
+	Code     int
+	Kind     string
+	Err      error
+	Reported bool
 }
 
 func (e *ExitError) Error() string { return e.Err.Error() }
@@ -117,6 +118,7 @@ func ContainsJSONFlag(args []string) bool {
 type cli struct {
 	out, err                             io.Writer
 	json, nonInteractive, noColor, quiet bool
+	verbose, details                     bool
 	output                               string
 	project, profile, actor              string
 	timeout                              time.Duration
@@ -186,17 +188,56 @@ func Run(args []string, stdout, stderr io.Writer) error {
 		// literally present. Falling back to a raw scan of args here
 		// closes that gap without either layer needing to trust the
 		// other's assumption about who's responsible.
-		if c.json || ContainsJSONFlag(args) {
+		reported := false
+		if c.json || ContainsJSONFlag(args) || containsOutputJSON(args) {
 			body := Envelope{APIVersion: APIVersion, OK: false, Command: c.cmd, Error: &ErrorBody{Code: errorCode(e), Message: e.Error()}}
 			_ = json.NewEncoder(stderr).Encode(body)
+			reported = true
+		} else {
+			mode := cliui.Mode(c.output)
+			if mode != cliui.ModePlain {
+				mode = cliui.ModeHuman
+			}
+			_ = (cliui.Presenter{
+				Out: stderr, Mode: mode,
+				Capabilities: cliui.DetectCapabilities(stderr, c.noColor),
+			}).RenderError(errorCode(e), e.Error(), errorHint(errorCode(e)))
+			reported = true
 		}
-		return &ExitError{Code: exitCode(e), Kind: errorCode(e), Err: e}
+		return &ExitError{Code: exitCode(e), Kind: errorCode(e), Err: e, Reported: reported}
 	}
 	if c.processExitCode != 0 {
 		err := fmt.Errorf("wrapped process exited with status %d", c.processExitCode)
 		return &ExitError{Code: c.processExitCode, Kind: "PROCESS_EXIT", Err: err}
 	}
 	return nil
+}
+
+func containsOutputJSON(args []string) bool {
+	for index, argument := range args {
+		if argument == "--output=json" {
+			return true
+		}
+		if argument == "--output" && index+1 < len(args) && args[index+1] == "json" {
+			return true
+		}
+	}
+	return false
+}
+
+func errorHint(code string) string {
+	switch code {
+	case "VALIDATION":
+		return "Run the command with --help to review required flags and accepted values."
+	case "AUTHORIZATION":
+		return "Check the active actor, profile, role, and granted scopes."
+	case "CONFLICT", "STALE_PRECONDITION":
+		return "Refresh the current project state, then retry against the latest sequence."
+	case "OFFLINE", "UNAVAILABLE":
+		return "Check runtime connectivity and retry."
+	default:
+		return "Run the command with --help or use --verbose for more operational context."
+	}
 }
 func (c *cli) root() *cobra.Command {
 	r := &cobra.Command{Use: "agent-comms", Short: "Governed coordination for concurrent agents", Version: Version, PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
@@ -327,6 +368,8 @@ func (c *cli) root() *cobra.Command {
 	f.DurationVar(&c.timeout, "timeout", 10*time.Second, "transaction lock timeout")
 	f.BoolVar(&c.noColor, "no-color", false, "disable ANSI color")
 	f.BoolVarP(&c.quiet, "quiet", "q", false, "suppress non-essential output")
+	f.BoolVarP(&c.verbose, "verbose", "v", false, "show operational metadata in human output")
+	f.BoolVar(&c.details, "details", false, "show secondary and nested fields in human output")
 	r.AddCommand(c.versionCmd(), c.initCmd(), c.projectCmd(), c.doctorCmd(), c.verifyCmd(), c.statusCmd(), c.controlCmd(), c.historyCmd(), c.searchCmd(), c.agentCmd(), c.runtimeCmd(), c.invocationCmd(), c.sessionCmd(), c.taskCmd(), c.messageCmd(), c.decisionCmd(), c.approvalCmd(), c.artifactCmd(), c.documentCmd(), c.envCmd(), c.draftCmd(), c.archiveCmd(), c.exportCmd(), c.profileCmd(), c.configCmd(), c.themeCmd(), c.updateCmd(), c.completionCmd(r), c.agentInstructionsCmd(), c.mcpCmd(), c.watchCmd(), c.tuiCmd(), c.daemonCmd(), c.claudeCmd(), c.codexCmd())
 	return r
 }
@@ -348,19 +391,50 @@ func (c *cli) emitDocument(command string, value any, document cliui.Document, w
 	if mode == "" {
 		mode = cliui.ModeHuman
 	}
-	if err := (cliui.Presenter{
+	if c.verbose {
+		document.Fields = append(document.Fields,
+			cliui.Field{Label: "Command", Value: c.cmd},
+			cliui.Field{Label: "Output", Value: string(mode)},
+			cliui.Field{Label: "Project", Value: c.project},
+			cliui.Field{Label: "Actor", Value: c.actor},
+		)
+	}
+	presenter := cliui.Presenter{
 		Out:          c.out,
 		Mode:         mode,
 		Capabilities: cliui.DetectCapabilities(c.out, c.noColor),
-	}).Render(document); err != nil {
+	}
+	if err := presenter.Render(document); err != nil {
 		return err
 	}
+	if c.details {
+		if err := presenter.RenderDetails(value); err != nil {
+			return err
+		}
+	}
+	return c.renderWarnings(mode, warnings)
+}
+
+func (c *cli) renderWarnings(mode cliui.Mode, warnings []string) error {
+	presenter := cliui.Presenter{
+		Out:          c.err,
+		Mode:         mode,
+		Capabilities: cliui.DetectCapabilities(c.err, c.noColor),
+	}
 	for _, warning := range warnings {
-		if _, err := fmt.Fprintln(c.err, "warning:", warning); err != nil {
+		if err := presenter.RenderWarning(warning); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func (c *cli) progress() *cliui.Progress {
+	mode := cliui.Mode(c.output)
+	if c.json {
+		mode = cliui.ModeJSON
+	}
+	return cliui.NewProgress(c.err, mode, cliui.DetectCapabilities(c.err, c.noColor), c.quiet)
 }
 
 // emitTable is emit's counterpart for list-shaped output. JSON mode retains
@@ -384,12 +458,7 @@ func (c *cli) emitTable(command string, v any, headers []string, rows [][]string
 	}).RenderTable(cliui.Table{Headers: headers, Rows: rows}); err != nil {
 		return err
 	}
-	for _, w := range warnings {
-		if _, e := fmt.Fprintln(c.err, "warning:", w); e != nil {
-			return e
-		}
-	}
-	return nil
+	return c.renderWarnings(mode, warnings)
 }
 
 // renderTable writes headers and rows as a plain-text table, columns
@@ -403,10 +472,10 @@ func renderTable(out io.Writer, headers []string, rows [][]string) {
 }
 
 func (c *cli) emitWithDelivery(command string, v, delivery any, warnings ...string) error {
-	if len(c.pendingWarnings) > 0 {
-		warnings = append(append([]string{}, c.pendingWarnings...), warnings...)
-	}
 	if c.json {
+		if len(c.pendingWarnings) > 0 {
+			warnings = append(append([]string{}, c.pendingWarnings...), warnings...)
+		}
 		return json.NewEncoder(c.out).Encode(Envelope{
 			APIVersion: APIVersion, OK: true, Command: command,
 			Result: v, Delivery: delivery, Warnings: warnings,
@@ -418,23 +487,27 @@ func (c *cli) emitWithDelivery(command string, v, delivery any, warnings ...stri
 	if event, ok := v.(model.Event); ok {
 		return c.emitDocument(command, v, mutationReceipt(command, event, delivery), warnings...)
 	}
+	if len(c.pendingWarnings) > 0 {
+		warnings = append(append([]string{}, c.pendingWarnings...), warnings...)
+	}
 	mode := cliui.Mode(c.output)
 	if mode == "" {
 		mode = cliui.ModeHuman
 	}
-	if e := (cliui.Presenter{
+	presenter := cliui.Presenter{
 		Out:          c.out,
 		Mode:         mode,
 		Capabilities: cliui.DetectCapabilities(c.out, c.noColor),
-	}).RenderResult(command, v, delivery); e != nil {
+	}
+	if e := presenter.RenderResult(command, v, delivery); e != nil {
 		return e
 	}
-	for _, w := range warnings {
-		if _, e := fmt.Fprintln(c.err, "warning:", w); e != nil {
+	if c.verbose {
+		if e := presenter.RenderDetails(map[string]any{"command": c.cmd, "output": mode, "project": c.project, "actor": c.actor}); e != nil {
 			return e
 		}
 	}
-	return nil
+	return c.renderWarnings(mode, warnings)
 }
 
 func mutationReceipt(command string, event model.Event, delivery any) cliui.Document {
@@ -542,11 +615,7 @@ func (c *cli) versionCmd() *cobra.Command {
 		if c.json {
 			return c.emit("version", result)
 		}
-		mode := cliui.Mode(c.output)
-		if mode == "" {
-			mode = cliui.ModeHuman
-		}
-		return (cliui.Presenter{Out: c.out, Mode: mode, Capabilities: cliui.DetectCapabilities(c.out, c.noColor)}).Render(cliui.Document{
+		return c.emitDocument("version", result, cliui.Document{
 			Title:  "Agent Comms",
 			Status: cliui.StatusInfo,
 			Fields: []cliui.Field{

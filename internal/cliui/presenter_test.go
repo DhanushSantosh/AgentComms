@@ -166,3 +166,39 @@ func TestPresenterRenderTableAlignsDisplayCellsAndSanitizesValues(t *testing.T) 
 		t.Fatalf("empty table output mismatch: %q", output.String())
 	}
 }
+
+func TestPresenterRendersSanitizedDetailsAndWarnings(t *testing.T) {
+	var output bytes.Buffer
+	presenter := cliui.Presenter{Out: &output, Mode: cliui.ModePlain}
+	if err := presenter.RenderDetails(map[string]any{"signature": "signed\x1b[31m", "nested": map[string]any{"hash": "abc"}}); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Details", "Signature", "signed", "Nested", "Hash", "abc"} {
+		if !strings.Contains(output.String(), want) {
+			t.Fatalf("details are missing %q:\n%s", want, output.String())
+		}
+	}
+	if strings.Contains(output.String(), "\x1b") {
+		t.Fatalf("details leaked terminal controls: %q", output.String())
+	}
+
+	output.Reset()
+	if err := presenter.RenderWarning("retry\x1b]8;;https://evil.invalid\a later\nnow"); err != nil {
+		t.Fatal(err)
+	}
+	if output.String() != "warning: retry laternow\n" {
+		t.Fatalf("warning was not rendered safely: %q", output.String())
+	}
+}
+
+func TestPresenterRendersActionableSanitizedError(t *testing.T) {
+	var output bytes.Buffer
+	presenter := cliui.Presenter{Out: &output, Mode: cliui.ModePlain}
+	if err := presenter.RenderError("VALIDATION", "bad\x1b[31m input\nvalue", "Run with --help"); err != nil {
+		t.Fatal(err)
+	}
+	want := "error [VALIDATION]: bad inputvalue\nhint: Run with --help\n"
+	if output.String() != want {
+		t.Fatalf("error output mismatch:\n got %q\nwant %q", output.String(), want)
+	}
+}

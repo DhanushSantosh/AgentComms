@@ -40,6 +40,48 @@ func (p Presenter) RenderResult(command string, value, delivery any) error {
 	return p.renderTree(normalizedDelivery, 1)
 }
 
+// RenderDetails appends the complete secondary result structure below an
+// intentional summary without changing machine output contracts.
+func (p Presenter) RenderDetails(value any) error {
+	normalized, err := normalizeResult(value)
+	if err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintln(p.Out, "\nDetails"); err != nil {
+		return err
+	}
+	return p.renderTree(normalized, 1)
+}
+
+// RenderWarning writes one sanitized diagnostic line.
+func (p Presenter) RenderWarning(message string) error {
+	prefix := "warning: "
+	if p.Mode == ModeHuman && p.Capabilities.Interactive && p.Capabilities.Color {
+		prefix = "\x1b[33mwarning:\x1b[0m "
+	}
+	_, err := fmt.Fprintln(p.Out, prefix+safeText(message))
+	return err
+}
+
+// RenderError writes a concise classified failure and optional recovery hint.
+func (p Presenter) RenderError(code, message, hint string) error {
+	prefix := "error"
+	if p.Mode == ModeHuman && p.Capabilities.Interactive && p.Capabilities.Color {
+		prefix = "\x1b[31merror\x1b[0m"
+	}
+	if code != "" {
+		prefix += " [" + safeText(code) + "]"
+	}
+	if _, err := fmt.Fprintln(p.Out, prefix+": "+safeText(message)); err != nil {
+		return err
+	}
+	if hint != "" {
+		_, err := fmt.Fprintln(p.Out, "hint: "+safeText(hint))
+		return err
+	}
+	return nil
+}
+
 func normalizeResult(value any) (any, error) {
 	if value == nil {
 		return nil, nil

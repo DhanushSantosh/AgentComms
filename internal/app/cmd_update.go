@@ -40,6 +40,14 @@ func (c *cli) updateCmd() *cobra.Command {
 	var yes, currentProjectOnly, skipProjectUpgrade bool
 	allKnown := true
 	apply := &cobra.Command{Use: "apply", RunE: func(cmd *cobra.Command, args []string) error {
+		progress := c.progress()
+		_ = progress.Start("Applying Agent Comms update")
+		completed := false
+		defer func() {
+			if !completed {
+				_ = progress.Stop(false, "Update did not complete")
+			}
+		}()
 		ctx, cancel := context.WithTimeout(cmd.Context(), 2*time.Minute)
 		defer cancel()
 		release, err := fetchRelease(ctx, channel, version)
@@ -53,6 +61,8 @@ func (c *cli) updateCmd() *cobra.Command {
 		result["binary_updated"] = true
 		if skipProjectUpgrade {
 			result["project_upgrade"] = map[string]any{"skipped": true, "reason": "requested by --skip-project-upgrade"}
+			completed = true
+			_ = progress.Stop(true, "Update installed")
 			return c.emit("update.apply", result)
 		}
 		projectRoot, projectFound := currentInitializedProject(c.project)
@@ -85,6 +95,8 @@ func (c *cli) updateCmd() *cobra.Command {
 		} else {
 			result["project_upgrade"] = map[string]any{"skipped": true, "reason": "current directory is not an initialized project"}
 		}
+		completed = true
+		_ = progress.Stop(true, "Update and project reconciliation completed")
 		return c.emit("update.apply", result)
 	}}
 	apply.Flags().StringVar(&channel, "channel", "stable", "stable or preview")

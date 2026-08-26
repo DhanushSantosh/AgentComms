@@ -67,7 +67,7 @@ func (c *cli) artifactCmd() *cobra.Command {
 		if c.json {
 			return c.emit("artifact.verify", result)
 		}
-		return (cliui.Presenter{Out: c.out, Mode: cliui.Mode(c.output), Capabilities: cliui.DetectCapabilities(c.out, c.noColor)}).Render(cliui.Document{
+		return c.emitDocument("artifact.verify", result, cliui.Document{
 			Title:  "Artifact verified",
 			Status: cliui.StatusSuccess,
 			Fields: []cliui.Field{

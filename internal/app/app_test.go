@@ -35,6 +35,8 @@ import (
 
 func TestArtifactVerifyPlainOutputIsAReadableReceipt(t *testing.T) {
 	project := t.TempDir()
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
 	cleanupProjectDaemon(t, project)
 	var stdout, stderr bytes.Buffer
 	if err := Run([]string{"init", "--project", project, "--non-interactive", "--owner", "owner", "--json"}, &stdout, &stderr); err != nil {
@@ -86,6 +88,8 @@ func TestArtifactVerifyPlainOutputIsAReadableReceipt(t *testing.T) {
 
 func TestGenericBoundedCommandPlainOutputNeverFallsBackToJSON(t *testing.T) {
 	project := t.TempDir()
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
 	cleanupProjectDaemon(t, project)
 	var stdout, stderr bytes.Buffer
 	if err := Run([]string{"init", "--project", project, "--non-interactive", "--owner", "owner", "--json"}, &stdout, &stderr); err != nil {
@@ -114,6 +118,8 @@ func TestGenericBoundedCommandPlainOutputNeverFallsBackToJSON(t *testing.T) {
 
 func TestFoundationHealthCommandsHaveIntentionalPlainViews(t *testing.T) {
 	project := t.TempDir()
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
 	cleanupProjectDaemon(t, project)
 	var stdout, stderr bytes.Buffer
 	if err := Run([]string{"init", "--project", project, "--non-interactive", "--owner", "owner", "--json"}, &stdout, &stderr); err != nil {
@@ -148,6 +154,8 @@ func TestFoundationHealthCommandsHaveIntentionalPlainViews(t *testing.T) {
 
 func TestMutationCommandPlainOutputIsAConciseReceipt(t *testing.T) {
 	project := t.TempDir()
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
 	cleanupProjectDaemon(t, project)
 	var stdout, stderr bytes.Buffer
 	if err := Run([]string{"init", "--project", project, "--non-interactive", "--owner", "owner", "--json"}, &stdout, &stderr); err != nil {
@@ -169,6 +177,51 @@ func TestMutationCommandPlainOutputIsAConciseReceipt(t *testing.T) {
 		if strings.Contains(plain, unwanted) {
 			t.Fatalf("mutation receipt exposed secondary field %q:\n%s", unwanted, plain)
 		}
+	}
+}
+
+func TestVerboseAndDetailsExpandHumanOutputWithoutChangingJSONMode(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if err := Run([]string{"version", "--output", "plain", "--verbose", "--details"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Command", "agent-comms version", "Output", "plain", "Details", "Build id"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("expanded version output is missing %q:\n%s", want, stdout.String())
+		}
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if err := Run([]string{"version", "--json", "--verbose", "--details"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	var envelope Envelope
+	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil || !envelope.OK || envelope.Command != "version" {
+		t.Fatalf("JSON mode changed under verbosity flags: err=%v envelope=%#v output=%s", err, envelope, stdout.String())
+	}
+}
+
+func TestHumanErrorsAreFormattedOnStderr(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := Run([]string{"version", "--output", "plain", "--not-a-real-flag\x1b[31m"}, &stdout, &stderr)
+	if err == nil {
+		t.Fatal("expected invalid flag to fail")
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("error wrote result data to stdout: %s", stdout.String())
+	}
+	for _, want := range []string{"error [", "unknown flag", "hint:"} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Fatalf("formatted error is missing %q: %s", want, stderr.String())
+		}
+	}
+	if strings.Contains(stderr.String(), "\x1b") {
+		t.Fatalf("formatted error leaked terminal controls: %q", stderr.String())
+	}
+	exitError, ok := err.(*ExitError)
+	if !ok || !exitError.Reported {
+		t.Fatalf("formatted error was not marked reported: %#v", err)
 	}
 }
 
