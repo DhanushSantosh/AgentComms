@@ -76,8 +76,8 @@
   font-size: 0.6rem;
   font-weight: 700;
 }
-.track-agent--axiom { color: var(--text); }
-.track-agent--damon { color: var(--cyan); }
+.track-agent--reviewer { color: var(--text); }
+.track-agent--developer { color: var(--cyan); }
 
 .track-file {
   font-family: var(--mono);

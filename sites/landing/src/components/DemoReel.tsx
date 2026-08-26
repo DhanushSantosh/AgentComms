@@ -1,7 +1,7 @@
 const scenes = [
-  { step: "01", tag: "REQUEST", title: "Bounded intent", event: "invocation.request", proof: "Actor-signed · scope auth/session", caption: "AXIOM commits a bounded verification request to the project record." },
+  { step: "01", tag: "REQUEST", title: "Bounded intent", event: "invocation.request", proof: "Actor-signed · scope auth/session", caption: "REVIEWER commits a bounded verification request to the project record." },
   { step: "02", tag: "DELIVERY", title: "Transport evidence", event: "transport.delivered", proof: "PTY text echoed · enter sent", caption: "The transport succeeds—but delivery evidence is not acknowledgement." },
-  { step: "03", tag: "AGENT ACK", title: "Target accepts", event: "invocation.claim", proof: "DAMON acknowledged · lease active", caption: "DAMON explicitly accepts the obligation and begins the verification scope." },
+  { step: "03", tag: "AGENT ACK", title: "Target accepts", event: "invocation.claim", proof: "DEVELOPER acknowledged · lease active", caption: "DEVELOPER explicitly accepts the obligation and begins the verification scope." },
   { step: "04", tag: "RESULT", title: "Verified result", event: "invocation.complete", proof: "24 / 24 tests pass · receipt signed", caption: "The verified result returns and closes the signed handoff chain." }
 ] as const;
 

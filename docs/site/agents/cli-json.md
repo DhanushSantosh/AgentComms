@@ -11,7 +11,7 @@ related: [reference/cli, reference/configuration]
 Every ordinary command supports a versioned JSON envelope:
 
 ```sh
-agent-comms --project /srv/project --actor DAMON --json status
+agent-comms --project /srv/project --actor <agent-id> --json status
 ```
 
 Successful responses include `api_version`, `ok`, `command`, and `result`. Mutations may also include delivery, receipt, consistency, server sequence, cache sequence, connectivity, and warnings.

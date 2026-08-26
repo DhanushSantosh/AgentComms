@@ -15,8 +15,8 @@ related: [agents/invocations, agents/delivery]
 Use the direct adapters unless you need a specific alternative:
 
 ```sh
-agent-comms --actor DAMON runtime worker \
-  --id damon-runtime \
+agent-comms --actor <agent-id> runtime worker \
+  --id <runtime-id> \
   --adapter codex \
   --executable /usr/local/bin/codex \
   --codex-sandbox workspace-write \
@@ -24,8 +24,8 @@ agent-comms --actor DAMON runtime worker \
 ```
 
 ```sh
-agent-comms --actor AXIOM runtime worker \
-  --id axiom-runtime \
+agent-comms --actor <agent-id> runtime worker \
+  --id <runtime-id> \
   --adapter claude \
   --executable /usr/local/bin/claude \
   --claude-permission-mode acceptEdits \

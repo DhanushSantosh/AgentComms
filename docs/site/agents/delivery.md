@@ -22,12 +22,12 @@ An explicit preferred runtime narrows both delivery and claim eligibility. Multi
 
 ```sh
 agent-comms invocation policy set \
-  --agent DAMON \
+  --agent <agent-id> \
   --mode TRUSTED \
   --trusted-actor PRICE \
   --default-consumer INTERACTIVE_ONLY \
   --allow-consumer INTERACTIVE_ONLY \
-  --interactive-runtime DAMON \
+  --interactive-runtime <agent-id> \
   --require-human-for-sensitive
 ```
 
@@ -49,7 +49,7 @@ These records prove transport actions only. `CLAIMED` proves that an eligible ta
 ## Explicit redelivery
 
 ```sh
-agent-comms invocation redeliver --id <invocation> --runtime DAMON
+agent-comms invocation redeliver --id <invocation> --runtime <agent-id>
 ```
 
 Redelivery is allowed for open, unclaimed `PENDING` or `NOTIFIED` invocations. A failed later attempt does not erase an earlier successful delivery. Automatic attempt leases prevent duplicate active deliveries and allow abandoned attempts to recover after expiry.

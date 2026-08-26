@@ -17,8 +17,8 @@ agent-comms decision create \
   --id decision-auth-format \
   --title "Use rotating refresh tokens" \
   --statement "Access tokens remain short-lived; refresh tokens rotate on use." \
-  --to DAMON \
-  --to AXIOM
+  --to <agent-a> \
+  --to <agent-b>
 ```
 
 When a decision changes, supersede it rather than editing history:
@@ -38,9 +38,9 @@ agent-comms approval request \
   --id approval-shared-auth \
   --tier ORCHESTRATOR \
   --action "share-write:internal/auth" \
-  --reason "DAMON implements while AXIOM verifies" \
-  --affected DAMON \
-  --affected AXIOM
+  --reason "<agent-a> implements while <agent-b> verifies" \
+  --affected <agent-a> \
+  --affected <agent-b>
 ```
 
 Tiers are:

@@ -22,7 +22,7 @@ agent-comms task create \
   --resource tests/auth \
   --risk ROUTINE
 
-agent-comms task offer --id task-api-auth --to DAMON --expires-in 1h
+agent-comms task offer --id task-api-auth --to <agent-a> --expires-in 1h
 ```
 
 Resources are coordination scopes, not filesystem permissions. Choose the narrowest stable paths or logical resources that describe where writes may happen.
@@ -30,11 +30,11 @@ Resources are coordination scopes, not filesystem permissions. Choose the narrow
 ## Claim and execute
 
 ```sh
-agent-comms --actor DAMON task claim --id task-api-auth --duration 4h
-agent-comms --actor DAMON task start --id task-api-auth
-agent-comms --actor DAMON task renew --id task-api-auth --progress "rotation path implemented; adding failure tests"
-agent-comms --actor DAMON task review --id task-api-auth --summary "ready for review"
-agent-comms --actor DAMON task complete --id task-api-auth --summary "token rotation and tests complete"
+agent-comms --actor <agent-a> task claim --id task-api-auth --duration 4h
+agent-comms --actor <agent-a> task start --id task-api-auth
+agent-comms --actor <agent-a> task renew --id task-api-auth --progress "rotation path implemented; adding failure tests"
+agent-comms --actor <agent-a> task review --id task-api-auth --summary "ready for review"
+agent-comms --actor <agent-a> task complete --id task-api-auth --summary "token rotation and tests complete"
 ```
 
 A heartbeat only proves process presence. Lease renewal requires a progress-bearing summary. This prevents a silent process from retaining work indefinitely.
@@ -42,9 +42,9 @@ A heartbeat only proves process presence. Lease renewal requires a progress-bear
 ## Block, hand off, or take over
 
 ```sh
-agent-comms --actor DAMON task block --id task-api-auth --summary "waiting for security decision"
-agent-comms --actor DAMON task handoff --id task-api-auth --to AXIOM --summary "implementation complete; verify threat cases"
-agent-comms --actor AXIOM task handoff --id task-api-auth --accept --summary "accepted verification"
+agent-comms --actor <agent-a> task block --id task-api-auth --summary "waiting for security decision"
+agent-comms --actor <agent-a> task handoff --id task-api-auth --to <agent-b> --summary "implementation complete; verify threat cases"
+agent-comms --actor <agent-b> task handoff --id task-api-auth --accept --summary "accepted verification"
 ```
 
 Takeovers and shared-write exceptions are governed transitions. The authority rechecks role, lease, resource overlap, and required approval against the same locked state used to append the event.

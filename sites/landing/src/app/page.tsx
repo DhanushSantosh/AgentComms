@@ -118,11 +118,11 @@ export default function HomePage() {
             <p>Bind a live Codex, Claude, or OpenCode session once. Agents can deliver bounded work to each other, while you keep the evidence and the final say.</p>
             <a href={documentationPage("/agents/interactive/")}>Connect an interactive session <span>↗</span></a>
           </div>
-          <div className="relay-sequence" data-relay-sequence aria-label="DAMON sends bounded work to GORGE; transport is evidenced, GORGE acknowledges it, and a verified result returns">
-            <div className="relay-party relay-party--source"><span>REQUESTER</span><strong>DAMON</strong><small>CODEX / INTERACTIVE</small></div>
+          <div className="relay-sequence" data-relay-sequence aria-label="DEVELOPER sends bounded work to TESTER; transport is evidenced, TESTER acknowledges it, and a verified result returns">
+            <div className="relay-party relay-party--source"><span>REQUESTER</span><strong>DEVELOPER</strong><small>CODEX / INTERACTIVE</small></div>
             <div className="relay-message"><span>Verify the auth session changes.</span><small>EXPECTED · pass/fail report</small></div>
             <div className="relay-evidence"><i /><span data-relay-evidence="echo">PTY_TEXT_ECHOED</span><i /><span data-relay-evidence="enter">PTY_ENTER_SENT</span><i /></div>
-            <div className="relay-party relay-party--target"><span>TARGET</span><strong>GORGE</strong><small>OPENCODE / INTERACTIVE</small></div>
+            <div className="relay-party relay-party--target"><span>TARGET</span><strong>TESTER</strong><small>OPENCODE / INTERACTIVE</small></div>
             <div className="relay-gap"><strong>DELIVERED ≠ ACKNOWLEDGED</strong><small>transport evidence is not a claim</small></div>
             <div className="relay-claim"><b>ACKNOWLEDGED</b><span>invocation.claim</span></div>
             <div className="relay-result"><span>RESULT RETURNED</span><b>24 / 24 auth tests pass</b><small>invocation.complete · receipt signed</small></div>
@@ -171,10 +171,10 @@ export default function HomePage() {
             </div>
             <div className="trust-proof" data-trust-proof aria-label="Two identity checks: a mismatched signer is refused before commit, a matching signer commits and advances the chain">
               <div className="trust-proof-row trust-proof-row--refused">
-                <span>actor AXIOM · session identity DAMON</span><i>→</i><strong>REFUSED BEFORE COMMIT</strong>
+                <span>actor REVIEWER · session identity DEVELOPER</span><i>→</i><strong>REFUSED BEFORE COMMIT</strong>
               </div>
               <div className="trust-proof-row trust-proof-row--signed">
-                <span>actor AXIOM · session identity AXIOM</span><i>→</i><strong>ACTOR VERIFIED · CHAIN +1</strong>
+                <span>actor REVIEWER · session identity REVIEWER</span><i>→</i><strong>ACTOR VERIFIED · CHAIN +1</strong>
               </div>
             </div>
             <p className="trust-chain-foot">Enforced before commit — not a badge added after the fact.</p>
