@@ -112,6 +112,40 @@ func TestGenericBoundedCommandPlainOutputNeverFallsBackToJSON(t *testing.T) {
 	}
 }
 
+func TestFoundationHealthCommandsHaveIntentionalPlainViews(t *testing.T) {
+	project := t.TempDir()
+	cleanupProjectDaemon(t, project)
+	var stdout, stderr bytes.Buffer
+	if err := Run([]string{"init", "--project", project, "--non-interactive", "--owner", "owner", "--json"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		command []string
+		want    []string
+	}{
+		{command: []string{"status"}, want: []string{"Project status", "Agents", "Tasks", "Invocations", "Integrity"}},
+		{command: []string{"verify"}, want: []string{"Integrity verified", "Events", "Consistency", "Connectivity"}},
+		{command: []string{"doctor"}, want: []string{"Project health", "Integrity", "Findings", "Binary"}},
+	}
+	for _, test := range tests {
+		stdout.Reset()
+		stderr.Reset()
+		args := append(test.command, "--project", project, "--output", "plain")
+		if err := Run(args, &stdout, &stderr); err != nil {
+			t.Fatalf("%s: %v", strings.Join(test.command, " "), err)
+		}
+		for _, want := range test.want {
+			if !strings.Contains(stdout.String(), want) {
+				t.Fatalf("%s output is missing %q:\n%s", strings.Join(test.command, " "), want, stdout.String())
+			}
+		}
+		if strings.ContainsAny(strings.TrimSpace(stdout.String())[:1], "{[") {
+			t.Fatalf("%s exposed a serialization shape:\n%s", strings.Join(test.command, " "), stdout.String())
+		}
+	}
+}
+
 func TestMain(testingMain *testing.M) {
 	launchDaemonProcess = func(_, projectRoot string, _ io.Writer) error {
 		projectStore := store.Open(projectRoot)

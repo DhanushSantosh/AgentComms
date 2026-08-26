@@ -334,6 +334,35 @@ func (c *cli) emit(command string, v any, warnings ...string) error {
 	return c.emitWithDelivery(command, v, nil, warnings...)
 }
 
+func (c *cli) emitDocument(command string, value any, document cliui.Document, warnings ...string) error {
+	if c.json {
+		return c.emit(command, value, warnings...)
+	}
+	if c.quiet {
+		return nil
+	}
+	if len(c.pendingWarnings) > 0 {
+		warnings = append(append([]string{}, c.pendingWarnings...), warnings...)
+	}
+	mode := cliui.Mode(c.output)
+	if mode == "" {
+		mode = cliui.ModeHuman
+	}
+	if err := (cliui.Presenter{
+		Out:          c.out,
+		Mode:         mode,
+		Capabilities: cliui.DetectCapabilities(c.out, c.noColor),
+	}).Render(document); err != nil {
+		return err
+	}
+	for _, warning := range warnings {
+		if _, err := fmt.Fprintln(c.err, "warning:", warning); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // emitTable is emit's counterpart for list-shaped output. JSON mode retains
 // the same envelope and payload as emit. Human and plain modes use the shared,
 // display-width-aware table presenter.
@@ -827,7 +856,33 @@ func (c *cli) doctorCmd() *cobra.Command {
 			r["resolved_lock_timeout"] = c.timeout.String()
 			r["actor"] = c.actor
 		}
-		return c.emit("doctor", r)
+		status := cliui.StatusSuccess
+		if len(findings) > 0 || verify != nil {
+			status = cliui.StatusWarning
+		}
+		findingSummary := "None"
+		if len(findings) > 0 {
+			items := make([]string, 0, len(findings))
+			for _, finding := range findings {
+				items = append(items, fmt.Sprintf("%s %s — %s", finding.Severity, finding.Code, finding.Message))
+			}
+			findingSummary = strings.Join(items, "; ")
+		}
+		integrityStatus := "verified"
+		if verify != nil {
+			integrityStatus = "failed: " + verify.Error()
+		}
+		return c.emitDocument("doctor", r, cliui.Document{
+			Title:  "Project health",
+			Status: status,
+			Fields: []cliui.Field{
+				{Label: "Integrity", Value: integrityStatus},
+				{Label: "Findings", Value: findingSummary},
+				{Label: "Runtime mode", Value: cfg.RuntimeMode},
+				{Label: "Schema", Value: cfg.SchemaVersion},
+				{Label: "Binary", Value: Version + " (" + buildinfo.ResolvedBuildID() + ")"},
+			},
+		})
 	}}
 	cmd.Flags().BoolVar(&explain, "explain-config", false, "show configuration precedence and resolved values")
 	return cmd
@@ -842,11 +897,21 @@ func (c *cli) verifyCmd() *cobra.Command {
 		if e != nil {
 			return e
 		}
-		return c.emit("verify", map[string]any{
+		result := map[string]any{
 			"verified": true, "events": state.Integrity.EventCount, "head": state.Integrity.Head,
 			"from": from, "to": to, "consistency": state.Integrity.Consistency,
 			"server_sequence": state.Integrity.ServerSequence, "cache_sequence": state.Integrity.CacheSequence,
 			"connectivity": state.Integrity.Connectivity,
+		}
+		return c.emitDocument("verify", result, cliui.Document{
+			Title:  "Integrity verified",
+			Status: cliui.StatusSuccess,
+			Fields: []cliui.Field{
+				{Label: "Events", Value: fmt.Sprint(state.Integrity.EventCount)},
+				{Label: "Consistency", Value: state.Integrity.Consistency},
+				{Label: "Connectivity", Value: state.Integrity.Connectivity},
+				{Label: "Head", Value: state.Integrity.Head},
+			},
 		})
 	}}
 	cmd.Flags().Uint64Var(&from, "from", 0, "first event sequence to verify")
@@ -859,7 +924,36 @@ func (c *cli) statusCmd() *cobra.Command {
 		if e != nil {
 			return e
 		}
-		return c.emit("status", v)
+		onlineRuntimes := 0
+		for _, runtime := range v.AgentRuntimes {
+			if runtime.Status == "ONLINE" {
+				onlineRuntimes++
+			}
+		}
+		pendingApprovals := 0
+		for _, approval := range v.Approvals {
+			if approval.Status == "PENDING" {
+				pendingApprovals++
+			}
+		}
+		integrity := "not verified"
+		status := cliui.StatusWarning
+		if v.Integrity.Verified {
+			integrity = "verified"
+			status = cliui.StatusSuccess
+		}
+		return c.emitDocument("status", v, cliui.Document{
+			Title:  "Project status",
+			Status: status,
+			Fields: []cliui.Field{
+				{Label: "Agents", Value: fmt.Sprint(len(v.Agents))},
+				{Label: "Runtimes", Value: fmt.Sprintf("%d (%d online)", len(v.AgentRuntimes), onlineRuntimes)},
+				{Label: "Tasks", Value: fmt.Sprint(len(v.Tasks))},
+				{Label: "Invocations", Value: fmt.Sprint(len(v.Invocations))},
+				{Label: "Approvals", Value: fmt.Sprintf("%d (%d pending)", len(v.Approvals), pendingApprovals)},
+				{Label: "Integrity", Value: integrity + " · " + v.Integrity.Consistency},
+			},
+		})
 	}}
 }
 func (c *cli) controlCmd() *cobra.Command {

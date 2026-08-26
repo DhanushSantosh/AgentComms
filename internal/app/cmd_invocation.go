@@ -9,12 +9,26 @@ import (
 	"strings"
 	"time"
 
+	"github.com/DhanushSantosh/AgentComms/internal/cliui"
 	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 	"github.com/DhanushSantosh/AgentComms/internal/service"
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 )
+
+func invocationStatus(status string) cliui.Status {
+	switch status {
+	case "COMPLETED":
+		return cliui.StatusSuccess
+	case "REJECTED", "EXPIRED", "CANCELLED":
+		return cliui.StatusDanger
+	case "WAITING":
+		return cliui.StatusWarning
+	default:
+		return cliui.StatusInfo
+	}
+}
 
 func (c *cli) invocationCmd() *cobra.Command {
 	root := &cobra.Command{Use: "invocation", Short: "Request and process agent invocations"}
@@ -48,7 +62,29 @@ func (c *cli) invocationCmd() *cobra.Command {
 		} else if outcome.Outcome == "UNAVAILABLE" || outcome.Outcome == "AMBIGUOUS" {
 			warnings = append(warnings, "invocation was recorded, but no compatible delivery transport completed")
 		}
-		return c.emitWithDelivery("invocation.request", event, outcome, warnings...)
+		if c.json {
+			return c.emitWithDelivery("invocation.request", event, outcome, warnings...)
+		}
+		status := cliui.StatusSuccess
+		if outcome.Outcome == "UNAVAILABLE" || outcome.Outcome == "AMBIGUOUS" || outcomeErr != nil {
+			status = cliui.StatusWarning
+		}
+		delivery := outcome.Outcome
+		if delivery == "" {
+			delivery = "recorded; delivery state pending"
+		}
+		return c.emitDocument("invocation.request", event, cliui.Document{
+			Title:  "Invocation requested",
+			Status: status,
+			Fields: []cliui.Field{
+				{Label: "Invocation", Value: id},
+				{Label: "Target", Value: target},
+				{Label: "Priority", Value: priority},
+				{Label: "Consumer", Value: consumerMode},
+				{Label: "Delivery", Value: delivery},
+				{Label: "Runtime", Value: outcome.RuntimeID},
+			},
+		}, warnings...)
 	}}
 	request.Flags().String("id", "", "invocation ID (auto-generated if omitted)")
 	request.Flags().StringVar(&target, "to", "", "target agent")
@@ -111,9 +147,21 @@ func (c *cli) invocationCmd() *cobra.Command {
 		sort.Slice(deliveries, func(left, right int) bool {
 			return deliveries[left].Attempt < deliveries[right].Attempt
 		})
-		return c.emit("invocation.inspect", map[string]any{
+		result := map[string]any{
 			"invocation": deliveriesAcknowledged(invocation),
 			"deliveries": deliveries,
+		}
+		return c.emitDocument("invocation.inspect", result, cliui.Document{
+			Title:  "Invocation " + invocation.ID,
+			Status: invocationStatus(invocation.Status),
+			Fields: []cliui.Field{
+				{Label: "Status", Value: invocation.Status},
+				{Label: "Target", Value: invocation.Target},
+				{Label: "Requested by", Value: invocation.RequestedBy},
+				{Label: "Priority", Value: invocation.Priority},
+				{Label: "Runtime", Value: invocation.RuntimeID},
+				{Label: "Deliveries", Value: fmt.Sprint(len(deliveries))},
+			},
 		})
 	}}
 	inspect.Flags().String("id", "", "invocation ID")
