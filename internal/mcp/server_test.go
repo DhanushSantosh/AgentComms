@@ -30,7 +30,7 @@ func asActor(actor string) identity.ActorResolution {
 // approves it, then activates id as ORCHESTRATOR.
 func grantOrchestrator(t *testing.T, instance *service.Service, approver, id string, scopes []string) {
 	t.Helper()
-	approvalID := id + "-orchestrator-approval"
+	approvalID := protocol.OrchestratorGrantApprovalID(id)
 	if _, e := instance.Execute(approver, "approval.request", approvalID, model.ApprovalRequested{
 		Tier: "HUMAN", Action: protocol.OrchestratorGrantApprovalAction(id), Reason: "test fixture",
 	}); e != nil {
@@ -514,12 +514,12 @@ func TestAgentActivateToolRequiresHumanToGrantOrchestratorRole(t *testing.T) {
 	if !strings.Contains(unapprovedOut.String(), `"error"`) {
 		t.Fatalf("expected the owner's grant to be rejected without a prior approval, got: %s", unapprovedOut.String())
 	}
-	if _, e := instance.Execute("owner", "approval.request", "candidate-orchestrator-approval", model.ApprovalRequested{
+	if _, e := instance.Execute("owner", "approval.request", protocol.OrchestratorGrantApprovalID("candidate"), model.ApprovalRequested{
 		Tier: "HUMAN", Action: protocol.OrchestratorGrantApprovalAction("candidate"), Reason: "test",
 	}); e != nil {
 		t.Fatal(e)
 	}
-	if _, e := instance.Execute("owner", "approval.approve", "candidate-orchestrator-approval", model.ApprovalResponse{}); e != nil {
+	if _, e := instance.Execute("owner", "approval.approve", protocol.OrchestratorGrantApprovalID("candidate"), model.ApprovalResponse{}); e != nil {
 		t.Fatal(e)
 	}
 
@@ -555,7 +555,7 @@ func TestMCPElevatedKeyTransitionsFailClosed(t *testing.T) {
 	if _, e := instance.ElevateKey("owner", "a strong passphrase"); e != nil {
 		t.Fatal(e)
 	}
-	if _, e := instance.Execute("owner", "approval.request", "candidate-orchestrator-approval", model.ApprovalRequested{
+	if _, e := instance.Execute("owner", "approval.request", protocol.OrchestratorGrantApprovalID("candidate"), model.ApprovalRequested{
 		Tier: "HUMAN", Action: protocol.OrchestratorGrantApprovalAction("candidate"), Reason: "test",
 	}); e != nil {
 		t.Fatal(e)
@@ -564,7 +564,7 @@ func TestMCPElevatedKeyTransitionsFailClosed(t *testing.T) {
 	// through the service to reach the activate-over-MCP scenario below --
 	// this direct call also goes through instance.PassphrasePrompt (nil),
 	// so it doubles as proof the approve step itself fails closed too.
-	if _, e := instance.Execute("owner", "approval.approve", "candidate-orchestrator-approval", model.ApprovalResponse{}); e == nil {
+	if _, e := instance.Execute("owner", "approval.approve", protocol.OrchestratorGrantApprovalID("candidate"), model.ApprovalResponse{}); e == nil {
 		t.Fatal("expected approval.approve to fail closed with no PassphrasePrompt configured, once an elevated key is registered")
 	}
 
@@ -588,7 +588,7 @@ func TestMCPElevatedKeyTransitionsFailClosed(t *testing.T) {
 	// answering prompt (bypassing MCP), so the revoke-over-MCP path below
 	// has an actual orchestrator to target.
 	instance.PassphrasePrompt = func(string) (string, error) { return "a strong passphrase", nil }
-	if _, e := instance.Execute("owner", "approval.approve", "candidate-orchestrator-approval", model.ApprovalResponse{}); e != nil {
+	if _, e := instance.Execute("owner", "approval.approve", protocol.OrchestratorGrantApprovalID("candidate"), model.ApprovalResponse{}); e != nil {
 		t.Fatal(e)
 	}
 	if _, e := instance.Execute("owner", "agent.activate", "candidate", model.AgentActivated{Role: model.RoleOrchestrator, Scopes: []string{"src"}}); e != nil {

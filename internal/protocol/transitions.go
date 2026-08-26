@@ -44,33 +44,43 @@ func hasApproval(st model.State, action string) bool {
 	return false
 }
 
-// hasHumanApproval is hasApproval narrowed to HUMAN-tier approvals only. An
-// ORCHESTRATOR-tier approval can be approved by any AGENT-principal
-// orchestrator (see the elevated()/approval.approve handling below), so it
-// cannot stand in for genuine human sign-off on the orchestrator grant itself.
-func hasHumanApproval(st model.State, action string) bool {
-	for _, a := range st.Approvals {
-		if a.Action == action && a.Status == "APPROVED" && a.Tier == "HUMAN" {
-			return true
-		}
-	}
-	return false
-}
-
 // OrchestratorGrantApprovalAction is the approval.request Action string that
 // must be APPROVED (tier HUMAN) before agent.activate may grant id the
 // ORCHESTRATOR role. Exported so the CLI/MCP/TUI can point a caller at the
 // exact command instead of duplicating the "agent.activate:"+id format.
 func OrchestratorGrantApprovalAction(id string) string { return "agent.activate:" + id }
 
-// OrchestratorGrantApprovalID is a suggested approval.request --id for
-// OrchestratorGrantApprovalAction(id)'s HUMAN-tier approval record.
-// Approval IDs are freely chosen by the caller -- the server never
-// generates one -- so this exists only so the "run this command" text in
-// error messages and docs is copy-pasteable as-is instead of silently
-// omitting the required --id flag (a real gap this once had: the
-// suggested command failed with "required flag(s) \"id\" not set").
+// OrchestratorGrantApprovalID is the approval.request --id for
+// OrchestratorGrantApprovalAction(id)'s HUMAN-tier approval record -- the
+// *only* ID hasOrchestratorGrantApproval will accept (see RFC 0023; before
+// that RFC, approval IDs for this purpose were freely chosen by the caller
+// and this was merely a suggestion for the "run this command" text in error
+// messages and docs, so it was copy-pasteable as-is instead of silently
+// omitting the required --id flag).
 func OrchestratorGrantApprovalID(id string) string { return "grant-orchestrator-" + id }
+
+// hasOrchestratorGrantApproval reports whether a HUMAN-tier approval
+// specifically authorizing principalID's ORCHESTRATOR grant exists and is
+// APPROVED. Looked up by the exact conventional ID
+// (OrchestratorGrantApprovalID(principalID)), not scanned for by action
+// string alone across every approval in state -- a different approval that
+// happens to share the same action string (requested for an unrelated
+// reason, or a stale leftover from a much earlier grant) can never
+// substitute for it. See RFC 0023: this used to be hasApproval narrowed to
+// HUMAN tier, action-string-matched against every approval in state, which
+// meant any HUMAN-tier approval ever approved for this exact action --
+// however long ago, however unrelated its original purpose -- permanently
+// pre-authorized every future grant of the same role to the same
+// principal, including a fully unattended one with no human anywhere in
+// the loop at that later moment. internal/projection's apply() consumes
+// (APPROVED -> CONSUMED) exactly the approval this function required to
+// exist and be APPROVED, the moment it authorizes a grant, so it can never
+// satisfy this check a second time.
+func hasOrchestratorGrantApproval(st model.State, principalID string) bool {
+	approval, exists := st.Approvals[OrchestratorGrantApprovalID(principalID)]
+	return exists && approval.Tier == "HUMAN" && approval.Status == "APPROVED" &&
+		approval.Action == OrchestratorGrantApprovalAction(principalID)
+}
 
 // RequiresElevatedKey reports whether actor/typ/id/payload is one of the
 // transitions that must be signed with the actor's passphrase-protected
@@ -470,7 +480,7 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 		// manually approve (e.g. in the TUI) before the grant can proceed,
 		// rather than a single self-contained command completing the whole
 		// escalation unattended.
-		if activation.Role == model.RoleOrchestrator && !hasHumanApproval(st, OrchestratorGrantApprovalAction(id)) {
+		if activation.Role == model.RoleOrchestrator && !hasOrchestratorGrantApproval(st, id) {
 			return nil, fmt.Errorf("granting the orchestrator role to %s requires an approved HUMAN-tier approval first: run `approval request --id %s --tier HUMAN --action %s`, then have a human approve it separately", id, OrchestratorGrantApprovalID(id), OrchestratorGrantApprovalAction(id))
 		}
 	}
@@ -519,7 +529,7 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 			if st.Agents[actor].PrincipalType != model.PrincipalHuman {
 				return nil, errors.New("human principal required to switch to the orchestrator role")
 			}
-			if !hasHumanApproval(st, OrchestratorGrantApprovalAction(actor)) {
+			if !hasOrchestratorGrantApproval(st, actor) {
 				return nil, fmt.Errorf("switching to the orchestrator role requires an approved HUMAN-tier approval first: run `approval request --id %s --tier HUMAN --action %s`, then have a human approve it separately", OrchestratorGrantApprovalID(actor), OrchestratorGrantApprovalAction(actor))
 			}
 		}

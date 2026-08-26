@@ -632,19 +632,19 @@ func (m Model) dispatchEventWithPassphrase(typ, id string, payload any, passphra
 }
 
 // hasApprovedOrchestratorGrant mirrors internal/protocol/transitions.go's
-// unexported hasHumanApproval for the one action agent.activate cares
-// about: an APPROVED, HUMAN-tier approval.request for id's Orchestrator
-// grant. Client-side only -- it decides whether the TUI needs to offer the
+// unexported hasOrchestratorGrantApproval for the one action
+// agent.activate cares about: an APPROVED, HUMAN-tier approval.request for
+// id's Orchestrator grant, at the exact conventional ID (see RFC 0023 --
+// this must match that function's ID-scoped lookup exactly, not scan by
+// action string, or the TUI's own "does an approval already exist" UI
+// decision can disagree with what the server will actually accept).
+// Client-side only -- it decides whether the TUI needs to offer the
 // chained request+approve confirm below; the server re-checks the real
 // thing regardless.
 func hasApprovedOrchestratorGrant(st model.State, id string) bool {
-	action := protocol.OrchestratorGrantApprovalAction(id)
-	for _, a := range st.Approvals {
-		if a.Action == action && a.Status == "APPROVED" && a.Tier == "HUMAN" {
-			return true
-		}
-	}
-	return false
+	approval, exists := st.Approvals[protocol.OrchestratorGrantApprovalID(id)]
+	return exists && approval.Tier == "HUMAN" && approval.Status == "APPROVED" &&
+		approval.Action == protocol.OrchestratorGrantApprovalAction(id)
 }
 
 // dispatchOrchestratorApprovalChain runs the two steps
@@ -656,7 +656,7 @@ func hasApprovedOrchestratorGrant(st model.State, id string) bool {
 // prompt; this only saves the separate trip through Approvals to create
 // and approve the record by hand.
 func (m Model) dispatchOrchestratorApprovalChain(c confirmState) (tea.Model, tea.Cmd) {
-	approvalID := c.id + "-orchestrator-approval"
+	approvalID := protocol.OrchestratorGrantApprovalID(c.id)
 	action := protocol.OrchestratorGrantApprovalAction(c.id)
 	if _, err := m.svc.Execute(m.actor, "approval.request", approvalID, model.ApprovalRequested{
 		Tier: "HUMAN", Action: action, Reason: "Orchestrator grant for " + c.id,

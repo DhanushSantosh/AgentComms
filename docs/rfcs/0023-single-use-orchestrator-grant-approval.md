@@ -2,10 +2,39 @@
 
 ## Status
 
-**Accepted 2026-08-26**, direction confirmed by the project owner after live testing on a
-real project (`/home/dhanush/Projects/Portfolio`) surfaced the exact gap this RFC closes. Per
-`docs/rfcs/README.md` and `docs/development-workflow.md`'s design-proposal rule, reviewed and
-accepted before implementation began.
+**Implemented on `dev`, 2026-08-26.** Direction confirmed by the project owner after live
+testing on a real project (`/home/dhanush/Projects/Portfolio`) surfaced the exact gap this RFC
+closes. Per `docs/rfcs/README.md` and `docs/development-workflow.md`'s design-proposal rule,
+reviewed and accepted before implementation began. The design was built as proposed, with one
+real bug found during implementation, recorded here rather than silently fixed in passing:
+
+**The TUI had its own second, independent implementation of the exact bug this RFC fixes.**
+`internal/tui/rowlist.go`'s `dispatchOrchestratorApprovalChain` -- the "no approval exists yet,
+request/approve/grant all at once" convenience flow offered when a human tries to activate
+someone as `ORCHESTRATOR` through the TUI -- built its own approval ID with the same wrong,
+non-conventional format (`c.id + "-orchestrator-approval"`) the CLI's own test helper used to
+use, entirely independent of `internal/protocol`'s `OrchestratorGrantApprovalID`. Once the
+protocol-layer gate became ID-scoped, this real product code path would have created an approval
+under the wrong ID and then failed its own immediately-following grant, breaking the TUI's
+orchestrator-activation flow outright -- caught by `TestActivateOrchestratorChainsApprovalWhenNoneExists`
+failing, not by inspection. Fixed to use `protocol.OrchestratorGrantApprovalID` directly. The
+TUI's client-side `hasApprovedOrchestratorGrant` (used only to decide whether to *offer* the
+chain UI, not to authorize anything) had the identical action-string-scan pattern this RFC
+replaces server-side; updated to match the real gate's ID-scoped lookup exactly, so the TUI's own
+"does an approval already exist" decision can never disagree with what the server will actually
+accept.
+
+Nine existing test fixtures across `internal/app`, `internal/tui`, `internal/mcp`,
+`internal/service`, `internal/authority`, and `internal/personalauthority` constructed
+orchestrator-grant approvals under ad hoc, non-conventional IDs (`<id>-orchestrator-approval`,
+`<id>-approval`, literal strings); all updated to `protocol.OrchestratorGrantApprovalID`.
+`TestGrantingOrchestratorRoleRequiresPriorHumanApproval`'s wrong-tier case specifically needed
+restructuring, not just an ID swap: it used to prove tier-rejection by placing an
+ORCHESTRATOR-tier approval under a throwaway ID and relying on the old scan to find it anyway;
+under ID-scoped lookup a differently-ID'd approval is never found regardless of tier, so proving
+the tier gate now requires the wrong-tier approval to sit at the exact conventional ID -- done
+with a second, distinct principal so it doesn't collide with the first principal's own
+still-pending approval at its ID.
 
 ## Context
 
@@ -78,13 +107,10 @@ becomes the only ID that can ever satisfy this specific gate. The check changes 
 direct lookup:
 
 ```go
-func consumableOrchestratorApproval(st model.State, principalID string) (model.Approval, bool) {
+func hasOrchestratorGrantApproval(st model.State, principalID string) bool {
 	approval, exists := st.Approvals[OrchestratorGrantApprovalID(principalID)]
-	if !exists || approval.Tier != "HUMAN" || approval.Status != "APPROVED" ||
-		approval.Action != OrchestratorGrantApprovalAction(principalID) {
-		return model.Approval{}, false
-	}
-	return approval, true
+	return exists && approval.Tier == "HUMAN" && approval.Status == "APPROVED" &&
+		approval.Action == OrchestratorGrantApprovalAction(principalID)
 }
 ```
 
@@ -114,20 +140,20 @@ case *model.AgentActivated:
 	a.Scopes = p.Scopes
 	s.Agents[e.EntityID] = a
 	if p.Role == model.RoleOrchestrator {
-		consumeOrchestratorApproval(s, e.EntityID)
+		consumeOrchestratorGrantApproval(s, e.EntityID)
 	}
 case *model.AgentRoleSwitched:
 	a := s.Agents[e.EntityID]
 	a.Role = p.Role
 	s.Agents[e.EntityID] = a
 	if p.Role == model.RoleOrchestrator {
-		consumeOrchestratorApproval(s, e.EntityID) // e.EntityID == e.Actor here (self-service only)
+		consumeOrchestratorGrantApproval(s, e.EntityID) // e.EntityID == e.Actor here (self-service only)
 	}
 ```
 
-`consumeOrchestratorApproval` looks up `OrchestratorGrantApprovalID(principalID)` (the same ID the
+`consumeOrchestratorGrantApproval` looks up `OrchestratorGrantApprovalID(principalID)` (the same ID the
 transition-validation step above just required to exist and be `APPROVED`) and flips its `Status`
-to `CONSUMED`. A `CONSUMED` approval fails `consumableOrchestratorApproval`'s `Status != "APPROVED"`
+to `CONSUMED`. A `CONSUMED` approval fails `hasOrchestratorGrantApproval`'s `Status == "APPROVED"`
 check identically to a never-approved one — the very next attempt to (re-)grant that principal
 `ORCHESTRATOR`, whenever it happens, requires a brand new `approval request` +
 separately-run-`approval approve`, exactly as if none had ever existed. Revoking, suspending, or

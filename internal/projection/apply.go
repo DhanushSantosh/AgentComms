@@ -6,6 +6,7 @@ import (
 
 	"github.com/DhanushSantosh/AgentComms/internal/identity"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
+	"github.com/DhanushSantosh/AgentComms/internal/protocol"
 )
 
 func ApplyEvent(s *model.State, e model.Event) error {
@@ -35,12 +36,20 @@ func ApplyEvent(s *model.State, e model.Event) error {
 		a.Capabilities = p.Capabilities
 		a.Scopes = p.Scopes
 		s.Agents[e.EntityID] = a
+		if p.Role == model.RoleOrchestrator {
+			consumeOrchestratorGrantApproval(s, e.EntityID)
+		}
 	case *model.AgentRoleSwitched:
 		// Only Role changes -- Capabilities and Scopes are untouched,
 		// unlike AgentActivated. See RFC 0018.
 		a := s.Agents[e.EntityID]
 		a.Role = p.Role
 		s.Agents[e.EntityID] = a
+		if p.Role == model.RoleOrchestrator {
+			// e.EntityID == e.Actor here always -- agent.switch-role is
+			// self-service only (ValidateTransition rejects id != actor).
+			consumeOrchestratorGrantApproval(s, e.EntityID)
+		}
 	case *model.AgentKeyRotated:
 		a := s.Agents[e.EntityID]
 		a.PublicKey = p.PublicKey
@@ -436,6 +445,26 @@ func ApplyEvent(s *model.State, e model.Event) error {
 		delete(s.Env, p.Key)
 	}
 	return nil
+}
+
+// consumeOrchestratorGrantApproval marks the specific HUMAN-tier approval
+// that authorized principalID's ORCHESTRATOR grant as CONSUMED, so it can
+// never satisfy protocol.hasOrchestratorGrantApproval again -- the next
+// attempt to grant that principal ORCHESTRATOR, whenever it happens,
+// requires a brand new request-then-separately-approved approval. See RFC
+// 0023. Mirrors that function's exact lookup (same conventional ID,
+// derived the same way from principalID); ValidateTransition already
+// required this approval to exist and be APPROVED for the AgentActivated/
+// AgentRoleSwitched event applied here to have been produced at all, so it
+// is guaranteed present.
+func consumeOrchestratorGrantApproval(s *model.State, principalID string) {
+	approvalID := protocol.OrchestratorGrantApprovalID(principalID)
+	approval, exists := s.Approvals[approvalID]
+	if !exists {
+		return
+	}
+	approval.Status = "CONSUMED"
+	s.Approvals[approvalID] = approval
 }
 func defaultRisk(v string) string {
 	if v == "" {

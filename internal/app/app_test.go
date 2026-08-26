@@ -979,7 +979,7 @@ func TestHostLabelResolvesActorAcrossInvocations(t *testing.T) {
 // approves it, then activates id as ORCHESTRATOR.
 func grantOrchestratorCLI(t *testing.T, must func(args ...string), approver, id string) {
 	t.Helper()
-	approvalID := id + "-orchestrator-approval"
+	approvalID := "grant-orchestrator-" + id
 	must("approval", "request", "--actor", approver, "--id", approvalID, "--tier", "HUMAN", "--action", "agent.activate:"+id)
 	must("approval", "approve", "--actor", approver, "--id", approvalID)
 	must("agent", "activate", "--actor", approver, "--id", id, "--role", "ORCHESTRATOR", "--scope", "src")

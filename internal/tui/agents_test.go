@@ -599,9 +599,12 @@ func TestActivateOrchestratorChainsApprovalWhenNoneExists(t *testing.T) {
 	if state.Agents["candidate"].Role != model.RoleOrchestrator {
 		t.Fatalf("expected candidate to be ORCHESTRATOR, got %+v", state.Agents["candidate"])
 	}
-	approval, ok := state.Approvals["candidate-orchestrator-approval"]
-	if !ok || approval.Status != "APPROVED" || approval.Tier != "HUMAN" {
-		t.Fatalf("expected an APPROVED HUMAN-tier approval record, got %+v (found=%v)", approval, ok)
+	// RFC 0023: the approval the chain created and approved is CONSUMED, not
+	// left APPROVED, the moment it authorizes the grant above -- it can
+	// never satisfy a future grant a second time.
+	approval, ok := state.Approvals[protocol.OrchestratorGrantApprovalID("candidate")]
+	if !ok || approval.Status != "CONSUMED" || approval.Tier != "HUMAN" {
+		t.Fatalf("expected a CONSUMED HUMAN-tier approval record, got %+v (found=%v)", approval, ok)
 	}
 }
 
@@ -624,7 +627,7 @@ func TestActivateOrchestratorThroughMaskedPassphraseField(t *testing.T) {
 	// Pre-approve the orchestrator grant (a separate, deliberate human step
 	// in real usage) using the elevated key directly, so the TUI portion of
 	// this test only has to exercise the activate-with-passphrase path.
-	approvalID := "candidate-orchestrator-approval"
+	approvalID := protocol.OrchestratorGrantApprovalID("candidate")
 	s.PassphrasePrompt = func(string) (string, error) { return "correct passphrase", nil }
 	if _, e := s.Execute("owner", "approval.request", approvalID, model.ApprovalRequested{
 		Tier: "HUMAN", Action: protocol.OrchestratorGrantApprovalAction("candidate"), Reason: "test fixture",

@@ -609,7 +609,7 @@ func TestSwitchRoleToOrchestratorRequiresApproval(t *testing.T) {
 	}
 	approved := switchRoleState(func(s *model.State) {
 		s.Approvals = map[string]model.Approval{
-			"approval-1": {
+			OrchestratorGrantApprovalID("human-member"): {
 				Action: OrchestratorGrantApprovalAction("human-member"), Status: "APPROVED", Tier: "HUMAN",
 			},
 		}
