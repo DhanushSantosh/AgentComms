@@ -89,7 +89,7 @@ test("control room resolves a human-tier approval coherently", async ({ page, is
   await page.goto("/#control");
 
   const frame = page.locator("[data-tui-frame]");
-  await page.getByRole("button", { name: /approval-orchestrator-axiom/ }).click();
+  await page.getByRole("button", { name: /approval-orchestrator-reviewer/ }).click();
   await expect(page.getByText("HUMAN AUTHORITY REQUIRED")).toBeVisible();
   await page.getByRole("button", { name: "Approve with human authority" }).click();
   await expect(frame).toHaveAttribute("data-control-state", "approved");
@@ -113,7 +113,7 @@ test("control room resolves a human-tier approval coherently", async ({ page, is
 //     navigation (model.go's updateForm), a different mode entirely.
 //   - "enter" -> focuses the row list (m.rowFocus = true), selecting the
 //     one seeded approval row (seed.go's pendingApprovalID,
-//     "approval-orchestrator-axiom", left PENDING deliberately so a live
+//     "approval-orchestrator-reviewer", left PENDING deliberately so a live
 //     visitor has a real decision to make).
 // This exact sequence (three "]" then "enter") is the same one
 // internal/tui/approvals_test.go's enterApprovalsView helper uses to reach

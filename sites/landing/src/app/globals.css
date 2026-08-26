@@ -373,11 +373,11 @@ img { max-width: 100%; }
 .code-track b { font-weight: 400; }
 .code-track i { background: var(--line-dark); grid-column: 1 / -1; height: 1px; position: relative; }
 .code-track i::after { background: var(--track-color); border-radius: 50%; box-shadow: 0 0 0 0.35rem color-mix(in srgb, var(--track-color) 16%, transparent); content: ""; height: 0.42rem; left: 64%; position: absolute; top: -0.2rem; width: 0.42rem; }
-.code-track--damon { --track-color: var(--cyan); top: 23%; }
-.code-track--axiom { --track-color: var(--lilac); bottom: 23%; }
+.code-track--developer { --track-color: var(--cyan); top: 23%; }
+.code-track--reviewer { --track-color: var(--lilac); bottom: 23%; }
 .agent-badge { border-radius: 2px; display: inline-block; font-weight: 700; padding: 0.1rem 0.35rem; }
-.agent-badge--damon { background: color-mix(in srgb, var(--cyan) 18%, var(--ink)); }
-.agent-badge--axiom { background: color-mix(in srgb, var(--lilac) 18%, var(--ink)); }
+.agent-badge--developer { background: color-mix(in srgb, var(--cyan) 18%, var(--ink)); }
+.agent-badge--reviewer { background: color-mix(in srgb, var(--lilac) 18%, var(--ink)); }
 
 .collision-zone { align-items: center; background: color-mix(in srgb, var(--coral) 18%, var(--ink)); border: 1px solid var(--coral); display: flex; height: 5.8rem; justify-content: center; left: 50%; position: absolute; top: 50%; transform: translate(-50%, -50%); transition: background-color 300ms ease, border-color 300ms ease; width: 9.5rem; }
 .collision-zone span { color: var(--coral); font-family: var(--mono); font-size: 0.57rem; font-weight: 700; }
@@ -399,7 +399,7 @@ img { max-width: 100%; }
 .collision-lab[data-mode="governed"] .collision-zone { background: color-mix(in srgb, var(--cyan) 15%, var(--ink)); border-color: var(--cyan); }
 .collision-lab[data-mode="governed"] .collision-zone span { color: var(--cyan); }
 .collision-lab[data-mode="governed"] .collision-zone b { animation: none; border-color: var(--cyan); }
-.collision-lab[data-mode="governed"] .code-track--axiom { transform: translateX(26%); }
+.collision-lab[data-mode="governed"] .code-track--reviewer { transform: translateX(26%); }
 .collision-lab[data-mode="governed"] .governed-result { opacity: 1; transform: translate(-50%, -50%); }
 .collision-lab[data-mode="governed"] .ungoverned-result { opacity: 0; transform: translate(-50%, 0.5rem); }
 .lab-proof { align-items: center; border-top: 1px solid var(--line-dark); color: var(--steel-light); display: flex; flex-wrap: wrap; font-family: var(--mono); font-size: 0.48rem; gap: 0.7rem; padding: 0.8rem; }
@@ -813,15 +813,15 @@ img { max-width: 100%; }
 
 .motion-ready .collision-lab { transition: clip-path var(--motion-slow) var(--ease-handoff), opacity var(--motion-medium) ease; }
 .motion-ready .collision:not(.is-revealed) .collision-lab { clip-path: inset(0 100% 0 0); opacity: 0.35; }
-.motion-ready .collision:not(.is-revealed) .code-track--damon { transform: translateX(-20%); }
-.motion-ready .collision:not(.is-revealed) .code-track--axiom { transform: translateX(20%); }
+.motion-ready .collision:not(.is-revealed) .code-track--developer { transform: translateX(-20%); }
+.motion-ready .collision:not(.is-revealed) .code-track--reviewer { transform: translateX(20%); }
 .motion-ready .collision:not(.is-revealed) .collision-zone { transform: translate(-50%, -50%) scale(0.55); }
 .motion-ready .collision.is-revealed .collision-lab { transition-delay: calc(var(--motion-stagger) * 2); }
 .code-track { transition-duration: var(--motion-medium); transition-timing-function: var(--ease-handoff); }
 .collision-zone { transition: background-color var(--motion-fast) ease, border-color var(--motion-fast) ease, transform var(--motion-medium) var(--ease-authority); }
 .motion-ready .collision.is-active .collision-zone b { animation: collision-pulse var(--motion-loop-brief) ease-out 0.8s infinite; }
-.motion-ready .collision.is-active .code-track--damon i::after { animation: collision-node-forward var(--motion-loop-medium) var(--ease-handoff) 0.8s infinite; }
-.motion-ready .collision.is-active .code-track--axiom i::after { animation: collision-node-reverse var(--motion-loop-medium) var(--ease-handoff) 1.1s infinite; }
+.motion-ready .collision.is-active .code-track--developer i::after { animation: collision-node-forward var(--motion-loop-medium) var(--ease-handoff) 0.8s infinite; }
+.motion-ready .collision.is-active .code-track--reviewer i::after { animation: collision-node-reverse var(--motion-loop-medium) var(--ease-handoff) 1.1s infinite; }
 .motion-ready .collision.is-active .collision-lab[data-mode="governed"] .collision-zone b { animation: none; }
 
 .motion-ready .protocol-instrument { transition: clip-path var(--motion-slow) var(--ease-authority), opacity var(--motion-medium) ease; }
@@ -1476,7 +1476,7 @@ img { max-width: 100%; }
   .lab-proof i { display: none; }
   .lab-proof strong { margin-left: 0; width: 100%; }
   .motion-ready .collision:not(.is-revealed) .collision-lab { clip-path: inset(0 0 100% 0); }
-  .motion-ready .collision:not(.is-revealed) :is(.code-track--damon, .code-track--axiom) { transform: translateY(0.75rem); }
+  .motion-ready .collision:not(.is-revealed) :is(.code-track--developer, .code-track--reviewer) { transform: translateY(0.75rem); }
   .protocol-instrument { grid-template-columns: 1fr; }
   .protocol-rail button { grid-template-columns: 0.8rem 7rem 1fr; }
   .protocol-readout { border-left: 0; border-top: 1px solid var(--line-dark); min-height: 29rem; }
