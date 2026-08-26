@@ -40,11 +40,23 @@ const (
 // Commands do not infer these themselves, which keeps rendering deterministic
 // in tests and consistent across the CLI.
 type Capabilities struct {
-	Interactive bool
-	Color       bool
-	Unicode     bool
-	Width       int
+	Interactive  bool
+	Color        bool
+	ColorProfile ColorProfile
+	Unicode      bool
+	Hyperlinks   bool
+	Width        int
 }
+
+// ColorProfile is the terminal's supported ANSI color depth.
+type ColorProfile string
+
+const (
+	ColorNone      ColorProfile = "none"
+	ColorANSI      ColorProfile = "ansi"
+	ColorANSI256   ColorProfile = "ansi256"
+	ColorTrueColor ColorProfile = "truecolor"
+)
 
 // Document is the smallest semantic result rendered by Presenter. Richer
 // result shapes build on this contract rather than printing backend objects.

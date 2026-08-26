@@ -80,8 +80,9 @@ func TestCapabilitiesForHonorsTerminalFallbacksAndColorPolicy(t *testing.T) {
 		Width:       120,
 		Term:        "xterm-256color",
 		Locale:      "en_US.UTF-8",
+		Hyperlinks:  true,
 	})
-	if !capabilities.Interactive || !capabilities.Color || !capabilities.Unicode || capabilities.Width != 120 {
+	if !capabilities.Interactive || !capabilities.Color || !capabilities.Unicode || !capabilities.Hyperlinks || capabilities.ColorProfile != cliui.ColorANSI256 || capabilities.Width != 120 {
 		t.Fatalf("unexpected capable terminal result: %#v", capabilities)
 	}
 

@@ -269,127 +269,143 @@ func errorHint(code string) string {
 	}
 }
 func (c *cli) root() *cobra.Command {
-	r := &cobra.Command{Use: "agent-comms", Short: "Governed coordination for concurrent agents", Version: Version, PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		c.cmd = cmd.CommandPath()
-		if c.json && cmd.Flags().Changed("output") && c.output != string(cliui.ModeJSON) {
-			return errors.New("conflicting output modes: --json requires --output json")
-		}
-		switch c.output {
-		case "", string(cliui.ModeHuman), string(cliui.ModePlain):
-		case string(cliui.ModeJSON):
-			c.json = true
-		case string(cliui.ModeJSONL):
-			if cmd.CommandPath() != "agent-comms watch" && cmd.CommandPath() != "agent-comms invocation listen" {
-				return errors.New("--output jsonl is not supported by this command")
+	r := &cobra.Command{
+		Use:   "agent-comms",
+		Short: "Governed coordination for concurrent agents",
+		Long: "Agent Comms coordinates agents through signed project state, explicit ownership, and auditable transitions.\n\n" +
+			"Output contracts: --output human|plain|json|jsonl. Human is TTY-aware; plain is stable text; JSON preserves the versioned envelope; JSONL is available only for natural streams.",
+		Example: "  agent-comms status\n" +
+			"  agent-comms task list --output plain\n" +
+			"  agent-comms watch --output jsonl\n" +
+			"  agent-comms invocation request --to builder --instruction \"Run tests\" --json",
+		Version: Version, PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			c.cmd = cmd.CommandPath()
+			if c.json && cmd.Flags().Changed("output") && c.output != string(cliui.ModeJSON) {
+				return errors.New("conflicting output modes: --json requires --output json")
 			}
-			c.jsonl = true
-		default:
-			return fmt.Errorf("invalid output mode %q (expected human, plain, json, or jsonl)", c.output)
-		}
-		if cmd.Name() == "version" || cmd.Name() == "init" || cmd.Name() == "completion" ||
-			(cmd.Name() == "update" && cmd.Parent() == cmd.Root()) ||
-			strings.HasPrefix(cmd.CommandPath(), "agent-comms project upgrade") ||
-			cmd.CommandPath() == "agent-comms daemon serve" ||
-			cmd.CommandPath() == "agent-comms claude serve" ||
-			cmd.CommandPath() == "agent-comms claude attach" ||
-			cmd.CommandPath() == "agent-comms codex serve" ||
-			cmd.CommandPath() == "agent-comms codex attach" ||
-			cmd.CommandPath() == "agent-comms runtime verify-adapter" {
+			switch c.output {
+			case "", string(cliui.ModeHuman), string(cliui.ModePlain):
+			case string(cliui.ModeJSON):
+				c.json = true
+			case string(cliui.ModeJSONL):
+				if cmd.CommandPath() != "agent-comms watch" && cmd.CommandPath() != "agent-comms invocation listen" {
+					return errors.New("--output jsonl is not supported by this command")
+				}
+				c.jsonl = true
+			default:
+				return fmt.Errorf("invalid output mode %q (expected human, plain, json, or jsonl)", c.output)
+			}
+			if cmd.Name() == "version" || cmd.Name() == "init" || cmd.Name() == "completion" ||
+				(cmd.Name() == "update" && cmd.Parent() == cmd.Root()) ||
+				strings.HasPrefix(cmd.CommandPath(), "agent-comms project upgrade") ||
+				cmd.CommandPath() == "agent-comms daemon serve" ||
+				cmd.CommandPath() == "agent-comms claude serve" ||
+				cmd.CommandPath() == "agent-comms claude attach" ||
+				cmd.CommandPath() == "agent-comms codex serve" ||
+				cmd.CommandPath() == "agent-comms codex attach" ||
+				cmd.CommandPath() == "agent-comms runtime verify-adapter" {
+				return nil
+			}
+			if cmd.CommandPath() == "agent-comms profile list" ||
+				cmd.CommandPath() == "agent-comms profile use" {
+				warnings, e := c.reconcileUserInstallation(cmd.Context(), "")
+				c.pendingWarnings = append(c.pendingWarnings, warnings...)
+				return e
+			}
+			root := c.project
+			if root == "" {
+				var e error
+				root, e = os.Getwd()
+				if e != nil {
+					return e
+				}
+			}
+			applyLifecycle := cmd.Name() != "doctor"
+			if applyLifecycle {
+				warnings, e := c.reconcileUserInstallation(cmd.Context(), root)
+				c.pendingWarnings = append(c.pendingWarnings, warnings...)
+				if e != nil {
+					return e
+				}
+			}
+			if _, e := projectlifecycle.Reconcile(cmd.Context(), projectlifecycle.Options{
+				Root: root, Version: Version, BuildID: buildinfo.ResolvedBuildID(),
+				Apply: applyLifecycle, Timeout: c.timeout, StopDaemon: applyLifecycle,
+			}); e != nil {
+				return e
+			}
+			if cmd.Name() == "doctor" {
+				c.svc = service.NewTolerant(root)
+			} else {
+				c.svc = service.New(root)
+			}
+			if _, err := runtimeworker.LoadProjectAdapters(root); err != nil {
+				c.pendingWarnings = append(c.pendingWarnings, fmt.Sprintf("project adapters: %v", err))
+			}
+			switch cmd.Name() {
+			case "mcp":
+				c.svc.PassphrasePrompt = nonInteractivePassphrasePrompt("an MCP connection")
+			case "tui":
+				c.svc.PassphrasePrompt = nonInteractivePassphrasePrompt("the TUI")
+			default:
+				c.svc.PassphrasePrompt = promptPassphrase
+			}
+			cfg, e := c.svc.Store.Config()
+			if e != nil {
+				return fmt.Errorf("open project runtime: %w", e)
+			}
+			if e = c.svc.Store.EnsureRuntimeHidden(); e != nil {
+				return e
+			}
+			c.svc.Store.LockTimeout = c.timeout
+			c.svc.SetRemoteRecovery(func() error { return ensureDaemon(root, cfg) })
+			if cmd.Name() != "doctor" && (cfg.RuntimeMode == "service" || cfg.RuntimeMode == "personal") {
+				if e = ensureDaemon(root, cfg); e != nil {
+					return e
+				}
+			}
+			environmentActor := os.Getenv("AGENT_COMMS_ACTOR")
+			userConfig := identity.UserConfig{Profiles: map[string]identity.Profile{}}
+			needsUserConfig := c.actor == "" && (c.profile != "" || environmentActor == "")
+			if needsUserConfig {
+				userConfig, e = identity.LoadUserConfig()
+				if e != nil {
+					return fmt.Errorf("load identity profiles: %w", e)
+				}
+			}
+			providerSessionID, _ := sessionbind.Capture()
+			c.actorResolution, e = identity.ResolveActor(identity.ActorResolutionRequest{
+				ProjectID: cfg.ProjectID, ProjectOwner: cfg.Owner,
+				ExplicitActor: c.actor, ExplicitProfile: c.profile,
+				EnvironmentActor: environmentActor, HostLabel: os.Getenv("AGENT_COMMS_HOST_LABEL"),
+				ProviderSessionID: providerSessionID,
+				UserConfig:        userConfig,
+				// Only the TUI: a real, attached, interactive terminal session
+				// nothing session-less could plausibly be driving -- see RFC
+				// 0019. CLI/MCP/worker are unaffected, matching cmd.Name() !=
+				// "doctor" above as the established per-command check pattern.
+				PreferOwnerOnAmbiguousLegacy: cmd.Name() == "tui",
+			})
+			if e != nil {
+				return e
+			}
+			c.actor = c.actorResolution.Actor
+			// Refuse to sign anything under an actor this ambiguously resolved
+			// -- see RFC 0017. Only ActorSourceActiveProfile (the legacy,
+			// machine-wide fallback used when no recognized provider session
+			// is present at all) is ever ambiguous; every other resolution
+			// source is either explicit or already provably unambiguous.
+			c.svc.AmbiguousActor = c.actorResolution.Source == identity.ActorSourceActiveProfile &&
+				userConfig.ProfileCountForProject(cfg.ProjectID) > 1
 			return nil
-		}
-		if cmd.CommandPath() == "agent-comms profile list" ||
-			cmd.CommandPath() == "agent-comms profile use" {
-			warnings, e := c.reconcileUserInstallation(cmd.Context(), "")
-			c.pendingWarnings = append(c.pendingWarnings, warnings...)
-			return e
-		}
-		root := c.project
-		if root == "" {
-			var e error
-			root, e = os.Getwd()
-			if e != nil {
-				return e
-			}
-		}
-		applyLifecycle := cmd.Name() != "doctor"
-		if applyLifecycle {
-			warnings, e := c.reconcileUserInstallation(cmd.Context(), root)
-			c.pendingWarnings = append(c.pendingWarnings, warnings...)
-			if e != nil {
-				return e
-			}
-		}
-		if _, e := projectlifecycle.Reconcile(cmd.Context(), projectlifecycle.Options{
-			Root: root, Version: Version, BuildID: buildinfo.ResolvedBuildID(),
-			Apply: applyLifecycle, Timeout: c.timeout, StopDaemon: applyLifecycle,
-		}); e != nil {
-			return e
-		}
-		if cmd.Name() == "doctor" {
-			c.svc = service.NewTolerant(root)
-		} else {
-			c.svc = service.New(root)
-		}
-		if _, err := runtimeworker.LoadProjectAdapters(root); err != nil {
-			c.pendingWarnings = append(c.pendingWarnings, fmt.Sprintf("project adapters: %v", err))
-		}
-		switch cmd.Name() {
-		case "mcp":
-			c.svc.PassphrasePrompt = nonInteractivePassphrasePrompt("an MCP connection")
-		case "tui":
-			c.svc.PassphrasePrompt = nonInteractivePassphrasePrompt("the TUI")
-		default:
-			c.svc.PassphrasePrompt = promptPassphrase
-		}
-		cfg, e := c.svc.Store.Config()
-		if e != nil {
-			return fmt.Errorf("open project runtime: %w", e)
-		}
-		if e = c.svc.Store.EnsureRuntimeHidden(); e != nil {
-			return e
-		}
-		c.svc.Store.LockTimeout = c.timeout
-		c.svc.SetRemoteRecovery(func() error { return ensureDaemon(root, cfg) })
-		if cmd.Name() != "doctor" && (cfg.RuntimeMode == "service" || cfg.RuntimeMode == "personal") {
-			if e = ensureDaemon(root, cfg); e != nil {
-				return e
-			}
-		}
-		environmentActor := os.Getenv("AGENT_COMMS_ACTOR")
-		userConfig := identity.UserConfig{Profiles: map[string]identity.Profile{}}
-		needsUserConfig := c.actor == "" && (c.profile != "" || environmentActor == "")
-		if needsUserConfig {
-			userConfig, e = identity.LoadUserConfig()
-			if e != nil {
-				return fmt.Errorf("load identity profiles: %w", e)
-			}
-		}
-		providerSessionID, _ := sessionbind.Capture()
-		c.actorResolution, e = identity.ResolveActor(identity.ActorResolutionRequest{
-			ProjectID: cfg.ProjectID, ProjectOwner: cfg.Owner,
-			ExplicitActor: c.actor, ExplicitProfile: c.profile,
-			EnvironmentActor: environmentActor, HostLabel: os.Getenv("AGENT_COMMS_HOST_LABEL"),
-			ProviderSessionID: providerSessionID,
-			UserConfig:        userConfig,
-			// Only the TUI: a real, attached, interactive terminal session
-			// nothing session-less could plausibly be driving -- see RFC
-			// 0019. CLI/MCP/worker are unaffected, matching cmd.Name() !=
-			// "doctor" above as the established per-command check pattern.
-			PreferOwnerOnAmbiguousLegacy: cmd.Name() == "tui",
-		})
-		if e != nil {
-			return e
-		}
-		c.actor = c.actorResolution.Actor
-		// Refuse to sign anything under an actor this ambiguously resolved
-		// -- see RFC 0017. Only ActorSourceActiveProfile (the legacy,
-		// machine-wide fallback used when no recognized provider session
-		// is present at all) is ever ambiguous; every other resolution
-		// source is either explicit or already provably unambiguous.
-		c.svc.AmbiguousActor = c.actorResolution.Source == identity.ActorSourceActiveProfile &&
-			userConfig.ProfileCountForProject(cfg.ProjectID) > 1
-		return nil
-	}}
+		}}
+	r.AddGroup(
+		&cobra.Group{ID: "start", Title: "Getting started"},
+		&cobra.Group{ID: "coordinate", Title: "Coordination"},
+		&cobra.Group{ID: "identity", Title: "Identity and runtimes"},
+		&cobra.Group{ID: "knowledge", Title: "Knowledge and state"},
+		&cobra.Group{ID: "operations", Title: "Operations and integrations"},
+	)
 	f := r.PersistentFlags()
 	f.StringVar(&c.project, "project", "", "target project root")
 	f.StringVar(&c.profile, "profile", "", "user profile name")
@@ -403,7 +419,38 @@ func (c *cli) root() *cobra.Command {
 	f.BoolVarP(&c.verbose, "verbose", "v", false, "show operational metadata in human output")
 	f.BoolVar(&c.details, "details", false, "show secondary and nested fields in human output")
 	r.AddCommand(c.versionCmd(), c.initCmd(), c.projectCmd(), c.doctorCmd(), c.verifyCmd(), c.statusCmd(), c.controlCmd(), c.historyCmd(), c.searchCmd(), c.agentCmd(), c.runtimeCmd(), c.invocationCmd(), c.sessionCmd(), c.taskCmd(), c.messageCmd(), c.decisionCmd(), c.approvalCmd(), c.artifactCmd(), c.documentCmd(), c.envCmd(), c.draftCmd(), c.archiveCmd(), c.exportCmd(), c.profileCmd(), c.configCmd(), c.themeCmd(), c.updateCmd(), c.completionCmd(r), c.agentInstructionsCmd(), c.mcpCmd(), c.watchCmd(), c.tuiCmd(), c.daemonCmd(), c.claudeCmd(), c.codexCmd())
+	configureRootHelp(r)
 	return r
+}
+
+func configureRootHelp(root *cobra.Command) {
+	groups := map[string]string{
+		"version": "start", "init": "start", "status": "start", "doctor": "start", "verify": "start", "tui": "start",
+		"task": "coordinate", "message": "coordinate", "decision": "coordinate", "approval": "coordinate", "invocation": "coordinate",
+		"agent": "identity", "runtime": "identity", "session": "identity", "profile": "identity",
+		"artifact": "knowledge", "document": "knowledge", "env": "knowledge", "draft": "knowledge", "archive": "knowledge", "history": "knowledge", "search": "knowledge",
+		"control": "operations", "project": "operations", "config": "operations", "theme": "operations", "update": "operations", "watch": "operations", "export": "operations", "agent-instructions": "operations", "completion": "operations", "mcp": "operations", "claude": "operations", "codex": "operations",
+	}
+	descriptions := map[string]string{
+		"agent": "Manage governed identities, roles, scopes, and keys", "approval": "Request and resolve governed approvals",
+		"archive": "Archive eligible completed project state", "artifact": "Store, inspect, and verify content-addressed artifacts",
+		"completion": "Generate shell completion source", "config": "Inspect resolved user and project configuration",
+		"decision": "Record and supersede durable decisions", "doctor": "Diagnose project health and actionable findings",
+		"document": "Create and manage governed project documents", "env": "Manage governed project environment values",
+		"export": "Export project history as JSONL or Markdown", "history": "Inspect the signed event timeline",
+		"message": "Post messages and manage recipient obligations", "mcp": "Serve the protocol-only MCP stdio interface",
+		"profile": "Inspect and select local signing profiles", "search": "Search the current signed event page",
+		"session": "Manage durable invocation sessions", "status": "Show a concise project operational summary",
+		"task": "Coordinate ownership, leases, handoffs, and task lifecycle", "tui": "Open the full-screen control room",
+		"update": "Check for and install verified Agent Comms releases", "verify": "Verify the signed project event chain",
+		"version": "Show binary, schema, and project format versions", "watch": "Stream changes that require operator attention",
+	}
+	for _, command := range root.Commands() {
+		command.GroupID = groups[command.Name()]
+		if command.Short == "" {
+			command.Short = descriptions[command.Name()]
+		}
+	}
 }
 func (c *cli) emit(command string, v any, warnings ...string) error {
 	return c.emitWithDelivery(command, v, nil, warnings...)

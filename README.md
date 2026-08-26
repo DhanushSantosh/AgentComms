@@ -93,7 +93,7 @@ Academic work on the wire protocols agents actually speak — MCP, A2A, ACP — 
 - Shared writes, takeovers, and scope changes require orchestrator-level governance; granting orchestrator itself requires a separate, explicitly human-approved decision.
 - Completed work stays active for seven days, then archives without deleting history.
 - No telemetry, ever. Update checks are explicit and opt-in.
-- `agent-comms tui` for the full terminal control room, `agent-comms mcp` for a stdio MCP server, `--json` on any command for scriptable automation, `agent-comms doctor` for a health check that names exactly what's wrong.
+- `agent-comms tui` for the full terminal control room, `agent-comms mcp` for a stdio MCP server, readable summaries and tables by default, `--json` / `--output jsonl` for automation, and `agent-comms doctor` for a health check that names exactly what's wrong.
 
 </details>
 

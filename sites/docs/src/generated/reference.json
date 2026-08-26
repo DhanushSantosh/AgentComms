@@ -7,6 +7,8 @@
       "path": "agent-comms",
       "use": "agent-comms",
       "summary": "Governed coordination for concurrent agents",
+      "description": "Agent Comms coordinates agents through signed project state, explicit ownership, and auditable transitions.\n\nOutput contracts: --output human|plain|json|jsonl. Human is TTY-aware; plain is stable text; JSON preserves the versioned envelope; JSONL is available only for natural streams.",
+      "example": "  agent-comms status\n  agent-comms task list --output plain\n  agent-comms watch --output jsonl\n  agent-comms invocation request --to builder --instruction \"Run tests\" --json",
       "flags": [
         {
           "name": "actor",
@@ -81,7 +83,7 @@
     {
       "path": "agent-comms agent",
       "use": "agent-comms agent",
-      "summary": "",
+      "summary": "Manage governed identities, roles, scopes, and keys",
       "flags": [
         {
           "name": "actor",
@@ -1071,7 +1073,7 @@
     {
       "path": "agent-comms approval",
       "use": "agent-comms approval",
-      "summary": "",
+      "summary": "Request and resolve governed approvals",
       "flags": [
         {
           "name": "actor",
@@ -1488,7 +1490,7 @@
     {
       "path": "agent-comms archive",
       "use": "agent-comms archive",
-      "summary": "",
+      "summary": "Archive eligible completed project state",
       "flags": [
         {
           "name": "actor",
@@ -1563,7 +1565,7 @@
     {
       "path": "agent-comms artifact",
       "use": "agent-comms artifact",
-      "summary": "",
+      "summary": "Store, inspect, and verify content-addressed artifacts",
       "flags": [
         {
           "name": "actor",
@@ -2460,7 +2462,7 @@
     {
       "path": "agent-comms completion",
       "use": "agent-comms completion \u003cbash|zsh|fish|powershell\u003e",
-      "summary": "",
+      "summary": "Generate shell completion source",
       "flags": [
         {
           "name": "actor",
@@ -2535,7 +2537,7 @@
     {
       "path": "agent-comms config",
       "use": "agent-comms config",
-      "summary": "",
+      "summary": "Inspect resolved user and project configuration",
       "flags": [
         {
           "name": "actor",
@@ -2910,7 +2912,7 @@
     {
       "path": "agent-comms decision",
       "use": "agent-comms decision",
-      "summary": "",
+      "summary": "Record and supersede durable decisions",
       "flags": [
         {
           "name": "actor",
@@ -3195,7 +3197,7 @@
     {
       "path": "agent-comms doctor",
       "use": "agent-comms doctor [flags]",
-      "summary": "",
+      "summary": "Diagnose project health and actionable findings",
       "flags": [
         {
           "name": "actor",
@@ -3276,7 +3278,7 @@
     {
       "path": "agent-comms document",
       "use": "agent-comms document",
-      "summary": "",
+      "summary": "Create and manage governed project documents",
       "flags": [
         {
           "name": "actor",
@@ -4059,7 +4061,7 @@
     {
       "path": "agent-comms env",
       "use": "agent-comms env",
-      "summary": "",
+      "summary": "Manage governed project environment values",
       "flags": [
         {
           "name": "actor",
@@ -4458,7 +4460,7 @@
     {
       "path": "agent-comms export",
       "use": "agent-comms export \u003cjsonl|markdown\u003e [flags]",
-      "summary": "",
+      "summary": "Export project history as JSONL or Markdown",
       "flags": [
         {
           "name": "actor",
@@ -4534,7 +4536,7 @@
     {
       "path": "agent-comms history",
       "use": "agent-comms history [flags]",
-      "summary": "",
+      "summary": "Inspect the signed event timeline",
       "flags": [
         {
           "name": "actor",
@@ -6371,7 +6373,7 @@
     {
       "path": "agent-comms mcp",
       "use": "agent-comms mcp",
-      "summary": "",
+      "summary": "Serve the protocol-only MCP stdio interface",
       "flags": [
         {
           "name": "actor",
@@ -6446,7 +6448,7 @@
     {
       "path": "agent-comms message",
       "use": "agent-comms message",
-      "summary": "",
+      "summary": "Post messages and manage recipient obligations",
       "flags": [
         {
           "name": "actor",
@@ -7055,7 +7057,7 @@
     {
       "path": "agent-comms profile",
       "use": "agent-comms profile",
-      "summary": "",
+      "summary": "Inspect and select local signing profiles",
       "flags": [
         {
           "name": "actor",
@@ -9193,7 +9195,7 @@
     {
       "path": "agent-comms search",
       "use": "agent-comms search \u003cquery\u003e [flags]",
-      "summary": "",
+      "summary": "Search the current signed event page",
       "flags": [
         {
           "name": "actor",
@@ -9286,7 +9288,7 @@
     {
       "path": "agent-comms session",
       "use": "agent-comms session",
-      "summary": "",
+      "summary": "Manage durable invocation sessions",
       "flags": [
         {
           "name": "actor",
@@ -9598,7 +9600,7 @@
     {
       "path": "agent-comms status",
       "use": "agent-comms status",
-      "summary": "",
+      "summary": "Show a concise project operational summary",
       "flags": [
         {
           "name": "actor",
@@ -9673,7 +9675,7 @@
     {
       "path": "agent-comms task",
       "use": "agent-comms task",
-      "summary": "",
+      "summary": "Coordinate ownership, leases, handoffs, and task lifecycle",
       "flags": [
         {
           "name": "actor",
@@ -11096,7 +11098,7 @@
     {
       "path": "agent-comms tui",
       "use": "agent-comms tui",
-      "summary": "",
+      "summary": "Open the full-screen control room",
       "flags": [
         {
           "name": "actor",
@@ -11171,7 +11173,7 @@
     {
       "path": "agent-comms update",
       "use": "agent-comms update",
-      "summary": "",
+      "summary": "Check for and install verified Agent Comms releases",
       "flags": [
         {
           "name": "actor",
@@ -11439,7 +11441,7 @@
     {
       "path": "agent-comms verify",
       "use": "agent-comms verify [flags]",
-      "summary": "",
+      "summary": "Verify the signed project event chain",
       "flags": [
         {
           "name": "actor",
@@ -11526,7 +11528,7 @@
     {
       "path": "agent-comms version",
       "use": "agent-comms version",
-      "summary": "",
+      "summary": "Show binary, schema, and project format versions",
       "flags": [
         {
           "name": "actor",
@@ -11601,7 +11603,7 @@
     {
       "path": "agent-comms watch",
       "use": "agent-comms watch [flags]",
-      "summary": "",
+      "summary": "Stream changes that require operator attention",
       "flags": [
         {
           "name": "actor",

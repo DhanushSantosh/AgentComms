@@ -260,6 +260,25 @@ func TestWatchSupportsVersionedJSONLAndBoundedCommandsRejectIt(t *testing.T) {
 	}
 }
 
+func TestRootHelpIsGroupedAndExplainsOutputContracts(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if err := Run([]string{"--help"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	help := stdout.String()
+	for _, want := range []string{
+		"Getting started", "Coordination", "Identity and runtimes", "Knowledge and state", "Operations and integrations",
+		"--output human|plain|json|jsonl", "agent-comms status", "agent-comms watch --output jsonl",
+	} {
+		if !strings.Contains(help, want) {
+			t.Fatalf("root help is missing %q:\n%s", want, help)
+		}
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("root help wrote diagnostics: %s", stderr.String())
+	}
+}
+
 func TestMain(testingMain *testing.M) {
 	launchDaemonProcess = func(_, projectRoot string, _ io.Writer) error {
 		projectStore := store.Open(projectRoot)
