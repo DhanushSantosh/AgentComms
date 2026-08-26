@@ -11610,6 +11610,12 @@
           "type": "string"
         },
         {
+          "name": "count",
+          "usage": "stop after this many changes (0 = keep watching)",
+          "default": "0",
+          "type": "int"
+        },
+        {
           "name": "details",
           "usage": "show secondary and nested fields in human output",
           "default": "false",

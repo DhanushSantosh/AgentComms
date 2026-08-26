@@ -84,6 +84,17 @@ type Envelope struct {
 	Error      *ErrorBody `json:"error,omitempty"`
 	Warnings   []string   `json:"warnings,omitempty"`
 }
+
+// StreamEnvelope is the stable one-record-per-line contract for commands
+// whose natural result is a stream.
+type StreamEnvelope struct {
+	APIVersion string     `json:"api_version"`
+	Command    string     `json:"command"`
+	Event      string     `json:"event"`
+	Timestamp  time.Time  `json:"timestamp"`
+	Data       any        `json:"data,omitempty"`
+	Error      *ErrorBody `json:"error,omitempty"`
+}
 type ErrorBody struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
@@ -116,18 +127,18 @@ func ContainsJSONFlag(args []string) bool {
 }
 
 type cli struct {
-	out, err                             io.Writer
-	json, nonInteractive, noColor, quiet bool
-	verbose, details                     bool
-	output                               string
-	project, profile, actor              string
-	timeout                              time.Duration
-	svc                                  *service.Service
-	cmd                                  string
-	actorResolution                      identity.ActorResolution
-	pendingWarnings                      []string
-	processExitCode                      int
-	handoffRunner                        commandRunner
+	out, err                                    io.Writer
+	json, jsonl, nonInteractive, noColor, quiet bool
+	verbose, details                            bool
+	output                                      string
+	project, profile, actor                     string
+	timeout                                     time.Duration
+	svc                                         *service.Service
+	cmd                                         string
+	actorResolution                             identity.ActorResolution
+	pendingWarnings                             []string
+	processExitCode                             int
+	handoffRunner                               commandRunner
 }
 
 type commandRunner func(
@@ -189,7 +200,13 @@ func Run(args []string, stdout, stderr io.Writer) error {
 		// closes that gap without either layer needing to trust the
 		// other's assumption about who's responsible.
 		reported := false
-		if c.json || ContainsJSONFlag(args) || containsOutputJSON(args) {
+		if containsOutputJSONL(args) {
+			_ = json.NewEncoder(stderr).Encode(StreamEnvelope{
+				APIVersion: APIVersion, Command: c.cmd, Event: "error", Timestamp: time.Now().UTC(),
+				Error: &ErrorBody{Code: errorCode(e), Message: e.Error()},
+			})
+			reported = true
+		} else if c.json || ContainsJSONFlag(args) || containsOutputJSON(args) {
 			body := Envelope{APIVersion: APIVersion, OK: false, Command: c.cmd, Error: &ErrorBody{Code: errorCode(e), Message: e.Error()}}
 			_ = json.NewEncoder(stderr).Encode(body)
 			reported = true
@@ -225,6 +242,18 @@ func containsOutputJSON(args []string) bool {
 	return false
 }
 
+func containsOutputJSONL(args []string) bool {
+	for index, argument := range args {
+		if argument == "--output=jsonl" {
+			return true
+		}
+		if argument == "--output" && index+1 < len(args) && args[index+1] == "jsonl" {
+			return true
+		}
+	}
+	return false
+}
+
 func errorHint(code string) string {
 	switch code {
 	case "VALIDATION":
@@ -250,7 +279,10 @@ func (c *cli) root() *cobra.Command {
 		case string(cliui.ModeJSON):
 			c.json = true
 		case string(cliui.ModeJSONL):
-			return errors.New("--output jsonl is not supported by this command")
+			if cmd.CommandPath() != "agent-comms watch" && cmd.CommandPath() != "agent-comms invocation listen" {
+				return errors.New("--output jsonl is not supported by this command")
+			}
+			c.jsonl = true
 		default:
 			return fmt.Errorf("invalid output mode %q (expected human, plain, json, or jsonl)", c.output)
 		}
@@ -375,6 +407,13 @@ func (c *cli) root() *cobra.Command {
 }
 func (c *cli) emit(command string, v any, warnings ...string) error {
 	return c.emitWithDelivery(command, v, nil, warnings...)
+}
+
+func (c *cli) emitStream(command, event string, data any) error {
+	return json.NewEncoder(c.out).Encode(StreamEnvelope{
+		APIVersion: APIVersion, Command: command, Event: event,
+		Timestamp: time.Now().UTC(), Data: data,
+	})
 }
 
 func (c *cli) emitDocument(command string, value any, document cliui.Document, warnings ...string) error {

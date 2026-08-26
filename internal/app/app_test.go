@@ -225,6 +225,41 @@ func TestHumanErrorsAreFormattedOnStderr(t *testing.T) {
 	}
 }
 
+func TestWatchSupportsVersionedJSONLAndBoundedCommandsRejectIt(t *testing.T) {
+	project := t.TempDir()
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
+	cleanupProjectDaemon(t, project)
+	var stdout, stderr bytes.Buffer
+	if err := Run([]string{"init", "--project", project, "--non-interactive", "--owner", "owner", "--json"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if err := Run([]string{"watch", "--project", project, "--interval", "1ms", "--count", "1", "--output", "jsonl"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
+	if len(lines) != 1 {
+		t.Fatalf("watch emitted %d JSONL records, want 1: %s", len(lines), stdout.String())
+	}
+	var event StreamEnvelope
+	if err := json.Unmarshal([]byte(lines[0]), &event); err != nil {
+		t.Fatalf("watch JSONL record is invalid: %v\n%s", err, lines[0])
+	}
+	if event.APIVersion != APIVersion || event.Command != "watch" || event.Event != "attention.changed" || event.Timestamp.IsZero() {
+		t.Fatalf("watch JSONL contract is incomplete: %#v", event)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	err := Run([]string{"version", "--output", "jsonl"}, &stdout, &stderr)
+	if err == nil || !strings.Contains(err.Error(), "not supported") {
+		t.Fatalf("bounded command accepted JSONL: err=%v output=%s", err, stdout.String())
+	}
+}
+
 func TestMain(testingMain *testing.M) {
 	launchDaemonProcess = func(_, projectRoot string, _ io.Writer) error {
 		projectStore := store.Open(projectRoot)

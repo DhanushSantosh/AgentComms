@@ -239,6 +239,9 @@ func (c *cli) invocationCmd() *cobra.Command {
 			result["claimed"] = true
 			result["claim_event"] = event
 		}
+		if c.jsonl {
+			return c.emitStream("invocation.listen", "invocation.received", result)
+		}
 		return c.emit("invocation.listen", result)
 	}}
 	listen.Flags().StringVar(&runtimeID, "runtime", "", "connected runtime ID")

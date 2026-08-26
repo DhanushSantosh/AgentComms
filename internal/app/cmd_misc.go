@@ -177,6 +177,7 @@ func (c *cli) codexCmd() *cobra.Command {
 }
 func (c *cli) watchCmd() *cobra.Command {
 	var interval time.Duration
+	var count int
 	cmd := &cobra.Command{Use: "watch", RunE: func(cmd *cobra.Command, args []string) error {
 		tick := time.NewTicker(interval)
 		defer tick.Stop()
@@ -202,13 +203,26 @@ func (c *cli) watchCmd() *cobra.Command {
 					}
 				}
 				if attention != last {
-					fmt.Fprintf(c.out, "%s attention=%d\n", time.Now().Format(time.RFC3339), attention)
+					if c.jsonl {
+						if err := c.emitStream("watch", "attention.changed", map[string]any{"attention": attention, "previous": last}); err != nil {
+							return err
+						}
+					} else {
+						fmt.Fprintf(c.out, "%s attention=%d\n", time.Now().UTC().Format(time.RFC3339), attention)
+					}
 					last = attention
+					if count > 0 {
+						count--
+						if count == 0 {
+							return nil
+						}
+					}
 				}
 			}
 		}
 	}}
 	cmd.Flags().DurationVar(&interval, "interval", 30*time.Second, "poll interval")
+	cmd.Flags().IntVar(&count, "count", 0, "stop after this many changes (0 = keep watching)")
 	return cmd
 }
 func (c *cli) tuiCmd() *cobra.Command {
