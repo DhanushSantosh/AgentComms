@@ -42,8 +42,8 @@ export const downloadRelease = {
   allReleasesUrl: `${repositoryUrl}/releases`,
   checksumsUrl: `${releaseBaseUrl}/checksums.txt`,
   sourceUrl: `${repositoryUrl}/tree/${releaseTag}`,
-  installerStatus: "Verification assets incomplete",
-  installerDetail: `The ${releaseTag} CLI Cosign bundles required by both official installers are not published yet. The commands below are the supported install path, but they intentionally fail closed until those verification assets are restored.`
+  installerStatus: "Verified release",
+  installerDetail: `${releaseTag}'s binaries, checksums, and Cosign bundles are published. Both installers verify the download against them before anything runs.`
 } as const;
 
 // A separate, unstable channel from the release above: builds from dev's

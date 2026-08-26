@@ -227,7 +227,7 @@ test("offers the supported installer commands without direct binary actions", as
   await page.goto("/download");
 
   await expect(page.getByRole("heading", { level: 1, name: /Agent Comms, ready to run/ })).toBeVisible();
-  await expect(page.getByText("Verification assets incomplete", { exact: true })).toBeVisible();
+  await expect(page.getByText("Verified release", { exact: true })).toBeVisible();
   await expect(page.locator("[data-copy-command]")).toHaveCount(3);
   await expect(page.locator("code").filter({ hasText: "install.sh" })).toBeVisible();
   await expect(page.locator("code").filter({ hasText: "install.ps1" })).toBeVisible();

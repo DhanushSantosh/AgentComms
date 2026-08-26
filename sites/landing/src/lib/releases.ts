@@ -9,6 +9,18 @@ export type Release = {
 
 export const releases: readonly Release[] = [
   {
+    version: "v0.5.0",
+    channel: "BETA",
+    name: "Plain Speech",
+    date: "2026-08-26",
+    dateLabel: "26 Aug 2026",
+    highlights: [
+      "Every command's default human output changes from a raw JSON dump to a readable summary — semantic status, tables, and next-action hints — while --json stays byte-compatible.",
+      "New --output human|plain|json|jsonl contract: plain is the stable uncolored fallback for redirected output, jsonl is a new versioned stream contract for watch and invocation listen.",
+      "agent-comms project delete permanently deletes a project, local and remote, with no automatic backup — OWNER-only, elevated-key required, no scripted path."
+    ]
+  },
+  {
     version: "v0.4.0",
     channel: "BETA",
     name: "Proof of Presence",

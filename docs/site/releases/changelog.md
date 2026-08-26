@@ -4,13 +4,22 @@ description: What changed in each tagged release, why it matters, and where to f
 section: Releases
 order: 1
 audience: Everyone
-lastVerified: 2026-08-14
+lastVerified: 2026-08-26
 related: [guide/maintenance, security/releases]
 ---
 
 Every tagged release is signed and dated. This page summarizes what changed and why; the repository's [CHANGELOG.md](https://github.com/DhanushSantosh/AgentComms/blob/main/CHANGELOG.md) carries the exhaustive per-change detail this page intentionally leaves out.
 
 Every release below is **Beta** — before v1.0.0, SemVer's own 0.x.y convention means anything may still change without notice. There is no Stable channel yet; that label only becomes accurate once a 1.x release ships.
+
+## v0.5.0 — "Plain Speech" — Beta — 2026-08-26
+
+Every command's default human output changes from a raw JSON dump to a readable summary — semantic status, tables, and next-action hints, while `--json` stays byte-compatible — plus permanent, elevated-key-gated project deletion.
+
+**Added**
+
+- **Breaking:** a new `--output human|plain|json|jsonl` contract replaces printing raw backend JSON to a human terminal by default. `human` (the interactive default) renders concise summaries, status, and responsive tables; `plain` is the stable uncolored fallback for redirected/non-interactive output; `json` keeps the existing versioned `Envelope` unchanged (`--json` remains a supported alias); `jsonl` is a new, versioned one-record-per-line contract for naturally streaming commands (`watch`, `invocation listen`), rejected for bounded commands. Human output is intentionally not byte-compatible across versions; scripts that parse text should use `plain` or `--json`. See RFC 0022.
+- **Breaking:** `agent-comms project delete` / the TUI's Danger Zone form permanently deletes a project — its local runtime always, and its entire remote row set on the shared authority in service mode too. OWNER-only, requires a registered elevated key with no fallback, and is verified independently both locally and server-side. No `--yes`, no piped-passphrase flag, and refuses outright under `--non-interactive` or from MCP. No automatic backup; this is unrecoverable by design. See RFC 0020.
 
 ## v0.4.0 — "Proof of Presence" — Beta — 2026-08-14
 
