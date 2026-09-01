@@ -445,6 +445,22 @@ func TestOrchestratorGrantApprovalIsConsumedOnUse(t *testing.T) {
 		model.AgentActivated{Role: model.RoleOrchestrator, Scopes: []string{"src"}}); err == nil {
 		t.Fatal("expected re-granting orchestrator after switching away from it to require a fresh approval, not reuse the consumed one")
 	}
+
+	// The conventional approval ID is intentionally reusable only after its
+	// previous record has been consumed. A fresh request and human approval
+	// must make exactly one later re-grant possible.
+	must(t, s, "owner", "approval.request", approvalID,
+		model.ApprovalRequested{Tier: "HUMAN", Action: protocol.OrchestratorGrantApprovalAction("candidate"), Reason: "promotion again"})
+	must(t, s, "owner", "approval.approve", approvalID, model.ApprovalResponse{})
+	must(t, s, "owner", "agent.activate", "candidate", model.AgentActivated{Role: model.RoleOrchestrator, Scopes: []string{"src"}})
+
+	state, err = s.State()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := state.Approvals[approvalID].Status; got != "CONSUMED" {
+		t.Fatalf("expected the fresh approval to be CONSUMED after authorizing the re-grant, got %q", got)
+	}
 }
 
 // TestAgentRevokeIsTerminal guards the core contract: revocation is a

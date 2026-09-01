@@ -82,6 +82,21 @@ func hasOrchestratorGrantApproval(st model.State, principalID string) bool {
 		approval.Action == OrchestratorGrantApprovalAction(principalID)
 }
 
+// canReplaceConsumedOrchestratorGrantApproval is the sole exception to
+// approval IDs being immutable. RFC 0023 requires each later orchestrator
+// grant to use a fresh approval, while also requiring the one conventional
+// ID for that principal. Re-requesting that exact ID after its previous
+// record reached CONSUMED starts a new PENDING lifecycle; the event log still
+// retains the complete history. No other terminal approval can be replaced.
+func canReplaceConsumedOrchestratorGrantApproval(id string, existing model.Approval, request model.ApprovalRequested) bool {
+	if existing.Status != "CONSUMED" || existing.Tier != "HUMAN" || request.Tier != "HUMAN" ||
+		existing.Action != request.Action {
+		return false
+	}
+	principalID, ok := strings.CutPrefix(request.Action, "agent.activate:")
+	return ok && principalID != "" && id == OrchestratorGrantApprovalID(principalID)
+}
+
 // RequiresElevatedKey reports whether actor/typ/id/payload is one of the
 // transitions that must be signed with the actor's passphrase-protected
 // elevated key (internal/identity.ElevatedActor) rather than its everyday
@@ -1451,7 +1466,8 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 			strings.TrimSpace(request.Action) == "" {
 			return nil, errors.New("approval tier and action are required")
 		}
-		if _, exists := st.Approvals[id]; exists {
+		if existing, exists := st.Approvals[id]; exists &&
+			!canReplaceConsumedOrchestratorGrantApproval(id, existing, request) {
 			return nil, errors.New("approval already exists")
 		}
 	}
