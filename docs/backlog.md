@@ -102,19 +102,22 @@ one is picked up, remove it from here and note the landing commit.
 
 ## Security / governance
 
-- **RESOLVED 2026-09-01: audited the five non-HUMAN `hasApproval` call
-  sites deferred by [RFC 0023](rfcs/0023-single-use-orchestrator-grant-approval.md),
-  with the resulting takeover authorization change recorded in
-  [RFC 0024](rfcs/0024-single-use-task-takeover-approval.md).**
-  `contract:<messageID>`, `invocation:<invocationID>`, and
-  `invocation-sensitive:<invocationID>` already describe one create event:
-  duplicate message and invocation IDs are rejected, so their approvals
-  cannot authorize a second event. `shared-write:<taskA>:<taskB>` is
-  intentionally reusable for the lifetime of that task-pair arrangement.
-  `task.takeover:<taskID>` was the one real gap because a long-lived task can
-  be taken over repeatedly; applying a takeover now consumes one matching
-  approved record deterministically. Independently approved records for the
-  same action each remain good for one takeover.
+- **Audit the other five `hasApproval` (non-`HUMAN`-tier) call sites for the
+  same reuse gap [RFC 0023](rfcs/0023-single-use-orchestrator-grant-approval.md)
+  closed for orchestrator grants.** `shared-write:`, `task.takeover:`,
+  `contract:`, `invocation:`, and `invocation-sensitive:`
+  (`internal/protocol/transitions.go`) all gate on `hasApproval`, which
+  shares the exact structural pattern RFC 0023 found and fixed for
+  `hasHumanApproval`: matched by action string only, never consumed, so any
+  approval ever granted for a matching action string permanently
+  pre-authorizes every future occurrence of it. Deliberately not folded
+  into RFC 0023 itself -- each site's intended reuse semantics needs its
+  own audit first (a shared-write exception, for instance, may legitimately
+  need to stay valid for an ongoing arrangement rather than being
+  single-use; task takeover/contract/invocation approvals may not).
+  Applying single-use consumption uniformly without that audit risks
+  breaking a workflow that actually depends on one approval covering more
+  than one event.
 
 - **SHIPPED 2026-08-13: self-service role switching, custom role labels,
   and removal of the AGENT/OBSERVER roles ([RFC 0018](rfcs/0018-self-service-role-switching-and-custom-roles.md)).**

@@ -451,10 +451,6 @@ func TestTaskTakeoverRequiresApproval(t *testing.T) {
 	if _, err := ValidateTransition(st, "other", "task.takeover", "t1", model.TaskStatus{}, time.Now()); err != nil {
 		t.Fatalf("expected an approved takeover to succeed: %v", err)
 	}
-	st.Approvals["a1"] = model.Approval{Action: "task.takeover:t1", Status: "CONSUMED"}
-	if _, err := ValidateTransition(st, "other", "task.takeover", "t1", model.TaskStatus{}, time.Now()); err == nil {
-		t.Fatal("expected a consumed takeover approval not to authorize another takeover")
-	}
 }
 
 // -- message lifecycle -----------------------------------------------------
