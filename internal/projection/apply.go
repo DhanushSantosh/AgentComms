@@ -1,6 +1,7 @@
 package projection
 
 import (
+	"sort"
 	"strings"
 	"time"
 
@@ -133,6 +134,7 @@ func ApplyEvent(s *model.State, e model.Event) error {
 			t.Status = "CLAIMED"
 			t.LeaseUntil = e.Time.Add(defaultLease)
 			t.StaleUntil = t.LeaseUntil.Add(staleGrace)
+			consumeApprovedAction(s, "task.takeover:"+e.EntityID)
 		}
 		s.Tasks[e.EntityID] = t
 	case *model.MessagePosted:
@@ -465,6 +467,27 @@ func consumeOrchestratorGrantApproval(s *model.State, principalID string) {
 	}
 	approval.Status = "CONSUMED"
 	s.Approvals[approvalID] = approval
+}
+
+// consumeApprovedAction spends one approval that authorized a single event.
+// Sorting makes projection deterministic when callers have independently
+// requested more than one approval for the same action: each approved record
+// can authorize one event, while one takeover approval can never authorize a
+// later takeover of the same long-lived task ID.
+func consumeApprovedAction(s *model.State, action string) {
+	ids := make([]string, 0)
+	for id, approval := range s.Approvals {
+		if approval.Action == action && approval.Status == "APPROVED" {
+			ids = append(ids, id)
+		}
+	}
+	if len(ids) == 0 {
+		return
+	}
+	sort.Strings(ids)
+	approval := s.Approvals[ids[0]]
+	approval.Status = "CONSUMED"
+	s.Approvals[ids[0]] = approval
 }
 func defaultRisk(v string) string {
 	if v == "" {
