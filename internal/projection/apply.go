@@ -1,6 +1,7 @@
 package projection
 
 import (
+	"sort"
 	"strings"
 	"time"
 
@@ -133,6 +134,7 @@ func ApplyEvent(s *model.State, e model.Event) error {
 			t.Status = "CLAIMED"
 			t.LeaseUntil = e.Time.Add(defaultLease)
 			t.StaleUntil = t.LeaseUntil.Add(staleGrace)
+			consumeApprovedAction(s, "task.takeover:"+e.EntityID)
 		}
 		s.Tasks[e.EntityID] = t
 	case *model.MessagePosted:
@@ -466,6 +468,31 @@ func consumeOrchestratorGrantApproval(s *model.State, principalID string) {
 	approval.Status = "CONSUMED"
 	s.Approvals[approvalID] = approval
 }
+
+// consumeApprovedAction spends one approval that authorized a single event.
+// RFC 0024: task.takeover:<taskID> approvals share hasApproval's unscoped,
+// action-string-only match, and a task ID is long-lived across ownership
+// changes, so one approved record could otherwise authorize every future
+// takeover of that task. Sorting IDs before picking the first APPROVED match
+// makes consumption deterministic when callers have independently requested
+// and approved more than one record for the same action -- each approved
+// record still authorizes exactly one event.
+func consumeApprovedAction(s *model.State, action string) {
+	ids := make([]string, 0)
+	for id, approval := range s.Approvals {
+		if approval.Action == action && approval.Status == "APPROVED" {
+			ids = append(ids, id)
+		}
+	}
+	if len(ids) == 0 {
+		return
+	}
+	sort.Strings(ids)
+	approval := s.Approvals[ids[0]]
+	approval.Status = "CONSUMED"
+	s.Approvals[ids[0]] = approval
+}
+
 func defaultRisk(v string) string {
 	if v == "" {
 		return "ROUTINE"

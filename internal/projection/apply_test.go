@@ -66,6 +66,44 @@ func TestInteractiveRuntimeRegistersDefaultAutomaticPolicy(t *testing.T) {
 	}
 }
 
+// TestTaskTakeoverConsumesOneApproval is the regression test for RFC 0024:
+// a task ID is long-lived across ownership changes, so a task.takeover event
+// must consume exactly one matching APPROVED record rather than leaving it
+// valid to authorize every future takeover of the same task. When more than
+// one independently-approved record exists for the same action, consumption
+// is deterministic (lowest approval ID first) and leaves the others intact.
+func TestTaskTakeoverConsumesOneApproval(t *testing.T) {
+	state := model.State{
+		Tasks: map[string]model.Task{
+			"task-1": {ID: "task-1", Status: "CLAIMED", Owner: "first"},
+		},
+		Approvals: map[string]model.Approval{
+			"approval-b": {ID: "approval-b", Action: "task.takeover:task-1", Status: "APPROVED"},
+			"approval-a": {ID: "approval-a", Action: "task.takeover:task-1", Status: "APPROVED"},
+			"unrelated":  {ID: "unrelated", Action: "task.takeover:task-2", Status: "APPROVED"},
+		},
+	}
+	data, err := json.Marshal(model.TaskStatus{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyEvent(&state, model.Event{
+		ID: "event-takeover", Time: time.Now().UTC(), Actor: "second",
+		Type: "task.takeover", EntityID: "task-1", Data: data,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := state.Approvals["approval-a"].Status; got != "CONSUMED" {
+		t.Fatalf("first approved takeover record status = %q, want CONSUMED", got)
+	}
+	if got := state.Approvals["approval-b"].Status; got != "APPROVED" {
+		t.Fatalf("second independently approved takeover record status = %q, want still APPROVED", got)
+	}
+	if got := state.Approvals["unrelated"].Status; got != "APPROVED" {
+		t.Fatalf("unrelated task's approval status = %q, want untouched APPROVED", got)
+	}
+}
+
 // TestAgentRoleSwitchedOnlyChangesRole is the regression test for RFC
 // 0018's core self-service invariant: unlike AgentActivated, applying
 // AgentRoleSwitched must never touch Capabilities or Scopes -- a principal
