@@ -571,6 +571,33 @@ func TestApprovalRequestValidatesTierAndDuplicateID(t *testing.T) {
 	}
 }
 
+func TestApprovalRequestCanReplaceOnlyConsumedOrchestratorGrant(t *testing.T) {
+	action := OrchestratorGrantApprovalAction("candidate")
+	id := OrchestratorGrantApprovalID("candidate")
+	request := model.ApprovalRequested{Tier: "HUMAN", Action: action, Reason: "fresh decision"}
+	st := model.State{
+		Agents: map[string]model.Agent{"owner": humanAgent("owner")},
+		Approvals: map[string]model.Approval{
+			id: {ID: id, Tier: "HUMAN", Action: action, Status: "CONSUMED"},
+		},
+	}
+
+	if _, err := ValidateTransition(st, "owner", "approval.request", id, request, time.Now()); err != nil {
+		t.Fatalf("expected a consumed orchestrator-grant approval to accept a fresh request: %v", err)
+	}
+
+	wrongID := "some-other-id"
+	st.Approvals[wrongID] = model.Approval{ID: wrongID, Tier: "HUMAN", Action: action, Status: "CONSUMED"}
+	if _, err := ValidateTransition(st, "owner", "approval.request", wrongID, request, time.Now()); err == nil {
+		t.Fatal("expected a consumed approval at a non-conventional ID to remain immutable")
+	}
+
+	st.Approvals[id] = model.Approval{ID: id, Tier: "HUMAN", Action: action, Status: "REJECTED"}
+	if _, err := ValidateTransition(st, "owner", "approval.request", id, request, time.Now()); err == nil {
+		t.Fatal("expected a rejected orchestrator-grant approval to remain immutable")
+	}
+}
+
 func TestApprovalApproveAndRejectRequirePending(t *testing.T) {
 	st := model.State{
 		Agents: map[string]model.Agent{"owner": humanAgent("owner")},

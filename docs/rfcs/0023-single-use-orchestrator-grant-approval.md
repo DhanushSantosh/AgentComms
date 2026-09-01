@@ -160,6 +160,13 @@ separately-run-`approval approve`, exactly as if none had ever existed. Revoking
 switching a principal away from `ORCHESTRATOR` does not un-consume its old approval; there is no
 path back to `APPROVED` for a `CONSUMED` record.
 
+Because the conventional ID is also the only ID the gate accepts, `approval.request` permits one
+narrow exception to its general ID-uniqueness rule: a new HUMAN-tier request may replace a
+`CONSUMED` orchestrator-grant projection at that exact conventional ID when its action is
+unchanged. The new request starts at `PENDING`; the append-only event log retains both lifecycles
+for audit. Pending, approved, rejected, differently-tiered, differently-actioned, and
+non-conventional-ID approvals remain non-replaceable.
+
 `internal/projection` gains a new, one-directional import of `internal/protocol` for
 `OrchestratorGrantApprovalID`/`OrchestratorGrantApprovalAction` — `internal/protocol` does not
 import `internal/projection`, so this introduces no cycle.
