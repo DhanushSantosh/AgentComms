@@ -5,6 +5,10 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 
 ## [Unreleased]
 
+### Security
+
+- Standalone installers now require an exact release, authenticate the downloaded verifier against six platform digests committed in that protected tag, and bind Sigstore verification to the exact requested tag. A separately installed Cosign binary is still not required.
+
 ## [0.5.0] - 2026-08-26 — “Plain Speech”
 
 *Every command's default human output changes from a raw JSON dump to a

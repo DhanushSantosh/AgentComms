@@ -206,11 +206,13 @@ type ProjectSettingsUpdated struct {
 	RequireReview      bool   `json:"require_review"`
 }
 type ApprovalRequested struct {
-	Tier      string     `json:"tier"`
-	Action    string     `json:"action"`
-	Reason    string     `json:"reason"`
-	Affected  []string   `json:"affected,omitempty"`
-	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+	Tier          string     `json:"tier"`
+	Action        string     `json:"action"`
+	SubjectDigest string     `json:"subject_digest,omitempty"`
+	Subject       string     `json:"subject,omitempty"`
+	Reason        string     `json:"reason"`
+	Affected      []string   `json:"affected,omitempty"`
+	ExpiresAt     *time.Time `json:"expires_at,omitempty"`
 }
 type ApprovalResponse struct {
 	Note string `json:"note,omitempty"`

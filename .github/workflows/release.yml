@@ -31,11 +31,14 @@ jobs:
           mkdir dist
           for target in windows/amd64 windows/arm64 linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
             GOOS=${target%/*}; GOARCH=${target#*/}; ext=""; [ "$GOOS" = windows ] && ext=.exe
-            for command in agent-comms agent-comms-daemon agent-comms-server agent-comms-verify; do
+            for command in agent-comms agent-comms-daemon agent-comms-server; do
               name="${command}-${GOOS}-${GOARCH}${ext}"
               CGO_ENABLED=0 GOOS=$GOOS GOARCH=$GOARCH go build -trimpath -ldflags="-s -w -X github.com/DhanushSantosh/AgentComms/internal/app.Version=${GITHUB_REF_NAME#v} -X github.com/DhanushSantosh/AgentComms/internal/buildinfo.Version=${GITHUB_REF_NAME#v} -X github.com/DhanushSantosh/AgentComms/internal/buildinfo.BuildID=${GITHUB_SHA}" -o "dist/$name" "./cmd/$command"
             done
+            verifier="agent-comms-verify-${GOOS}-${GOARCH}${ext}"
+            CGO_ENABLED=0 GOOS=$GOOS GOARCH=$GOARCH GOTOOLCHAIN=go1.26.6 go build -buildvcs=false -trimpath -ldflags="-s -w -X github.com/DhanushSantosh/AgentComms/internal/buildinfo.Version=${GITHUB_REF_NAME#v}" -o "dist/$verifier" ./cmd/agent-comms-verify
           done
+          ./scripts/verify-verifier-checksums.sh "$GITHUB_REF_NAME" dist
           cd dist
           sha256sum agent-comms-* > checksums.txt
           for asset in agent-comms-*; do cosign sign-blob --yes --bundle "${asset}.bundle" "$asset"; done

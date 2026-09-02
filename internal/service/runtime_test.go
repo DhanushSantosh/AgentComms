@@ -183,13 +183,36 @@ func TestInvocationPolicyEnforcesScopesAndSensitiveApproval(t *testing.T) {
 	}); err == nil {
 		t.Fatal("sensitive invocation bypassed human approval")
 	}
-	must(t, instance, "owner", "approval.request", "approve-sensitive", model.ApprovalRequested{
-		Tier: "HUMAN", Action: "invocation-sensitive:sensitive-approved", Reason: "approved by user",
-	})
+	approvedPayload := model.InvocationRequested{Target: "builder", TaskID: "sensitive-task", Instruction: "Perform sensitive work"}
+	if _, err := instance.RequestApprovalForOperation("alpha", "approve-sensitive", "HUMAN", "invocation.request", "sensitive-approved", approvedPayload, "approved by user", time.Hour); err != nil {
+		t.Fatalf("request bound sensitive approval: %v", err)
+	}
 	must(t, instance, "owner", "approval.approve", "approve-sensitive", model.ApprovalResponse{})
-	must(t, instance, "alpha", "invocation.request", "sensitive-approved", model.InvocationRequested{
-		Target: "builder", TaskID: "sensitive-task", Instruction: "Perform sensitive work",
-	})
+	must(t, instance, "alpha", "invocation.request", "sensitive-approved", approvedPayload)
+}
+
+func TestPayloadBoundContractApprovalEndToEnd(t *testing.T) {
+	instance := setup(t)
+	activate(t, instance, "alpha", model.PrincipalAgent)
+	payload := model.MessagePosted{Kind: "CONTRACT", To: []string{"owner"}, Subject: "reviewed terms", Body: "exact body"}
+	if _, err := instance.RequestApprovalForOperation("alpha", "approve-contract", "ORCHESTRATOR", "message.post", "contract-1", payload, "review exact contract", time.Hour); err != nil {
+		t.Fatalf("request bound contract approval: %v", err)
+	}
+	must(t, instance, "owner", "approval.approve", "approve-contract", model.ApprovalResponse{})
+	changed := payload
+	changed.Body = "changed after approval"
+	if _, err := instance.Execute("alpha", "message.post", "contract-1", changed); err == nil {
+		t.Fatal("changed contract content used a bound approval")
+	}
+	must(t, instance, "alpha", "message.post", "contract-1", payload)
+	state, err := instance.State()
+	if err != nil {
+		t.Fatal(err)
+	}
+	approval := state.Approvals["approve-contract"]
+	if approval.Subject == "" || approval.ExpiresAt == nil {
+		t.Fatalf("approver-visible subject or expiry was not persisted: %+v", approval)
+	}
 }
 
 func TestRuntimePresenceExpiresWithoutHeartbeat(t *testing.T) {

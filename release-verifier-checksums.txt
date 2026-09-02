@@ -1,0 +1,6 @@
+# Trusted SHA-256 pins for first-install verifier binaries.
+#
+# Before creating a release tag, run:
+#   ./scripts/generate-verifier-checksums.sh vX.Y.Z > release-verifier-checksums.txt
+# Commit the result before tagging. The release workflow rebuilds the verifier
+# deterministically and refuses to publish if any digest differs.

@@ -20,6 +20,28 @@ func TestAdmissionControlRejectsExcessRequest(t *testing.T) {
 	}
 }
 
+func TestStreamUsesDedicatedAdmissionPool(t *testing.T) {
+	server := &HTTPServer{admission: make(chan struct{}, 1), streamAdmission: make(chan struct{}, 1), rates: newRateRegistry(1, 1)}
+	server.admission <- struct{}{}
+	passed := false
+	handler := server.middleware(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { passed = true }))
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/v1/projects/p/stream", nil))
+	if !passed {
+		t.Fatal("stream was blocked by normal request admission")
+	}
+	passed = false
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/not-a-route/stream", nil))
+	if passed {
+		t.Fatal("non-stream route bypassed normal request admission")
+	}
+	server.streamAdmission <- struct{}{}
+	recorder := httptest.NewRecorder()
+	server.stream(recorder, httptest.NewRequest(http.MethodGet, "/v1/projects/p/stream", nil))
+	if recorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("full stream pool status=%d", recorder.Code)
+	}
+}
+
 func TestRateRegistry(t *testing.T) {
 	registry := newRateRegistry(1, 1)
 	now := time.Unix(1_000, 0)

@@ -1,6 +1,9 @@
 package protocol
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -42,6 +45,65 @@ func hasApproval(st model.State, action string) bool {
 		}
 	}
 	return false
+}
+
+// ApprovalSubjectDigest returns the canonical digest that an approval must
+// carry for a later transition. It includes the requester, transition type,
+// entity ID, and submitted payload so an approval cannot be replayed for a
+// different principal or operation.
+func ApprovalSubjectJSON(actor, typ, id string, payload any) string {
+	canonical, err := json.Marshal(struct {
+		Actor   string `json:"actor"`
+		Type    string `json:"type"`
+		ID      string `json:"id"`
+		Payload any    `json:"payload"`
+	}{actor, typ, id, payload})
+	if err != nil {
+		return ""
+	}
+	return string(canonical)
+}
+
+func ApprovalSubjectDigestFromJSON(subject string) string {
+	digest := sha256.Sum256([]byte(subject))
+	return hex.EncodeToString(digest[:])
+}
+
+func ApprovalSubjectDigest(actor, typ, id string, payload any) string {
+	return ApprovalSubjectDigestFromJSON(ApprovalSubjectJSON(actor, typ, id, payload))
+}
+
+func hasBoundApproval(st model.State, action, digest, requiredTier string, now time.Time) bool {
+	for _, approval := range st.Approvals {
+		if approval.Action == action && approval.Status == "APPROVED" && approval.SubjectDigest == digest && approval.ExpiresAt != nil && approval.ExpiresAt.After(now) && (requiredTier == "" || approval.Tier == requiredTier) {
+			return true
+		}
+	}
+	return false
+}
+
+// NormalizeInvocationApprovalSubject applies every state-derived default that
+// changes the accepted invocation. Approval creation and redemption share it.
+func NormalizeInvocationApprovalSubject(st model.State, p model.InvocationRequested) model.InvocationRequested {
+	if p.TaskID != "" && len(p.Scopes) == 0 {
+		if task, exists := st.Tasks[p.TaskID]; exists {
+			p.Scopes = append([]string(nil), task.Resources...)
+		}
+	}
+	p.Priority = strings.ToUpper(strings.TrimSpace(p.Priority))
+	if p.Priority == "" {
+		p.Priority = "NORMAL"
+	}
+	policy := st.InvocationPolicies[p.Target]
+	defaultConsumer, _ := effectiveConsumerPolicy(policy)
+	if p.ConsumerMode == "" {
+		p.ConsumerMode = defaultConsumer
+	}
+	p.ConsumerMode = model.ConsumerMode(strings.ToUpper(strings.TrimSpace(string(p.ConsumerMode))))
+	if p.PreferredRuntimeID == "" && p.ConsumerMode != model.ConsumerModeWorkerOnly {
+		p.PreferredRuntimeID = policy.PreferredInteractiveRuntimeID
+	}
+	return p
 }
 
 // OrchestratorGrantApprovalAction is the approval.request Action string that
@@ -821,7 +883,7 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 		}
 		if p.Kind == "CONTRACT" {
 			a, _ := active(st, actor)
-			if a.Role != model.RoleOwner && a.Role != model.RoleOrchestrator && !hasApproval(st, "contract:"+id) {
+			if a.Role != model.RoleOwner && a.Role != model.RoleOrchestrator && !hasBoundApproval(st, "contract:"+id, ApprovalSubjectDigest(actor, typ, id, p), "", now) {
 				return nil, errors.New("approved contract publication is required")
 			}
 		}
@@ -894,13 +956,13 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 			if !targetExists || target.Status != "ACTIVE" || target.PrincipalType != model.PrincipalAgent {
 				return nil, errors.New("active agent invocation target is required")
 			}
+			p = NormalizeInvocationApprovalSubject(st, p)
+			submittedDigest := ApprovalSubjectDigest(actor, typ, id, p)
 			requester, _ := active(st, actor)
 			if !actorElevated(st, actor) {
 				policy, configured := st.InvocationPolicies[p.Target]
 				if !configured || policy.Mode == "MANUAL" {
-					if !hasApproval(st, "invocation:"+id) {
-						return nil, errors.New("approved invocation is required by target policy")
-					}
+					// Enforced after normalization so it binds the accepted operation.
 				} else if policy.Mode == "DISABLED" {
 					return nil, errors.New("target invocation policy is disabled")
 				} else if policy.Mode == "TRUSTED" && !containsString(policy.TrustedActors, actor) {
@@ -911,12 +973,9 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 				return nil, fmt.Errorf("invocation content exceeds %d bytes", controlplane.MaxInvocationBytes)
 			}
 			if p.TaskID != "" {
-				task, taskExists := st.Tasks[p.TaskID]
+				_, taskExists := st.Tasks[p.TaskID]
 				if !taskExists {
 					return nil, errors.New("related task not found")
-				}
-				if len(p.Scopes) == 0 {
-					p.Scopes = append([]string(nil), task.Resources...)
 				}
 			}
 			if len(p.Scopes) > 0 {
@@ -927,14 +986,10 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 					return nil, errors.New("invocation scopes exceed target scopes")
 				}
 			}
-			priority := strings.ToUpper(strings.TrimSpace(p.Priority))
-			if priority == "" {
-				priority = "NORMAL"
-			}
+			priority := p.Priority
 			if priority != "LOW" && priority != "NORMAL" && priority != "HIGH" && priority != "URGENT" {
 				return nil, errors.New("invocation priority must be LOW, NORMAL, HIGH, or URGENT")
 			}
-			p.Priority = priority
 			if p.Deadline != nil {
 				if !p.Deadline.After(now) {
 					return nil, errors.New("invocation deadline must be in the future")
@@ -963,24 +1018,12 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 			if len(policy.AllowedScopes) > 0 && !scopeAllows(policy.AllowedScopes, p.Scopes) {
 				return nil, errors.New("invocation scopes exceed target policy")
 			}
-			if policy.RequireHumanForSensitive && invocationIsSensitive(st, p) &&
-				requester.PrincipalType != model.PrincipalHuman &&
-				!hasApproval(st, "invocation-sensitive:"+id) {
-				return nil, errors.New("human approval is required for sensitive invocation")
-			}
-			defaultConsumer, allowedConsumers := effectiveConsumerPolicy(policy)
-			if p.ConsumerMode == "" {
-				p.ConsumerMode = defaultConsumer
-			}
-			p.ConsumerMode = model.ConsumerMode(strings.ToUpper(strings.TrimSpace(string(p.ConsumerMode))))
+			_, allowedConsumers := effectiveConsumerPolicy(policy)
 			if !validConsumerMode(p.ConsumerMode) {
 				return nil, errors.New("invocation consumer mode must be INTERACTIVE_ONLY, WORKER_ONLY, or EITHER")
 			}
 			if !containsConsumerMode(allowedConsumers, p.ConsumerMode) {
 				return nil, errors.New("invocation consumer mode is not allowed by target policy")
-			}
-			if p.PreferredRuntimeID == "" && p.ConsumerMode != model.ConsumerModeWorkerOnly {
-				p.PreferredRuntimeID = policy.PreferredInteractiveRuntimeID
 			}
 			if p.PreferredRuntimeID != "" {
 				preferred, preferredExists := st.AgentRuntimes[p.PreferredRuntimeID]
@@ -990,6 +1033,15 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 				}
 				if preferred.Status == "REVOKED" {
 					return nil, errors.New("preferred runtime is revoked")
+				}
+			}
+			if !actorElevated(st, actor) {
+				policy, configured := st.InvocationPolicies[p.Target]
+				if (!configured || policy.Mode == "MANUAL") && !hasBoundApproval(st, "invocation:"+id, submittedDigest, "", now) && !hasBoundApproval(st, "invocation-sensitive:"+id, submittedDigest, "HUMAN", now) {
+					return nil, errors.New("approved invocation is required by target policy")
+				}
+				if policy.RequireHumanForSensitive && invocationIsSensitive(st, p) && requester.PrincipalType != model.PrincipalHuman && !hasBoundApproval(st, "invocation-sensitive:"+id, submittedDigest, "HUMAN", now) {
+					return nil, errors.New("human approval is required for sensitive invocation")
 				}
 			}
 			payload = p
@@ -1465,6 +1517,10 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 		if !ok || (request.Tier != "ORCHESTRATOR" && request.Tier != "HUMAN") ||
 			strings.TrimSpace(request.Action) == "" {
 			return nil, errors.New("approval tier and action are required")
+		}
+		boundAction := strings.HasPrefix(request.Action, "contract:") || strings.HasPrefix(request.Action, "invocation:") || strings.HasPrefix(request.Action, "invocation-sensitive:")
+		if boundAction && (request.Subject == "" || request.SubjectDigest == "" || request.SubjectDigest != ApprovalSubjectDigestFromJSON(request.Subject) || request.ExpiresAt == nil || !request.ExpiresAt.After(now)) {
+			return nil, errors.New("contract and invocation approvals require a subject digest and future expiry")
 		}
 		if existing, exists := st.Approvals[id]; exists &&
 			!canReplaceConsumedOrchestratorGrantApproval(id, existing, request) {

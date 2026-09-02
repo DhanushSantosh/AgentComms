@@ -123,8 +123,8 @@ func TestContractPostRequiresConfirm(t *testing.T) {
 	}
 	m = enterInboxView(t, m)
 	m = pressKey(t, m, keyText("n"))
-	if m.form != "message.post" || len(m.inputs) != 6 {
-		t.Fatalf("expected message.post form with 6 fields, got form=%q inputs=%d", m.form, len(m.inputs))
+	if m.form != "message.post" || len(m.inputs) != 10 {
+		t.Fatalf("expected message.post form with 10 fields, got form=%q inputs=%d", m.form, len(m.inputs))
 	}
 	m.inputs[0].SetValue("contract-1")
 	m.inputs[1].SetValue("CONTRACT")
@@ -150,6 +150,26 @@ func TestContractPostRequiresConfirm(t *testing.T) {
 	}
 	if st.Messages["contract-1"].Kind != "CONTRACT" {
 		t.Fatalf("message not created: %+v", st.Messages["contract-1"])
+	}
+}
+
+func TestContractFormCanRequestBoundApproval(t *testing.T) {
+	s := newTestService(t)
+	registerAgent(t, s, "builder", model.Role("MEMBER"), "src")
+	m, err := New(s, "builder")
+	if err != nil { t.Fatal(err) }
+	m = enterInboxView(t, m)
+	m = pressKey(t, m, keyText("n"))
+	values := map[int]string{0: "contract-bound", 1: "CONTRACT", 2: "owner", 3: "Reviewed terms", 4: "Exact body", 6: "YES", 7: "approval-contract-bound", 8: "review exact contract", 9: "1h"}
+	for index, value := range values { m.inputs[index].SetValue(value) }
+	m.formFocus = len(m.inputs) - 1
+	m = pressKey(t, m, keyEnter())
+	if m.err != nil { t.Fatalf("request approval from contract form: %v", m.err) }
+	state, err := s.State()
+	if err != nil { t.Fatal(err) }
+	approval := state.Approvals["approval-contract-bound"]
+	if approval.Subject == "" || approval.SubjectDigest == "" || approval.ExpiresAt == nil || approval.Action != "contract:contract-bound" {
+		t.Fatalf("contract form did not create a reviewable bound approval: %+v", approval)
 	}
 }
 

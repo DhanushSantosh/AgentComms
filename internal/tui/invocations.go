@@ -21,6 +21,18 @@ import (
 // payload.
 const consumerAutomatic = "AUTOMATIC (policy default)"
 
+func buildInvocationRequest(values []string) (any, error) {
+	priority := strings.ToUpper(values[4])
+	if priority == "" {
+		priority = "NORMAL"
+	}
+	consumer := values[8]
+	if consumer == consumerAutomatic {
+		consumer = ""
+	}
+	return model.InvocationRequested{Target: values[1], Instruction: values[2], ExpectedResult: values[3], Priority: priority, TaskID: values[5], MessageID: values[6], Scopes: splitCSV(values[7]), ConsumerMode: model.ConsumerMode(strings.ToUpper(consumer)), PreferredRuntimeID: values[9]}, nil
+}
+
 var invocationRequestForm = &ActionForm{
 	Title: "Invoke an agent",
 	Hint:  "Creates a durable request. Target policy decides whether approval is required.",
@@ -35,24 +47,47 @@ var invocationRequestForm = &ActionForm{
 		{Label: "Scopes (comma-separated)", Placeholder: "src"},
 		{Label: "Consumer", Options: []string{consumerAutomatic, "INTERACTIVE_ONLY", "WORKER_ONLY", "EITHER"}},
 		{Label: "Preferred runtime ID", Placeholder: ""},
+		{Label: "Request approval instead", Options: []string{"NO", "YES"}},
+		{Label: "Approval tier", Options: []string{"ORCHESTRATOR", "HUMAN"}},
+		{Label: "Approval ID", Placeholder: "approval-invocation-001"},
+		{Label: "Approval reason", Placeholder: "Review this exact invocation"},
+		{Label: "Approval expires in", Placeholder: "24h"},
 	},
-	Build: func(values []string) (any, error) {
-		priority := strings.ToUpper(values[4])
-		if priority == "" {
-			priority = "NORMAL"
-		}
-		consumer := values[8]
-		if consumer == consumerAutomatic {
-			consumer = ""
-		}
-		return model.InvocationRequested{
-			Target: values[1], Instruction: values[2], ExpectedResult: values[3],
-			Priority: priority, TaskID: values[5], MessageID: values[6], Scopes: splitCSV(values[7]),
-			ConsumerMode:       model.ConsumerMode(strings.ToUpper(consumer)),
-			PreferredRuntimeID: values[9],
-		}, nil
-	},
+	Build:     buildInvocationRequest,
 	ResolveID: func(_ string, values []string) string { return values[0] },
+	Dispatch: func(m Model, values []string, _ string) (tea.Model, tea.Cmd) {
+		payload, err := buildInvocationRequest(values)
+		if err != nil {
+			m.err = err
+			return m, nil
+		}
+		invocation := payload.(model.InvocationRequested)
+		id := values[0]
+		if values[10] == "YES" {
+			approvalID := values[12]
+			if approvalID == "" {
+				approvalID = "approval-invocation-" + id
+			}
+			ttl := 24 * time.Hour
+			if values[14] != "" {
+				ttl, err = time.ParseDuration(values[14])
+				if err != nil || ttl <= 0 {
+					m.err = fmt.Errorf("approval expiry must be a positive duration")
+					return m, nil
+				}
+			}
+			_, err = m.svc.RequestApprovalForOperation(m.actor, approvalID, values[11], "invocation.request", id, invocation, values[13], ttl)
+			if err != nil {
+				m.err = err
+				return m, nil
+			}
+			m.form, m.inputs, m.err, m.formSpec = "", nil, nil, nil
+			m.notice = "Requested approval " + approvalID + " for invocation " + id
+			m.refreshState()
+			return m, nil
+		}
+		return m.dispatchEvent("invocation.request", id, invocation)
+	},
 }
 
 var invocationClaimForm = &ActionForm{

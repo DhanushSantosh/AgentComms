@@ -64,8 +64,8 @@ func TestApprovalRequestThenApproveEndToEnd(t *testing.T) {
 	}
 	m = enterApprovalsView(t, m)
 	m = pressKey(t, m, keyText("n"))
-	if m.form != "approval.request" || len(m.inputs) != 5 {
-		t.Fatalf("expected approval.request form with 5 fields, got form=%q inputs=%d", m.form, len(m.inputs))
+	if m.form != "approval.request" || len(m.inputs) != 8 {
+		t.Fatalf("expected approval.request form with 8 fields, got form=%q inputs=%d", m.form, len(m.inputs))
 	}
 	m.inputs[0].SetValue("approval-1")
 	m.inputs[1].SetValue("ORCHESTRATOR")

@@ -22,7 +22,8 @@ Run more than one coding agent on the same project and you already know the fail
 > No account, no cloud dependency, nothing to configure before this works. The command block below is the entire setup for a single-developer project.
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/DhanushSantosh/AgentComms/main/install.sh | sh
+VERSION=vX.Y.Z # replace with the release you selected
+curl -fsSL "https://raw.githubusercontent.com/DhanushSantosh/AgentComms/$VERSION/install.sh" | AGENT_COMMS_VERSION="$VERSION" sh
 
 agent-comms init
 agent-comms tui

@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -17,29 +18,32 @@ import (
 )
 
 const (
-	maxHTTPBodyBytes     = controlplane.MaxCommandBytes + 16*1024
-	defaultAdmission     = 256
-	defaultRatePerSecond = 100
-	defaultRateBurst     = 200
-	streamPollInterval   = 250 * time.Millisecond
-	streamHeartbeat      = 15 * time.Second
-	maxRateBuckets       = 10_000
-	rateBucketIdleTTL    = 10 * time.Minute
+	maxHTTPBodyBytes       = controlplane.MaxCommandBytes + 16*1024
+	defaultAdmission       = 256
+	defaultStreamAdmission = 64
+	defaultRatePerSecond   = 100
+	defaultRateBurst       = 200
+	streamPollInterval     = 250 * time.Millisecond
+	streamHeartbeat        = 15 * time.Second
+	maxRateBuckets         = 10_000
+	rateBucketIdleTTL      = 10 * time.Minute
 )
 
 type HTTPConfig struct {
 	MaxInFlight   int
+	MaxStreams    int
 	RatePerSecond float64
 	RateBurst     float64
 	Logger        *slog.Logger
 }
 
 type HTTPServer struct {
-	engine    *Engine
-	logger    *slog.Logger
-	admission chan struct{}
-	rates     *rateRegistry
-	metrics   serverMetrics
+	engine          *Engine
+	logger          *slog.Logger
+	admission       chan struct{}
+	streamAdmission chan struct{}
+	rates           *rateRegistry
+	metrics         serverMetrics
 }
 
 type serverMetrics struct {
@@ -57,6 +61,10 @@ func NewHTTPServer(engine *Engine, cfg HTTPConfig) *HTTPServer {
 	if maxInFlight <= 0 {
 		maxInFlight = defaultAdmission
 	}
+	maxStreams := cfg.MaxStreams
+	if maxStreams <= 0 {
+		maxStreams = defaultStreamAdmission
+	}
 	rate := cfg.RatePerSecond
 	if rate <= 0 {
 		rate = defaultRatePerSecond
@@ -70,7 +78,7 @@ func NewHTTPServer(engine *Engine, cfg HTTPConfig) *HTTPServer {
 		logger = slog.Default()
 	}
 	return &HTTPServer{
-		engine: engine, logger: logger, admission: make(chan struct{}, maxInFlight),
+		engine: engine, logger: logger, admission: make(chan struct{}, maxInFlight), streamAdmission: make(chan struct{}, maxStreams),
 		rates: newRateRegistry(rate, burst),
 	}
 }
@@ -94,6 +102,10 @@ func (s *HTTPServer) Handler() http.Handler {
 func (s *HTTPServer) middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.metrics.requests.Add(1)
+		if isStreamRequest(r) {
+			next.ServeHTTP(w, r)
+			return
+		}
 		select {
 		case s.admission <- struct{}{}:
 			s.metrics.inFlight.Add(1)
@@ -111,6 +123,14 @@ func (s *HTTPServer) middleware(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func isStreamRequest(r *http.Request) bool {
+	if r.Method != http.MethodGet {
+		return false
+	}
+	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	return len(parts) == 4 && parts[0] == "v1" && parts[1] == "projects" && parts[2] != "" && parts[3] == "stream"
 }
 
 func (s *HTTPServer) live(w http.ResponseWriter, _ *http.Request) {
@@ -242,6 +262,15 @@ func (s *HTTPServer) events(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *HTTPServer) stream(w http.ResponseWriter, r *http.Request) {
+	select {
+	case s.streamAdmission <- struct{}{}:
+		defer func() { <-s.streamAdmission }()
+	default:
+		s.metrics.rejected.Add(1)
+		w.Header().Set("Retry-After", "1")
+		writeError(w, http.StatusServiceUnavailable, &controlplane.Error{Code: controlplane.CodeUnavailable, Message: "stream admission queue is full", RetryAfter: time.Second})
+		return
+	}
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		writeError(w, http.StatusInternalServerError, &controlplane.Error{Code: controlplane.CodeUnavailable, Message: "streaming is unsupported"})

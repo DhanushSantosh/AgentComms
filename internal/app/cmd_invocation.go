@@ -32,26 +32,50 @@ func invocationStatus(status string) cliui.Status {
 
 func (c *cli) invocationCmd() *cobra.Command {
 	root := &cobra.Command{Use: "invocation", Short: "Request and process agent invocations"}
-	var target, messageID, taskID, instruction, expectedResult, priority string
+	var target, messageID, taskID, instruction, expectedResult, priority, deadlineAt string
 	var consumerMode, preferredRuntimeID string
 	var invocationScopes []string
 	var expiresIn time.Duration
+	var requestApproval bool
+	var approvalID, approvalReason, approvalTier string
+	var approvalExpiresIn time.Duration
 	request := &cobra.Command{Use: "request", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		id, _ := cmd.Flags().GetString("id")
 		if id == "" {
 			id = fmt.Sprintf("inv-%d", time.Now().UnixNano())
 		}
 		var deadline *time.Time
-		if expiresIn > 0 {
+		if deadlineAt != "" && expiresIn > 0 { return errors.New("use either --deadline or --expires-in, not both") }
+		if deadlineAt != "" {
+			value, parseErr := time.Parse(time.RFC3339, deadlineAt)
+			if parseErr != nil { return fmt.Errorf("deadline must be RFC3339: %w", parseErr) }
+			value = value.UTC()
+			deadline = &value
+		} else if expiresIn > 0 {
+			if requestApproval { return errors.New("approval-bound invocations require an absolute --deadline; relative --expires-in changes when the command is rerun") }
 			value := time.Now().UTC().Add(expiresIn)
 			deadline = &value
 		}
-		event, err := c.svc.Execute(c.actor, "invocation.request", id, model.InvocationRequested{
+		payload := model.InvocationRequested{
 			Target: target, MessageID: messageID, TaskID: taskID, Instruction: instruction,
 			ExpectedResult: expectedResult, Scopes: invocationScopes, Priority: priority,
 			ConsumerMode:       model.ConsumerMode(strings.ToUpper(consumerMode)),
 			PreferredRuntimeID: preferredRuntimeID, Deadline: deadline,
-		})
+		}
+		if requestApproval {
+			if approvalID == "" {
+				approvalID = "approval-invocation-" + id
+			}
+			if approvalExpiresIn <= 0 {
+				approvalExpiresIn = 24 * time.Hour
+			}
+			event, err := c.svc.RequestApprovalForOperation(c.actor, approvalID, approvalTier, "invocation.request", id, payload, approvalReason, approvalExpiresIn)
+			if err != nil {
+				return err
+			}
+			return c.emit("approval.request", event)
+		}
+		event, err := c.svc.Execute(c.actor, "invocation.request", id, payload)
 		if err != nil {
 			return err
 		}
@@ -100,6 +124,12 @@ func (c *cli) invocationCmd() *cobra.Command {
 	request.Flags().StringVar(&consumerMode, "consumer", "", "INTERACTIVE_ONLY, WORKER_ONLY, or EITHER (target policy default when omitted)")
 	request.Flags().StringVar(&preferredRuntimeID, "runtime", "", "specific target runtime")
 	request.Flags().DurationVar(&expiresIn, "expires-in", 0, "deadline relative to now")
+	request.Flags().StringVar(&deadlineAt, "deadline", "", "absolute RFC3339 deadline (recommended for approval-bound invocations)")
+	request.Flags().BoolVar(&requestApproval, "request-approval", false, "request a payload-bound approval instead of invoking")
+	request.Flags().StringVar(&approvalID, "approval-id", "", "approval ID (generated from the invocation ID when omitted)")
+	request.Flags().StringVar(&approvalReason, "approval-reason", "", "reason shown to the approver")
+	request.Flags().StringVar(&approvalTier, "approval-tier", "ORCHESTRATOR", "ORCHESTRATOR or HUMAN")
+	request.Flags().DurationVar(&approvalExpiresIn, "approval-expires-in", 24*time.Hour, "approval validity window")
 
 	list := &cobra.Command{Use: "list", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		state, err := c.svc.State()

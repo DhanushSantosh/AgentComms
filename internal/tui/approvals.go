@@ -1,7 +1,9 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/table"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
@@ -17,13 +19,25 @@ var approvalRequestForm = &ActionForm{
 		{Label: "Action", Placeholder: "task.takeover:task-001", Required: true},
 		{Label: "Reason", Placeholder: ""},
 		{Label: "Affected (comma-separated)", Placeholder: ""},
+		{Label: "Subject JSON (contract/invocation)", Placeholder: ""},
+		{Label: "Subject digest (contract/invocation)", Placeholder: ""},
+		{Label: "Expires in (contract/invocation)", Placeholder: "24h"},
 	},
 	Build: func(v []string) (any, error) {
 		tier := strings.ToUpper(strings.TrimSpace(v[1]))
 		if tier == "" {
 			tier = "ORCHESTRATOR"
 		}
-		return model.ApprovalRequested{Tier: tier, Action: v[2], Reason: v[3], Affected: splitCSV(v[4])}, nil
+		var expiresAt *time.Time
+		if raw := strings.TrimSpace(v[7]); raw != "" {
+			duration, err := time.ParseDuration(raw)
+			if err != nil || duration <= 0 {
+				return nil, fmt.Errorf("expiry must be a positive duration")
+			}
+			value := time.Now().UTC().Add(duration)
+			expiresAt = &value
+		}
+		return model.ApprovalRequested{Tier: tier, Action: v[2], Reason: v[3], Affected: splitCSV(v[4]), Subject: strings.TrimSpace(v[5]), SubjectDigest: strings.TrimSpace(v[6]), ExpiresAt: expiresAt}, nil
 	},
 	ResolveID: func(_ string, v []string) string { return v[0] },
 }

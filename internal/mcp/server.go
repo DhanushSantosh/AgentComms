@@ -72,7 +72,7 @@ func tools() []map[string]any {
 		}),
 		tool("task_create", "Create a coordination task", map[string]any{"id": map[string]any{"type": "string"}, "title": map[string]any{"type": "string"}, "repository": map[string]any{"type": "string"}, "branch": map[string]any{"type": "string"}, "resources": map[string]any{"type": "array", "items": map[string]any{"type": "string"}}}, "id", "title", "repository", "branch", "resources"),
 		tool("task_claim", "Claim an open task with a protected lease", map[string]any{"id": map[string]any{"type": "string"}}, "id"),
-		tool("message_post", "Post a typed durable message", map[string]any{"id": map[string]any{"type": "string"}, "kind": map[string]any{"type": "string", "enum": []string{"FYI", "ACTION", "CONTRACT", "BLOCKER", "DECISION"}}, "to": map[string]any{"type": "array", "items": map[string]any{"type": "string"}}, "subject": map[string]any{"type": "string"}, "body": map[string]any{"type": "string"}}, "id", "kind", "to", "subject"),
+		tool("message_post", "Post a typed durable message, or request payload-bound approval for a CONTRACT", map[string]any{"id": map[string]any{"type": "string"}, "kind": map[string]any{"type": "string", "enum": []string{"FYI", "ACTION", "CONTRACT", "BLOCKER", "DECISION"}}, "to": map[string]any{"type": "array", "items": map[string]any{"type": "string"}}, "subject": map[string]any{"type": "string"}, "body": map[string]any{"type": "string"}, "request_approval": map[string]any{"type": "boolean"}, "approval_id": map[string]any{"type": "string"}, "approval_reason": map[string]any{"type": "string"}, "approval_expires_seconds": map[string]any{"type": "integer", "minimum": 1}}, "id", "kind", "to", "subject"),
 		tool("invocation_request", "Request that another agent runtime act on bounded instructions", map[string]any{
 			"id": map[string]any{"type": "string"}, "target": map[string]any{"type": "string"},
 			"instruction":     map[string]any{"type": "string", "maxLength": controlplane.MaxInvocationBytes},
@@ -82,6 +82,9 @@ func tools() []map[string]any {
 			"priority":             map[string]any{"type": "string", "enum": []string{"LOW", "NORMAL", "HIGH", "URGENT"}},
 			"consumer_mode":        map[string]any{"type": "string", "enum": []string{"INTERACTIVE_ONLY", "WORKER_ONLY", "EITHER"}},
 			"preferred_runtime_id": map[string]any{"type": "string"},
+			"request_approval":     map[string]any{"type": "boolean"}, "approval_id": map[string]any{"type": "string"},
+			"approval_tier":   map[string]any{"type": "string", "enum": []string{"ORCHESTRATOR", "HUMAN"}},
+			"approval_reason": map[string]any{"type": "string"}, "approval_expires_seconds": map[string]any{"type": "integer", "minimum": 1},
 		}, "id", "target", "instruction"),
 		tool("invocation_get", "Read one invocation with its delivery evidence and target acknowledgement", map[string]any{
 			"id": map[string]any{"type": "string"},
@@ -333,17 +336,46 @@ func call(s *service.Service, resolution identity.ActorResolution, p callParams)
 	case "task_claim":
 		return s.Execute(actor, "task.claim", stringArg(p.Arguments, "id"), model.TaskClaimed{})
 	case "message_post":
-		return s.Execute(actor, "message.post", stringArg(p.Arguments, "id"), model.MessagePosted{Kind: stringArg(p.Arguments, "kind"), To: stringsArg(p.Arguments["to"]), Subject: stringArg(p.Arguments, "subject"), Body: stringArg(p.Arguments, "body")})
+		id := stringArg(p.Arguments, "id")
+		payload := model.MessagePosted{Kind: stringArg(p.Arguments, "kind"), To: stringsArg(p.Arguments["to"]), Subject: stringArg(p.Arguments, "subject"), Body: stringArg(p.Arguments, "body")}
+		if boolArg(p.Arguments, "request_approval", false) {
+			approvalID := stringArg(p.Arguments, "approval_id")
+			if approvalID == "" {
+				approvalID = "approval-contract-" + id
+			}
+			seconds := intArg(p.Arguments, "approval_expires_seconds")
+			if seconds <= 0 {
+				seconds = 86400
+			}
+			return s.RequestApprovalForOperation(actor, approvalID, "ORCHESTRATOR", "message.post", id, payload, stringArg(p.Arguments, "approval_reason"), time.Duration(seconds)*time.Second)
+		}
+		return s.Execute(actor, "message.post", id, payload)
 	case "invocation_request":
 		invocationID := stringArg(p.Arguments, "id")
-		event, err := s.Execute(actor, "invocation.request", invocationID, model.InvocationRequested{
+		payload := model.InvocationRequested{
 			Target: stringArg(p.Arguments, "target"), MessageID: stringArg(p.Arguments, "message_id"),
 			TaskID: stringArg(p.Arguments, "task_id"), Instruction: stringArg(p.Arguments, "instruction"),
 			ExpectedResult: stringArg(p.Arguments, "expected_result"),
 			Scopes:         stringsArg(p.Arguments["scopes"]), Priority: stringArg(p.Arguments, "priority"),
 			ConsumerMode:       model.ConsumerMode(stringArg(p.Arguments, "consumer_mode")),
 			PreferredRuntimeID: stringArg(p.Arguments, "preferred_runtime_id"),
-		})
+		}
+		if boolArg(p.Arguments, "request_approval", false) {
+			approvalID := stringArg(p.Arguments, "approval_id")
+			if approvalID == "" {
+				approvalID = "approval-invocation-" + invocationID
+			}
+			tier := stringArg(p.Arguments, "approval_tier")
+			if tier == "" {
+				tier = "ORCHESTRATOR"
+			}
+			seconds := intArg(p.Arguments, "approval_expires_seconds")
+			if seconds <= 0 {
+				seconds = 86400
+			}
+			return s.RequestApprovalForOperation(actor, approvalID, tier, "invocation.request", invocationID, payload, stringArg(p.Arguments, "approval_reason"), time.Duration(seconds)*time.Second)
+		}
+		event, err := s.Execute(actor, "invocation.request", invocationID, payload)
 		if err != nil {
 			return nil, err
 		}

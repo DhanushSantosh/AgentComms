@@ -183,14 +183,17 @@ type InvocationPolicy struct {
 	UpdatedAt                     time.Time      `json:"updated_at"`
 }
 type Approval struct {
-	ID        string   `json:"id"`
-	Tier      string   `json:"tier"`
-	Action    string   `json:"action"`
-	Reason    string   `json:"reason"`
-	Status    string   `json:"status"`
-	Requester string   `json:"requester"`
-	Affected  []string `json:"affected,omitempty"`
-	Approver  string   `json:"approver,omitempty"`
+	ID            string     `json:"id"`
+	Tier          string     `json:"tier"`
+	Action        string     `json:"action"`
+	SubjectDigest string     `json:"subject_digest,omitempty"`
+	Subject       string     `json:"subject,omitempty"`
+	Reason        string     `json:"reason"`
+	Status        string     `json:"status"`
+	Requester     string     `json:"requester"`
+	Affected      []string   `json:"affected,omitempty"`
+	ExpiresAt     *time.Time `json:"expires_at,omitempty"`
+	Approver      string     `json:"approver,omitempty"`
 }
 type Decision struct {
 	ID         string   `json:"id"`

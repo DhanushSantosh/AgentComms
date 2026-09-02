@@ -388,7 +388,7 @@ func ApplyEvent(s *model.State, e model.Event) error {
 			UpdatedBy: e.Actor, UpdatedAt: e.Time,
 		}
 	case *model.ApprovalRequested:
-		s.Approvals[e.EntityID] = model.Approval{ID: e.EntityID, Tier: p.Tier, Action: p.Action, Reason: p.Reason, Status: "PENDING", Requester: e.Actor, Affected: p.Affected}
+		s.Approvals[e.EntityID] = model.Approval{ID: e.EntityID, Tier: p.Tier, Action: p.Action, SubjectDigest: p.SubjectDigest, Subject: p.Subject, Reason: p.Reason, Status: "PENDING", Requester: e.Actor, Affected: p.Affected, ExpiresAt: p.ExpiresAt}
 	case *model.ApprovalResponse:
 		a := s.Approvals[e.EntityID]
 		if e.Type == "approval.approve" {

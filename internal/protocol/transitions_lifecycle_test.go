@@ -503,9 +503,11 @@ func TestMessagePostContractKindRequiresElevationOrApproval(t *testing.T) {
 		model.MessagePosted{Kind: "CONTRACT", To: []string{"recipient"}, Subject: "s"}, time.Now()); err != nil {
 		t.Fatalf("expected an owner to post a CONTRACT message directly: %v", err)
 	}
-	st.Approvals = map[string]model.Approval{"a1": {Action: "contract:m2", Status: "APPROVED"}}
+	contract := model.MessagePosted{Kind: "CONTRACT", To: []string{"owner"}, Subject: "s"}
+	expires := time.Now().Add(time.Hour)
+	st.Approvals = map[string]model.Approval{"a1": {Action: "contract:m2", Status: "APPROVED", SubjectDigest: ApprovalSubjectDigest("recipient", "message.post", "m2", contract), ExpiresAt: &expires}}
 	if _, err := ValidateTransition(st, "recipient", "message.post", "m2",
-		model.MessagePosted{Kind: "CONTRACT", To: []string{"owner"}, Subject: "s"}, time.Now()); err != nil {
+		contract, time.Now()); err != nil {
 		t.Fatalf("expected an approved contract publication to succeed: %v", err)
 	}
 }
@@ -574,6 +576,25 @@ func TestApprovalRequestValidatesTierAndDuplicateID(t *testing.T) {
 	if _, err := ValidateTransition(st, "owner", "approval.request", "a1",
 		model.ApprovalRequested{Tier: "HUMAN", Action: "do-thing"}, time.Now()); err != nil {
 		t.Fatalf("expected a valid approval request to succeed: %v", err)
+	}
+}
+
+func TestBoundApprovalRequestRequiresReviewableMatchingSubject(t *testing.T) {
+	st := model.State{Agents: map[string]model.Agent{"owner": humanAgent("owner")}, Approvals: map[string]model.Approval{}}
+	payload := model.MessagePosted{Kind: "CONTRACT", To: []string{"owner"}, Subject: "terms"}
+	subject := ApprovalSubjectJSON("owner", "message.post", "contract-1", payload)
+	expires := time.Now().Add(time.Hour)
+	request := model.ApprovalRequested{Tier: "HUMAN", Action: "contract:contract-1", Subject: subject, SubjectDigest: ApprovalSubjectDigestFromJSON(subject), ExpiresAt: &expires}
+	if _, err := ValidateTransition(st, "owner", "approval.request", "a1", request, time.Now()); err != nil {
+		t.Fatalf("expected a complete bound approval request to succeed: %v", err)
+	}
+	request.Subject = subject + " "
+	if _, err := ValidateTransition(st, "owner", "approval.request", "a2", request, time.Now()); err == nil {
+		t.Fatal("expected a subject whose digest does not match to be rejected")
+	}
+	request.Subject = ""
+	if _, err := ValidateTransition(st, "owner", "approval.request", "a3", request, time.Now()); err == nil {
+		t.Fatal("expected a bound approval without reviewable subject JSON to be rejected")
 	}
 }
 
@@ -847,10 +868,47 @@ func TestInvocationRequestManualPolicyRequiresPriorApproval(t *testing.T) {
 		model.InvocationRequested{Target: "builder", Instruction: "do it"}, time.Now()); err == nil {
 		t.Fatal("expected a MANUAL-policy target to require a pre-existing approval")
 	}
-	st.Approvals = map[string]model.Approval{"a1": {Action: "invocation:inv1", Status: "APPROVED"}}
+	invocation := model.InvocationRequested{Target: "builder", Instruction: "do it", Priority: "NORMAL", ConsumerMode: model.ConsumerModeEither}
+	expires := time.Now().Add(time.Hour)
+	st.Approvals = map[string]model.Approval{"a1": {Action: "invocation:inv1", Status: "APPROVED", SubjectDigest: ApprovalSubjectDigest("requester", "invocation.request", "inv1", invocation), ExpiresAt: &expires}}
 	if _, err := ValidateTransition(st, "requester", "invocation.request", "inv1",
 		model.InvocationRequested{Target: "builder", Instruction: "do it"}, time.Now()); err != nil {
 		t.Fatalf("expected an approved MANUAL-policy invocation to succeed: %v", err)
+	}
+	if _, err := ValidateTransition(st, "requester", "invocation.request", "inv1",
+		model.InvocationRequested{Target: "builder", Instruction: "do something else"}, time.Now()); err == nil {
+		t.Fatal("expected changed invocation content to reject the bound approval")
+	}
+	past := time.Now().Add(-time.Minute)
+	st.Approvals["a1"] = model.Approval{Action: "invocation:inv1", Status: "APPROVED", SubjectDigest: ApprovalSubjectDigest("requester", "invocation.request", "inv1", invocation), ExpiresAt: &past}
+	if _, err := ValidateTransition(st, "requester", "invocation.request", "inv1",
+		model.InvocationRequested{Target: "builder", Instruction: "do it"}, time.Now()); err == nil {
+		t.Fatal("expected an expired invocation approval to be rejected")
+	}
+}
+
+func TestSensitiveInvocationRequiresHumanTierBoundApproval(t *testing.T) {
+	st := requesterAgentState()
+	requester := st.Agents["requester"]
+	requester.Scopes = []string{"src"}
+	st.Agents["requester"] = requester
+	builder := st.Agents["builder"]
+	builder.Scopes = []string{"src"}
+	st.Agents["builder"] = builder
+	st.InvocationPolicies = map[string]model.InvocationPolicy{"builder": {AgentID: "builder", Mode: "AUTOMATIC", RequireHumanForSensitive: true}}
+	st.Tasks = map[string]model.Task{"high": {ID: "high", Risk: "HIGH", Resources: []string{"src"}}}
+	payload := model.InvocationRequested{Target: "builder", TaskID: "high", Instruction: "sensitive", Scopes: []string{"src"}, Priority: "NORMAL", ConsumerMode: model.ConsumerModeEither}
+	expires := time.Now().Add(time.Hour)
+	digest := ApprovalSubjectDigest("requester", "invocation.request", "inv-sensitive", payload)
+	st.Approvals = map[string]model.Approval{"a1": {Tier: "ORCHESTRATOR", Action: "invocation-sensitive:inv-sensitive", Status: "APPROVED", SubjectDigest: digest, ExpiresAt: &expires}}
+	if _, err := ValidateTransition(st, "requester", "invocation.request", "inv-sensitive", model.InvocationRequested{Target: "builder", TaskID: "high", Instruction: "sensitive"}, time.Now()); err == nil {
+		t.Fatal("expected an ORCHESTRATOR-tier approval to fail the HUMAN-sensitive gate")
+	}
+	approval := st.Approvals["a1"]
+	approval.Tier = "HUMAN"
+	st.Approvals["a1"] = approval
+	if _, err := ValidateTransition(st, "requester", "invocation.request", "inv-sensitive", model.InvocationRequested{Target: "builder", TaskID: "high", Instruction: "sensitive"}, time.Now()); err != nil {
+		t.Fatalf("expected a HUMAN-tier bound approval to succeed: %v", err)
 	}
 }
 

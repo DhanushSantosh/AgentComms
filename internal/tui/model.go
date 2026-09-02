@@ -1703,6 +1703,12 @@ func (m Model) renderInspector(p palette, width int) string {
 			lines = append(lines, titleStyle.Render("Action: ")+app.Action)
 			lines = append(lines, mutedStyle.Render(fmt.Sprintf("Tier: %s  |  Status: %s  |  Requester: %s", app.Tier, fmtStatus(app.Status), app.Requester)))
 			lines = append(lines, titleStyle.Render("Reason: ")+app.Reason)
+			if app.ExpiresAt != nil {
+				lines = append(lines, mutedStyle.Render("Expires: ")+app.ExpiresAt.Local().Format(time.RFC3339))
+			}
+			if app.Subject != "" {
+				lines = append(lines, titleStyle.Render("Reviewed operation: ")+app.Subject)
+			}
 		}
 	default:
 		lines = append(lines, mutedStyle.Render("ID: ")+id)

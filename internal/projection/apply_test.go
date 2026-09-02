@@ -66,6 +66,22 @@ func TestInteractiveRuntimeRegistersDefaultAutomaticPolicy(t *testing.T) {
 	}
 }
 
+func TestApprovalProjectionPreservesSubjectAndExpiry(t *testing.T) {
+	state := model.State{Approvals: map[string]model.Approval{}}
+	expires := time.Now().UTC().Add(time.Hour)
+	data, err := json.Marshal(model.ApprovalRequested{Tier: "HUMAN", Action: "invocation-sensitive:inv-1", Subject: "reviewed operation", SubjectDigest: "abc123", ExpiresAt: &expires})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = ApplyEvent(&state, model.Event{ID: "event-approval", Time: time.Now().UTC(), Actor: "requester", Type: "approval.request", EntityID: "approval-1", Data: data}); err != nil {
+		t.Fatal(err)
+	}
+	approval := state.Approvals["approval-1"]
+	if approval.Subject != "reviewed operation" || approval.SubjectDigest != "abc123" || approval.ExpiresAt == nil || !approval.ExpiresAt.Equal(expires) {
+		t.Fatalf("approval subject/expiry not preserved: %+v", approval)
+	}
+}
+
 // TestTaskTakeoverConsumesOneApproval is the regression test for RFC 0024:
 // a task ID is long-lived across ownership changes, so a task.takeover event
 // must consume exactly one matching APPROVED record rather than leaving it

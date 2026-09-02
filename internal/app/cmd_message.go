@@ -14,6 +14,9 @@ import (
 func (c *cli) messageCmd() *cobra.Command {
 	root := &cobra.Command{Use: "message"}
 	var kind, subject, body, taskID, bodyFile string
+	var requestApproval bool
+	var approvalID, approvalReason string
+	var approvalExpiresIn time.Duration
 	var to []string
 	post := &cobra.Command{Use: "post", RunE: func(cmd *cobra.Command, args []string) error {
 		id, _ := cmd.Flags().GetString("id")
@@ -27,7 +30,24 @@ func (c *cli) messageCmd() *cobra.Command {
 			}
 			body = string(b)
 		}
-		v, e := c.svc.Execute(c.actor, "message.post", id, model.MessagePosted{Kind: strings.ToUpper(kind), To: to, Subject: subject, Body: body, TaskID: taskID})
+		payload := model.MessagePosted{Kind: strings.ToUpper(kind), To: to, Subject: subject, Body: body, TaskID: taskID}
+		if requestApproval {
+			if payload.Kind != "CONTRACT" {
+				return fmt.Errorf("--request-approval is only valid for CONTRACT messages")
+			}
+			if approvalID == "" {
+				approvalID = "approval-contract-" + id
+			}
+			if approvalExpiresIn <= 0 {
+				approvalExpiresIn = 24 * time.Hour
+			}
+			v, e := c.svc.RequestApprovalForOperation(c.actor, approvalID, "ORCHESTRATOR", "message.post", id, payload, approvalReason, approvalExpiresIn)
+			if e != nil {
+				return e
+			}
+			return c.emit("approval.request", v)
+		}
+		v, e := c.svc.Execute(c.actor, "message.post", id, payload)
 		if e != nil {
 			return e
 		}
@@ -40,6 +60,10 @@ func (c *cli) messageCmd() *cobra.Command {
 	post.Flags().StringVar(&body, "body", "", "body")
 	post.Flags().StringVar(&bodyFile, "body-file", "", "read body from file (bypasses CLI arg limits)")
 	post.Flags().StringVar(&taskID, "task", "", "related task")
+	post.Flags().BoolVar(&requestApproval, "request-approval", false, "request a payload-bound approval instead of posting")
+	post.Flags().StringVar(&approvalID, "approval-id", "", "approval ID (generated from the message ID when omitted)")
+	post.Flags().StringVar(&approvalReason, "approval-reason", "", "reason shown to the approver")
+	post.Flags().DurationVar(&approvalExpiresIn, "approval-expires-in", 24*time.Hour, "approval validity window")
 	for _, sub := range []string{"ack", "reject", "complete", "resolve"} {
 		postCmd := payloadStatus(c, "message", sub, func(string) any { return model.MessageResponse{} })
 		root.AddCommand(postCmd)
@@ -123,11 +147,17 @@ func (c *cli) decisionCmd() *cobra.Command {
 }
 func (c *cli) approvalCmd() *cobra.Command {
 	root := &cobra.Command{Use: "approval"}
-	var tier, action, reason string
+	var tier, action, reason, subjectDigest, approvalSubject string
+	var expiresIn time.Duration
 	var affected []string
 	request := &cobra.Command{Use: "request", RunE: func(cmd *cobra.Command, args []string) error {
 		id, _ := cmd.Flags().GetString("id")
-		v, e := c.svc.Execute(c.actor, "approval.request", id, model.ApprovalRequested{Tier: strings.ToUpper(tier), Action: action, Reason: reason, Affected: affected})
+		var expiresAt *time.Time
+		if expiresIn > 0 {
+			value := time.Now().UTC().Add(expiresIn)
+			expiresAt = &value
+		}
+		v, e := c.svc.Execute(c.actor, "approval.request", id, model.ApprovalRequested{Tier: strings.ToUpper(tier), Action: action, SubjectDigest: subjectDigest, Subject: approvalSubject, Reason: reason, Affected: affected, ExpiresAt: expiresAt})
 		if e != nil {
 			return e
 		}
@@ -139,6 +169,9 @@ func (c *cli) approvalCmd() *cobra.Command {
 	request.Flags().StringVar(&action, "action", "", "proposed action")
 	request.Flags().StringVar(&reason, "reason", "", "reason")
 	request.Flags().StringSliceVar(&affected, "affected", nil, "affected principal")
+	request.Flags().StringVar(&subjectDigest, "subject-digest", "", "canonical operation digest for a bound approval")
+	request.Flags().StringVar(&approvalSubject, "subject-json", "", "canonical operation JSON for approver review")
+	request.Flags().DurationVar(&expiresIn, "expires-in", 0, "approval validity window")
 	approve := payloadStatus(c, "approval", "approve", func(string) any { return model.ApprovalResponse{} })
 	reject := payloadStatus(c, "approval", "reject", func(string) any { return model.ApprovalResponse{} })
 	list := &cobra.Command{Use: "list", RunE: func(cmd *cobra.Command, args []string) error {
