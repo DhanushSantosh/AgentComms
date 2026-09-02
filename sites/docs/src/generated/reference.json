@@ -1412,6 +1412,12 @@
           "type": "bool"
         },
         {
+          "name": "expires-in",
+          "usage": "approval validity window",
+          "default": "0s",
+          "type": "duration"
+        },
+        {
           "name": "id",
           "usage": "approval ID",
           "default": "",
@@ -1463,6 +1469,18 @@
         {
           "name": "reason",
           "usage": "reason",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "subject-digest",
+          "usage": "canonical operation digest for a bound approval",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "subject-json",
+          "usage": "canonical operation JSON for approver review",
           "default": "",
           "type": "string"
         },
@@ -5974,8 +5992,38 @@
           "type": "string"
         },
         {
+          "name": "approval-expires-in",
+          "usage": "approval validity window",
+          "default": "24h0m0s",
+          "type": "duration"
+        },
+        {
+          "name": "approval-id",
+          "usage": "approval ID (generated from the invocation ID when omitted)",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "approval-reason",
+          "usage": "reason shown to the approver",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "approval-tier",
+          "usage": "ORCHESTRATOR or HUMAN",
+          "default": "ORCHESTRATOR",
+          "type": "string"
+        },
+        {
           "name": "consumer",
           "usage": "INTERACTIVE_ONLY, WORKER_ONLY, or EITHER (target policy default when omitted)",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "deadline",
+          "usage": "absolute RFC3339 deadline (recommended for approval-bound invocations)",
           "default": "",
           "type": "string"
         },
@@ -6061,6 +6109,12 @@
           "name": "quiet",
           "shorthand": "q",
           "usage": "suppress non-essential output",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "request-approval",
+          "usage": "request a payload-bound approval instead of invoking",
           "default": "false",
           "type": "bool"
         },
@@ -6787,6 +6841,24 @@
           "type": "string"
         },
         {
+          "name": "approval-expires-in",
+          "usage": "approval validity window",
+          "default": "24h0m0s",
+          "type": "duration"
+        },
+        {
+          "name": "approval-id",
+          "usage": "approval ID (generated from the message ID when omitted)",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "approval-reason",
+          "usage": "reason shown to the approver",
+          "default": "",
+          "type": "string"
+        },
+        {
           "name": "body",
           "usage": "body",
           "default": "",
@@ -6856,6 +6928,12 @@
           "name": "quiet",
           "shorthand": "q",
           "usage": "suppress non-essential output",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "request-approval",
+          "usage": "request a payload-bound approval instead of posting",
           "default": "false",
           "type": "bool"
         },
@@ -11800,10 +11878,20 @@
       "name": "task_claim"
     },
     {
-      "description": "Post a typed durable message",
+      "description": "Post a typed durable message, or request payload-bound approval for a CONTRACT",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
+          "approval_expires_seconds": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "approval_id": {
+            "type": "string"
+          },
+          "approval_reason": {
+            "type": "string"
+          },
           "body": {
             "type": "string"
           },
@@ -11819,6 +11907,9 @@
               "DECISION"
             ],
             "type": "string"
+          },
+          "request_approval": {
+            "type": "boolean"
           },
           "subject": {
             "type": "string"
@@ -11845,6 +11936,23 @@
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
+          "approval_expires_seconds": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "approval_id": {
+            "type": "string"
+          },
+          "approval_reason": {
+            "type": "string"
+          },
+          "approval_tier": {
+            "enum": [
+              "ORCHESTRATOR",
+              "HUMAN"
+            ],
+            "type": "string"
+          },
           "consumer_mode": {
             "enum": [
               "INTERACTIVE_ONLY",
@@ -11877,6 +11985,9 @@
               "URGENT"
             ],
             "type": "string"
+          },
+          "request_approval": {
+            "type": "boolean"
           },
           "scopes": {
             "items": {

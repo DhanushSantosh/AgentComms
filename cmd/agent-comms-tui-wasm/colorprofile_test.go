@@ -66,8 +66,15 @@ func runTUIAndCapture(t *testing.T, opts ...tea.ProgramOption) string {
 
 	go func() {
 		_, _ = pw.Write(encodeWindowSizeEvent(100, 30))
-		time.Sleep(150 * time.Millisecond) // let the resize actually repaint
-		_, _ = pw.Write([]byte("q"))       // internal/tui/model.go: "q" -> tea.Quit
+		// Wait for an observable model frame instead of assuming a cold CI
+		// runner will repaint within a fixed sleep. "LIVE" is emitted by the
+		// command rail in both colored and stripped output, so this synchronizes
+		// the color-profile tests without making either result the trigger.
+		deadline := time.Now().Add(5 * time.Second)
+		for !strings.Contains(out.String(), "LIVE") && time.Now().Before(deadline) {
+			time.Sleep(10 * time.Millisecond)
+		}
+		_, _ = pw.Write([]byte("q")) // internal/tui/model.go: "q" -> tea.Quit
 	}()
 
 	select {
