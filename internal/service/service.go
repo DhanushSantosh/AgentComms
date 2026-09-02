@@ -891,7 +891,7 @@ func (s *Service) DeleteProject(actor, passphrase, confirmDirectoryName string) 
 	ctx, cancel := context.WithTimeout(context.Background(), controlplane.DefaultRequestTimeout)
 	defer cancel()
 	if cfg.RuntimeMode == "service" {
-		client, clientErr := remote.New(cfg.AuthorityURL, controlplane.DefaultRequestTimeout)
+		client, clientErr := remote.NewWithToken(cfg.AuthorityURL, controlplane.DefaultRequestTimeout, strings.TrimSpace(os.Getenv("AGENT_COMMS_AUTHORITY_TOKEN")))
 		if clientErr != nil {
 			return DeleteProjectResult{}, clientErr
 		}

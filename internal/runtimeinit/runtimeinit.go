@@ -26,6 +26,7 @@ type Config struct {
 	Owner            string
 	Mode             string
 	AuthorityURL     string
+	AuthorityToken   string
 	ServicePublicKey string
 	DaemonEndpoint   string
 }
@@ -127,7 +128,7 @@ func Initialize(ctx context.Context, config Config) (Result, error) {
 		if config.AuthorityURL == "" || config.ServicePublicKey == "" {
 			return Result{}, errors.New("service mode requires authority URL and service public key")
 		}
-		if err = initializeService(ctx, config.AuthorityURL, projectID, config.Owner, ownerCredential); err != nil {
+		if err = initializeService(ctx, config.AuthorityURL, config.AuthorityToken, projectID, config.Owner, ownerCredential); err != nil {
 			return Result{}, err
 		}
 		result.AuthorityURL = config.AuthorityURL
@@ -204,8 +205,8 @@ func initializePersonal(ctx context.Context, databasePath, projectID, owner stri
 	return signer.PublicKey(), nil
 }
 
-func initializeService(ctx context.Context, authorityURL, projectID, owner string, ownerCredential identity.Credential) error {
-	client, err := remote.New(authorityURL, controlplane.DefaultRequestTimeout)
+func initializeService(ctx context.Context, authorityURL, authorityToken, projectID, owner string, ownerCredential identity.Credential) error {
+	client, err := remote.NewWithToken(authorityURL, controlplane.DefaultRequestTimeout, authorityToken)
 	if err != nil {
 		return err
 	}

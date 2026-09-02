@@ -88,4 +88,7 @@ denial of service. No additional user data is collected.
 Per-identity authority authentication and durable project/principal quotas are
 follow-up hardening work: the present HTTP service delegates identity
 authentication to its deployment boundary, so adding a new application-level
-identity contract is intentionally outside this RFC.
+identity contract is intentionally outside this RFC. The first phase of that
+follow-up is [RFC 0026](0026-authority-bearer-token.md), which adds an
+application-enforced authority bearer token while leaving per-principal quotas
+as future work.

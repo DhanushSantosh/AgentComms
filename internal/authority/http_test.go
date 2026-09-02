@@ -1,6 +1,7 @@
 package authority
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -39,6 +40,39 @@ func TestStreamUsesDedicatedAdmissionPool(t *testing.T) {
 	server.stream(recorder, httptest.NewRequest(http.MethodGet, "/v1/projects/p/stream", nil))
 	if recorder.Code != http.StatusServiceUnavailable {
 		t.Fatalf("full stream pool status=%d", recorder.Code)
+	}
+}
+
+func TestBearerTokenProtectsAuthorityEndpoints(t *testing.T) {
+	server := &HTTPServer{admission: make(chan struct{}, 1), streamAdmission: make(chan struct{}, 1), rates: newRateRegistry(1, 1), bearerToken: "secret-token"}
+	passed := false
+	handler := server.middleware(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { passed = true }))
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/v1/projects/p/state", nil))
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("status=%d", recorder.Code)
+	}
+	if passed {
+		t.Fatal("unauthorized request reached handler")
+	}
+	request := httptest.NewRequest(http.MethodGet, "/v1/projects/p/state", nil)
+	request.Header.Set("Authorization", "Bearer secret-token")
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("authorized status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestBearerTokenLeavesHealthChecksPublic(t *testing.T) {
+	server := &HTTPServer{admission: make(chan struct{}, 1), streamAdmission: make(chan struct{}, 1), rates: newRateRegistry(1, 1), bearerToken: "secret-token"}
+	handler := server.middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "ok") }))
+	for _, path := range []string{"/health/live", "/health/ready"} {
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("%s status=%d", path, recorder.Code)
+		}
 	}
 }
 

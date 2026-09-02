@@ -36,6 +36,7 @@ const (
 
 type RunConfig struct {
 	AuthorityURL         string
+	AuthorityToken       string
 	ServicePublicKey     string
 	CachePath            string
 	Endpoint             string
@@ -91,7 +92,7 @@ func Run(ctx context.Context, cfg RunConfig) error {
 		defer personalEngine.Close()
 		client = personalEngine
 	} else {
-		remoteClient, remoteErr := remote.New(cfg.AuthorityURL, controlplane.DefaultRequestTimeout)
+		remoteClient, remoteErr := remote.NewWithToken(cfg.AuthorityURL, controlplane.DefaultRequestTimeout, cfg.AuthorityToken)
 		if remoteErr != nil {
 			return remoteErr
 		}

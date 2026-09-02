@@ -22,9 +22,14 @@ const maxResponseBytes = 8 * 1024 * 1024
 type Client struct {
 	baseURL string
 	http    *http.Client
+	token   string
 }
 
 func New(baseURL string, timeout time.Duration) (*Client, error) {
+	return NewWithToken(baseURL, timeout, "")
+}
+
+func NewWithToken(baseURL string, timeout time.Duration, token string) (*Client, error) {
 	parsed, err := url.Parse(baseURL)
 	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
 		return nil, errors.New("authority URL must be an absolute HTTP or HTTPS URL")
@@ -41,6 +46,7 @@ func New(baseURL string, timeout time.Duration) (*Client, error) {
 	return &Client{
 		baseURL: strings.TrimRight(baseURL, "/"),
 		http:    &http.Client{Transport: transport, Timeout: timeout},
+		token:   strings.TrimSpace(token),
 	}, nil
 }
 
@@ -119,6 +125,9 @@ func (c *Client) doJSON(ctx context.Context, method, path string, requestBody, r
 	}
 	if requestBody != nil {
 		request.Header.Set("Content-Type", "application/json")
+	}
+	if c.token != "" {
+		request.Header.Set("Authorization", "Bearer "+c.token)
 	}
 	response, err := c.http.Do(request)
 	if err != nil {

@@ -2,6 +2,8 @@ package authority
 
 import (
 	"context"
+	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -34,6 +36,7 @@ type HTTPConfig struct {
 	MaxStreams    int
 	RatePerSecond float64
 	RateBurst     float64
+	BearerToken   string
 	Logger        *slog.Logger
 }
 
@@ -43,6 +46,7 @@ type HTTPServer struct {
 	admission       chan struct{}
 	streamAdmission chan struct{}
 	rates           *rateRegistry
+	bearerToken     string
 	metrics         serverMetrics
 }
 
@@ -79,7 +83,7 @@ func NewHTTPServer(engine *Engine, cfg HTTPConfig) *HTTPServer {
 	}
 	return &HTTPServer{
 		engine: engine, logger: logger, admission: make(chan struct{}, maxInFlight), streamAdmission: make(chan struct{}, maxStreams),
-		rates: newRateRegistry(rate, burst),
+		rates: newRateRegistry(rate, burst), bearerToken: strings.TrimSpace(cfg.BearerToken),
 	}
 }
 
@@ -102,6 +106,14 @@ func (s *HTTPServer) Handler() http.Handler {
 func (s *HTTPServer) middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.metrics.requests.Add(1)
+		if !s.authorized(r) {
+			s.metrics.rejected.Add(1)
+			w.Header().Set("WWW-Authenticate", `Bearer realm="agent-comms-authority"`)
+			writeError(w, http.StatusUnauthorized, &controlplane.Error{
+				Code: controlplane.CodeAuthorization, Message: "authority token is required",
+			})
+			return
+		}
 		if isStreamRequest(r) {
 			next.ServeHTTP(w, r)
 			return
@@ -123,6 +135,28 @@ func (s *HTTPServer) middleware(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func (s *HTTPServer) authorized(r *http.Request) bool {
+	if isPublicRequest(r) || s.bearerToken == "" {
+		return true
+	}
+	raw := r.Header.Get("Authorization")
+	const prefix = "Bearer "
+	if !strings.HasPrefix(raw, prefix) {
+		return false
+	}
+	presented := strings.TrimSpace(strings.TrimPrefix(raw, prefix))
+	if presented == "" {
+		return false
+	}
+	presentedDigest := sha256.Sum256([]byte(presented))
+	expectedDigest := sha256.Sum256([]byte(s.bearerToken))
+	return subtle.ConstantTimeCompare(presentedDigest[:], expectedDigest[:]) == 1
+}
+
+func isPublicRequest(r *http.Request) bool {
+	return r.Method == http.MethodGet && (r.URL.Path == "/health/live" || r.URL.Path == "/health/ready")
 }
 
 func isStreamRequest(r *http.Request) bool {

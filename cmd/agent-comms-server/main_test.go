@@ -8,6 +8,18 @@ func TestParseMigrationCommandRequiresDatabaseURL(t *testing.T) {
 	}
 }
 
+func TestValidateRuntimeSecretsRequiresProductionAuthorityToken(t *testing.T) {
+	if err := validateRuntimeSecrets(true, ""); err == nil {
+		t.Fatal("expected production without authority token to fail")
+	}
+	if err := validateRuntimeSecrets(true, " token "); err != nil {
+		t.Fatalf("production with authority token failed: %v", err)
+	}
+	if err := validateRuntimeSecrets(false, ""); err != nil {
+		t.Fatalf("development without authority token failed: %v", err)
+	}
+}
+
 func TestParseMigrationCommandRequiresValidUsage(t *testing.T) {
 	cases := [][]string{
 		{},

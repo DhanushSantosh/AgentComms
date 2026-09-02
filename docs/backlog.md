@@ -102,6 +102,18 @@ one is picked up, remove it from here and note the landing commit.
 
 ## Security / governance
 
+- **RESOLVED 2026-09-02: added first-phase application authentication for the
+  shared authority service ([RFC 0026](rfcs/0026-authority-bearer-token.md)).**
+  Production `agent-comms-server` now requires
+  `AGENT_COMMS_AUTHORITY_TOKEN`; all authority endpoints except
+  `/health/live` and `/health/ready` require that bearer token when it is
+  configured, including project creation, state/events/stream, verification,
+  metrics, deletion, and signed command submission. Service-mode clients and
+  daemons send the token from the same environment variable without storing it
+  in `.agent-comms/config.json`. This closes the anonymous service-admission
+  part of the audit follow-up; per-principal durable quotas and token rotation
+  remain future hardening, not part of this first phase.
+
 - **RESOLVED 2026-09-02: audited the five non-`HUMAN` `hasApproval` call
   sites deferred by [RFC 0023](rfcs/0023-single-use-orchestrator-grant-approval.md)
   and closed the one real gap ([RFC 0024](rfcs/0024-single-use-task-takeover-approval.md)).**
