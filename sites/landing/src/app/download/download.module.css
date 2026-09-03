@@ -17,7 +17,6 @@
   background:
     linear-gradient(90deg, transparent calc(50% - 0.5px), color-mix(in srgb, var(--text) 9%, transparent) 50%, transparent calc(50% + 0.5px)),
     var(--ink);
-  min-height: 100svh;
   padding: 2rem var(--gutter) clamp(6rem, 10vw, 10rem);
 }
 
