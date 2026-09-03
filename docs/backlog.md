@@ -305,6 +305,22 @@ kept:
   `draft delete` deferred to the `draft delete` entry under Security /
   governance).
 
+## Unwired / vestigial code (surfaced during RFC 0028 review, 2026-09-02)
+
+- **`localcache.Cache.Rebuild` has zero callers.** It iterates the whole
+  verified event log through `projection.ApplyEvent` to rebuild a
+  corrupted projection cache in place — real, working recovery
+  machinery, but nothing (no command, no daemon path, no test) ever
+  invokes it. Either wire it into a `doctor` repair action / a
+  `project upgrade` step, or delete it. RFC 0028's unknown-event
+  tolerance in `ApplyEvent` was justified partly by this being the one
+  real full-replay consumer, so it should not just be dropped silently.
+- **`model.Integrity.UnknownEvents` is a declared field nothing writes.**
+  Someone anticipated surfacing a count of skipped/unrecognized events
+  (now that `ApplyEvent` tolerates them — RFC 0028). Wire it (increment
+  in `ApplyEvent`'s leniency branch, surface in `verify` / `status`) or
+  remove the field.
+
 ## Test / CI infrastructure
 
 - **`TestInvocationDeliveryFailureDoesNotTerminateObligation` is flaky on
