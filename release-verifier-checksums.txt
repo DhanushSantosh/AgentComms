@@ -1,6 +1,7 @@
-# Trusted SHA-256 pins for first-install verifier binaries.
-#
-# Before creating a release tag, run:
-#   ./scripts/generate-verifier-checksums.sh vX.Y.Z > release-verifier-checksums.txt
-# Commit the result before tagging. The release workflow rebuilds the verifier
-# deterministically and refuses to publish if any digest differs.
+# Generated verifier pins for v0.6.0. Commit before creating the tag.
+v0.6.0 agent-comms-verify-windows-amd64.exe 3c43c6c368f02e64b286e73d5c7b4d0d49341e1b5953a5b5b82856378e7a33ba
+v0.6.0 agent-comms-verify-windows-arm64.exe fafa70499bb83890b7c2c5004db5e4d2d8145312c73342123abcc8af52484963
+v0.6.0 agent-comms-verify-linux-amd64 26005656b7b3b3f02c608d447d5177d8b29b6854be19bbae8ddd141396903f8a
+v0.6.0 agent-comms-verify-linux-arm64 3340ecd26db41cb49da0c4f3b20393b09ad51a830cb5bf59fab193c78bdd21ee
+v0.6.0 agent-comms-verify-darwin-amd64 5c412afe39ddb1a2544f8f64dae709e107a3909668fd0378ad33a56f568d28e7
+v0.6.0 agent-comms-verify-darwin-arm64 399f07fc405b50d21d4897d4612c9ef7218f94c144ebf772ffc526e03135654f
