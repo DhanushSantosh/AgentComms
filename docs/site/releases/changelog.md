@@ -4,13 +4,26 @@ description: What changed in each tagged release, why it matters, and where to f
 section: Releases
 order: 1
 audience: Everyone
-lastVerified: 2026-08-26
+lastVerified: 2026-09-03
 related: [guide/maintenance, security/releases]
 ---
 
 Every tagged release is signed and dated. This page summarizes what changed and why; the repository's [CHANGELOG.md](https://github.com/DhanushSantosh/AgentComms/blob/main/CHANGELOG.md) carries the exhaustive per-change detail this page intentionally leaves out.
 
 Every release below is **Beta** — before v1.0.0, SemVer's own 0.x.y convention means anything may still change without notice. There is no Stable channel yet; that label only becomes accurate once a 1.x release ships.
+
+## v0.6.0 — "Chain of Trust" — Beta — 2026-09-03
+
+A governance and transport-security pass: approvals now bind to the exact operation and expiry a reviewer saw, standalone installers verify against a digest pinned in the release tag instead of mutable release assets, and the shared authority service gets an application-level access token — plus two approval-reuse gaps closed in orchestrator grants and task takeovers.
+
+**Security**
+
+- **Breaking:** approvals for contract publication and approval-gated invocations now carry a SHA-256 subject digest and an expiry; existing action-only approvals no longer authorize these operations and must be renewed. See RFC 0025.
+- **Breaking:** production `agent-comms-server` startup now requires `AGENT_COMMS_AUTHORITY_TOKEN`, alongside existing TLS and signing-key requirements. See RFC 0026.
+- **Breaking:** standalone installers now require an exact release version, authenticate the downloaded verifier against six platform digests committed in that protected tag, and bind Sigstore verification to the exact requested tag. A separately installed Cosign binary is still not required. See RFC 0025.
+- Orchestrator-grant and task-takeover approvals are now ID-scoped and single-use: a matching approval is consumed once used and can no longer be replayed to re-authorize the same grant or takeover indefinitely. See RFC 0023 and RFC 0024.
+- Authority SSE streams now use a dedicated bounded connection pool so long-lived stream holders can no longer exhaust health-check or mutation capacity. See RFC 0025.
+- Fixes two high-severity CVEs: `google.golang.org/grpc` (HTTP/2 DATA-frame-fragmentation heap exhaustion) and `fast-uri` (SSRF/host-confusion via percent-decoding and IDN canonicalization).
 
 ## v0.5.0 — "Plain Speech" — Beta — 2026-08-26
 

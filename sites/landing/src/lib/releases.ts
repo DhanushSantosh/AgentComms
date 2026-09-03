@@ -9,6 +9,20 @@ export type Release = {
 
 export const releases: readonly Release[] = [
   {
+    version: "v0.6.0",
+    channel: "BETA",
+    name: "Chain of Trust",
+    date: "2026-09-03",
+    dateLabel: "3 Sep 2026",
+    highlights: [
+      "Approvals for contract publication and approval-gated invocations now bind to a SHA-256 digest of the exact operation and an expiry — a later, differing operation can no longer ride an approval issued for something else.",
+      "Standalone installers are now version-pinned and verify the release verifier's own digest against a value committed in the release tag, closing the prior circular trust in first-install verification.",
+      "The shared authority service now supports an application-level bearer token (AGENT_COMMS_AUTHORITY_TOKEN), required in production alongside existing TLS and signing-key requirements.",
+      "Orchestrator-grant and task-takeover approvals are now single-use — a matching approval is consumed once used and can no longer be replayed to re-authorize the same grant or takeover indefinitely.",
+      "Fixes two high-severity CVEs (google.golang.org/grpc, fast-uri)."
+    ]
+  },
+  {
     version: "v0.5.0",
     channel: "BETA",
     name: "Plain Speech",
