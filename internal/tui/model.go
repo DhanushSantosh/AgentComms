@@ -1519,7 +1519,7 @@ func (m Model) archive(p palette) string {
 			n++
 		}
 	}
-	return fmt.Sprintf("%d archived tasks remain in immutable history.\n\nUse `agent-comms search <query>` for full-text event search or `agent-comms export markdown` for a review packet.", n)
+	return fmt.Sprintf("%d archived tasks remain in immutable history.\n\nUse `agent-comms history --grep <query> --all` for full-text event search or `agent-comms export markdown` for a review packet.", n)
 }
 
 // paletteLayout builds the command palette's unplaced panel content --

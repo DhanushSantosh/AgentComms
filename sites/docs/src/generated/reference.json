@@ -158,7 +158,7 @@
     {
       "path": "agent-comms agent activate",
       "use": "agent-comms agent activate [flags]",
-      "summary": "",
+      "summary": "Activate an identity with a role and scopes",
       "flags": [
         {
           "name": "actor",
@@ -257,7 +257,7 @@
     {
       "path": "agent-comms agent delete",
       "use": "agent-comms agent delete [flags]",
-      "summary": "",
+      "summary": "Delete this agent",
       "flags": [
         {
           "name": "actor",
@@ -419,7 +419,7 @@
     {
       "path": "agent-comms agent list",
       "use": "agent-comms agent list",
-      "summary": "",
+      "summary": "List governed identities",
       "flags": [
         {
           "name": "actor",
@@ -494,7 +494,7 @@
     {
       "path": "agent-comms agent register",
       "use": "agent-comms agent register [flags]",
-      "summary": "",
+      "summary": "Register a governed identity",
       "flags": [
         {
           "name": "actor",
@@ -587,7 +587,7 @@
     {
       "path": "agent-comms agent rename",
       "use": "agent-comms agent rename [flags]",
-      "summary": "",
+      "summary": "Rename an identity's display name",
       "flags": [
         {
           "name": "actor",
@@ -674,7 +674,7 @@
     {
       "path": "agent-comms agent revoke",
       "use": "agent-comms agent revoke [flags]",
-      "summary": "",
+      "summary": "Revoke this agent",
       "flags": [
         {
           "name": "actor",
@@ -761,7 +761,7 @@
     {
       "path": "agent-comms agent rotate-key",
       "use": "agent-comms agent rotate-key",
-      "summary": "",
+      "summary": "Rotate this identity's signing key",
       "flags": [
         {
           "name": "actor",
@@ -834,9 +834,90 @@
       ]
     },
     {
+      "path": "agent-comms agent show",
+      "use": "agent-comms agent show [flags]",
+      "summary": "Show one agent by ID",
+      "flags": [
+        {
+          "name": "actor",
+          "usage": "actor override (credential must match)",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "details",
+          "usage": "show secondary and nested fields in human output",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "id",
+          "usage": "entity ID",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "json",
+          "usage": "emit a versioned JSON envelope",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "no-color",
+          "usage": "disable ANSI color",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "non-interactive",
+          "usage": "never prompt",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
+          "name": "profile",
+          "usage": "user profile name",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "project",
+          "usage": "target project root",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "quiet",
+          "shorthand": "q",
+          "usage": "suppress non-essential output",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "timeout",
+          "usage": "transaction lock timeout",
+          "default": "10s",
+          "type": "duration"
+        },
+        {
+          "name": "verbose",
+          "shorthand": "v",
+          "usage": "show operational metadata in human output",
+          "default": "false",
+          "type": "bool"
+        }
+      ]
+    },
+    {
       "path": "agent-comms agent suspend",
       "use": "agent-comms agent suspend [flags]",
-      "summary": "",
+      "summary": "Suspend this agent",
       "flags": [
         {
           "name": "actor",
@@ -998,7 +1079,7 @@
     {
       "path": "agent-comms agent-instructions",
       "use": "agent-comms agent-instructions",
-      "summary": "",
+      "summary": "Print setup and command guidance for a collaborating agent",
       "flags": [
         {
           "name": "actor",
@@ -1148,7 +1229,7 @@
     {
       "path": "agent-comms approval approve",
       "use": "agent-comms approval approve [flags]",
-      "summary": "",
+      "summary": "Move this approval to approve",
       "flags": [
         {
           "name": "actor",
@@ -1229,7 +1310,7 @@
     {
       "path": "agent-comms approval list",
       "use": "agent-comms approval list",
-      "summary": "",
+      "summary": "List approvals and their status",
       "flags": [
         {
           "name": "actor",
@@ -1304,7 +1385,7 @@
     {
       "path": "agent-comms approval reject",
       "use": "agent-comms approval reject [flags]",
-      "summary": "",
+      "summary": "Move this approval to reject",
       "flags": [
         {
           "name": "actor",
@@ -1385,7 +1466,7 @@
     {
       "path": "agent-comms approval request",
       "use": "agent-comms approval request [flags]",
-      "summary": "",
+      "summary": "Request a governed approval",
       "flags": [
         {
           "name": "action",
@@ -1419,7 +1500,7 @@
         },
         {
           "name": "id",
-          "usage": "approval ID",
+          "usage": "approval ID (auto-generated if omitted)",
           "default": "",
           "type": "string"
         },
@@ -1489,6 +1570,87 @@
           "usage": "ORCHESTRATOR or HUMAN",
           "default": "ORCHESTRATOR",
           "type": "string"
+        },
+        {
+          "name": "timeout",
+          "usage": "transaction lock timeout",
+          "default": "10s",
+          "type": "duration"
+        },
+        {
+          "name": "verbose",
+          "shorthand": "v",
+          "usage": "show operational metadata in human output",
+          "default": "false",
+          "type": "bool"
+        }
+      ]
+    },
+    {
+      "path": "agent-comms approval show",
+      "use": "agent-comms approval show [flags]",
+      "summary": "Show one approval by ID",
+      "flags": [
+        {
+          "name": "actor",
+          "usage": "actor override (credential must match)",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "details",
+          "usage": "show secondary and nested fields in human output",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "id",
+          "usage": "entity ID",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "json",
+          "usage": "emit a versioned JSON envelope",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "no-color",
+          "usage": "disable ANSI color",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "non-interactive",
+          "usage": "never prompt",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
+          "name": "profile",
+          "usage": "user profile name",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "project",
+          "usage": "target project root",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "quiet",
+          "shorthand": "q",
+          "usage": "suppress non-essential output",
+          "default": "false",
+          "type": "bool"
         },
         {
           "name": "timeout",
@@ -1658,7 +1820,7 @@
     {
       "path": "agent-comms artifact add",
       "use": "agent-comms artifact add [flags]",
-      "summary": "",
+      "summary": "Store a file as a content-addressed artifact",
       "flags": [
         {
           "name": "actor",
@@ -1739,7 +1901,7 @@
     {
       "path": "agent-comms artifact show",
       "use": "agent-comms artifact show [flags]",
-      "summary": "",
+      "summary": "Show an artifact by its SHA-256",
       "flags": [
         {
           "name": "actor",
@@ -1820,7 +1982,7 @@
     {
       "path": "agent-comms artifact verify",
       "use": "agent-comms artifact verify [flags]",
-      "summary": "",
+      "summary": "Verify an artifact's content matches its SHA-256",
       "flags": [
         {
           "name": "actor",
@@ -1899,9 +2061,9 @@
       ]
     },
     {
-      "path": "agent-comms claude",
-      "use": "agent-comms claude",
-      "summary": "Serve, attach to, or tail Claude Code sessions",
+      "path": "agent-comms attention",
+      "use": "agent-comms attention",
+      "summary": "List everything currently needing operator intervention",
       "flags": [
         {
           "name": "actor",
@@ -1920,510 +2082,6 @@
           "usage": "emit a versioned JSON envelope",
           "default": "false",
           "type": "bool"
-        },
-        {
-          "name": "no-color",
-          "usage": "disable ANSI color",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "non-interactive",
-          "usage": "never prompt",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "output",
-          "usage": "output format: human, plain, json, or jsonl",
-          "default": "human",
-          "type": "string"
-        },
-        {
-          "name": "profile",
-          "usage": "user profile name",
-          "default": "",
-          "type": "string"
-        },
-        {
-          "name": "project",
-          "usage": "target project root",
-          "default": "",
-          "type": "string"
-        },
-        {
-          "name": "quiet",
-          "shorthand": "q",
-          "usage": "suppress non-essential output",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "timeout",
-          "usage": "transaction lock timeout",
-          "default": "10s",
-          "type": "duration"
-        },
-        {
-          "name": "verbose",
-          "shorthand": "v",
-          "usage": "show operational metadata in human output",
-          "default": "false",
-          "type": "bool"
-        }
-      ]
-    },
-    {
-      "path": "agent-comms claude attach",
-      "use": "agent-comms claude attach [flags]",
-      "summary": "Watch a Claude live runtime's event stream",
-      "flags": [
-        {
-          "name": "actor",
-          "usage": "actor override (credential must match)",
-          "default": "",
-          "type": "string"
-        },
-        {
-          "name": "details",
-          "usage": "show secondary and nested fields in human output",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "json",
-          "usage": "emit a versioned JSON envelope",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "no-color",
-          "usage": "disable ANSI color",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "non-interactive",
-          "usage": "never prompt",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "output",
-          "usage": "output format: human, plain, json, or jsonl",
-          "default": "human",
-          "type": "string"
-        },
-        {
-          "name": "profile",
-          "usage": "user profile name",
-          "default": "",
-          "type": "string"
-        },
-        {
-          "name": "project",
-          "usage": "target project root",
-          "default": "",
-          "type": "string"
-        },
-        {
-          "name": "quiet",
-          "shorthand": "q",
-          "usage": "suppress non-essential output",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "runtime",
-          "usage": "registered Agent Comms runtime ID",
-          "default": "",
-          "type": "string"
-        },
-        {
-          "name": "server",
-          "usage": "Claude live broker base URL",
-          "default": "http://127.0.0.1:4097",
-          "type": "string"
-        },
-        {
-          "name": "timeout",
-          "usage": "transaction lock timeout",
-          "default": "10s",
-          "type": "duration"
-        },
-        {
-          "name": "verbose",
-          "shorthand": "v",
-          "usage": "show operational metadata in human output",
-          "default": "false",
-          "type": "bool"
-        }
-      ]
-    },
-    {
-      "path": "agent-comms claude serve",
-      "use": "agent-comms claude serve [flags]",
-      "summary": "Run the local Claude live broker",
-      "flags": [
-        {
-          "name": "actor",
-          "usage": "actor override (credential must match)",
-          "default": "",
-          "type": "string"
-        },
-        {
-          "name": "details",
-          "usage": "show secondary and nested fields in human output",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "json",
-          "usage": "emit a versioned JSON envelope",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "listen",
-          "usage": "loopback listen address",
-          "default": "127.0.0.1:4097",
-          "type": "string"
-        },
-        {
-          "name": "no-color",
-          "usage": "disable ANSI color",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "non-interactive",
-          "usage": "never prompt",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "output",
-          "usage": "output format: human, plain, json, or jsonl",
-          "default": "human",
-          "type": "string"
-        },
-        {
-          "name": "profile",
-          "usage": "user profile name",
-          "default": "",
-          "type": "string"
-        },
-        {
-          "name": "project",
-          "usage": "target project root",
-          "default": "",
-          "type": "string"
-        },
-        {
-          "name": "quiet",
-          "shorthand": "q",
-          "usage": "suppress non-essential output",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "timeout",
-          "usage": "transaction lock timeout",
-          "default": "10s",
-          "type": "duration"
-        },
-        {
-          "name": "verbose",
-          "shorthand": "v",
-          "usage": "show operational metadata in human output",
-          "default": "false",
-          "type": "bool"
-        }
-      ]
-    },
-    {
-      "path": "agent-comms claude tail",
-      "use": "agent-comms claude tail [flags]",
-      "summary": "Stream a Claude Code session transcript live",
-      "flags": [
-        {
-          "name": "actor",
-          "usage": "actor override (credential must match)",
-          "default": "",
-          "type": "string"
-        },
-        {
-          "name": "details",
-          "usage": "show secondary and nested fields in human output",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "json",
-          "usage": "emit a versioned JSON envelope",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "no-color",
-          "usage": "disable ANSI color",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "no-replay",
-          "usage": "skip replaying existing history, only show new turns",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "non-interactive",
-          "usage": "never prompt",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "output",
-          "usage": "output format: human, plain, json, or jsonl",
-          "default": "human",
-          "type": "string"
-        },
-        {
-          "name": "profile",
-          "usage": "user profile name",
-          "default": "",
-          "type": "string"
-        },
-        {
-          "name": "project",
-          "usage": "target project root",
-          "default": "",
-          "type": "string"
-        },
-        {
-          "name": "project-dir",
-          "usage": "Claude Code working directory for this session (defaults to the current AgentComms project root)",
-          "default": "",
-          "type": "string"
-        },
-        {
-          "name": "quiet",
-          "shorthand": "q",
-          "usage": "suppress non-essential output",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "session",
-          "usage": "Claude session ID to watch",
-          "default": "",
-          "type": "string"
-        },
-        {
-          "name": "timeout",
-          "usage": "transaction lock timeout",
-          "default": "10s",
-          "type": "duration"
-        },
-        {
-          "name": "verbose",
-          "shorthand": "v",
-          "usage": "show operational metadata in human output",
-          "default": "false",
-          "type": "bool"
-        }
-      ]
-    },
-    {
-      "path": "agent-comms codex",
-      "use": "agent-comms codex",
-      "summary": "Serve or attach to Codex live sessions",
-      "flags": [
-        {
-          "name": "actor",
-          "usage": "actor override (credential must match)",
-          "default": "",
-          "type": "string"
-        },
-        {
-          "name": "details",
-          "usage": "show secondary and nested fields in human output",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "json",
-          "usage": "emit a versioned JSON envelope",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "no-color",
-          "usage": "disable ANSI color",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "non-interactive",
-          "usage": "never prompt",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "output",
-          "usage": "output format: human, plain, json, or jsonl",
-          "default": "human",
-          "type": "string"
-        },
-        {
-          "name": "profile",
-          "usage": "user profile name",
-          "default": "",
-          "type": "string"
-        },
-        {
-          "name": "project",
-          "usage": "target project root",
-          "default": "",
-          "type": "string"
-        },
-        {
-          "name": "quiet",
-          "shorthand": "q",
-          "usage": "suppress non-essential output",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "timeout",
-          "usage": "transaction lock timeout",
-          "default": "10s",
-          "type": "duration"
-        },
-        {
-          "name": "verbose",
-          "shorthand": "v",
-          "usage": "show operational metadata in human output",
-          "default": "false",
-          "type": "bool"
-        }
-      ]
-    },
-    {
-      "path": "agent-comms codex attach",
-      "use": "agent-comms codex attach [flags]",
-      "summary": "Watch a Codex live runtime's event stream",
-      "flags": [
-        {
-          "name": "actor",
-          "usage": "actor override (credential must match)",
-          "default": "",
-          "type": "string"
-        },
-        {
-          "name": "details",
-          "usage": "show secondary and nested fields in human output",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "json",
-          "usage": "emit a versioned JSON envelope",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "no-color",
-          "usage": "disable ANSI color",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "non-interactive",
-          "usage": "never prompt",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "output",
-          "usage": "output format: human, plain, json, or jsonl",
-          "default": "human",
-          "type": "string"
-        },
-        {
-          "name": "profile",
-          "usage": "user profile name",
-          "default": "",
-          "type": "string"
-        },
-        {
-          "name": "project",
-          "usage": "target project root",
-          "default": "",
-          "type": "string"
-        },
-        {
-          "name": "quiet",
-          "shorthand": "q",
-          "usage": "suppress non-essential output",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "runtime",
-          "usage": "registered Agent Comms runtime ID",
-          "default": "",
-          "type": "string"
-        },
-        {
-          "name": "server",
-          "usage": "Codex live broker base URL",
-          "default": "http://127.0.0.1:4098",
-          "type": "string"
-        },
-        {
-          "name": "timeout",
-          "usage": "transaction lock timeout",
-          "default": "10s",
-          "type": "duration"
-        },
-        {
-          "name": "verbose",
-          "shorthand": "v",
-          "usage": "show operational metadata in human output",
-          "default": "false",
-          "type": "bool"
-        }
-      ]
-    },
-    {
-      "path": "agent-comms codex serve",
-      "use": "agent-comms codex serve [flags]",
-      "summary": "Run the local Codex live broker",
-      "flags": [
-        {
-          "name": "actor",
-          "usage": "actor override (credential must match)",
-          "default": "",
-          "type": "string"
-        },
-        {
-          "name": "details",
-          "usage": "show secondary and nested fields in human output",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "json",
-          "usage": "emit a versioned JSON envelope",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "listen",
-          "usage": "loopback listen address",
-          "default": "127.0.0.1:4098",
-          "type": "string"
         },
         {
           "name": "no-color",
@@ -2555,7 +2213,7 @@
     {
       "path": "agent-comms config",
       "use": "agent-comms config",
-      "summary": "Inspect resolved user and project configuration",
+      "summary": "Inspect and set user and project configuration",
       "flags": [
         {
           "name": "actor",
@@ -2628,234 +2286,9 @@
       ]
     },
     {
-      "path": "agent-comms control",
-      "use": "agent-comms control",
-      "summary": "Inspect the human project control plane",
-      "flags": [
-        {
-          "name": "actor",
-          "usage": "actor override (credential must match)",
-          "default": "",
-          "type": "string"
-        },
-        {
-          "name": "details",
-          "usage": "show secondary and nested fields in human output",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "json",
-          "usage": "emit a versioned JSON envelope",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "no-color",
-          "usage": "disable ANSI color",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "non-interactive",
-          "usage": "never prompt",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "output",
-          "usage": "output format: human, plain, json, or jsonl",
-          "default": "human",
-          "type": "string"
-        },
-        {
-          "name": "profile",
-          "usage": "user profile name",
-          "default": "",
-          "type": "string"
-        },
-        {
-          "name": "project",
-          "usage": "target project root",
-          "default": "",
-          "type": "string"
-        },
-        {
-          "name": "quiet",
-          "shorthand": "q",
-          "usage": "suppress non-essential output",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "timeout",
-          "usage": "transaction lock timeout",
-          "default": "10s",
-          "type": "duration"
-        },
-        {
-          "name": "verbose",
-          "shorthand": "v",
-          "usage": "show operational metadata in human output",
-          "default": "false",
-          "type": "bool"
-        }
-      ]
-    },
-    {
-      "path": "agent-comms control attention",
-      "use": "agent-comms control attention",
-      "summary": "",
-      "flags": [
-        {
-          "name": "actor",
-          "usage": "actor override (credential must match)",
-          "default": "",
-          "type": "string"
-        },
-        {
-          "name": "details",
-          "usage": "show secondary and nested fields in human output",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "json",
-          "usage": "emit a versioned JSON envelope",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "no-color",
-          "usage": "disable ANSI color",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "non-interactive",
-          "usage": "never prompt",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "output",
-          "usage": "output format: human, plain, json, or jsonl",
-          "default": "human",
-          "type": "string"
-        },
-        {
-          "name": "profile",
-          "usage": "user profile name",
-          "default": "",
-          "type": "string"
-        },
-        {
-          "name": "project",
-          "usage": "target project root",
-          "default": "",
-          "type": "string"
-        },
-        {
-          "name": "quiet",
-          "shorthand": "q",
-          "usage": "suppress non-essential output",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "timeout",
-          "usage": "transaction lock timeout",
-          "default": "10s",
-          "type": "duration"
-        },
-        {
-          "name": "verbose",
-          "shorthand": "v",
-          "usage": "show operational metadata in human output",
-          "default": "false",
-          "type": "bool"
-        }
-      ]
-    },
-    {
-      "path": "agent-comms control overview",
-      "use": "agent-comms control overview",
-      "summary": "",
-      "flags": [
-        {
-          "name": "actor",
-          "usage": "actor override (credential must match)",
-          "default": "",
-          "type": "string"
-        },
-        {
-          "name": "details",
-          "usage": "show secondary and nested fields in human output",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "json",
-          "usage": "emit a versioned JSON envelope",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "no-color",
-          "usage": "disable ANSI color",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "non-interactive",
-          "usage": "never prompt",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "output",
-          "usage": "output format: human, plain, json, or jsonl",
-          "default": "human",
-          "type": "string"
-        },
-        {
-          "name": "profile",
-          "usage": "user profile name",
-          "default": "",
-          "type": "string"
-        },
-        {
-          "name": "project",
-          "usage": "target project root",
-          "default": "",
-          "type": "string"
-        },
-        {
-          "name": "quiet",
-          "shorthand": "q",
-          "usage": "suppress non-essential output",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "timeout",
-          "usage": "transaction lock timeout",
-          "default": "10s",
-          "type": "duration"
-        },
-        {
-          "name": "verbose",
-          "shorthand": "v",
-          "usage": "show operational metadata in human output",
-          "default": "false",
-          "type": "bool"
-        }
-      ]
-    },
-    {
-      "path": "agent-comms control settings",
-      "use": "agent-comms control settings",
-      "summary": "",
+      "path": "agent-comms config theme",
+      "use": "agent-comms config theme \u003cauto|dark|high-contrast\u003e",
+      "summary": "Set the UI theme for this user",
       "flags": [
         {
           "name": "actor",
@@ -3005,7 +2438,7 @@
     {
       "path": "agent-comms decision create",
       "use": "agent-comms decision create [flags]",
-      "summary": "",
+      "summary": "Record a durable decision",
       "flags": [
         {
           "name": "actor",
@@ -3021,7 +2454,7 @@
         },
         {
           "name": "id",
-          "usage": "decision ID",
+          "usage": "decision ID (auto-generated if omitted)",
           "default": "",
           "type": "string"
         },
@@ -3108,9 +2541,90 @@
       ]
     },
     {
+      "path": "agent-comms decision show",
+      "use": "agent-comms decision show [flags]",
+      "summary": "Show one decision by ID",
+      "flags": [
+        {
+          "name": "actor",
+          "usage": "actor override (credential must match)",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "details",
+          "usage": "show secondary and nested fields in human output",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "id",
+          "usage": "entity ID",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "json",
+          "usage": "emit a versioned JSON envelope",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "no-color",
+          "usage": "disable ANSI color",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "non-interactive",
+          "usage": "never prompt",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
+          "name": "profile",
+          "usage": "user profile name",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "project",
+          "usage": "target project root",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "quiet",
+          "shorthand": "q",
+          "usage": "suppress non-essential output",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "timeout",
+          "usage": "transaction lock timeout",
+          "default": "10s",
+          "type": "duration"
+        },
+        {
+          "name": "verbose",
+          "shorthand": "v",
+          "usage": "show operational metadata in human output",
+          "default": "false",
+          "type": "bool"
+        }
+      ]
+    },
+    {
       "path": "agent-comms decision supersede",
       "use": "agent-comms decision supersede [flags]",
-      "summary": "",
+      "summary": "Replace a prior decision with a new one",
       "flags": [
         {
           "name": "actor",
@@ -3371,7 +2885,7 @@
     {
       "path": "agent-comms document create",
       "use": "agent-comms document create [flags]",
-      "summary": "",
+      "summary": "Create a governed document",
       "flags": [
         {
           "name": "actor",
@@ -3476,7 +2990,7 @@
     {
       "path": "agent-comms document list",
       "use": "agent-comms document list",
-      "summary": "",
+      "summary": "List governed documents",
       "flags": [
         {
           "name": "actor",
@@ -3551,7 +3065,7 @@
     {
       "path": "agent-comms document show",
       "use": "agent-comms document show [flags]",
-      "summary": "",
+      "summary": "Show one governed document by ID",
       "flags": [
         {
           "name": "actor",
@@ -3632,7 +3146,7 @@
     {
       "path": "agent-comms document supersede",
       "use": "agent-comms document supersede [flags]",
-      "summary": "",
+      "summary": "Replace a document with a newer one",
       "flags": [
         {
           "name": "actor",
@@ -3719,7 +3233,7 @@
     {
       "path": "agent-comms document update",
       "use": "agent-comms document update [flags]",
-      "summary": "",
+      "summary": "Update a governed document's body or tags",
       "flags": [
         {
           "name": "actor",
@@ -3899,7 +3413,7 @@
     {
       "path": "agent-comms draft list",
       "use": "agent-comms draft list [flags]",
-      "summary": "",
+      "summary": "List local drafts",
       "flags": [
         {
           "name": "actor",
@@ -3980,7 +3494,7 @@
     {
       "path": "agent-comms draft save",
       "use": "agent-comms draft save [flags]",
-      "summary": "",
+      "summary": "Save a non-authoritative local draft",
       "flags": [
         {
           "name": "actor",
@@ -4023,6 +3537,87 @@
           "usage": "document, message, or artifact",
           "default": "",
           "type": "string"
+        },
+        {
+          "name": "no-color",
+          "usage": "disable ANSI color",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "non-interactive",
+          "usage": "never prompt",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
+          "name": "profile",
+          "usage": "user profile name",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "project",
+          "usage": "target project root",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "quiet",
+          "shorthand": "q",
+          "usage": "suppress non-essential output",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "timeout",
+          "usage": "transaction lock timeout",
+          "default": "10s",
+          "type": "duration"
+        },
+        {
+          "name": "verbose",
+          "shorthand": "v",
+          "usage": "show operational metadata in human output",
+          "default": "false",
+          "type": "bool"
+        }
+      ]
+    },
+    {
+      "path": "agent-comms draft show",
+      "use": "agent-comms draft show [flags]",
+      "summary": "Show one local draft by ID",
+      "flags": [
+        {
+          "name": "actor",
+          "usage": "actor override (credential must match)",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "details",
+          "usage": "show secondary and nested fields in human output",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "id",
+          "usage": "draft ID",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "json",
+          "usage": "emit a versioned JSON envelope",
+          "default": "false",
+          "type": "bool"
         },
         {
           "name": "no-color",
@@ -4154,7 +3749,7 @@
     {
       "path": "agent-comms env delete",
       "use": "agent-comms env delete [flags]",
-      "summary": "",
+      "summary": "Delete a governed environment value",
       "flags": [
         {
           "name": "actor",
@@ -4235,7 +3830,7 @@
     {
       "path": "agent-comms env get",
       "use": "agent-comms env get [flags]",
-      "summary": "",
+      "summary": "Get a governed environment value",
       "flags": [
         {
           "name": "actor",
@@ -4316,7 +3911,7 @@
     {
       "path": "agent-comms env list",
       "use": "agent-comms env list",
-      "summary": "",
+      "summary": "List governed environment values",
       "flags": [
         {
           "name": "actor",
@@ -4391,7 +3986,7 @@
     {
       "path": "agent-comms env set",
       "use": "agent-comms env set [flags]",
-      "summary": "",
+      "summary": "Set a governed environment value",
       "flags": [
         {
           "name": "actor",
@@ -4554,13 +4149,19 @@
     {
       "path": "agent-comms history",
       "use": "agent-comms history [flags]",
-      "summary": "Inspect the signed event timeline",
+      "summary": "Inspect and search the signed event timeline",
       "flags": [
         {
           "name": "actor",
-          "usage": "only events signed by this actor in the current page",
+          "usage": "only events signed by this actor",
           "default": "",
           "type": "string"
+        },
+        {
+          "name": "all",
+          "usage": "page through the entire log rather than one page",
+          "default": "false",
+          "type": "bool"
         },
         {
           "name": "cursor",
@@ -4575,6 +4176,12 @@
           "type": "bool"
         },
         {
+          "name": "grep",
+          "usage": "only events whose record contains this substring (case-insensitive)",
+          "default": "",
+          "type": "string"
+        },
+        {
           "name": "json",
           "usage": "emit a versioned JSON envelope",
           "default": "false",
@@ -4582,7 +4189,7 @@
         },
         {
           "name": "key-fingerprint",
-          "usage": "only events signed by this key fingerprint in the current page",
+          "usage": "only events signed by this key fingerprint",
           "default": "",
           "type": "string"
         },
@@ -4834,7 +4441,7 @@
     {
       "path": "agent-comms invocation cancel",
       "use": "agent-comms invocation cancel [flags]",
-      "summary": "",
+      "summary": "Move this invocation to cancel",
       "flags": [
         {
           "name": "actor",
@@ -4921,7 +4528,7 @@
     {
       "path": "agent-comms invocation claim",
       "use": "agent-comms invocation claim [flags]",
-      "summary": "",
+      "summary": "Claim this invocation",
       "flags": [
         {
           "name": "actor",
@@ -5008,7 +4615,7 @@
     {
       "path": "agent-comms invocation complete",
       "use": "agent-comms invocation complete [flags]",
-      "summary": "",
+      "summary": "Move this invocation to complete",
       "flags": [
         {
           "name": "actor",
@@ -5099,9 +4706,102 @@
       ]
     },
     {
+      "path": "agent-comms invocation defer",
+      "use": "agent-comms invocation defer [flags]",
+      "summary": "Mark a claimed invocation as blocked and due for a later retry",
+      "flags": [
+        {
+          "name": "actor",
+          "usage": "actor override (credential must match)",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "details",
+          "usage": "show secondary and nested fields in human output",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "id",
+          "usage": "invocation ID",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "json",
+          "usage": "emit a versioned JSON envelope",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "no-color",
+          "usage": "disable ANSI color",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "non-interactive",
+          "usage": "never prompt",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
+          "name": "profile",
+          "usage": "user profile name",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "project",
+          "usage": "target project root",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "quiet",
+          "shorthand": "q",
+          "usage": "suppress non-essential output",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "reason",
+          "usage": "why the invocation is blocked",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "retry-in",
+          "usage": "next attempt relative to now",
+          "default": "0s",
+          "type": "duration"
+        },
+        {
+          "name": "timeout",
+          "usage": "transaction lock timeout",
+          "default": "10s",
+          "type": "duration"
+        },
+        {
+          "name": "verbose",
+          "shorthand": "v",
+          "usage": "show operational metadata in human output",
+          "default": "false",
+          "type": "bool"
+        }
+      ]
+    },
+    {
       "path": "agent-comms invocation expire",
       "use": "agent-comms invocation expire [flags]",
-      "summary": "",
+      "summary": "Move this invocation to expire",
       "flags": [
         {
           "name": "actor",
@@ -5188,7 +4888,7 @@
     {
       "path": "agent-comms invocation inspect",
       "use": "agent-comms invocation inspect [flags]",
-      "summary": "",
+      "summary": "Show an invocation and its delivery evidence",
       "flags": [
         {
           "name": "actor",
@@ -5269,7 +4969,7 @@
     {
       "path": "agent-comms invocation list",
       "use": "agent-comms invocation list [flags]",
-      "summary": "",
+      "summary": "List invocations",
       "flags": [
         {
           "name": "actor",
@@ -5356,7 +5056,7 @@
     {
       "path": "agent-comms invocation listen",
       "use": "agent-comms invocation listen [flags]",
-      "summary": "",
+      "summary": "Block until an invocation is delivered, optionally claiming it",
       "flags": [
         {
           "name": "actor",
@@ -5449,7 +5149,7 @@
     {
       "path": "agent-comms invocation next",
       "use": "agent-comms invocation next [flags]",
-      "summary": "",
+      "summary": "Show the next invocation available to a runtime",
       "flags": [
         {
           "name": "actor",
@@ -5605,7 +5305,7 @@
     {
       "path": "agent-comms invocation policy set",
       "use": "agent-comms invocation policy set [flags]",
-      "summary": "",
+      "summary": "Set a per-agent invocation policy",
       "flags": [
         {
           "name": "actor",
@@ -5728,7 +5428,7 @@
     {
       "path": "agent-comms invocation policy show",
       "use": "agent-comms invocation policy show [flags]",
-      "summary": "",
+      "summary": "Show a per-agent invocation policy",
       "flags": [
         {
           "name": "actor",
@@ -5809,7 +5509,7 @@
     {
       "path": "agent-comms invocation redeliver",
       "use": "agent-comms invocation redeliver [flags]",
-      "summary": "",
+      "summary": "Manually re-attempt delivery of an open invocation",
       "flags": [
         {
           "name": "actor",
@@ -5896,7 +5596,7 @@
     {
       "path": "agent-comms invocation reject",
       "use": "agent-comms invocation reject [flags]",
-      "summary": "",
+      "summary": "Move this invocation to reject",
       "flags": [
         {
           "name": "actor",
@@ -5983,7 +5683,7 @@
     {
       "path": "agent-comms invocation request",
       "use": "agent-comms invocation request [flags]",
-      "summary": "",
+      "summary": "Request an agent invocation",
       "flags": [
         {
           "name": "actor",
@@ -6160,7 +5860,7 @@
     {
       "path": "agent-comms invocation resume",
       "use": "agent-comms invocation resume [flags]",
-      "summary": "",
+      "summary": "Move this invocation to resume",
       "flags": [
         {
           "name": "actor",
@@ -6247,7 +5947,7 @@
     {
       "path": "agent-comms invocation start",
       "use": "agent-comms invocation start [flags]",
-      "summary": "",
+      "summary": "Move this invocation to start",
       "flags": [
         {
           "name": "actor",
@@ -6332,9 +6032,9 @@
       ]
     },
     {
-      "path": "agent-comms invocation wait",
-      "use": "agent-comms invocation wait [flags]",
-      "summary": "",
+      "path": "agent-comms live",
+      "use": "agent-comms live",
+      "summary": "Serve, attach to, or tail a provider's live agent sessions",
       "flags": [
         {
           "name": "actor",
@@ -6347,12 +6047,6 @@
           "usage": "show secondary and nested fields in human output",
           "default": "false",
           "type": "bool"
-        },
-        {
-          "name": "id",
-          "usage": "entity ID",
-          "default": "",
-          "type": "string"
         },
         {
           "name": "json",
@@ -6398,16 +6092,283 @@
           "type": "bool"
         },
         {
-          "name": "reason",
-          "usage": "waiting reason",
+          "name": "timeout",
+          "usage": "transaction lock timeout",
+          "default": "10s",
+          "type": "duration"
+        },
+        {
+          "name": "verbose",
+          "shorthand": "v",
+          "usage": "show operational metadata in human output",
+          "default": "false",
+          "type": "bool"
+        }
+      ]
+    },
+    {
+      "path": "agent-comms live attach",
+      "use": "agent-comms live attach [flags]",
+      "summary": "Watch a provider live runtime's event stream",
+      "flags": [
+        {
+          "name": "actor",
+          "usage": "actor override (credential must match)",
           "default": "",
           "type": "string"
         },
         {
-          "name": "retry-in",
-          "usage": "next attempt relative to now",
-          "default": "0s",
+          "name": "details",
+          "usage": "show secondary and nested fields in human output",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "json",
+          "usage": "emit a versioned JSON envelope",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "no-color",
+          "usage": "disable ANSI color",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "non-interactive",
+          "usage": "never prompt",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
+          "name": "profile",
+          "usage": "user profile name",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "project",
+          "usage": "target project root",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "provider",
+          "usage": "claude or codex",
+          "default": "claude",
+          "type": "string"
+        },
+        {
+          "name": "quiet",
+          "shorthand": "q",
+          "usage": "suppress non-essential output",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "runtime",
+          "usage": "registered Agent Comms runtime ID",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "server",
+          "usage": "live broker base URL (provider default when omitted)",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "timeout",
+          "usage": "transaction lock timeout",
+          "default": "10s",
           "type": "duration"
+        },
+        {
+          "name": "verbose",
+          "shorthand": "v",
+          "usage": "show operational metadata in human output",
+          "default": "false",
+          "type": "bool"
+        }
+      ]
+    },
+    {
+      "path": "agent-comms live serve",
+      "use": "agent-comms live serve [flags]",
+      "summary": "Run a provider's local live broker",
+      "flags": [
+        {
+          "name": "actor",
+          "usage": "actor override (credential must match)",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "details",
+          "usage": "show secondary and nested fields in human output",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "json",
+          "usage": "emit a versioned JSON envelope",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "listen",
+          "usage": "loopback listen address (provider default when omitted)",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "no-color",
+          "usage": "disable ANSI color",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "non-interactive",
+          "usage": "never prompt",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
+          "name": "profile",
+          "usage": "user profile name",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "project",
+          "usage": "target project root",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "provider",
+          "usage": "claude or codex",
+          "default": "claude",
+          "type": "string"
+        },
+        {
+          "name": "quiet",
+          "shorthand": "q",
+          "usage": "suppress non-essential output",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "timeout",
+          "usage": "transaction lock timeout",
+          "default": "10s",
+          "type": "duration"
+        },
+        {
+          "name": "verbose",
+          "shorthand": "v",
+          "usage": "show operational metadata in human output",
+          "default": "false",
+          "type": "bool"
+        }
+      ]
+    },
+    {
+      "path": "agent-comms live tail",
+      "use": "agent-comms live tail [flags]",
+      "summary": "Stream a Claude Code session transcript live (--provider claude only)",
+      "flags": [
+        {
+          "name": "actor",
+          "usage": "actor override (credential must match)",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "details",
+          "usage": "show secondary and nested fields in human output",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "json",
+          "usage": "emit a versioned JSON envelope",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "no-color",
+          "usage": "disable ANSI color",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "no-replay",
+          "usage": "skip replaying existing history, only show new turns",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "non-interactive",
+          "usage": "never prompt",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
+          "name": "profile",
+          "usage": "user profile name",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "project",
+          "usage": "target project root",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "project-dir",
+          "usage": "Claude Code working directory for this session (defaults to the current AgentComms project root)",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "provider",
+          "usage": "claude (only)",
+          "default": "claude",
+          "type": "string"
+        },
+        {
+          "name": "quiet",
+          "shorthand": "q",
+          "usage": "suppress non-essential output",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "session",
+          "usage": "Claude session ID to watch",
+          "default": "",
+          "type": "string"
         },
         {
           "name": "timeout",
@@ -6577,7 +6538,7 @@
     {
       "path": "agent-comms message ack",
       "use": "agent-comms message ack [flags]",
-      "summary": "",
+      "summary": "Ack this message",
       "flags": [
         {
           "name": "actor",
@@ -6658,7 +6619,7 @@
     {
       "path": "agent-comms message complete",
       "use": "agent-comms message complete [flags]",
-      "summary": "",
+      "summary": "Move this message to complete",
       "flags": [
         {
           "name": "actor",
@@ -6739,7 +6700,7 @@
     {
       "path": "agent-comms message inbox",
       "use": "agent-comms message inbox [flags]",
-      "summary": "",
+      "summary": "List messages addressed to you",
       "flags": [
         {
           "name": "actor",
@@ -6832,7 +6793,7 @@
     {
       "path": "agent-comms message post",
       "use": "agent-comms message post [flags]",
-      "summary": "",
+      "summary": "Post a message to recipients",
       "flags": [
         {
           "name": "actor",
@@ -6973,7 +6934,7 @@
     {
       "path": "agent-comms message reject",
       "use": "agent-comms message reject [flags]",
-      "summary": "",
+      "summary": "Move this message to reject",
       "flags": [
         {
           "name": "actor",
@@ -7054,7 +7015,7 @@
     {
       "path": "agent-comms message resolve",
       "use": "agent-comms message resolve [flags]",
-      "summary": "",
+      "summary": "Resolve this message",
       "flags": [
         {
           "name": "actor",
@@ -7210,7 +7171,7 @@
     {
       "path": "agent-comms profile current",
       "use": "agent-comms profile current",
-      "summary": "",
+      "summary": "Show the active signing profile",
       "flags": [
         {
           "name": "actor",
@@ -7285,7 +7246,7 @@
     {
       "path": "agent-comms profile list",
       "use": "agent-comms profile list",
-      "summary": "",
+      "summary": "List local signing profiles",
       "flags": [
         {
           "name": "actor",
@@ -7360,7 +7321,7 @@
     {
       "path": "agent-comms profile use",
       "use": "agent-comms profile use [flags]",
-      "summary": "",
+      "summary": "Select the active signing profile",
       "flags": [
         {
           "name": "actor",
@@ -7679,7 +7640,7 @@
     {
       "path": "agent-comms project upgrade plan",
       "use": "agent-comms project upgrade plan [flags]",
-      "summary": "",
+      "summary": "Show the pending project upgrade plan (plan)",
       "flags": [
         {
           "name": "actor",
@@ -7760,7 +7721,7 @@
     {
       "path": "agent-comms project upgrade status",
       "use": "agent-comms project upgrade status [flags]",
-      "summary": "",
+      "summary": "Show the pending project upgrade plan (status)",
       "flags": [
         {
           "name": "actor",
@@ -7997,7 +7958,7 @@
     {
       "path": "agent-comms runtime configure",
       "use": "agent-comms runtime configure [flags]",
-      "summary": "",
+      "summary": "Update a runtime connector's configuration",
       "flags": [
         {
           "name": "actor",
@@ -8114,7 +8075,7 @@
     {
       "path": "agent-comms runtime delete",
       "use": "agent-comms runtime delete [flags]",
-      "summary": "",
+      "summary": "Change this runtime's status (delete)",
       "flags": [
         {
           "name": "actor",
@@ -8201,7 +8162,7 @@
     {
       "path": "agent-comms runtime drain",
       "use": "agent-comms runtime drain [flags]",
-      "summary": "",
+      "summary": "Change this runtime's status (drain)",
       "flags": [
         {
           "name": "actor",
@@ -8288,7 +8249,7 @@
     {
       "path": "agent-comms runtime heartbeat",
       "use": "agent-comms runtime heartbeat [flags]",
-      "summary": "",
+      "summary": "Record a runtime presence heartbeat",
       "flags": [
         {
           "name": "active-invocation",
@@ -8567,7 +8528,7 @@
     {
       "path": "agent-comms runtime list",
       "use": "agent-comms runtime list",
-      "summary": "",
+      "summary": "List registered runtimes and their presence",
       "flags": [
         {
           "name": "actor",
@@ -8642,7 +8603,7 @@
     {
       "path": "agent-comms runtime register",
       "use": "agent-comms runtime register [flags]",
-      "summary": "",
+      "summary": "Register an agent runtime connector",
       "flags": [
         {
           "name": "actor",
@@ -8765,7 +8726,7 @@
     {
       "path": "agent-comms runtime resume",
       "use": "agent-comms runtime resume [flags]",
-      "summary": "",
+      "summary": "Change this runtime's status (resume)",
       "flags": [
         {
           "name": "actor",
@@ -8852,7 +8813,7 @@
     {
       "path": "agent-comms runtime revoke",
       "use": "agent-comms runtime revoke [flags]",
-      "summary": "",
+      "summary": "Change this runtime's status (revoke)",
       "flags": [
         {
           "name": "actor",
@@ -9271,99 +9232,6 @@
       ]
     },
     {
-      "path": "agent-comms search",
-      "use": "agent-comms search \u003cquery\u003e [flags]",
-      "summary": "Search the current signed event page",
-      "flags": [
-        {
-          "name": "actor",
-          "usage": "actor override (credential must match)",
-          "default": "",
-          "type": "string"
-        },
-        {
-          "name": "cursor",
-          "usage": "opaque pagination cursor",
-          "default": "",
-          "type": "string"
-        },
-        {
-          "name": "details",
-          "usage": "show secondary and nested fields in human output",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "json",
-          "usage": "emit a versioned JSON envelope",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "key-fingerprint",
-          "usage": "only events signed by this key fingerprint in the current page",
-          "default": "",
-          "type": "string"
-        },
-        {
-          "name": "limit",
-          "usage": "events scanned per page",
-          "default": "100",
-          "type": "int"
-        },
-        {
-          "name": "no-color",
-          "usage": "disable ANSI color",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "non-interactive",
-          "usage": "never prompt",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "output",
-          "usage": "output format: human, plain, json, or jsonl",
-          "default": "human",
-          "type": "string"
-        },
-        {
-          "name": "profile",
-          "usage": "user profile name",
-          "default": "",
-          "type": "string"
-        },
-        {
-          "name": "project",
-          "usage": "target project root",
-          "default": "",
-          "type": "string"
-        },
-        {
-          "name": "quiet",
-          "shorthand": "q",
-          "usage": "suppress non-essential output",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "timeout",
-          "usage": "transaction lock timeout",
-          "default": "10s",
-          "type": "duration"
-        },
-        {
-          "name": "verbose",
-          "shorthand": "v",
-          "usage": "show operational metadata in human output",
-          "default": "false",
-          "type": "bool"
-        }
-      ]
-    },
-    {
       "path": "agent-comms session",
       "use": "agent-comms session",
       "summary": "Manage durable invocation sessions",
@@ -9441,7 +9309,7 @@
     {
       "path": "agent-comms session end",
       "use": "agent-comms session end [flags]",
-      "summary": "",
+      "summary": "Close a durable invocation session",
       "flags": [
         {
           "name": "actor",
@@ -9520,84 +9388,9 @@
       ]
     },
     {
-      "path": "agent-comms session heartbeat",
-      "use": "agent-comms session heartbeat",
-      "summary": "",
-      "flags": [
-        {
-          "name": "actor",
-          "usage": "actor override (credential must match)",
-          "default": "",
-          "type": "string"
-        },
-        {
-          "name": "details",
-          "usage": "show secondary and nested fields in human output",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "json",
-          "usage": "emit a versioned JSON envelope",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "no-color",
-          "usage": "disable ANSI color",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "non-interactive",
-          "usage": "never prompt",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "output",
-          "usage": "output format: human, plain, json, or jsonl",
-          "default": "human",
-          "type": "string"
-        },
-        {
-          "name": "profile",
-          "usage": "user profile name",
-          "default": "",
-          "type": "string"
-        },
-        {
-          "name": "project",
-          "usage": "target project root",
-          "default": "",
-          "type": "string"
-        },
-        {
-          "name": "quiet",
-          "shorthand": "q",
-          "usage": "suppress non-essential output",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "timeout",
-          "usage": "transaction lock timeout",
-          "default": "10s",
-          "type": "duration"
-        },
-        {
-          "name": "verbose",
-          "shorthand": "v",
-          "usage": "show operational metadata in human output",
-          "default": "false",
-          "type": "bool"
-        }
-      ]
-    },
-    {
       "path": "agent-comms session start",
       "use": "agent-comms session start [flags]",
-      "summary": "",
+      "summary": "Open a durable invocation session for this agent",
       "flags": [
         {
           "name": "actor",
@@ -9828,7 +9621,7 @@
     {
       "path": "agent-comms task block",
       "use": "agent-comms task block [flags]",
-      "summary": "",
+      "summary": "Move this task to block",
       "flags": [
         {
           "name": "actor",
@@ -9915,7 +9708,7 @@
     {
       "path": "agent-comms task cancel",
       "use": "agent-comms task cancel [flags]",
-      "summary": "",
+      "summary": "Move this task to cancel",
       "flags": [
         {
           "name": "actor",
@@ -10002,7 +9795,7 @@
     {
       "path": "agent-comms task claim",
       "use": "agent-comms task claim [flags]",
-      "summary": "",
+      "summary": "Claim a task and acquire its working-directory lock",
       "flags": [
         {
           "name": "actor",
@@ -10072,12 +9865,6 @@
           "type": "bool"
         },
         {
-          "name": "repo",
-          "usage": "repository path (acquires working-directory lock; alias for --worktree)",
-          "default": "",
-          "type": "string"
-        },
-        {
           "name": "timeout",
           "usage": "transaction lock timeout",
           "default": "10s",
@@ -10092,7 +9879,7 @@
         },
         {
           "name": "worktree",
-          "usage": "worktree path (acquires working-directory lock)",
+          "usage": "worktree path (acquires the working-directory lock)",
           "default": "",
           "type": "string"
         }
@@ -10101,7 +9888,7 @@
     {
       "path": "agent-comms task complete",
       "use": "agent-comms task complete [flags]",
-      "summary": "",
+      "summary": "Move this task to complete",
       "flags": [
         {
           "name": "actor",
@@ -10188,7 +9975,7 @@
     {
       "path": "agent-comms task create",
       "use": "agent-comms task create [flags]",
-      "summary": "",
+      "summary": "Create a tracked task",
       "flags": [
         {
           "name": "actor",
@@ -10216,7 +10003,7 @@
         },
         {
           "name": "id",
-          "usage": "task ID",
+          "usage": "task ID (auto-generated if omitted)",
           "default": "",
           "type": "string"
         },
@@ -10317,7 +10104,7 @@
     {
       "path": "agent-comms task handoff",
       "use": "agent-comms task handoff [flags]",
-      "summary": "",
+      "summary": "Hand off or accept a task",
       "flags": [
         {
           "name": "accept",
@@ -10416,7 +10203,7 @@
     {
       "path": "agent-comms task list",
       "use": "agent-comms task list",
-      "summary": "",
+      "summary": "List tasks",
       "flags": [
         {
           "name": "actor",
@@ -10585,7 +10372,7 @@
     {
       "path": "agent-comms task offer",
       "use": "agent-comms task offer [flags]",
-      "summary": "",
+      "summary": "Offer a task to another principal",
       "flags": [
         {
           "name": "actor",
@@ -10678,7 +10465,7 @@
     {
       "path": "agent-comms task renew",
       "use": "agent-comms task renew [flags]",
-      "summary": "",
+      "summary": "Renew this task's lease with progress",
       "flags": [
         {
           "name": "actor",
@@ -10765,7 +10552,7 @@
     {
       "path": "agent-comms task review",
       "use": "agent-comms task review [flags]",
-      "summary": "",
+      "summary": "Move this task to review",
       "flags": [
         {
           "name": "actor",
@@ -10850,9 +10637,90 @@
       ]
     },
     {
+      "path": "agent-comms task show",
+      "use": "agent-comms task show [flags]",
+      "summary": "Show one task by ID",
+      "flags": [
+        {
+          "name": "actor",
+          "usage": "actor override (credential must match)",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "details",
+          "usage": "show secondary and nested fields in human output",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "id",
+          "usage": "entity ID",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "json",
+          "usage": "emit a versioned JSON envelope",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "no-color",
+          "usage": "disable ANSI color",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "non-interactive",
+          "usage": "never prompt",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
+          "name": "profile",
+          "usage": "user profile name",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "project",
+          "usage": "target project root",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "quiet",
+          "shorthand": "q",
+          "usage": "suppress non-essential output",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "timeout",
+          "usage": "transaction lock timeout",
+          "default": "10s",
+          "type": "duration"
+        },
+        {
+          "name": "verbose",
+          "shorthand": "v",
+          "usage": "show operational metadata in human output",
+          "default": "false",
+          "type": "bool"
+        }
+      ]
+    },
+    {
       "path": "agent-comms task start",
       "use": "agent-comms task start [flags]",
-      "summary": "",
+      "summary": "Move this task to start",
       "flags": [
         {
           "name": "actor",
@@ -10933,7 +10801,7 @@
     {
       "path": "agent-comms task takeover",
       "use": "agent-comms task takeover [flags]",
-      "summary": "",
+      "summary": "Move this task to takeover",
       "flags": [
         {
           "name": "actor",
@@ -11001,162 +10869,6 @@
           "usage": "summary",
           "default": "",
           "type": "string"
-        },
-        {
-          "name": "timeout",
-          "usage": "transaction lock timeout",
-          "default": "10s",
-          "type": "duration"
-        },
-        {
-          "name": "verbose",
-          "shorthand": "v",
-          "usage": "show operational metadata in human output",
-          "default": "false",
-          "type": "bool"
-        }
-      ]
-    },
-    {
-      "path": "agent-comms theme",
-      "use": "agent-comms theme",
-      "summary": "Manage UI theme",
-      "flags": [
-        {
-          "name": "actor",
-          "usage": "actor override (credential must match)",
-          "default": "",
-          "type": "string"
-        },
-        {
-          "name": "details",
-          "usage": "show secondary and nested fields in human output",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "json",
-          "usage": "emit a versioned JSON envelope",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "no-color",
-          "usage": "disable ANSI color",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "non-interactive",
-          "usage": "never prompt",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "output",
-          "usage": "output format: human, plain, json, or jsonl",
-          "default": "human",
-          "type": "string"
-        },
-        {
-          "name": "profile",
-          "usage": "user profile name",
-          "default": "",
-          "type": "string"
-        },
-        {
-          "name": "project",
-          "usage": "target project root",
-          "default": "",
-          "type": "string"
-        },
-        {
-          "name": "quiet",
-          "shorthand": "q",
-          "usage": "suppress non-essential output",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "timeout",
-          "usage": "transaction lock timeout",
-          "default": "10s",
-          "type": "duration"
-        },
-        {
-          "name": "verbose",
-          "shorthand": "v",
-          "usage": "show operational metadata in human output",
-          "default": "false",
-          "type": "bool"
-        }
-      ]
-    },
-    {
-      "path": "agent-comms theme set",
-      "use": "agent-comms theme set [flags]",
-      "summary": "",
-      "flags": [
-        {
-          "name": "actor",
-          "usage": "actor override (credential must match)",
-          "default": "",
-          "type": "string"
-        },
-        {
-          "name": "details",
-          "usage": "show secondary and nested fields in human output",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "json",
-          "usage": "emit a versioned JSON envelope",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "name",
-          "usage": "theme (auto, dark, high-contrast)",
-          "default": "",
-          "type": "string"
-        },
-        {
-          "name": "no-color",
-          "usage": "disable ANSI color",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "non-interactive",
-          "usage": "never prompt",
-          "default": "false",
-          "type": "bool"
-        },
-        {
-          "name": "output",
-          "usage": "output format: human, plain, json, or jsonl",
-          "default": "human",
-          "type": "string"
-        },
-        {
-          "name": "profile",
-          "usage": "user profile name",
-          "default": "",
-          "type": "string"
-        },
-        {
-          "name": "project",
-          "usage": "target project root",
-          "default": "",
-          "type": "string"
-        },
-        {
-          "name": "quiet",
-          "shorthand": "q",
-          "usage": "suppress non-essential output",
-          "default": "false",
-          "type": "bool"
         },
         {
           "name": "timeout",
@@ -11326,7 +11038,7 @@
     {
       "path": "agent-comms update apply",
       "use": "agent-comms update apply [flags]",
-      "summary": "",
+      "summary": "Install a verified release and upgrade projects",
       "flags": [
         {
           "name": "actor",
@@ -11438,7 +11150,7 @@
     {
       "path": "agent-comms update check",
       "use": "agent-comms update check [flags]",
-      "summary": "",
+      "summary": "Check for a newer verified release",
       "flags": [
         {
           "name": "actor",

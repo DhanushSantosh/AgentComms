@@ -2,10 +2,21 @@
 
 ## Status
 
-**Accepted, 2026-09-02.** Owner: Dhanush Santosh. Implementation branch:
+**Implemented, 2026-09-02.** Owner: Dhanush Santosh. Implementation branch:
 `review/cli-commands`. The project owner accepted the command-surface
 changes and the three resolved questions below before implementation began,
 per `docs/rfcs/README.md` and `docs/development-workflow.md`.
+
+Implemented across `internal/app` with a `classifyProjectScope` classifier
+replacing the three ad hoc exemption chains in `PersistentPreRunE`, the
+`control` group folded into `status`/`config`/`attention`, `search`
+replaced by `history --grep`/`--all`, `invocation defer` (event type
+`invocation.wait` unchanged), `session heartbeat` removed, `claude`/`codex`
+merged into `live --provider`, `theme set` moved to `config theme`, `draft
+show` added, uniform `show` for task/agent/approval/decision, and a
+command-tree test asserting no non-hidden command has an empty `Short`.
+`draft delete` is deferred (needs a new daemon route) and tracked in
+`docs/backlog.md`.
 
 Resolved questions (was "Unresolved"):
 

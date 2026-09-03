@@ -5,6 +5,36 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 
 ## [Unreleased]
 
+**Changed**
+- Every CLI command now has a one-line description under `--help`; the
+  non-obvious lifecycle and approval commands also gained examples. See
+  [RFC 0027](docs/rfcs/0027-cli-surface-consolidation.md).
+- `agent-comms update check` / `update apply`, `config`, and `profile
+  current` now run from any directory instead of requiring an initialized
+  project; `doctor` and `agent-instructions` degrade gracefully outside a
+  project.
+- Uniform `show` commands added for `task`, `agent`, `approval`, and
+  `decision`; `history` gained `--grep` and `--all`; `task create`,
+  `approval request`, and `decision create` auto-generate `--id` when it
+  is omitted.
+
+**Breaking**
+- CLI command surface consolidated (RFC 0027, clean break — pre-1.0, no
+  deprecation aliases):
+
+  | Removed / renamed | Replacement |
+  | --- | --- |
+  | `control overview` | `status --details` |
+  | `control settings` | `config --details` |
+  | `control attention` | `attention` |
+  | `search <q>` | `history --grep <q> [--all]` |
+  | `invocation wait` | `invocation defer` (event type unchanged) |
+  | `session heartbeat` | removed (was a no-op) |
+  | `claude serve\|attach\|tail` | `live serve\|attach\|tail --provider claude` |
+  | `codex serve\|attach` | `live serve\|attach --provider codex` |
+  | `theme set --name X` | `config theme X` |
+  | `task claim --repo` | `task claim --worktree` (`--repo` hidden alias, one release) |
+
 ## [0.6.0] - 2026-09-02 — “Chain of Trust”
 
 *A governance and transport-security pass: approvals now bind to the exact

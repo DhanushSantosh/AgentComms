@@ -21,9 +21,9 @@ import (
 )
 
 func (c *cli) artifactCmd() *cobra.Command {
-	root := &cobra.Command{Use: "artifact"}
+	root := &cobra.Command{Use: "artifact", Short: "Store, inspect, and verify content-addressed artifacts"}
 	var path, hash string
-	add := &cobra.Command{Use: "add", RunE: func(cmd *cobra.Command, args []string) error {
+	add := &cobra.Command{Use: "add", Short: "Store a file as a content-addressed artifact", RunE: func(cmd *cobra.Command, args []string) error {
 		v, e := c.svc.AddArtifact(c.actor, path)
 		if e != nil {
 			return e
@@ -32,7 +32,7 @@ func (c *cli) artifactCmd() *cobra.Command {
 	}}
 	add.Flags().StringVar(&path, "path", "", "artifact path")
 	_ = add.MarkFlagRequired("path")
-	show := &cobra.Command{Use: "show", RunE: func(cmd *cobra.Command, args []string) error {
+	show := &cobra.Command{Use: "show", Short: "Show an artifact by its SHA-256", RunE: func(cmd *cobra.Command, args []string) error {
 		st, e := c.svc.State()
 		if e != nil {
 			return e
@@ -53,7 +53,7 @@ func (c *cli) artifactCmd() *cobra.Command {
 		})
 	}}
 	show.Flags().StringVar(&hash, "sha256", "", "artifact digest")
-	verify := &cobra.Command{Use: "verify", RunE: func(cmd *cobra.Command, args []string) error {
+	verify := &cobra.Command{Use: "verify", Short: "Verify an artifact's content matches its SHA-256", RunE: func(cmd *cobra.Command, args []string) error {
 		p := filepath.Join(c.svc.Store.Root, store.Runtime, "artifacts", "sha256", hash)
 		b, e := os.ReadFile(p)
 		if e != nil {
@@ -82,10 +82,10 @@ func (c *cli) artifactCmd() *cobra.Command {
 	return root
 }
 func (c *cli) documentCmd() *cobra.Command {
-	root := &cobra.Command{Use: "document"}
+	root := &cobra.Command{Use: "document", Short: "Create and manage governed project documents"}
 	var title, body, docReplacement, bodyFile string
 	var tags []string
-	create := &cobra.Command{Use: "create", RunE: func(cmd *cobra.Command, args []string) error {
+	create := &cobra.Command{Use: "create", Short: "Create a governed document", RunE: func(cmd *cobra.Command, args []string) error {
 		id, _ := cmd.Flags().GetString("id")
 		if bodyFile != "" {
 			b, e := os.ReadFile(bodyFile)
@@ -110,7 +110,7 @@ func (c *cli) documentCmd() *cobra.Command {
 	create.Flags().StringVar(&body, "body", "", "body")
 	create.Flags().StringVar(&bodyFile, "body-file", "", "read body from file (bypasses CLI arg limits)")
 	create.Flags().StringSliceVar(&tags, "tag", nil, "tag (repeatable)")
-	update := &cobra.Command{Use: "update", RunE: func(cmd *cobra.Command, args []string) error {
+	update := &cobra.Command{Use: "update", Short: "Update a governed document's body or tags", RunE: func(cmd *cobra.Command, args []string) error {
 		id, _ := cmd.Flags().GetString("id")
 		if bodyFile != "" {
 			b, e := os.ReadFile(bodyFile)
@@ -134,7 +134,7 @@ func (c *cli) documentCmd() *cobra.Command {
 	update.Flags().StringVar(&body, "body", "", "body")
 	update.Flags().StringVar(&bodyFile, "body-file", "", "read body from file (bypasses CLI arg limits)")
 	update.Flags().StringSliceVar(&tags, "tag", nil, "tag (repeatable)")
-	supersede := &cobra.Command{Use: "supersede", RunE: func(cmd *cobra.Command, args []string) error {
+	supersede := &cobra.Command{Use: "supersede", Short: "Replace a document with a newer one", RunE: func(cmd *cobra.Command, args []string) error {
 		id, _ := cmd.Flags().GetString("id")
 		docReplacement, _ = cmd.Flags().GetString("replacement")
 		v, e := c.svc.Execute(c.actor, "document.supersede", id, model.DocumentPayload{ReplacementID: docReplacement})
@@ -147,7 +147,7 @@ func (c *cli) documentCmd() *cobra.Command {
 	_ = supersede.MarkFlagRequired("id")
 	supersede.Flags().StringVar(&docReplacement, "replacement", "", "replacement document ID")
 	_ = supersede.MarkFlagRequired("replacement")
-	list := &cobra.Command{Use: "list", RunE: func(cmd *cobra.Command, args []string) error {
+	list := &cobra.Command{Use: "list", Short: "List governed documents", RunE: func(cmd *cobra.Command, args []string) error {
 		st, e := c.svc.State()
 		if e != nil {
 			return e
@@ -164,7 +164,7 @@ func (c *cli) documentCmd() *cobra.Command {
 		}
 		return c.emitTable("document.list", st.Documents, []string{"ID", "TITLE", "STATUS", "VERSION", "AUTHOR"}, rows)
 	}}
-	show := &cobra.Command{Use: "show", RunE: func(cmd *cobra.Command, args []string) error {
+	show := &cobra.Command{Use: "show", Short: "Show one governed document by ID", RunE: func(cmd *cobra.Command, args []string) error {
 		id, _ := cmd.Flags().GetString("id")
 		if id == "" && len(args) > 0 {
 			id = args[0]
@@ -198,9 +198,9 @@ func (c *cli) documentCmd() *cobra.Command {
 	return root
 }
 func (c *cli) envCmd() *cobra.Command {
-	root := &cobra.Command{Use: "env"}
+	root := &cobra.Command{Use: "env", Short: "Manage governed project environment values"}
 	var key, value string
-	set := &cobra.Command{Use: "set", RunE: func(cmd *cobra.Command, args []string) error {
+	set := &cobra.Command{Use: "set", Short: "Set a governed environment value", RunE: func(cmd *cobra.Command, args []string) error {
 		if key == "" && len(args) > 0 {
 			key = args[0]
 		}
@@ -218,7 +218,7 @@ func (c *cli) envCmd() *cobra.Command {
 	}}
 	set.Flags().StringVar(&key, "key", "", "key")
 	set.Flags().StringVar(&value, "value", "", "value")
-	get := &cobra.Command{Use: "get", RunE: func(cmd *cobra.Command, args []string) error {
+	get := &cobra.Command{Use: "get", Short: "Get a governed environment value", RunE: func(cmd *cobra.Command, args []string) error {
 		if key == "" && len(args) > 0 {
 			key = args[0]
 		}
@@ -245,7 +245,7 @@ func (c *cli) envCmd() *cobra.Command {
 		})
 	}}
 	get.Flags().StringVar(&key, "key", "", "key")
-	del := &cobra.Command{Use: "delete", RunE: func(cmd *cobra.Command, args []string) error {
+	del := &cobra.Command{Use: "delete", Short: "Delete a governed environment value", RunE: func(cmd *cobra.Command, args []string) error {
 		if key == "" && len(args) > 0 {
 			key = args[0]
 		}
@@ -259,7 +259,7 @@ func (c *cli) envCmd() *cobra.Command {
 		return c.emit("env.delete", v)
 	}}
 	del.Flags().StringVar(&key, "key", "", "key")
-	list := &cobra.Command{Use: "list", RunE: func(cmd *cobra.Command, args []string) error {
+	list := &cobra.Command{Use: "list", Short: "List governed environment values", RunE: func(cmd *cobra.Command, args []string) error {
 		st, e := c.svc.State()
 		if e != nil {
 			return e
@@ -336,7 +336,32 @@ func (c *cli) draftCmd() *cobra.Command {
 		return c.emitTable("draft.list", result, []string{"ID", "KIND", "UPDATED", "AUTHORITY"}, rows)
 	}}
 	list.Flags().IntVar(&limit, "limit", controlplane.DefaultPageSize, "maximum drafts to return")
-	root.AddCommand(save, list)
+	save.Short = "Save a non-authoritative local draft"
+	list.Short = "List local drafts"
+	var showID string
+	show := &cobra.Command{Use: "show", Args: cobra.NoArgs, Short: "Show one local draft by ID", RunE: func(cmd *cobra.Command, args []string) error {
+		if strings.TrimSpace(showID) == "" {
+			return errors.New("--id is required")
+		}
+		drafts, e := c.svc.Drafts(0)
+		if e != nil {
+			return e
+		}
+		for _, draft := range drafts {
+			if draft.ID == showID {
+				return c.emitDocument("draft.show", draft, cliui.Document{
+					Title: "Local draft " + draft.ID, Status: cliui.StatusInfo,
+					Fields: []cliui.Field{
+						{Label: "Kind", Value: draft.Kind}, {Label: "Updated", Value: draft.UpdatedAt.Format(time.RFC3339)},
+						{Label: "Body", Value: string(draft.Body)},
+					},
+				})
+			}
+		}
+		return fmt.Errorf("draft %q not found", showID)
+	}}
+	show.Flags().StringVar(&showID, "id", "", "draft ID")
+	root.AddCommand(save, list, show)
 	return root
 }
 

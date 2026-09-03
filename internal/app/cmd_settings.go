@@ -5,6 +5,7 @@ import (
 	"sort"
 
 	"github.com/DhanushSantosh/AgentComms/internal/cliui"
+	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
 	"github.com/DhanushSantosh/AgentComms/internal/identity"
 	"github.com/DhanushSantosh/AgentComms/internal/sessionbind"
 	"github.com/spf13/cobra"
@@ -12,19 +13,43 @@ import (
 
 func (c *cli) profileCmd() *cobra.Command {
 	root := &cobra.Command{Use: "profile"}
-	current := &cobra.Command{Use: "current", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
-		return c.emitDocument("profile.current", c.actorResolution, cliui.Document{
+	current := &cobra.Command{Use: "current", Args: cobra.NoArgs, Short: "Show the active signing profile", RunE: func(cmd *cobra.Command, args []string) error {
+		// projectOptional (RFC 0027 section 12): inside a project the fully
+		// resolved actor (host binding, session scope, ...) is available;
+		// outside one, fall back to the active profile in user config so
+		// the command still answers.
+		if c.actorResolution.Actor != "" {
+			return c.emitDocument("profile.current", c.actorResolution, cliui.Document{
+				Title:  "Active profile",
+				Status: cliui.StatusInfo,
+				Fields: []cliui.Field{
+					{Label: "Actor", Value: c.actorResolution.Actor},
+					{Label: "Profile", Value: c.actorResolution.Profile},
+					{Label: "Source", Value: c.actorResolution.Source},
+					{Label: "Project", Value: c.actorResolution.ProjectID},
+				},
+			})
+		}
+		u, e := identity.LoadUserConfig()
+		if e != nil {
+			return e
+		}
+		sessionID, _ := sessionbind.Capture()
+		activeName := u.ActiveProfileFor(sessionID)
+		active := u.Profiles[activeName]
+		result := map[string]any{"active": activeName, "profile": active, "session_scoped": sessionID != ""}
+		return c.emitDocument("profile.current", result, cliui.Document{
 			Title:  "Active profile",
 			Status: cliui.StatusInfo,
 			Fields: []cliui.Field{
-				{Label: "Actor", Value: c.actorResolution.Actor},
-				{Label: "Profile", Value: c.actorResolution.Profile},
-				{Label: "Source", Value: c.actorResolution.Source},
-				{Label: "Project", Value: c.actorResolution.ProjectID},
+				{Label: "Profile", Value: activeName},
+				{Label: "Actor", Value: active.Actor},
+				{Label: "Project", Value: active.ProjectID},
+				{Label: "Session scoped", Value: map[bool]string{true: "yes", false: "no"}[sessionID != ""]},
 			},
 		})
 	}}
-	list := &cobra.Command{Use: "list", RunE: func(cmd *cobra.Command, args []string) error {
+	list := &cobra.Command{Use: "list", Short: "List local signing profiles", RunE: func(cmd *cobra.Command, args []string) error {
 		u, e := identity.LoadUserConfig()
 		if e != nil {
 			return e
@@ -55,7 +80,7 @@ func (c *cli) profileCmd() *cobra.Command {
 		return c.emitTable("profile.list", result, []string{"PROFILE", "ACTOR", "PROJECT", "HOST", "STATE"}, rows)
 	}}
 	var name string
-	use := &cobra.Command{Use: "use", RunE: func(cmd *cobra.Command, args []string) error {
+	use := &cobra.Command{Use: "use", Short: "Select the active signing profile", RunE: func(cmd *cobra.Command, args []string) error {
 		u, e := identity.LoadUserConfig()
 		if e != nil {
 			return e
@@ -83,45 +108,69 @@ func (c *cli) profileCmd() *cobra.Command {
 	return root
 }
 func (c *cli) configCmd() *cobra.Command {
-	return &cobra.Command{Use: "config", RunE: func(cmd *cobra.Command, args []string) error {
-		u, e := identity.LoadUserConfig()
-		if e != nil {
-			return e
-		}
-		p, e := c.svc.Store.Config()
-		if e != nil {
-			return e
-		}
-		result := map[string]any{"user": u, "project": p, "precedence": []string{"flags", "environment", "project", "user", "defaults"}}
-		return c.emitDocument("config", result, cliui.Document{
-			Title: "Resolved configuration", Status: cliui.StatusInfo,
-			Fields: []cliui.Field{
-				{Label: "Project", Value: p.ProjectID}, {Label: "Runtime mode", Value: p.RuntimeMode},
+	root := &cobra.Command{
+		Use:   "config",
+		Short: "Inspect and set user and project configuration",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			u, e := identity.LoadUserConfig()
+			if e != nil {
+				return e
+			}
+			result := map[string]any{"user": u, "precedence": []string{"flags", "environment", "project", "user", "defaults"}}
+			fields := []cliui.Field{
 				{Label: "Active profile", Value: u.ActiveProfile}, {Label: "Theme", Value: u.Theme}, {Label: "Update channel", Value: u.UpdateChannel},
-			},
-			Hint: "Use --details to inspect sources and the complete resolved configuration.",
-		})
-	}}
-}
-func (c *cli) themeCmd() *cobra.Command {
-	root := &cobra.Command{Use: "theme", Short: "Manage UI theme"}
-	var name string
-	set := &cobra.Command{Use: "set", RunE: func(cmd *cobra.Command, args []string) error {
-		u, e := identity.LoadUserConfig()
-		if e != nil {
-			return e
-		}
-		u.Theme = name
-		if e = identity.SaveUserConfig(u); e != nil {
-			return e
-		}
-		result := map[string]string{"theme": name}
-		return c.emitDocument("theme.set", result, cliui.Document{
-			Title: "Theme updated", Status: cliui.StatusSuccess, Fields: []cliui.Field{{Label: "Theme", Value: name}},
-		})
-	}}
-	set.Flags().StringVar(&name, "name", "", "theme (auto, dark, high-contrast)")
-	_ = set.MarkFlagRequired("name")
-	root.AddCommand(set)
+			}
+			// projectOptional: c.svc is nil outside an initialized project
+			// (RFC 0027 section 12). Report user config only in that case.
+			if c.svc != nil {
+				p, cfgErr := c.svc.Store.Config()
+				if cfgErr != nil {
+					return cfgErr
+				}
+				result["project"] = p
+				state, stateErr := c.svc.State()
+				if stateErr == nil {
+					result["invocation_policies"] = state.InvocationPolicies
+				}
+				result["limits"] = map[string]any{
+					"max_runtime_concurrency": controlplane.MaxRuntimeConcurrency,
+					"max_delivery_attempts":   controlplane.MaxDeliveryAttempts,
+					"max_invocation_bytes":    controlplane.MaxInvocationBytes,
+					"max_invocation_ttl":      controlplane.MaxInvocationTTL.String(),
+				}
+				fields = append([]cliui.Field{
+					{Label: "Project", Value: p.ProjectID}, {Label: "Runtime mode", Value: p.RuntimeMode},
+				}, fields...)
+			} else {
+				result["project"] = nil
+			}
+			return c.emitDocument("config", result, cliui.Document{
+				Title: "Resolved configuration", Status: cliui.StatusInfo, Fields: fields,
+				Hint: "Use --details for sources, control-plane limits, and the complete resolved configuration.",
+			})
+		},
+	}
+	var themeName string
+	theme := &cobra.Command{
+		Use:   "theme <auto|dark|high-contrast>",
+		Short: "Set the UI theme for this user",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			themeName = args[0]
+			u, e := identity.LoadUserConfig()
+			if e != nil {
+				return e
+			}
+			u.Theme = themeName
+			if e = identity.SaveUserConfig(u); e != nil {
+				return e
+			}
+			return c.emitDocument("config.theme", map[string]string{"theme": themeName}, cliui.Document{
+				Title: "Theme updated", Status: cliui.StatusSuccess, Fields: []cliui.Field{{Label: "Theme", Value: themeName}},
+			})
+		},
+	}
+	root.AddCommand(theme)
 	return root
 }

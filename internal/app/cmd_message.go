@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/DhanushSantosh/AgentComms/internal/cliui"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 	"github.com/spf13/cobra"
 )
@@ -18,7 +19,7 @@ func (c *cli) messageCmd() *cobra.Command {
 	var approvalID, approvalReason string
 	var approvalExpiresIn time.Duration
 	var to []string
-	post := &cobra.Command{Use: "post", RunE: func(cmd *cobra.Command, args []string) error {
+	post := &cobra.Command{Use: "post", Short: "Post a message to recipients", RunE: func(cmd *cobra.Command, args []string) error {
 		id, _ := cmd.Flags().GetString("id")
 		if id == "" {
 			id = fmt.Sprintf("msg-%d", time.Now().UnixNano())
@@ -68,7 +69,7 @@ func (c *cli) messageCmd() *cobra.Command {
 		postCmd := payloadStatus(c, "message", sub, func(string) any { return model.MessageResponse{} })
 		root.AddCommand(postCmd)
 	}
-	inbox := &cobra.Command{Use: "inbox", RunE: func(cmd *cobra.Command, args []string) error {
+	inbox := &cobra.Command{Use: "inbox", Short: "List messages addressed to you", RunE: func(cmd *cobra.Command, args []string) error {
 		st, e := c.svc.State()
 		if e != nil {
 			return e
@@ -127,22 +128,40 @@ func (c *cli) decisionCmd() *cobra.Command {
 		sub := sub
 		var title, statement, supersedes string
 		var to []string
-		cmd := &cobra.Command{Use: sub, RunE: func(cmd *cobra.Command, args []string) error {
+		shortBySub := map[string]string{"create": "Record a durable decision", "supersede": "Replace a prior decision with a new one"}
+		cmd := &cobra.Command{Use: sub, Short: shortBySub[sub], RunE: func(cmd *cobra.Command, args []string) error {
 			id, _ := cmd.Flags().GetString("id")
+			if sub == "create" && strings.TrimSpace(id) == "" {
+				id = fmt.Sprintf("decision-%d", time.Now().UnixNano())
+			}
 			v, e := c.svc.Execute(c.actor, "decision."+sub, id, model.DecisionPayload{Title: title, Statement: statement, Supersedes: supersedes, To: to})
 			if e != nil {
 				return e
 			}
 			return c.emit("decision."+sub, v)
 		}}
-		cmd.Flags().String("id", "", "decision ID")
-		_ = cmd.MarkFlagRequired("id")
+		if sub == "create" {
+			cmd.Flags().String("id", "", "decision ID (auto-generated if omitted)")
+		} else {
+			cmd.Flags().String("id", "", "decision ID")
+			_ = cmd.MarkFlagRequired("id")
+		}
 		cmd.Flags().StringVar(&title, "title", "", "title")
 		cmd.Flags().StringVar(&statement, "statement", "", "statement")
 		cmd.Flags().StringVar(&supersedes, "supersedes", "", "prior decision")
 		cmd.Flags().StringSliceVar(&to, "to", nil, "acknowledging principal")
 		root.AddCommand(cmd)
 	}
+	root.AddCommand(c.entityShow("decision", func(st model.State, id string) (any, []cliui.Field, bool) {
+		d, ok := st.Decisions[id]
+		if !ok {
+			return nil, nil, false
+		}
+		return d, []cliui.Field{
+			{Label: "Title", Value: d.Title}, {Label: "Statement", Value: d.Statement},
+			{Label: "Status", Value: d.Status}, {Label: "Supersedes", Value: d.Supersedes},
+		}, true
+	}))
 	return root
 }
 func (c *cli) approvalCmd() *cobra.Command {
@@ -150,8 +169,11 @@ func (c *cli) approvalCmd() *cobra.Command {
 	var tier, action, reason, subjectDigest, approvalSubject string
 	var expiresIn time.Duration
 	var affected []string
-	request := &cobra.Command{Use: "request", RunE: func(cmd *cobra.Command, args []string) error {
+	request := &cobra.Command{Use: "request", Short: "Request a governed approval", RunE: func(cmd *cobra.Command, args []string) error {
 		id, _ := cmd.Flags().GetString("id")
+		if strings.TrimSpace(id) == "" {
+			id = fmt.Sprintf("approval-%d", time.Now().UnixNano())
+		}
 		var expiresAt *time.Time
 		if expiresIn > 0 {
 			value := time.Now().UTC().Add(expiresIn)
@@ -163,8 +185,7 @@ func (c *cli) approvalCmd() *cobra.Command {
 		}
 		return c.emit("approval.request", v)
 	}}
-	request.Flags().String("id", "", "approval ID")
-	_ = request.MarkFlagRequired("id")
+	request.Flags().String("id", "", "approval ID (auto-generated if omitted)")
 	request.Flags().StringVar(&tier, "tier", "ORCHESTRATOR", "ORCHESTRATOR or HUMAN")
 	request.Flags().StringVar(&action, "action", "", "proposed action")
 	request.Flags().StringVar(&reason, "reason", "", "reason")
@@ -174,7 +195,7 @@ func (c *cli) approvalCmd() *cobra.Command {
 	request.Flags().DurationVar(&expiresIn, "expires-in", 0, "approval validity window")
 	approve := payloadStatus(c, "approval", "approve", func(string) any { return model.ApprovalResponse{} })
 	reject := payloadStatus(c, "approval", "reject", func(string) any { return model.ApprovalResponse{} })
-	list := &cobra.Command{Use: "list", RunE: func(cmd *cobra.Command, args []string) error {
+	list := &cobra.Command{Use: "list", Short: "List approvals and their status", RunE: func(cmd *cobra.Command, args []string) error {
 		st, e := c.svc.State()
 		if e != nil {
 			return e
@@ -191,6 +212,17 @@ func (c *cli) approvalCmd() *cobra.Command {
 		}
 		return c.emitTable("approval.list", st.Approvals, []string{"ID", "TIER", "STATUS", "REQUESTER", "ACTION"}, rows)
 	}}
-	root.AddCommand(request, approve, reject, list)
+	show := c.entityShow("approval", func(st model.State, id string) (any, []cliui.Field, bool) {
+		a, ok := st.Approvals[id]
+		if !ok {
+			return nil, nil, false
+		}
+		return a, []cliui.Field{
+			{Label: "Tier", Value: a.Tier}, {Label: "Status", Value: a.Status},
+			{Label: "Requester", Value: a.Requester}, {Label: "Action", Value: a.Action},
+			{Label: "Reason", Value: a.Reason},
+		}, true
+	})
+	root.AddCommand(request, approve, reject, list, show)
 	return root
 }
