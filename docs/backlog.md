@@ -271,6 +271,40 @@ one is picked up, remove it from here and note the landing commit.
   restricted further, to avoid breaking legitimate managerial renaming.
   Revisit if it's ever actually exploited.
 
+## Feature-validity review (2026-09-02) — decisions not to act
+
+A pass over the whole feature surface for use-case fit. Three findings
+became RFCs ([0028](rfcs/0028-remove-session-lifecycle.md) removes the
+unconsumed `session` lifecycle;
+[0029](rfcs/0029-consolidate-decisions-into-documents.md) folds
+`decision` into `document`). The rest were reviewed and deliberately
+kept:
+
+- **`env` and `artifact` are kept.** Both looked like scope creep for a
+  coordination tool (a governed key/value store and content-addressed
+  blob storage), but both are complete, tested, documented
+  (`docs/site/guide/records.md`), and have TUI surfaces. The bar for
+  removing working, signed-history features on a "seems speculative"
+  hunch is not met. Revisit only with evidence that no one uses them.
+- **No `agent-comms live serve --provider opencode` is correct, not a
+  gap.** `claudeserve`/`codexserve` exist because the `claude` and
+  `codex` CLIs have no live-attach story of their own; OpenCode ships
+  `opencode serve` + `opencode attach` natively, which
+  `opencodeclient.EnsureServer` and the `opencode-live` adapter use
+  directly. RFC 0027's `live` group is scoped to claude/codex on
+  purpose; `--provider opencode` is rejected by the `provider()` helper.
+- **Team mode (`internal/authority`, Postgres, deploy/recovery guides,
+  integration tests) is kept.** The stated default is personal mode, but
+  team mode is real, maintained, and covered; it is the multi-host half
+  of the product's reason to exist.
+- **All three delivery mechanisms are kept** — `interactiveserve` (pty
+  injection with echo confirmation), the live brokers, and worker
+  adapters. Each covers a distinct case (RFCs 0010, 0008/0009, 0006) and
+  none subsumes another. Reconsidered and confirmed, not merged.
+- **`draft`** — kept and half-finished by RFC 0027 (`draft show` added,
+  `draft delete` deferred to the `draft delete` entry under Security /
+  governance).
+
 ## Test / CI infrastructure
 
 - **`TestInvocationDeliveryFailureDoesNotTerminateObligation` is flaky on
