@@ -2,9 +2,11 @@
 
 ## Status
 
-**Proposed, 2026-09-02.** Owner: Dhanush Santosh. Implementation branch:
-`feature/agc-alias`. Awaiting owner acceptance before implementation, per
-`docs/rfcs/README.md`.
+**Implemented, 2026-09-02.** Owner: Dhanush Santosh. Implementation branch:
+`feature/agc-alias`. The project owner accepted this before implementation
+began, per `docs/rfcs/README.md`. Resolved: no self-heal in
+`reconcileUserInstallation` (the alias appears on the next installer
+run); Windows uses the `.cmd` shim.
 
 Adds a second name under which the CLI is invoked and a file the
 installers place on `PATH`, so it touches the installation contract and
@@ -162,13 +164,9 @@ process was not already running from.
 - `go test ./...`, docs-site `check`, `staticcheck ./...`.
 - One squash-merged PR from `feature/agc-alias` against `dev`.
 
-## Unresolved questions
+## Resolved questions
 
-1. Should `reconcileUserInstallation` (which already runs on most
-   commands) self-heal a missing `agc` for installs that predate this
-   RFC, or is "it appears on the next installer run" enough? Leaning
-   enough — self-healing adds a filesystem write to the hot path of
-   every command for a one-time convenience.
-2. Windows: `.cmd` shim vs a real symlink (Developer Mode / elevation
-   only) vs a copy of the binary (~16 MB, always works, but
-   `update apply` would leave it stale). Leaning `.cmd` shim.
+1. No self-heal. A missing `agc` is created on the next `install.sh` /
+   `install.ps1` run; it is a convenience, not a dependency, and not
+   worth a filesystem write on every command's hot path.
+2. Windows uses the static `agc.cmd` shim.

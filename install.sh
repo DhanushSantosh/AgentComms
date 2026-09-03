@@ -37,4 +37,7 @@ IDENTITY=$(printf '%s' "https://github.com/$REPO/.github/workflows/release.yml@r
 "$TMP/$VERIFIER" --bundle "$TMP/$NAME.bundle" --certificate-identity-regexp "^${IDENTITY}$" --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' "$TMP/$NAME"
 mkdir -p "$INSTALL_DIR"; [ ! -f "$INSTALL_DIR/agent-comms" ] || cp "$INSTALL_DIR/agent-comms" "$INSTALL_DIR/agent-comms.previous"
 install -m 0755 "$TMP/$NAME" "$INSTALL_DIR/agent-comms"
-echo "Installed Agent Comms $TAG to $INSTALL_DIR/agent-comms"
+# agc: a relative, by-name symlink so it keeps resolving after
+# `agent-comms update` replaces the binary in place. RFC 0030.
+ln -sf agent-comms "$INSTALL_DIR/agc"
+echo "Installed Agent Comms $TAG to $INSTALL_DIR/agent-comms (also as $INSTALL_DIR/agc)"

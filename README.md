@@ -29,7 +29,7 @@ agent-comms init
 agent-comms tui
 ```
 
-That's a working project. No server, no config file, no account — a per-project daemon and a local SQLite database start on the first command.
+That's a working project. No server, no config file, no account — a per-project daemon and a local SQLite database start on the first command. (`agc` is a shorter synonym for `agent-comms` if you'd rather type that.)
 
 <br>
 
