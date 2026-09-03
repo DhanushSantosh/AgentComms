@@ -453,19 +453,6 @@ func (c *Cache) Drafts(ctx context.Context, projectID string, limit int) ([]cont
 	return drafts, rows.Err()
 }
 
-func emptyState() model.State {
-	return model.State{
-		Agents: map[string]model.Agent{}, Tasks: map[string]model.Task{},
-		Messages: map[string]model.Message{}, Approvals: map[string]model.Approval{},
-		Invocations: map[string]model.Invocation{}, InvocationDeliveries: map[string]model.InvocationDelivery{},
-		AgentRuntimes: map[string]model.AgentRuntime{}, InvocationPolicies: map[string]model.InvocationPolicy{},
-		Documents:       map[string]model.Document{},
-		Env:             map[string]model.EnvEntry{},
-		Artifacts:       map[string]model.Artifact{},
-		ProjectSettings: model.DefaultProjectSettings(),
-	}
-}
-
 func loadProject(ctx context.Context, tx *sql.Tx, projectID string) (model.State, uint64, string, error) {
 	var raw []byte
 	var sequence uint64
@@ -473,7 +460,7 @@ func loadProject(ctx context.Context, tx *sql.Tx, projectID string) (model.State
 	err := tx.QueryRowContext(ctx, `SELECT state_json,server_sequence,server_head FROM projects WHERE project_id=?`,
 		projectID).Scan(&raw, &sequence, &head)
 	if errors.Is(err, sql.ErrNoRows) {
-		return emptyState(), 0, "", nil
+		return model.EmptyState(), 0, "", nil
 	}
 	if err != nil {
 		return model.State{}, 0, "", err

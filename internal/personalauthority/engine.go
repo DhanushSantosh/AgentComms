@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"time"
 
@@ -101,7 +100,7 @@ func (e *Engine) CreateProject(ctx context.Context, projectID, ownerID string) e
 	if strings.TrimSpace(projectID) == "" || strings.TrimSpace(ownerID) == "" {
 		return controlError(controlplane.CodeValidation, "project and owner are required")
 	}
-	stateJSON, err := json.Marshal(emptyState())
+	stateJSON, err := json.Marshal(model.EmptyState())
 	if err != nil {
 		return err
 	}
@@ -157,7 +156,7 @@ func (e *Engine) Mutate(ctx context.Context, command controlplane.Command) (cont
 	// instead of its everyday one, and that classification depends on the
 	// decoded payload/target state, not just the command type. decodePayload
 	// is pure (no side effects), so reordering it ahead of Verify is safe.
-	payload, err := decodePayload(command.Type, command.Payload)
+	payload, err := model.DecodePayloadValue(command.Type, command.Payload)
 	if err != nil {
 		return controlplane.Event{}, controlplane.Receipt{}, controlError(controlplane.CodeValidation, err.Error())
 	}
@@ -373,32 +372,6 @@ func commandPublicKey(state model.State, command controlplane.Command, payload a
 		return agent.ElevatedPublicKey, nil
 	}
 	return agent.PublicKey, nil
-}
-
-func decodePayload(eventType string, raw json.RawMessage) (any, error) {
-	decoded, err := model.DecodePayload(eventType, raw)
-	if err != nil {
-		return nil, err
-	}
-	value := reflect.ValueOf(decoded)
-	if value.Kind() != reflect.Pointer || value.IsNil() {
-		return decoded, nil
-	}
-	return value.Elem().Interface(), nil
-}
-
-func emptyState() model.State {
-	return model.State{
-		Agents: map[string]model.Agent{}, Tasks: map[string]model.Task{},
-		Messages: map[string]model.Message{}, Invocations: map[string]model.Invocation{},
-		InvocationDeliveries: map[string]model.InvocationDelivery{},
-		AgentRuntimes:        map[string]model.AgentRuntime{},
-		InvocationPolicies:   map[string]model.InvocationPolicy{},
-		Approvals:            map[string]model.Approval{},
-		Documents:            map[string]model.Document{}, Env: map[string]model.EnvEntry{},
-		Artifacts:       map[string]model.Artifact{},
-		ProjectSettings: model.DefaultProjectSettings(),
-	}
 }
 
 func controlError(code controlplane.ErrorCode, message string) error {

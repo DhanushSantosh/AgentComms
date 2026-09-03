@@ -3,6 +3,7 @@ package model
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"time"
 )
 
@@ -290,6 +291,25 @@ func DecodePayload(typ string, raw json.RawMessage) (any, error) {
 	}
 	return v, nil
 }
+
+// DecodePayloadValue decodes like DecodePayload but returns the payload
+// as a value rather than a pointer -- the shape every authority backend
+// (postgres, personalauthority, wasmdemo) and the projection engine
+// consume. It replaces three near-identical private copies, one of which
+// was a hand-maintained 40-case type switch that had to grow with every
+// new event type.
+func DecodePayloadValue(typ string, raw json.RawMessage) (any, error) {
+	decoded, err := DecodePayload(typ, raw)
+	if err != nil {
+		return nil, err
+	}
+	v := reflect.ValueOf(decoded)
+	if v.Kind() != reflect.Pointer || v.IsNil() {
+		return decoded, nil
+	}
+	return v.Elem().Interface(), nil
+}
+
 func KnownEventType(typ string) bool { _, ok := payloadFactories[typ]; return ok }
 
 // RegisteredEventTypes returns every event type payloadFactories knows how
