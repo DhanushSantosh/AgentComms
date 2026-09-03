@@ -6,7 +6,7 @@
 `review/feature-validity`. The project owner accepted this before
 implementation began, per `docs/rfcs/README.md`.
 
-Implemented across the CLI, model, protocol, projection, and all three authority backends; the `sessions` table dropped via Postgres migration 5 and the state schema bumped to 2.2.0 (combined with RFC 0029).
+Implemented across the CLI, model, protocol, projection, and all three authority backends; the `sessions` table dropped via Postgres migration 5 and the state schema bumped to 2.2.0 (combined with RFC 0029). `projection.ApplyEvent` gained an unknown-event-type leniency guard so historical `session.*` events replay to nothing.
 
 This removes a public command group and a durable state collection, so it
 requires review.
@@ -75,6 +75,10 @@ Desired outcome: the session feature is gone, and the persisted
 - **CLI-only removal, keep the schema.** Rejected: the persistence code
   in three backends is the bulk of the cost; leaving it keeps the
   maintenance tax.
+- **Keep `SessionPayload` + registry entries for decode-only** (RFC
+  0029's approach for `DecisionPayload`). Rejected: a session event
+  carries nothing that needs to reproject, so the type would be pure
+  dead weight. The general `ApplyEvent` guard is the better fix.
 
 ## Compatibility and rollout
 
@@ -94,9 +98,9 @@ authorization path changes.
 
 ## Test and rollout plan
 
-- Delete `session`-specific tests; add a projection test asserting a
-  historical `session.start` event in a replayed log is ignored without
-  error (unknown-event tolerance).
+- `TestUnknownEventTypeProjectsToNothing` in `internal/projection`
+  asserts `session.start` / `session.end` and a hypothetical future type
+  replay without error and leave state unchanged.
 - `projectlifecycle` upgrade test covering the schema bump.
 - Postgres migration test: `sessions` table dropped, replay of a log
   containing `session.*` events still verifies.

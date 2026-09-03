@@ -153,3 +153,24 @@ func TestAgentRoleSwitchedOnlyChangesRole(t *testing.T) {
 		t.Fatalf("expected scopes to be untouched, got %v", got.Scopes)
 	}
 }
+
+// TestUnknownEventTypeProjectsToNothing covers RFC 0028's safety claim:
+// a historical event whose type this build no longer recognizes (the
+// removed session.start / session.end, or a type from a newer writer)
+// replays without error and leaves derived state untouched.
+func TestUnknownEventTypeProjectsToNothing(t *testing.T) {
+	state := model.State{Agents: map[string]model.Agent{}}
+	before, _ := json.Marshal(state)
+	for _, typ := range []string{"session.start", "session.end", "some.future.event"} {
+		if err := ApplyEvent(&state, model.Event{
+			ID: "evt", Time: time.Now().UTC(), Actor: "owner", Type: typ,
+			EntityID: "x", Data: json.RawMessage(`{"agent_id":"a","pid":1}`),
+		}); err != nil {
+			t.Fatalf("%s should replay without error, got %v", typ, err)
+		}
+	}
+	after, _ := json.Marshal(state)
+	if string(before) != string(after) {
+		t.Fatalf("unknown events changed state:\n before %s\n after  %s", before, after)
+	}
+}

@@ -11,6 +11,15 @@ import (
 )
 
 func ApplyEvent(s *model.State, e model.Event) error {
+	// An event type this build does not recognize -- one removed in a
+	// later schema (session.*, RFC 0028) or one written by a newer
+	// version -- projects to nothing. The event stays in the immutable,
+	// hash-verified log; it simply has no effect on derived state here.
+	// Only ApplyEvent is lenient this way; DecodePayload itself stays
+	// strict for callers that decode a type they expect to know.
+	if !model.KnownEventType(e.Type) {
+		return nil
+	}
 	if s.Invocations == nil {
 		s.Invocations = map[string]model.Invocation{}
 	}
