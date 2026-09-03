@@ -14,7 +14,7 @@ contract but left the command *tree* untouched.
 ## Problem and desired outcome
 
 A full read of `internal/app` found 136 commands across ~40 groups. The
-review surfaced four problems:
+review surfaced five problems:
 
 1. **Missing help.** ~90 of 136 commands have an empty `Short`.
    `configureRootHelp` (`internal/app/app.go`) fills in descriptions for
@@ -37,6 +37,12 @@ review surfaced four problems:
    means "the worker is blocked, retry later." `search` implies a
    full-history search but only substring-greps the *current* history
    page.
+
+5. **Project-independent commands require a project.** `agent-comms
+   update check` / `update apply` -- and `config`, `profile current` --
+   abort with an `lstat .../.agent-comms` error unless run from an
+   initialized project directory, even though updating the binary or
+   reading user config has nothing to do with any project.
 
 Desired outcome: every command has a one-line purpose; the "state"
 commands have one obvious entry point each; no command is a no-op; names
@@ -161,6 +167,61 @@ transitional alias, because `--repo` was the name in the original
 feedback that motivated the feature and is the more likely thing in
 someone's shell history.)
 
+### 12. Commands that do not need an initialized project should run anywhere
+
+`agent-comms update check` and `agent-comms update apply` fail outside an
+initialized project directory:
+
+```
+$ cd /tmp && agent-comms update check
+error [VALIDATION]: lstat /tmp/.agent-comms: no such file or directory
+```
+
+`PersistentPreRunE` (`internal/app/app.go`) exempts the *bare* `update`
+command (which only prints help) but not its `check` / `apply`
+subcommands, so both still run `projectlifecycle.Reconcile` +
+`service.New(root)` against the current directory and abort when there is
+no `.agent-comms/` there. Updating the binary has nothing to do with any
+one project. The same is true of a handful of other commands
+(`config`, `profile current`, the RFC-0027 `config theme`).
+
+The three ad hoc `||` chains in `PersistentPreRunE` are replaced with one
+classifier -- `projectRequirement(cmd) -> Required | Optional | None`:
+
+**`None`** -- never touch a project; user-installation reconcile only
+(what `profile list` already does):
+
+- `version`, `completion`, `init`
+- `update`, `update check`, `update apply` (`apply`'s body already
+  resolves and tolerates a missing current project for the optional
+  project-upgrade hand-off)
+- `profile list`, `profile current`, `profile use`
+- `config theme` (writes user config; see section 7)
+- the long-running servers already exempt today (`daemon serve`, the
+  `live` brokers, `runtime verify-adapter`)
+
+**`Optional`** -- use the project when the current directory has one,
+otherwise run in a degraded, still-useful mode instead of erroring:
+
+- `config` -- prints user + project config in a project; user config
+  only outside one.
+- `doctor` -- reports project health in a project; outside one, a single
+  `NO_PROJECT_HERE` finding ("no initialized project in this directory;
+  run `agent-comms init`") instead of an `lstat` error.
+- `agent-instructions` -- project role context in a project; generic
+  first-run setup guidance outside one (arguably where it is most
+  useful).
+
+**`Required`** -- everything else. Unchanged: a missing project is a
+clear error.
+
+`Optional` commands get `c.svc == nil` when no project is present;
+each of the three checks that explicitly.
+
+This is additive from the user's point of view -- commands that errored
+now succeed -- but it is a behavior change to `PersistentPreRunE`'s
+public contract, so it is specified here rather than shipped loose.
+
 ## Alternatives considered
 
 - **Keep `claude` / `codex` top-level, just add `opencode`.** Rejected:
@@ -201,6 +262,11 @@ Docs updated in the same PR: `docs/site/guide/projects.md`,
 No change to the `--json` / `--output` envelope, exit codes, event
 schema, storage, or authority protocol.
 
+Section 12 only *widens* where commands are accepted -- `update check`,
+`update apply`, `config`, `profile current` now succeed outside a project
+where they errored before. No command that worked inside a project stops
+working.
+
 ## Security and privacy implications
 
 None. No change to authorization, signing, approval gating, or what is
@@ -215,6 +281,11 @@ the chance of a future field leaking into a match unintentionally.
   for `attention`, `history --grep`, `history --all`, `live` with each
   `--provider`, `config theme`, `draft show`, `draft delete`, and the
   four new `show` commands.
+- `projectRequirement` classifier test: `update check` / `update apply` /
+  `config` / `profile current` / `config theme` / `agent-instructions` /
+  `doctor` all run to a successful or gracefully-degraded result from a
+  directory with no `.agent-comms/`; every `Required` command still
+  errors clearly there.
 - `docs.go` reference generation re-run; `verify-content.mjs` link/anchor
   check must stay green after the docs edits.
 - One squash-merged PR from `review/cli-commands` against `dev`.
