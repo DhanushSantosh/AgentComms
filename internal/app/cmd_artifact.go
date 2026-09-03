@@ -84,9 +84,13 @@ func (c *cli) artifactCmd() *cobra.Command {
 func (c *cli) documentCmd() *cobra.Command {
 	root := &cobra.Command{Use: "document", Short: "Create and manage governed project documents"}
 	var title, body, docReplacement, bodyFile string
-	var tags []string
+	var tags, notify []string
+	var asDecision bool
 	create := &cobra.Command{Use: "create", Short: "Create a governed document", RunE: func(cmd *cobra.Command, args []string) error {
 		id, _ := cmd.Flags().GetString("id")
+		if strings.TrimSpace(id) == "" {
+			id = fmt.Sprintf("doc-%d", time.Now().UnixNano())
+		}
 		if bodyFile != "" {
 			b, e := os.ReadFile(bodyFile)
 			if e != nil {
@@ -97,19 +101,45 @@ func (c *cli) documentCmd() *cobra.Command {
 		if body == "" {
 			return errors.New("body is required (use --body or --body-file)")
 		}
-		v, e := c.svc.Execute(c.actor, "document.create", id, model.DocumentPayload{Title: title, Body: body, Tags: tags})
+		docTags := tags
+		// RFC 0029: `--decision` is sugar for the reserved `decision` tag;
+		// this is where the former `decision create` lives now.
+		if asDecision {
+			has := false
+			for _, t := range docTags {
+				if t == "decision" {
+					has = true
+				}
+			}
+			if !has {
+				docTags = append(append([]string{}, docTags...), "decision")
+			}
+		}
+		v, e := c.svc.Execute(c.actor, "document.create", id, model.DocumentPayload{Title: title, Body: body, Tags: docTags})
 		if e != nil {
 			return e
 		}
+		// --notify reproduces the former Decision.To acknowledgement
+		// semantics with the mechanism built for obligations.
+		for _, principal := range notify {
+			msgID := fmt.Sprintf("msg-%s-%s", id, principal)
+			if _, ne := c.svc.Execute(c.actor, "message.post", msgID, model.MessagePosted{
+				Kind: "DECISION", To: []string{principal}, Subject: title,
+				Body: "Governed document " + id + " requires your acknowledgement.",
+			}); ne != nil && !c.quiet {
+				fmt.Fprintf(c.err, "warning: --notify %s: %v\n", cliui.SanitizeInline(principal), ne)
+			}
+		}
 		return c.emit("document.create", v)
 	}}
-	create.Flags().String("id", "", "document ID")
-	_ = create.MarkFlagRequired("id")
+	create.Flags().String("id", "", "document ID (auto-generated if omitted)")
 	create.Flags().StringVar(&title, "title", "", "title")
 	_ = create.MarkFlagRequired("title")
 	create.Flags().StringVar(&body, "body", "", "body")
 	create.Flags().StringVar(&bodyFile, "body-file", "", "read body from file (bypasses CLI arg limits)")
 	create.Flags().StringSliceVar(&tags, "tag", nil, "tag (repeatable)")
+	create.Flags().BoolVar(&asDecision, "decision", false, "tag this document `decision` (replaces the former `decision create`)")
+	create.Flags().StringSliceVar(&notify, "notify", nil, "post a DECISION message to this principal for acknowledgement (repeatable)")
 	update := &cobra.Command{Use: "update", Short: "Update a governed document's body or tags", RunE: func(cmd *cobra.Command, args []string) error {
 		id, _ := cmd.Flags().GetString("id")
 		if bodyFile != "" {

@@ -122,48 +122,6 @@ func (c *cli) messageCmd() *cobra.Command {
 	root.AddCommand(post, inbox)
 	return root
 }
-func (c *cli) decisionCmd() *cobra.Command {
-	root := &cobra.Command{Use: "decision"}
-	for _, sub := range []string{"create", "supersede"} {
-		sub := sub
-		var title, statement, supersedes string
-		var to []string
-		shortBySub := map[string]string{"create": "Record a durable decision", "supersede": "Replace a prior decision with a new one"}
-		cmd := &cobra.Command{Use: sub, Short: shortBySub[sub], RunE: func(cmd *cobra.Command, args []string) error {
-			id, _ := cmd.Flags().GetString("id")
-			if sub == "create" && strings.TrimSpace(id) == "" {
-				id = fmt.Sprintf("decision-%d", time.Now().UnixNano())
-			}
-			v, e := c.svc.Execute(c.actor, "decision."+sub, id, model.DecisionPayload{Title: title, Statement: statement, Supersedes: supersedes, To: to})
-			if e != nil {
-				return e
-			}
-			return c.emit("decision."+sub, v)
-		}}
-		if sub == "create" {
-			cmd.Flags().String("id", "", "decision ID (auto-generated if omitted)")
-		} else {
-			cmd.Flags().String("id", "", "decision ID")
-			_ = cmd.MarkFlagRequired("id")
-		}
-		cmd.Flags().StringVar(&title, "title", "", "title")
-		cmd.Flags().StringVar(&statement, "statement", "", "statement")
-		cmd.Flags().StringVar(&supersedes, "supersedes", "", "prior decision")
-		cmd.Flags().StringSliceVar(&to, "to", nil, "acknowledging principal")
-		root.AddCommand(cmd)
-	}
-	root.AddCommand(c.entityShow("decision", func(st model.State, id string) (any, []cliui.Field, bool) {
-		d, ok := st.Decisions[id]
-		if !ok {
-			return nil, nil, false
-		}
-		return d, []cliui.Field{
-			{Label: "Title", Value: d.Title}, {Label: "Statement", Value: d.Statement},
-			{Label: "Status", Value: d.Status}, {Label: "Supersedes", Value: d.Supersedes},
-		}, true
-	}))
-	return root
-}
 func (c *cli) approvalCmd() *cobra.Command {
 	root := &cobra.Command{Use: "approval"}
 	var tier, action, reason, subjectDigest, approvalSubject string

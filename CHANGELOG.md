@@ -19,6 +19,19 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
   is omitted.
 
 **Breaking**
+- **Removed the `session` command group.** `session start` / `session end`
+  emitted signed events into a `sessions` state collection that no code
+  ever read. `session heartbeat` was already a no-op (RFC 0027). See
+  [RFC 0028](docs/rfcs/0028-remove-session-lifecycle.md).
+- **Removed the `decision` command group; decisions are now
+  `decision`-tagged documents.** `decision create X` → `document create X
+  --decision` (add `--notify <principal>` to post a DECISION message);
+  `decision supersede` → `document create --decision` + `document
+  supersede --replacement`. Existing decisions migrate to tagged
+  documents through `agent-comms project upgrade`. See
+  [RFC 0029](docs/rfcs/0029-consolidate-decisions-into-documents.md).
+- State schema `2.1.0` → `2.2.0`; authority (Postgres) schema `4` → `6`.
+  Both migrate automatically on `project upgrade` / authority startup.
 - CLI command surface consolidated (RFC 0027, clean break — pre-1.0, no
   deprecation aliases):
 

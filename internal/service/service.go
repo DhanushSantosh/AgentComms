@@ -1072,9 +1072,17 @@ func (s *Service) ExportMarkdown(w io.Writer) error {
 		fmt.Fprintf(w, "- **%s** — %s · owner: %s · resources: %s\n", id, t.Status, t.Owner, strings.Join(t.Resources, ", "))
 	}
 	fmt.Fprint(w, "\n## Decisions\n\n")
-	for _, id := range SortedKeys(st.Decisions) {
-		d := st.Decisions[id]
-		fmt.Fprintf(w, "- **%s** — %s: %s\n", id, d.Title, d.Statement)
+	for _, id := range SortedKeys(st.Documents) {
+		d := st.Documents[id]
+		isDecision := false
+		for _, tag := range d.Tags {
+			if tag == "decision" {
+				isDecision = true
+			}
+		}
+		if isDecision {
+			fmt.Fprintf(w, "- **%s** — %s: %s\n", id, d.Title, d.Body)
+		}
 	}
 	return nil
 }

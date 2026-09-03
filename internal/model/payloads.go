@@ -223,12 +223,6 @@ type DecisionPayload struct {
 	Supersedes string   `json:"supersedes,omitempty"`
 	To         []string `json:"to,omitempty"`
 }
-type SessionPayload struct {
-	AgentID string `json:"agent_id"`
-	Host    string `json:"host,omitempty"`
-	PID     int    `json:"pid,omitempty"`
-	Summary string `json:"summary,omitempty"`
-}
 type ArtifactAdded struct {
 	SHA256    string `json:"sha256"`
 	Size      int64  `json:"size"`
@@ -262,7 +256,7 @@ var payloadFactories = map[string]func() any{
 	"runtime.register": func() any { return &RuntimeRegistered{} }, "runtime.configure": func() any { return &RuntimeConfigured{} }, "runtime.heartbeat": func() any { return &RuntimeHeartbeat{} }, "runtime.offline": func() any { return &RuntimeStatusChanged{} }, "runtime.drain": func() any { return &RuntimeStatusChanged{} }, "runtime.resume": func() any { return &RuntimeStatusChanged{} }, "runtime.revoke": func() any { return &RuntimeStatusChanged{} }, "runtime.delete": func() any { return &RuntimeStatusChanged{} }, "invocation.policy.update": func() any { return &InvocationPolicyUpdated{} },
 	"project.settings.update": func() any { return &ProjectSettingsUpdated{} },
 	"approval.request":        func() any { return &ApprovalRequested{} }, "approval.approve": func() any { return &ApprovalResponse{} }, "approval.reject": func() any { return &ApprovalResponse{} },
-	"decision.create": func() any { return &DecisionPayload{} }, "decision.supersede": func() any { return &DecisionPayload{} }, "session.start": func() any { return &SessionPayload{} }, "session.end": func() any { return &SessionPayload{} },
+	"decision.create": func() any { return &DecisionPayload{} }, "decision.supersede": func() any { return &DecisionPayload{} },
 	"artifact.add": func() any { return &ArtifactAdded{} }, "archive.run": func() any { return &ArchiveRun{} },
 	"document.create": func() any { return &DocumentPayload{} }, "document.update": func() any { return &DocumentPayload{} }, "document.supersede": func() any { return &DocumentPayload{} },
 	"env.set": func() any { return &EnvSetPayload{} }, "env.delete": func() any { return &EnvDeletePayload{} },

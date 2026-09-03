@@ -31,7 +31,7 @@ not cross the presentation boundary.
 | Task mutation | `task create/offer/claim/start/renew/block/review/complete/cancel/handoff/takeover/lock` | Outcome + owner/status/lease/resources + next action | Offers, risk, handoff, receipt metadata |
 | Task list | `task list` | Responsive table grouped/filtered by status | Resources, offers, timestamps |
 | Messages | `message post`, `message inbox`, recipient transitions | Post confirmation or obligation-focused inbox table | Per-recipient lifecycle and body/detail view |
-| Decisions | `decision create/ack/supersede` | Outcome + title/status/audience | Statement and supersession metadata |
+| Decisions | `document create --decision`, `document supersede` | Document receipt | Tags, version, supersession metadata |
 | Approvals | `approval request/approve/reject`, `approval list` | Outcome or pending-approval table | Tier, affected actors, reason, action target |
 | Artifacts | `artifact add/show/verify` | Verification/outcome summary | Hash, media type, size, storage metadata |
 | Documents | `document create/update/supersede/show/list` | Outcome, detail view, or responsive table | Body, tags, version lineage |
@@ -44,7 +44,6 @@ not cross the presentation boundary.
 | Invocation list/detail | `invocation list`, `inspect`, `next` | Responsive table, grouped detail, or found/empty state | Delivery history, scopes, result linkage |
 | Invocation lifecycle | `listen`, `claim/start/wait/resume/complete/reject/expire/cancel` | Event/outcome line; `listen` becomes stream | Runtime, deadline, reason/result metadata |
 | Invocation policy | `policy set/show` | Policy summary | Trusted actors, modes, scopes, sensitive-action rules |
-| Sessions | session lifecycle commands and heartbeat | Outcome line or compact summary | Durable versus ephemeral status and timestamps |
 | Updates | `update check/apply` | Availability or completion summary | Channel, versions, verification/download facts |
 | Instructions | `agent-instructions` | Path/context header plus instruction content | Actor-resolution metadata |
 
