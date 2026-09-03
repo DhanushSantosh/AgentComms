@@ -71,7 +71,18 @@ func runTUIAndCapture(t *testing.T, opts ...tea.ProgramOption) string {
 		// runner will repaint within a fixed sleep. "LIVE" is emitted by the
 		// command rail in both colored and stripped output, so this synchronizes
 		// the color-profile tests without making either result the trigger.
-		deadline := time.Now().Add(2 * time.Second)
+		// 8s, not the outer 10s tui.Run timeout below -- a loaded macOS CI
+		// runner has repeatedly taken longer than an earlier 2s deadline to
+		// deliver the first repaint (TestRunWithColorProfileTrueColorSurvivesToOutput
+		// flaked on macos-latest three times on 2026-09-03 alone, each time
+		// with an init/teardown sequence and no rendered frame in between --
+		// this loop hit its deadline and sent "q" before any paint happened,
+		// not a real color-detection bug). A too-short deadline here fails
+		// silently: "q" always gets sent either way, so the test only shows
+		// its real symptom (missing/unexpected SGR code) once quit races
+		// ahead of the first paint. Keep well under 10s so a genuine hang in
+		// tui.Run itself still fails loudly instead of always via this loop.
+		deadline := time.Now().Add(8 * time.Second)
 		for !strings.Contains(out.String(), "LIVE") && time.Now().Before(deadline) {
 			time.Sleep(10 * time.Millisecond)
 		}
