@@ -6,7 +6,7 @@
 `review/feature-validity`. The project owner accepted this before
 implementation began, per `docs/rfcs/README.md`.
 
-Implemented: the `decision` group is gone, `document create --decision`/`--notify` replaces it, historical `decision.*` events project into `decision`-tagged documents, the projection-cache version bumped to 4 (local rebuild) and Postgres migration 6 folds the `decisions` table into `documents`. State schema 2.2.0.
+Implemented: the `decision` group is gone, `document create --decision`/`--notify` replaces it, historical `decision.*` events project into `decision`-tagged documents; `projectlifecycle.foldDecisionsIntoDocuments` rewrites the non-replayed personal-authority / projection-cache `state_json` snapshots in place (idempotent, triggered by the schema bump); Postgres migration 6 folds the `decisions` table into `documents`. State schema 2.2.0.
 
 Removes a public command group and a durable state collection; requires
 review.
@@ -69,9 +69,9 @@ already does.
      left empty.
    - **Postgres** (team mode): schema migration 6 folds the `decisions`
      table into `documents` and drops it.
-7. **TUI:** delete `internal/tui/decisions.go`; the Documents view
-   (`documents.go`) filters by the `decision` tag for an equivalent
-   "decisions" listing.
+7. **TUI:** the "Contracts & decisions" view (`internal/tui/decisions.go`)
+   keeps its place; its rows and create/supersede actions now read and
+   write `decision`-tagged documents instead of a `Decision` type.
 8. **Schema:** bump `model.SchemaVersion`.
 9. **Docs:** `docs/site/guide/governance.md` and `records.md` updated;
    generated reference regenerated.

@@ -6,7 +6,7 @@
 `review/feature-validity`. The project owner accepted this before
 implementation began, per `docs/rfcs/README.md`.
 
-Implemented across the CLI, model, protocol, projection, and all three authority backends; `session_payloads`/`sessions` dropped via Postgres migration 5 and the state schema bumped to 2.2.0 (combined with RFC 0029).
+Implemented across the CLI, model, protocol, projection, and all three authority backends; the `sessions` table dropped via Postgres migration 5 and the state schema bumped to 2.2.0 (combined with RFC 0029).
 
 This removes a public command group and a durable state collection, so it
 requires review.
@@ -20,7 +20,7 @@ backends persist that collection:
 
 - `internal/personalauthority/engine.go`
 - `internal/authority/postgres.go` (a dedicated `persistSessions`,
-  `session_payloads` rows, replay decode path)
+  `sessions` rows, replay decode path)
 - `internal/localcache/cache.go`
 
 **Nothing reads `State.Sessions`.** A repository-wide search for a read
@@ -57,7 +57,7 @@ Desired outcome: the session feature is gone, and the persisted
    migration path handles the format change; historical `session.*`
    events in an existing signed log stay in the log (immutable) but
    project to nothing, exactly as an unknown event type already does.
-6. **Postgres:** a migration drops the `session_payloads` table. Existing
+6. **Postgres:** a migration drops the `sessions` table. Existing
    rows are audit-only and carry no information any code consumed.
 7. **Docs:** remove `session` from `docs/site/guide/*`, the onboarding
    decision tree, and the generated reference.
@@ -98,7 +98,7 @@ authorization path changes.
   historical `session.start` event in a replayed log is ignored without
   error (unknown-event tolerance).
 - `projectlifecycle` upgrade test covering the schema bump.
-- Postgres migration test: `session_payloads` dropped, replay of a log
+- Postgres migration test: `sessions` table dropped, replay of a log
   containing `session.*` events still verifies.
 - Full `go test ./...` and the docs-site `check`.
 - One squash-merged PR from `review/feature-validity` against `dev`.
