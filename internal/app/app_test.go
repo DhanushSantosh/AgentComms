@@ -376,7 +376,7 @@ func TestClaudeAttachDoesNotRequireInitializedProject(t *testing.T) {
 	}))
 	defer server.Close()
 	var stdout, stderr bytes.Buffer
-	if err := Run([]string{"claude", "attach", "--runtime", "runtime-one", "--server", server.URL}, &stdout, &stderr); err != nil {
+	if err := Run([]string{"live", "attach", "--provider", "claude", "--runtime", "runtime-one", "--server", server.URL}, &stdout, &stderr); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -399,7 +399,7 @@ func TestCodexAttachDoesNotRequireInitializedProject(t *testing.T) {
 	}))
 	defer server.Close()
 	var stdout, stderr bytes.Buffer
-	if err := Run([]string{"codex", "attach", "--runtime", "runtime-one", "--server", server.URL}, &stdout, &stderr); err != nil {
+	if err := Run([]string{"live", "attach", "--provider", "codex", "--runtime", "runtime-one", "--server", server.URL}, &stdout, &stderr); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -1145,7 +1145,7 @@ func TestAgentDeleteCLIRequiresReasonAndAllowsIDReuse(t *testing.T) {
 		!bytes.Contains(out.Bytes(), []byte(replacementRegistration.Result.KeyFingerprint)) {
 		t.Fatalf("history key-fingerprint filter did not isolate the replacement identity: %s", out.String())
 	}
-	must("search", "agent.register", "--key-fingerprint", replacementRegistration.Result.KeyFingerprint)
+	must("history", "--grep", "agent.register", "--all", "--key-fingerprint", replacementRegistration.Result.KeyFingerprint)
 	if bytes.Contains(out.Bytes(), []byte(originalRegistration.Result.KeyFingerprint)) ||
 		!bytes.Contains(out.Bytes(), []byte(replacementRegistration.Result.KeyFingerprint)) {
 		t.Fatalf("search key-fingerprint filter did not isolate the replacement identity: %s", out.String())
@@ -1435,14 +1435,14 @@ func TestInvocationAndRuntimeCLIWorkflow(t *testing.T) {
 	if !bytes.Contains(out.Bytes(), []byte(`"status":"COMPLETED"`)) {
 		t.Fatalf("CLI did not return the completed invocation: %s", out.String())
 	}
-	run("control", "overview")
+	run("status", "--details")
 	if !bytes.Contains(out.Bytes(), []byte(`"online_runtimes"`)) ||
 		!bytes.Contains(out.Bytes(), []byte(`"invocations_completed":1`)) {
-		t.Fatalf("control overview did not summarize project state: %s", out.String())
+		t.Fatalf("status --details did not summarize project state: %s", out.String())
 	}
-	run("control", "settings")
+	run("config", "--details")
 	if !bytes.Contains(out.Bytes(), []byte(`"max_delivery_attempts":10`)) {
-		t.Fatalf("control settings omitted invocation limits: %s", out.String())
+		t.Fatalf("config --details omitted invocation limits: %s", out.String())
 	}
 }
 

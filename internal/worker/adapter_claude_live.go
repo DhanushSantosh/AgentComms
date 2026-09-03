@@ -39,7 +39,7 @@ func (claudeLiveAdapter) Execute(ctx context.Context, config Config, invocation 
 	}); err != nil {
 		return "", fmt.Errorf("claude-live: register runtime: %w", err)
 	}
-	config.Status("watch this runtime's Claude activity live in a terminal: agent-comms claude attach --runtime " + config.RuntimeID + " --server " + baseURL)
+	config.Status("watch this runtime's Claude activity live in a terminal: agent-comms live attach --provider claude --runtime " + config.RuntimeID + " --server " + baseURL)
 	output, err := client.Prompt(ctx, config.RuntimeID, claudeUserPrompt(invocation))
 	if err != nil {
 		return "", fmt.Errorf("claude-live: %w", err)

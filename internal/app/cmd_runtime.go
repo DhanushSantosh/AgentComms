@@ -31,7 +31,7 @@ func (c *cli) runtimeCmd() *cobra.Command {
 	var agentID, runtimeKind, connector, configReference string
 	var maxConcurrent int
 	var scopes, capabilities []string
-	register := &cobra.Command{Use: "register", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+	register := &cobra.Command{Use: "register", Short: "Register an agent runtime connector", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		id, _ := cmd.Flags().GetString("id")
 		hostID := ""
 		if strings.EqualFold(runtimeKind, string(model.RuntimeKindInteractive)) ||
@@ -64,7 +64,7 @@ func (c *cli) runtimeCmd() *cobra.Command {
 	register.Flags().StringSliceVar(&scopes, "scope", nil, "runtime scope")
 	register.Flags().StringSliceVar(&capabilities, "capability", nil, "runtime capability")
 
-	configure := &cobra.Command{Use: "configure", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+	configure := &cobra.Command{Use: "configure", Short: "Update a runtime connector's configuration", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		id, _ := cmd.Flags().GetString("id")
 		hostID := ""
 		if strings.EqualFold(runtimeKind, string(model.RuntimeKindInteractive)) ||
@@ -96,7 +96,7 @@ func (c *cli) runtimeCmd() *cobra.Command {
 
 	var health, endpointID string
 	var activeInvocations []string
-	heartbeat := &cobra.Command{Use: "heartbeat", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+	heartbeat := &cobra.Command{Use: "heartbeat", Short: "Record a runtime presence heartbeat", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		id, _ := cmd.Flags().GetString("id")
 		value, err := c.svc.Execute(c.actor, "runtime.heartbeat", id, model.RuntimeHeartbeat{
 			Health: health, ActiveInvocations: activeInvocations, EndpointID: endpointID,
@@ -115,7 +115,7 @@ func (c *cli) runtimeCmd() *cobra.Command {
 	for _, operation := range []string{"drain", "resume", "revoke", "delete"} {
 		operation := operation
 		var reason string
-		command := &cobra.Command{Use: operation, Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		command := &cobra.Command{Use: operation, Short: "Change this runtime's status (" + operation + ")", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 			id, _ := cmd.Flags().GetString("id")
 			value, err := c.svc.Execute(c.actor, "runtime."+operation, id, model.RuntimeStatusChanged{Reason: reason})
 			if err != nil {
@@ -128,7 +128,7 @@ func (c *cli) runtimeCmd() *cobra.Command {
 		command.Flags().StringVar(&reason, "reason", "", "status-change reason")
 		root.AddCommand(command)
 	}
-	list := &cobra.Command{Use: "list", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+	list := &cobra.Command{Use: "list", Short: "List registered runtimes and their presence", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		state, err := c.svc.State()
 		if err != nil {
 			return err

@@ -102,6 +102,13 @@ one is picked up, remove it from here and note the landing commit.
 
 ## Security / governance
 
+- **`draft delete` CLI command (deferred from [RFC 0027](rfcs/0027-cli-surface-consolidation.md) §8).**
+  RFC 0027 added `draft show`; `draft delete` needs a new
+  `draftstore.Store.DeleteDraft` plus a daemon route and daemonclient
+  method, so it was left out of the RFC 0027 PR. Low priority — drafts are
+  non-authoritative local state and self-expire; add when someone actually
+  needs to prune them.
+
 - **RESOLVED 2026-09-02: added first-phase application authentication for the
   shared authority service ([RFC 0026](rfcs/0026-authority-bearer-token.md)).**
   Production `agent-comms-server` now requires

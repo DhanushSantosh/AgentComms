@@ -16,16 +16,18 @@ func (c *cli) taskCmd() *cobra.Command {
 	root := &cobra.Command{Use: "task"}
 	var title, summary, repo, branch, worktree, external, risk string
 	var resources []string
-	create := &cobra.Command{Use: "create", RunE: func(cmd *cobra.Command, args []string) error {
+	create := &cobra.Command{Use: "create", Short: "Create a tracked task", RunE: func(cmd *cobra.Command, args []string) error {
 		id, _ := cmd.Flags().GetString("id")
+		if strings.TrimSpace(id) == "" {
+			id = fmt.Sprintf("task-%d", time.Now().UnixNano())
+		}
 		v, e := c.svc.Execute(c.actor, "task.create", id, model.TaskCreated{Title: title, Summary: summary, Repository: repo, Branch: branch, Worktree: worktree, Resources: resources, ExternalRef: external, Risk: risk})
 		if e != nil {
 			return e
 		}
 		return c.emit("task.create", v)
 	}}
-	create.Flags().String("id", "", "task ID")
-	_ = create.MarkFlagRequired("id")
+	create.Flags().String("id", "", "task ID (auto-generated if omitted)")
 	create.Flags().StringVar(&title, "title", "", "title")
 	create.Flags().StringVar(&summary, "summary", "", "summary")
 	create.Flags().StringVar(&repo, "repository", "local", "repository")
@@ -36,7 +38,7 @@ func (c *cli) taskCmd() *cobra.Command {
 	create.Flags().StringVar(&risk, "risk", "ROUTINE", "risk tier")
 	var to string
 	var offerTTL time.Duration
-	offer := &cobra.Command{Use: "offer", RunE: func(cmd *cobra.Command, args []string) error {
+	offer := &cobra.Command{Use: "offer", Short: "Offer a task to another principal", RunE: func(cmd *cobra.Command, args []string) error {
 		id, _ := cmd.Flags().GetString("id")
 		v, e := c.svc.Execute(c.actor, "task.offer", id, model.TaskOffered{To: to, ExpiresAt: time.Now().UTC().Add(offerTTL)})
 		if e != nil {
@@ -81,11 +83,15 @@ func (c *cli) taskCmd() *cobra.Command {
 			Hint: "Start the task when work begins, then renew the lease with progress before it expires.",
 		})
 	}}
+	claim.Short = "Claim a task and acquire its working-directory lock"
 	claim.Flags().String("id", "", "task ID")
 	_ = claim.MarkFlagRequired("id")
 	claim.Flags().DurationVar(&leaseDuration, "duration", 4*time.Hour, "lease duration")
-	claim.Flags().StringVar(&claimRepo, "repo", "", "repository path (acquires working-directory lock; alias for --worktree)")
-	claim.Flags().StringVar(&claimWorktree, "worktree", "", "worktree path (acquires working-directory lock)")
+	claim.Flags().StringVar(&claimWorktree, "worktree", "", "worktree path (acquires the working-directory lock)")
+	// RFC 0027 section 11: --worktree is canonical; --repo is a hidden
+	// deprecated alias kept one release for shell history.
+	claim.Flags().StringVar(&claimRepo, "repo", "", "deprecated alias for --worktree")
+	_ = claim.Flags().MarkHidden("repo")
 	start := simpleStatus(c, "task", "start")
 	var progress string
 	renew := payloadStatus(c, "task", "renew", func(string) any { return model.TaskRenewed{Progress: progress} })
@@ -95,7 +101,7 @@ func (c *cli) taskCmd() *cobra.Command {
 	complete := statusWithSummary(c, "task", "complete")
 	cancel := statusWithSummary(c, "task", "cancel")
 	var handTo, handSummary string
-	handoff := &cobra.Command{Use: "handoff", RunE: func(cmd *cobra.Command, args []string) error {
+	handoff := &cobra.Command{Use: "handoff", Short: "Hand off or accept a task", RunE: func(cmd *cobra.Command, args []string) error {
 		id, _ := cmd.Flags().GetString("id")
 		accept, _ := cmd.Flags().GetBool("accept")
 		typ := "task.handoff"
@@ -116,7 +122,7 @@ func (c *cli) taskCmd() *cobra.Command {
 	handoff.Flags().StringVar(&handSummary, "summary", "", "handoff summary")
 	handoff.Flags().Bool("accept", false, "accept pending handoff")
 	takeover := statusWithSummary(c, "task", "takeover")
-	list := &cobra.Command{Use: "list", RunE: func(cmd *cobra.Command, args []string) error {
+	list := &cobra.Command{Use: "list", Short: "List tasks", RunE: func(cmd *cobra.Command, args []string) error {
 		st, e := c.svc.State()
 		if e != nil {
 			return e
@@ -219,6 +225,17 @@ func (c *cli) taskCmd() *cobra.Command {
 	lock.Flags().StringVar(&lockWorktree, "worktree", "", "worktree path to lock (required)")
 	lock.Flags().StringVar(&lockNote, "note", "", "what you're about to do -- used as the ad hoc task's title/summary")
 	lock.Flags().DurationVar(&lockDuration, "duration", 4*time.Hour, "lease duration")
-	root.AddCommand(create, offer, claim, start, renew, block, review, complete, cancel, handoff, takeover, list, lock)
+	show := c.entityShow("task", func(st model.State, id string) (any, []cliui.Field, bool) {
+		t, ok := st.Tasks[id]
+		if !ok {
+			return nil, nil, false
+		}
+		return t, []cliui.Field{
+			{Label: "Title", Value: t.Title}, {Label: "Status", Value: t.Status},
+			{Label: "Owner", Value: t.Owner}, {Label: "Branch", Value: t.Branch},
+			{Label: "Worktree", Value: t.Worktree},
+		}, true
+	})
+	root.AddCommand(create, offer, claim, start, renew, block, review, complete, cancel, handoff, takeover, list, lock, show)
 	return root
 }

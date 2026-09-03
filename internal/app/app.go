@@ -268,6 +268,41 @@ func errorHint(code string) string {
 		return "Run the command with --help or use --verbose for more operational context."
 	}
 }
+
+// projectScope classifies how much project context a command's
+// PersistentPreRunE must establish before RunE. See RFC 0027 section 12.
+type projectScope int
+
+const (
+	projectRequired projectScope = iota // an initialized project is mandatory; a missing one is an error
+	projectOptional                     // use the project when the cwd has one; otherwise run degraded with c.svc == nil
+	projectUserOnly                     // never touch a project; user-installation reconcile only
+	projectExempt                       // touch nothing (servers, init, version, completion, project upgrade)
+)
+
+func classifyProjectScope(cmd *cobra.Command) projectScope {
+	name := cmd.Name()
+	path := cmd.CommandPath()
+	switch {
+	case name == "version", name == "init", name == "completion",
+		name == "update" && cmd.Parent() == cmd.Root(),
+		strings.HasPrefix(path, "agent-comms project upgrade"),
+		path == "agent-comms daemon serve",
+		path == "agent-comms live serve", path == "agent-comms live attach",
+		path == "agent-comms runtime verify-adapter":
+		return projectExempt
+	case path == "agent-comms update check", path == "agent-comms update apply",
+		path == "agent-comms profile list", path == "agent-comms profile use",
+		path == "agent-comms config theme":
+		return projectUserOnly
+	case name == "config", name == "doctor", name == "agent-instructions",
+		path == "agent-comms profile current":
+		return projectOptional
+	default:
+		return projectRequired
+	}
+}
+
 func (c *cli) root() *cobra.Command {
 	r := &cobra.Command{
 		Use:   "agent-comms",
@@ -295,19 +330,11 @@ func (c *cli) root() *cobra.Command {
 			default:
 				return fmt.Errorf("invalid output mode %q (expected human, plain, json, or jsonl)", c.output)
 			}
-			if cmd.Name() == "version" || cmd.Name() == "init" || cmd.Name() == "completion" ||
-				(cmd.Name() == "update" && cmd.Parent() == cmd.Root()) ||
-				strings.HasPrefix(cmd.CommandPath(), "agent-comms project upgrade") ||
-				cmd.CommandPath() == "agent-comms daemon serve" ||
-				cmd.CommandPath() == "agent-comms claude serve" ||
-				cmd.CommandPath() == "agent-comms claude attach" ||
-				cmd.CommandPath() == "agent-comms codex serve" ||
-				cmd.CommandPath() == "agent-comms codex attach" ||
-				cmd.CommandPath() == "agent-comms runtime verify-adapter" {
+			scope := classifyProjectScope(cmd)
+			if scope == projectExempt {
 				return nil
 			}
-			if cmd.CommandPath() == "agent-comms profile list" ||
-				cmd.CommandPath() == "agent-comms profile use" {
+			if scope == projectUserOnly {
 				warnings, e := c.reconcileUserInstallation(cmd.Context(), "")
 				c.pendingWarnings = append(c.pendingWarnings, warnings...)
 				return e
@@ -320,7 +347,18 @@ func (c *cli) root() *cobra.Command {
 					return e
 				}
 			}
-			applyLifecycle := cmd.Name() != "doctor"
+			// projectOptional commands run project-less when the current
+			// directory has no initialized project. They set c.svc to nil
+			// and each RunE checks for it -- see RFC 0027 section 12.
+			if scope == projectOptional {
+				if _, ok := currentInitializedProject(root); !ok {
+					warnings, e := c.reconcileUserInstallation(cmd.Context(), "")
+					c.pendingWarnings = append(c.pendingWarnings, warnings...)
+					c.svc = nil
+					return e
+				}
+			}
+			applyLifecycle := scope == projectRequired && cmd.Name() != "doctor"
 			if applyLifecycle {
 				warnings, e := c.reconcileUserInstallation(cmd.Context(), root)
 				c.pendingWarnings = append(c.pendingWarnings, warnings...)
@@ -334,7 +372,7 @@ func (c *cli) root() *cobra.Command {
 			}); e != nil {
 				return e
 			}
-			if cmd.Name() == "doctor" {
+			if scope == projectOptional || cmd.Name() == "doctor" {
 				c.svc = service.NewTolerant(root)
 			} else {
 				c.svc = service.New(root)
@@ -359,7 +397,7 @@ func (c *cli) root() *cobra.Command {
 			}
 			c.svc.Store.LockTimeout = c.timeout
 			c.svc.SetRemoteRecovery(func() error { return ensureDaemon(root, cfg) })
-			if cmd.Name() != "doctor" && (cfg.RuntimeMode == "service" || cfg.RuntimeMode == "personal") {
+			if scope == projectRequired && cmd.Name() != "doctor" && (cfg.RuntimeMode == "service" || cfg.RuntimeMode == "personal") {
 				if e = ensureDaemon(root, cfg); e != nil {
 					return e
 				}
@@ -418,7 +456,7 @@ func (c *cli) root() *cobra.Command {
 	f.BoolVarP(&c.quiet, "quiet", "q", false, "suppress non-essential output")
 	f.BoolVarP(&c.verbose, "verbose", "v", false, "show operational metadata in human output")
 	f.BoolVar(&c.details, "details", false, "show secondary and nested fields in human output")
-	r.AddCommand(c.versionCmd(), c.initCmd(), c.projectCmd(), c.doctorCmd(), c.verifyCmd(), c.statusCmd(), c.controlCmd(), c.historyCmd(), c.searchCmd(), c.agentCmd(), c.runtimeCmd(), c.invocationCmd(), c.sessionCmd(), c.taskCmd(), c.messageCmd(), c.decisionCmd(), c.approvalCmd(), c.artifactCmd(), c.documentCmd(), c.envCmd(), c.draftCmd(), c.archiveCmd(), c.exportCmd(), c.profileCmd(), c.configCmd(), c.themeCmd(), c.updateCmd(), c.completionCmd(r), c.agentInstructionsCmd(), c.mcpCmd(), c.watchCmd(), c.tuiCmd(), c.daemonCmd(), c.claudeCmd(), c.codexCmd())
+	r.AddCommand(c.versionCmd(), c.initCmd(), c.projectCmd(), c.doctorCmd(), c.verifyCmd(), c.statusCmd(), c.attentionCmd(), c.historyCmd(), c.agentCmd(), c.runtimeCmd(), c.invocationCmd(), c.sessionCmd(), c.taskCmd(), c.messageCmd(), c.decisionCmd(), c.approvalCmd(), c.artifactCmd(), c.documentCmd(), c.envCmd(), c.draftCmd(), c.archiveCmd(), c.exportCmd(), c.profileCmd(), c.configCmd(), c.updateCmd(), c.completionCmd(r), c.agentInstructionsCmd(), c.mcpCmd(), c.watchCmd(), c.tuiCmd(), c.daemonCmd(), c.liveCmd())
 	configureRootHelp(r)
 	return r
 }
@@ -426,20 +464,22 @@ func (c *cli) root() *cobra.Command {
 func configureRootHelp(root *cobra.Command) {
 	groups := map[string]string{
 		"version": "start", "init": "start", "status": "start", "doctor": "start", "verify": "start", "tui": "start",
-		"task": "coordinate", "message": "coordinate", "decision": "coordinate", "approval": "coordinate", "invocation": "coordinate",
+		"task": "coordinate", "message": "coordinate", "decision": "coordinate", "approval": "coordinate", "invocation": "coordinate", "attention": "coordinate",
 		"agent": "identity", "runtime": "identity", "session": "identity", "profile": "identity",
-		"artifact": "knowledge", "document": "knowledge", "env": "knowledge", "draft": "knowledge", "archive": "knowledge", "history": "knowledge", "search": "knowledge",
-		"control": "operations", "project": "operations", "config": "operations", "theme": "operations", "update": "operations", "watch": "operations", "export": "operations", "agent-instructions": "operations", "completion": "operations", "mcp": "operations", "claude": "operations", "codex": "operations",
+		"artifact": "knowledge", "document": "knowledge", "env": "knowledge", "draft": "knowledge", "archive": "knowledge", "history": "knowledge",
+		"project": "operations", "config": "operations", "update": "operations", "watch": "operations", "export": "operations", "agent-instructions": "operations", "completion": "operations", "mcp": "operations", "live": "operations",
 	}
 	descriptions := map[string]string{
 		"agent": "Manage governed identities, roles, scopes, and keys", "approval": "Request and resolve governed approvals",
 		"archive": "Archive eligible completed project state", "artifact": "Store, inspect, and verify content-addressed artifacts",
-		"completion": "Generate shell completion source", "config": "Inspect resolved user and project configuration",
+		"attention":  "List everything currently needing operator intervention",
+		"completion": "Generate shell completion source", "config": "Inspect and set user and project configuration",
 		"decision": "Record and supersede durable decisions", "doctor": "Diagnose project health and actionable findings",
 		"document": "Create and manage governed project documents", "env": "Manage governed project environment values",
-		"export": "Export project history as JSONL or Markdown", "history": "Inspect the signed event timeline",
+		"export": "Export project history as JSONL or Markdown", "history": "Inspect and search the signed event timeline",
+		"live":    "Serve, attach to, or tail a provider's live agent sessions",
 		"message": "Post messages and manage recipient obligations", "mcp": "Serve the protocol-only MCP stdio interface",
-		"profile": "Inspect and select local signing profiles", "search": "Search the current signed event page",
+		"profile": "Inspect and select local signing profiles",
 		"session": "Manage durable invocation sessions", "status": "Show a concise project operational summary",
 		"task": "Coordinate ownership, leases, handoffs, and task lifecycle", "tui": "Open the full-screen control room",
 		"update": "Check for and install verified Agent Comms releases", "verify": "Verify the signed project event chain",
@@ -915,7 +955,7 @@ func (c *cli) projectUpgradeCmd() *cobra.Command {
 	for _, operation := range []string{"status", "plan"} {
 		operation := operation
 		var operationAllKnown bool
-		command := &cobra.Command{Use: operation, Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		command := &cobra.Command{Use: operation, Short: "Show the pending project upgrade plan (" + operation + ")", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 			roots, err := c.upgradeRoots(operationAllKnown)
 			if err != nil {
 				return err
@@ -1115,6 +1155,22 @@ func (c *cli) initCmd() *cobra.Command {
 func (c *cli) doctorCmd() *cobra.Command {
 	var explain bool
 	cmd := &cobra.Command{Use: "doctor", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		// projectOptional (RFC 0027 section 12): no initialized project in
+		// this directory. Report that as a finding rather than erroring.
+		if c.svc == nil {
+			result := map[string]any{
+				"healthy": false,
+				"findings": []doctor.Finding{{
+					Severity: "WARNING", Code: "NO_PROJECT_HERE",
+					Message:  "no initialized Agent Comms project in this directory",
+					Guidance: "Run `agent-comms init` here, or cd into an existing project.",
+				}},
+			}
+			return c.emitDocument("doctor", result, cliui.Document{
+				Title: "Project health", Status: cliui.StatusWarning,
+				Fields: []cliui.Field{{Label: "Findings", Value: "WARNING NO_PROJECT_HERE — no initialized Agent Comms project in this directory. Remedy: run `agent-comms init` here, or cd into an existing project."}},
+			})
+		}
 		verify := c.svc.Verify(0, 0)
 		cfg, e := c.svc.Store.Config()
 		if e != nil {
@@ -1242,7 +1298,29 @@ func (c *cli) statusCmd() *cobra.Command {
 			integrity = "verified"
 			status = cliui.StatusSuccess
 		}
-		return c.emitDocument("status", v, cliui.Document{
+		breakdown := map[string]int{
+			"online_runtimes": onlineRuntimes, "draining_runtimes": 0, "pending_approvals": pendingApprovals,
+		}
+		for _, runtime := range v.AgentRuntimes {
+			if runtime.Status == "DRAINING" {
+				breakdown["draining_runtimes"]++
+			}
+		}
+		for _, invocation := range v.Invocations {
+			breakdown["invocations_"+strings.ToLower(invocation.Status)]++
+		}
+		for _, task := range v.Tasks {
+			breakdown["tasks_"+strings.ToLower(task.Status)]++
+		}
+		// Keep the State's own fields at the top level of the result for
+		// --json contract stability (RFC 0022); add the per-status
+		// breakdown alongside them for `status --details` (RFC 0027 §2).
+		result := map[string]any{}
+		if raw, marshalErr := json.Marshal(v); marshalErr == nil {
+			_ = json.Unmarshal(raw, &result)
+		}
+		result["breakdown"] = breakdown
+		return c.emitDocument("status", result, cliui.Document{
 			Title:  "Project status",
 			Status: status,
 			Fields: []cliui.Field{
@@ -1253,53 +1331,17 @@ func (c *cli) statusCmd() *cobra.Command {
 				{Label: "Approvals", Value: fmt.Sprintf("%d (%d pending)", len(v.Approvals), pendingApprovals)},
 				{Label: "Integrity", Value: integrity + " · " + v.Integrity.Consistency},
 			},
+			Hint: "Use --details for the per-status task, invocation, and runtime breakdown.",
 		})
 	}}
 }
-func (c *cli) controlCmd() *cobra.Command {
-	root := &cobra.Command{Use: "control", Short: "Inspect the human project control plane"}
-	overview := &cobra.Command{Use: "overview", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
-		state, err := c.svc.State()
-		if err != nil {
-			return err
-		}
-		counts := map[string]int{
-			"agents": len(state.Agents), "runtimes": len(state.AgentRuntimes),
-			"tasks": len(state.Tasks), "invocations": len(state.Invocations),
-			"online_runtimes": 0, "draining_runtimes": 0, "pending_approvals": 0,
-		}
-		for _, runtime := range state.AgentRuntimes {
-			if runtime.Status == "ONLINE" {
-				counts["online_runtimes"]++
-			}
-			if runtime.Status == "DRAINING" {
-				counts["draining_runtimes"]++
-			}
-		}
-		for _, invocation := range state.Invocations {
-			counts["invocations_"+strings.ToLower(invocation.Status)]++
-		}
-		for _, task := range state.Tasks {
-			counts["tasks_"+strings.ToLower(task.Status)]++
-		}
-		for _, approval := range state.Approvals {
-			if approval.Status == "PENDING" {
-				counts["pending_approvals"]++
-			}
-		}
-		result := map[string]any{
-			"counts": counts, "integrity": state.Integrity,
-		}
-		return c.emitDocument("control.overview", result, cliui.Document{
-			Title: "Control overview", Status: cliui.StatusInfo,
-			Fields: []cliui.Field{
-				{Label: "Agents", Value: fmt.Sprint(counts["agents"])}, {Label: "Runtimes", Value: fmt.Sprintf("%d (%d online)", counts["runtimes"], counts["online_runtimes"])},
-				{Label: "Tasks", Value: fmt.Sprint(counts["tasks"])}, {Label: "Invocations", Value: fmt.Sprint(counts["invocations"])},
-				{Label: "Pending approvals", Value: fmt.Sprint(counts["pending_approvals"])}, {Label: "Integrity", Value: state.Integrity.Consistency},
-			},
-		})
-	}}
-	attention := &cobra.Command{Use: "attention", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+
+// attentionCmd is RFC 0027 section 2: the former `control attention`,
+// promoted to a top-level command. It lists everything currently needing
+// operator intervention as a categorized snapshot (distinct from `watch`,
+// which streams changes).
+func (c *cli) attentionCmd() *cobra.Command {
+	return &cobra.Command{Use: "attention", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		state, err := c.svc.State()
 		if err != nil {
 			return err
@@ -1344,7 +1386,7 @@ func (c *cli) controlCmd() *cobra.Command {
 		if total > 0 {
 			status = cliui.StatusWarning
 		}
-		return c.emitDocument("control.attention", result, cliui.Document{
+		return c.emitDocument("attention", result, cliui.Document{
 			Title: "Attention queue", Status: status,
 			Fields: []cliui.Field{
 				{Label: "Blocked tasks", Value: fmt.Sprint(len(blockedTasks))}, {Label: "Pending approvals", Value: fmt.Sprint(len(pendingApprovals))},
@@ -1354,47 +1396,42 @@ func (c *cli) controlCmd() *cobra.Command {
 			Hint: "Use --details to inspect every item requiring intervention.",
 		})
 	}}
-	settings := &cobra.Command{Use: "settings", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
-		state, err := c.svc.State()
-		if err != nil {
-			return err
-		}
-		config, err := c.svc.Store.Config()
-		if err != nil {
-			return err
-		}
-		result := map[string]any{
-			"runtime_mode": config.RuntimeMode, "authority_url": config.AuthorityURL,
-			"invocation_policies": state.InvocationPolicies,
-			"limits": map[string]any{
-				"max_runtime_concurrency": controlplane.MaxRuntimeConcurrency,
-				"max_delivery_attempts":   controlplane.MaxDeliveryAttempts,
-				"max_invocation_bytes":    controlplane.MaxInvocationBytes,
-				"max_invocation_ttl":      controlplane.MaxInvocationTTL.String(),
-			},
-		}
-		return c.emitDocument("control.settings", result, cliui.Document{
-			Title: "Control settings", Status: cliui.StatusInfo,
-			Fields: []cliui.Field{
-				{Label: "Runtime mode", Value: config.RuntimeMode}, {Label: "Authority", Value: config.AuthorityURL},
-				{Label: "Invocation policies", Value: fmt.Sprint(len(state.InvocationPolicies))},
-				{Label: "Max concurrency", Value: fmt.Sprint(controlplane.MaxRuntimeConcurrency)},
-				{Label: "Max delivery attempts", Value: fmt.Sprint(controlplane.MaxDeliveryAttempts)},
-			},
-		})
-	}}
-	root.AddCommand(overview, attention, settings)
-	return root
 }
 func (c *cli) historyCmd() *cobra.Command {
 	var cursor string
 	var limit int
 	var actor string
 	var keyFingerprint string
+	var grep string
+	var all bool
 	cmd := &cobra.Command{Use: "history", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		v, e := c.svc.History(controlplane.PageRequest{Cursor: cursor, Limit: limit})
 		if e != nil {
 			return e
+		}
+		// --all pages through the whole log rather than a single page, so
+		// --grep is a real search and not "grep of the current page" the
+		// removed `search` command was -- see RFC 0027 section 3.
+		if all {
+			for v.NextCursor != "" {
+				next, pageErr := c.svc.History(controlplane.PageRequest{Cursor: v.NextCursor, Limit: limit})
+				if pageErr != nil {
+					return pageErr
+				}
+				v.Items = append(v.Items, next.Items...)
+				v.NextCursor = next.NextCursor
+			}
+		}
+		if grep != "" {
+			needle := strings.ToLower(grep)
+			matched := make([]controlplane.EventRecord, 0, len(v.Items))
+			for _, record := range v.Items {
+				blob, _ := json.Marshal(record)
+				if strings.Contains(strings.ToLower(string(blob)), needle) {
+					matched = append(matched, record)
+				}
+			}
+			v.Items = matched
 		}
 		if actor != "" || keyFingerprint != "" {
 			filtered := make([]controlplane.EventRecord, 0, len(v.Items))
@@ -1424,46 +1461,33 @@ func (c *cli) historyCmd() *cobra.Command {
 	}}
 	cmd.Flags().StringVar(&cursor, "cursor", "", "opaque pagination cursor")
 	cmd.Flags().IntVar(&limit, "limit", controlplane.DefaultPageSize, "events per page")
-	cmd.Flags().StringVar(&actor, "actor", "", "only events signed by this actor in the current page")
-	cmd.Flags().StringVar(&keyFingerprint, "key-fingerprint", "", "only events signed by this key fingerprint in the current page")
+	cmd.Flags().StringVar(&actor, "actor", "", "only events signed by this actor")
+	cmd.Flags().StringVar(&keyFingerprint, "key-fingerprint", "", "only events signed by this key fingerprint")
+	cmd.Flags().StringVar(&grep, "grep", "", "only events whose record contains this substring (case-insensitive)")
+	cmd.Flags().BoolVar(&all, "all", false, "page through the entire log rather than one page")
 	return cmd
 }
-func (c *cli) searchCmd() *cobra.Command {
-	var cursor string
-	var limit int
-	var keyFingerprint string
-	cmd := &cobra.Command{Use: "search <query>", Args: cobra.MinimumNArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-		q := strings.ToLower(strings.Join(args, " "))
-		page, e := c.svc.History(controlplane.PageRequest{Cursor: cursor, Limit: limit})
+
+// entityShow is RFC 0027 section 9: a uniform `show` for domains that
+// previously only had `list`. lookup returns the entity, its summary
+// fields, and whether it was found.
+func (c *cli) entityShow(domain string, lookup func(model.State, string) (any, []cliui.Field, bool)) *cobra.Command {
+	cmd := &cobra.Command{Use: "show", Args: cobra.NoArgs, Short: "Show one " + domain + " by ID", RunE: func(cmd *cobra.Command, args []string) error {
+		id, _ := cmd.Flags().GetString("id")
+		st, e := c.svc.State()
 		if e != nil {
 			return e
 		}
-		out := []controlplane.EventRecord{}
-		for _, v := range page.Items {
-			if keyFingerprint != "" && v.Event.ActorKeyFingerprint != keyFingerprint {
-				continue
-			}
-			b, _ := json.Marshal(v)
-			if strings.Contains(strings.ToLower(string(b)), q) {
-				out = append(out, v)
-			}
+		value, fields, ok := lookup(st, id)
+		if !ok {
+			return fmt.Errorf("%s %q not found", domain, id)
 		}
-		result := map[string]any{
-			"current_events": out,
-			"next_cursor":    page.NextCursor, "metadata": page.Metadata,
-		}
-		rows := make([][]string, 0, len(out))
-		for _, record := range out {
-			rows = append(rows, []string{
-				fmt.Sprint(record.Event.Sequence), record.Event.Type, record.Event.Actor,
-				record.Event.EntityID, record.Event.Time.Format(time.RFC3339),
-			})
-		}
-		return c.emitTable("search", result, []string{"SEQ", "EVENT", "ACTOR", "ENTITY", "TIME"}, rows)
+		return c.emitDocument(domain+".show", value, cliui.Document{
+			Title: strings.ToUpper(domain[:1]) + domain[1:] + " " + id, Status: cliui.StatusInfo, Fields: fields,
+		})
 	}}
-	cmd.Flags().StringVar(&cursor, "cursor", "", "opaque pagination cursor")
-	cmd.Flags().IntVar(&limit, "limit", controlplane.DefaultPageSize, "events scanned per page")
-	cmd.Flags().StringVar(&keyFingerprint, "key-fingerprint", "", "only events signed by this key fingerprint in the current page")
+	cmd.Flags().String("id", "", "entity ID")
+	_ = cmd.MarkFlagRequired("id")
 	return cmd
 }
 
@@ -1476,8 +1500,26 @@ func statusWithSummary(c *cli, domain, sub string) *cobra.Command {
 	cmd.Flags().StringVar(&summary, "summary", "", "summary")
 	return cmd
 }
+
+// transitionShort generates the one-line help for the many
+// payloadStatus-built lifecycle transitions ("Move this task to
+// blocked", "Reject this invocation", ...).
+func transitionShort(domain, sub string) string {
+	verb := strings.ReplaceAll(sub, "-", " ")
+	switch sub {
+	case "block", "review", "complete", "cancel", "start", "resume", "expire", "reject", "takeover", "approve":
+		return "Move this " + domain + " to " + verb
+	case "renew":
+		return "Renew this " + domain + "'s lease with progress"
+	case "claim":
+		return "Claim this " + domain
+	default:
+		return strings.ToUpper(verb[:1]) + verb[1:] + " this " + domain
+	}
+}
+
 func payloadStatus(c *cli, domain, sub string, f func(string) any) *cobra.Command {
-	cmd := &cobra.Command{Use: sub, RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &cobra.Command{Use: sub, Short: transitionShort(domain, sub), RunE: func(cmd *cobra.Command, args []string) error {
 		id, _ := cmd.Flags().GetString("id")
 		v, e := c.svc.Execute(c.actor, domain+"."+sub, id, f(id))
 		if e != nil {

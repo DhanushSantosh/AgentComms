@@ -45,12 +45,17 @@ func (c *cli) completionCmd(root *cobra.Command) *cobra.Command {
 	}}
 }
 func (c *cli) agentInstructionsCmd() *cobra.Command {
-	return &cobra.Command{Use: "agent-instructions", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+	return &cobra.Command{Use: "agent-instructions", Args: cobra.NoArgs, Short: "Print setup and command guidance for a collaborating agent", RunE: func(cmd *cobra.Command, args []string) error {
 		exe, _ := os.Executable()
 		var registered, active bool
 		var role string
-		if state, e := c.svc.State(); e == nil {
-			registered, active, role = onboarding.LookupAgentState(state, c.actor)
+		// projectOptional (RFC 0027 section 12): c.svc is nil outside an
+		// initialized project. The guide still renders -- it just describes
+		// first-run setup instead of this agent's role in a live project.
+		if c.svc != nil {
+			if state, e := c.svc.State(); e == nil {
+				registered, active, role = onboarding.LookupAgentState(state, c.actor)
+			}
 		}
 		guide, e := onboarding.Render(onboarding.FromActorResolution(c.actorResolution, exe, registered, active, role))
 		if e != nil {
@@ -86,11 +91,111 @@ func (c *cli) mcpCmd() *cobra.Command {
 		return mcp.Serve(c.svc, c.actorResolution, Version, os.Stdin, c.out)
 	}}
 }
-func (c *cli) claudeCmd() *cobra.Command {
-	root := &cobra.Command{Use: "claude", Short: "Serve, attach to, or tail Claude Code sessions"}
-	var sessionID, projectDir string
+
+// liveCmd is RFC 0027 section 6: the single `live` group replacing the
+// former top-level `claude` and `codex` groups. Each subcommand is scoped
+// by --provider rather than the provider being its own verb, so a third
+// provider is a new --provider value, not a fourth duplicated subtree.
+func (c *cli) liveCmd() *cobra.Command {
+	root := &cobra.Command{Use: "live", Short: "Serve, attach to, or tail a provider's live agent sessions"}
+
+	provider := func(value string) (string, error) {
+		switch strings.ToLower(strings.TrimSpace(value)) {
+		case "claude":
+			return "claude", nil
+		case "codex":
+			return "codex", nil
+		default:
+			return "", fmt.Errorf("--provider must be claude or codex, got %q", value)
+		}
+	}
+
+	var serveProvider, listenAddress string
+	serve := &cobra.Command{Use: "serve", Args: cobra.NoArgs, Short: "Run a provider's local live broker", RunE: func(cmd *cobra.Command, args []string) error {
+		name, err := provider(serveProvider)
+		if err != nil {
+			return err
+		}
+		ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+		defer cancel()
+		if name == "codex" {
+			addr := listenAddress
+			if addr == "" {
+				addr = codexserve.DefaultServeAddress
+			}
+			if !c.quiet {
+				_, _ = fmt.Fprintf(c.err, "Codex live broker listening on http://%s\n", cliui.SanitizeInline(addr))
+			}
+			return codexserve.Serve(ctx, addr)
+		}
+		addr := listenAddress
+		if addr == "" {
+			addr = claudeserve.DefaultServeAddress
+		}
+		if !c.quiet {
+			_, _ = fmt.Fprintf(c.err, "Claude live broker listening on http://%s\n", cliui.SanitizeInline(addr))
+		}
+		return claudeserve.Serve(ctx, addr)
+	}}
+	serve.Flags().StringVar(&serveProvider, "provider", "claude", "claude or codex")
+	serve.Flags().StringVar(&listenAddress, "listen", "", "loopback listen address (provider default when omitted)")
+
+	var attachProvider, runtimeID, serverURL string
+	attach := &cobra.Command{Use: "attach", Args: cobra.NoArgs, Short: "Watch a provider live runtime's event stream", RunE: func(cmd *cobra.Command, args []string) error {
+		name, err := provider(attachProvider)
+		if err != nil {
+			return err
+		}
+		if name == "codex" {
+			url := serverURL
+			if url == "" {
+				url = codexserve.DefaultServeBaseURL()
+			}
+			events, subErr := codexserve.New(url).Subscribe(cmd.Context(), runtimeID)
+			if subErr != nil {
+				return subErr
+			}
+			for event := range events {
+				if rendered, ok := codexserve.Format(event); ok {
+					if _, err := fmt.Fprint(c.out, rendered); err != nil {
+						return err
+					}
+				}
+			}
+			return nil
+		}
+		url := serverURL
+		if url == "" {
+			url = claudeserve.DefaultServeBaseURL()
+		}
+		events, subErr := claudeserve.New(url).Subscribe(cmd.Context(), runtimeID)
+		if subErr != nil {
+			return subErr
+		}
+		for event := range events {
+			if rendered, ok := claudetail.Format(event); ok {
+				if _, err := fmt.Fprint(c.out, rendered); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}}
+	attach.Flags().StringVar(&attachProvider, "provider", "claude", "claude or codex")
+	attach.Flags().StringVar(&runtimeID, "runtime", "", "registered Agent Comms runtime ID")
+	_ = attach.MarkFlagRequired("runtime")
+	attach.Flags().StringVar(&serverURL, "server", "", "live broker base URL (provider default when omitted)")
+
+	var tailProvider, sessionID, projectDir string
 	var noReplay bool
-	tail := &cobra.Command{Use: "tail", Args: cobra.NoArgs, Short: "Stream a Claude Code session transcript live", RunE: func(cmd *cobra.Command, args []string) error {
+	tail := &cobra.Command{Use: "tail", Args: cobra.NoArgs, Short: "Stream a Claude Code session transcript live (--provider claude only)", RunE: func(cmd *cobra.Command, args []string) error {
+		name, err := provider(tailProvider)
+		if err != nil {
+			return err
+		}
+		if name != "claude" {
+			return errors.New("live tail is only available for --provider claude")
+		}
 		if strings.TrimSpace(sessionID) == "" {
 			return errors.New("--session is required")
 		}
@@ -111,80 +216,13 @@ func (c *cli) claudeCmd() *cobra.Command {
 		}
 		return claudetail.Tail(cmd.Context(), path, c.out, !noReplay)
 	}}
+	tail.Flags().StringVar(&tailProvider, "provider", "claude", "claude (only)")
 	tail.Flags().StringVar(&sessionID, "session", "", "Claude session ID to watch")
 	_ = tail.MarkFlagRequired("session")
 	tail.Flags().StringVar(&projectDir, "project-dir", "", "Claude Code working directory for this session (defaults to the current AgentComms project root)")
 	tail.Flags().BoolVar(&noReplay, "no-replay", false, "skip replaying existing history, only show new turns")
 
-	var listenAddress string
-	serve := &cobra.Command{Use: "serve", Args: cobra.NoArgs, Short: "Run the local Claude live broker", RunE: func(cmd *cobra.Command, args []string) error {
-		ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
-		defer cancel()
-		if !c.quiet {
-			_, _ = fmt.Fprintf(c.err, "Claude live broker listening on http://%s\n", cliui.SanitizeInline(listenAddress))
-		}
-		return claudeserve.Serve(ctx, listenAddress)
-	}}
-	serve.Flags().StringVar(&listenAddress, "listen", claudeserve.DefaultServeAddress, "loopback listen address")
-
-	var runtimeID, serverURL string
-	attach := &cobra.Command{Use: "attach", Args: cobra.NoArgs, Short: "Watch a Claude live runtime's event stream", RunE: func(cmd *cobra.Command, args []string) error {
-		client := claudeserve.New(serverURL)
-		events, err := client.Subscribe(cmd.Context(), runtimeID)
-		if err != nil {
-			return err
-		}
-		for event := range events {
-			if rendered, ok := claudetail.Format(event); ok {
-				if _, err := fmt.Fprint(c.out, rendered); err != nil {
-					return err
-				}
-			}
-		}
-		return nil
-	}}
-	attach.Flags().StringVar(&runtimeID, "runtime", "", "registered Agent Comms runtime ID")
-	_ = attach.MarkFlagRequired("runtime")
-	attach.Flags().StringVar(&serverURL, "server", claudeserve.DefaultServeBaseURL(), "Claude live broker base URL")
-
-	root.AddCommand(tail, serve, attach)
-	return root
-}
-func (c *cli) codexCmd() *cobra.Command {
-	root := &cobra.Command{Use: "codex", Short: "Serve or attach to Codex live sessions"}
-
-	var listenAddress string
-	serve := &cobra.Command{Use: "serve", Args: cobra.NoArgs, Short: "Run the local Codex live broker", RunE: func(cmd *cobra.Command, args []string) error {
-		ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
-		defer cancel()
-		if !c.quiet {
-			_, _ = fmt.Fprintf(c.err, "Codex live broker listening on http://%s\n", cliui.SanitizeInline(listenAddress))
-		}
-		return codexserve.Serve(ctx, listenAddress)
-	}}
-	serve.Flags().StringVar(&listenAddress, "listen", codexserve.DefaultServeAddress, "loopback listen address")
-
-	var runtimeID, serverURL string
-	attach := &cobra.Command{Use: "attach", Args: cobra.NoArgs, Short: "Watch a Codex live runtime's event stream", RunE: func(cmd *cobra.Command, args []string) error {
-		client := codexserve.New(serverURL)
-		events, err := client.Subscribe(cmd.Context(), runtimeID)
-		if err != nil {
-			return err
-		}
-		for event := range events {
-			if rendered, ok := codexserve.Format(event); ok {
-				if _, err := fmt.Fprint(c.out, rendered); err != nil {
-					return err
-				}
-			}
-		}
-		return nil
-	}}
-	attach.Flags().StringVar(&runtimeID, "runtime", "", "registered Agent Comms runtime ID")
-	_ = attach.MarkFlagRequired("runtime")
-	attach.Flags().StringVar(&serverURL, "server", codexserve.DefaultServeBaseURL(), "Codex live broker base URL")
-
-	root.AddCommand(serve, attach)
+	root.AddCommand(serve, attach, tail)
 	return root
 }
 func (c *cli) watchCmd() *cobra.Command {

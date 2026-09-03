@@ -39,20 +39,26 @@ func (c *cli) invocationCmd() *cobra.Command {
 	var requestApproval bool
 	var approvalID, approvalReason, approvalTier string
 	var approvalExpiresIn time.Duration
-	request := &cobra.Command{Use: "request", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+	request := &cobra.Command{Use: "request", Short: "Request an agent invocation", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		id, _ := cmd.Flags().GetString("id")
 		if id == "" {
 			id = fmt.Sprintf("inv-%d", time.Now().UnixNano())
 		}
 		var deadline *time.Time
-		if deadlineAt != "" && expiresIn > 0 { return errors.New("use either --deadline or --expires-in, not both") }
+		if deadlineAt != "" && expiresIn > 0 {
+			return errors.New("use either --deadline or --expires-in, not both")
+		}
 		if deadlineAt != "" {
 			value, parseErr := time.Parse(time.RFC3339, deadlineAt)
-			if parseErr != nil { return fmt.Errorf("deadline must be RFC3339: %w", parseErr) }
+			if parseErr != nil {
+				return fmt.Errorf("deadline must be RFC3339: %w", parseErr)
+			}
 			value = value.UTC()
 			deadline = &value
 		} else if expiresIn > 0 {
-			if requestApproval { return errors.New("approval-bound invocations require an absolute --deadline; relative --expires-in changes when the command is rerun") }
+			if requestApproval {
+				return errors.New("approval-bound invocations require an absolute --deadline; relative --expires-in changes when the command is rerun")
+			}
 			value := time.Now().UTC().Add(expiresIn)
 			deadline = &value
 		}
@@ -131,7 +137,7 @@ func (c *cli) invocationCmd() *cobra.Command {
 	request.Flags().StringVar(&approvalTier, "approval-tier", "ORCHESTRATOR", "ORCHESTRATOR or HUMAN")
 	request.Flags().DurationVar(&approvalExpiresIn, "approval-expires-in", 24*time.Hour, "approval validity window")
 
-	list := &cobra.Command{Use: "list", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+	list := &cobra.Command{Use: "list", Short: "List invocations", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		state, err := c.svc.State()
 		if err != nil {
 			return err
@@ -159,7 +165,7 @@ func (c *cli) invocationCmd() *cobra.Command {
 	list.Flags().String("status", "", "filter by status")
 	list.Flags().String("to", "", "filter by target agent")
 
-	inspect := &cobra.Command{Use: "inspect", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+	inspect := &cobra.Command{Use: "inspect", Short: "Show an invocation and its delivery evidence", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		id, _ := cmd.Flags().GetString("id")
 		state, err := c.svc.State()
 		if err != nil {
@@ -198,7 +204,7 @@ func (c *cli) invocationCmd() *cobra.Command {
 	inspect.Flags().String("id", "", "invocation ID")
 	_ = inspect.MarkFlagRequired("id")
 
-	next := &cobra.Command{Use: "next", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+	next := &cobra.Command{Use: "next", Short: "Show the next invocation available to a runtime", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		runtimeID, _ := cmd.Flags().GetString("runtime")
 		invocation, found, err := c.svc.NextInvocation(c.actor, runtimeID)
 		if err != nil {
@@ -217,7 +223,7 @@ func (c *cli) invocationCmd() *cobra.Command {
 	next.Flags().String("runtime", "", "runtime ID used for capacity filtering")
 
 	var redeliveryRuntimeID string
-	redeliver := &cobra.Command{Use: "redeliver", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+	redeliver := &cobra.Command{Use: "redeliver", Short: "Manually re-attempt delivery of an open invocation", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		id, _ := cmd.Flags().GetString("id")
 		state, err := c.svc.State()
 		if err != nil {
@@ -263,7 +269,7 @@ func (c *cli) invocationCmd() *cobra.Command {
 	var runtimeID string
 	var listenDuration time.Duration
 	var autoClaim bool
-	listen := &cobra.Command{Use: "listen", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+	listen := &cobra.Command{Use: "listen", Short: "Block until an invocation is delivered, optionally claiming it", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		invocation, found, err := c.svc.ListenInvocation(c.actor, runtimeID, listenDuration)
 		if err != nil {
 			return err
@@ -302,19 +308,34 @@ func (c *cli) invocationCmd() *cobra.Command {
 	var summary string
 	start := payloadStatus(c, "invocation", "start", func(string) any { return model.InvocationProgress{Summary: summary} })
 	start.Flags().StringVar(&summary, "summary", "", "progress summary")
+	// RFC 0027 section 4: the CLI verb is `defer` (it reads as a sibling
+	// of listen/next -- receive work -- when named `wait`, but it means
+	// "the worker is blocked, retry later"). The durable event type stays
+	// `invocation.wait`.
 	var waitReason string
 	var retryIn time.Duration
-	waitCommand := payloadStatus(c, "invocation", "wait", func(string) any {
-		var nextAttempt *time.Time
-		if retryIn > 0 {
-			value := time.Now().UTC().Add(retryIn)
-			nextAttempt = &value
-		}
-		return model.InvocationWaiting{Reason: waitReason, NextAttemptAt: nextAttempt}
-	})
-	waitCommand.Flags().StringVar(&waitReason, "reason", "", "waiting reason")
-	_ = waitCommand.MarkFlagRequired("reason")
-	waitCommand.Flags().DurationVar(&retryIn, "retry-in", 0, "next attempt relative to now")
+	deferCommand := &cobra.Command{
+		Use:   "defer",
+		Short: "Mark a claimed invocation as blocked and due for a later retry",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, _ := cmd.Flags().GetString("id")
+			var nextAttempt *time.Time
+			if retryIn > 0 {
+				value := time.Now().UTC().Add(retryIn)
+				nextAttempt = &value
+			}
+			v, e := c.svc.Execute(c.actor, "invocation.wait", id, model.InvocationWaiting{Reason: waitReason, NextAttemptAt: nextAttempt})
+			if e != nil {
+				return e
+			}
+			return c.emit("invocation.wait", v)
+		},
+	}
+	deferCommand.Flags().String("id", "", "invocation ID")
+	_ = deferCommand.MarkFlagRequired("id")
+	deferCommand.Flags().StringVar(&waitReason, "reason", "", "why the invocation is blocked")
+	_ = deferCommand.MarkFlagRequired("reason")
+	deferCommand.Flags().DurationVar(&retryIn, "retry-in", 0, "next attempt relative to now")
 	resume := payloadStatus(c, "invocation", "resume", func(string) any { return model.InvocationProgress{Summary: summary} })
 	resume.Flags().StringVar(&summary, "summary", "", "progress summary")
 	var resultMessage string
@@ -336,7 +357,7 @@ func (c *cli) invocationCmd() *cobra.Command {
 	_ = cancelInvocation.MarkFlagRequired("reason")
 
 	policy := c.invocationPolicyCmd()
-	root.AddCommand(request, list, inspect, next, redeliver, listen, claim, start, waitCommand, resume, complete, reject, expire, cancelInvocation, policy)
+	root.AddCommand(request, list, inspect, next, redeliver, listen, claim, start, deferCommand, resume, complete, reject, expire, cancelInvocation, policy)
 	return root
 }
 
@@ -355,7 +376,7 @@ func (c *cli) invocationPolicyCmd() *cobra.Command {
 	var defaultConsumer, preferredInteractiveRuntime string
 	var allowedConsumers []string
 	var requireHuman bool
-	set := &cobra.Command{Use: "set", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+	set := &cobra.Command{Use: "set", Short: "Set a per-agent invocation policy", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		agentID, _ := cmd.Flags().GetString("agent")
 		event, err := c.svc.Execute(c.actor, "invocation.policy.update", agentID, model.InvocationPolicyUpdated{
 			Mode: mode, TrustedActors: trustedActors, AllowedScopes: allowedScopes,
@@ -378,7 +399,7 @@ func (c *cli) invocationPolicyCmd() *cobra.Command {
 	set.Flags().StringSliceVar(&allowedConsumers, "allow-consumer", nil, "allowed consumer mode (repeatable; defaults to all)")
 	set.Flags().StringVar(&preferredInteractiveRuntime, "interactive-runtime", "", "preferred interactive runtime ID")
 	set.Flags().BoolVar(&requireHuman, "require-human-for-sensitive", true, "require human approval for sensitive work")
-	show := &cobra.Command{Use: "show", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+	show := &cobra.Command{Use: "show", Short: "Show a per-agent invocation policy", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		agentID, _ := cmd.Flags().GetString("agent")
 		state, err := c.svc.State()
 		if err != nil {
@@ -419,10 +440,14 @@ func consumerModes(values []string) []model.ConsumerMode {
 }
 
 func (c *cli) sessionCmd() *cobra.Command {
-	root := &cobra.Command{Use: "session"}
+	root := &cobra.Command{Use: "session", Short: "Manage durable invocation sessions"}
+	shorts := map[string]string{
+		"start": "Open a durable invocation session for this agent",
+		"end":   "Close a durable invocation session",
+	}
 	for _, sub := range []string{"start", "end"} {
 		sub := sub
-		cmd := &cobra.Command{Use: sub, RunE: func(cmd *cobra.Command, args []string) error {
+		cmd := &cobra.Command{Use: sub, Short: shorts[sub], RunE: func(cmd *cobra.Command, args []string) error {
 			id, _ := cmd.Flags().GetString("id")
 			v, e := c.svc.Execute(c.actor, "session."+sub, id, model.SessionPayload{AgentID: c.actor, PID: os.Getpid()})
 			if e != nil {
@@ -434,14 +459,5 @@ func (c *cli) sessionCmd() *cobra.Command {
 		_ = cmd.MarkFlagRequired("id")
 		root.AddCommand(cmd)
 	}
-	heartbeat := &cobra.Command{Use: "heartbeat", RunE: func(cmd *cobra.Command, args []string) error {
-		now := time.Now().UTC()
-		result := map[string]any{"actor": c.actor, "at": now, "durable": false}
-		return c.emitDocument("session.heartbeat", result, cliui.Document{
-			Title: "Ephemeral session heartbeat", Status: cliui.StatusSuccess,
-			Fields: []cliui.Field{{Label: "Actor", Value: c.actor}, {Label: "At", Value: now.Format(time.RFC3339)}, {Label: "Durable", Value: "no"}},
-		})
-	}}
-	root.AddCommand(heartbeat)
 	return root
 }

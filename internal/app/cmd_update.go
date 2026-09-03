@@ -27,7 +27,7 @@ import (
 func (c *cli) updateCmd() *cobra.Command {
 	root := &cobra.Command{Use: "update"}
 	var channel string
-	check := &cobra.Command{Use: "check", RunE: func(cmd *cobra.Command, args []string) error {
+	check := &cobra.Command{Use: "check", Short: "Check for a newer verified release", RunE: func(cmd *cobra.Command, args []string) error {
 		ctx, cancel := context.WithTimeout(cmd.Context(), 15*time.Second)
 		defer cancel()
 		release, err := fetchRelease(ctx, channel, "")
@@ -50,7 +50,7 @@ func (c *cli) updateCmd() *cobra.Command {
 	var version string
 	var yes, currentProjectOnly, skipProjectUpgrade bool
 	allKnown := true
-	apply := &cobra.Command{Use: "apply", RunE: func(cmd *cobra.Command, args []string) error {
+	apply := &cobra.Command{Use: "apply", Short: "Install a verified release and upgrade projects", RunE: func(cmd *cobra.Command, args []string) error {
 		progress := c.progress()
 		_ = progress.Start("Applying Agent Comms update")
 		completed := false
