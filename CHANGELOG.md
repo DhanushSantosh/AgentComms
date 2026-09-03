@@ -428,8 +428,8 @@ new CLI providers without touching Go, and a public marketing/docs site.*
 - `runtime.delete` (protocol, CLI, TUI), `task lock` (create+claim a task
   in one step), and human-readable table output by default for
   agent/runtime/invocation list commands.
-- A public marketing site and docs site, a nightly beta build channel, and
-  one-keypress Orchestrator-approval requests from the TUI.
+- A public marketing site and docs site, and one-keypress
+  Orchestrator-approval requests from the TUI.
 
 **Fixed**
 - Dozens of TUI layout and rendering bugs, most surfaced by making the TUI
@@ -498,10 +498,7 @@ Full technical detail is below and in [CHANGELOG.md](https://github.com/DhanushS
 - A public Next.js marketing site and Astro docs site (landing page,
   install/download page, releases and changelog pages, full CLI/MCP
   reference generated from the binary's own `--help` output), deployed to
-  production on every `dev` push. A nightly, unstable build channel
-  (`agentcomms-nightly` on GHCR, versioned `0.0.0-nightly`) for developers
-  sanity-checking `dev`'s current state, separate from tagged Beta
-  releases.
+  production on every `dev` push.
 
 ### Fixed
 

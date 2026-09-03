@@ -45,10 +45,3 @@ export const downloadRelease = {
   installerStatus: "Verified release",
   installerDetail: `${releaseTag}'s tag pins the installer and verifier digest. Both installers authenticate the verifier before it checks the signed CLI bundle.`
 } as const;
-
-// A separate, unstable channel from the release above: builds from dev's
-// latest commit daily, for developers -- not Beta, not a numbered version,
-// not installed by install.sh/install.ps1.
-export const nightlyBuild = {
-  command: "oras pull ghcr.io/dhanushsantosh/agentcomms-nightly:latest"
-} as const;

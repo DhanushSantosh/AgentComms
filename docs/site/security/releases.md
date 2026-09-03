@@ -4,7 +4,7 @@ description: Check release checksums, Sigstore identity, provenance, and the cur
 section: Security and trust
 order: 4
 audience: Security reviewers
-lastVerified: 2026-08-12
+lastVerified: 2026-09-02
 related: [start/install, security/integrity]
 ---
 
@@ -49,4 +49,4 @@ Also compare the asset digest with `checksums.txt` and inspect the GitHub proven
 
 ## Platform warnings
 
-Sigstore verification is independent of Windows Authenticode and Apple notarization. Until native platform signing is published for a release, SmartScreen or Gatekeeper may still display an operating-system warning even when checksum and Sigstore verification succeed. For the developer-only nightly channel and how to verify it, see the [changelog](/releases/changelog/#nightly-builds).
+Sigstore verification is independent of Windows Authenticode and Apple notarization. Until native platform signing is published for a release, SmartScreen or Gatekeeper may still display an operating-system warning even when checksum and Sigstore verification succeed.

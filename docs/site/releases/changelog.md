@@ -71,7 +71,7 @@ A TUI you can drive with a mouse from a real-sized terminal, session-pinned inte
 - `--takeover-pid` safely migrates a live interactive session, and every migrated/resumed session now pins its exact provider session ID (auto-discovered for claude and opencode) instead of racing each provider CLI's own "most recent session" guess.
 - A declarative JSON adapter specification system: add a new CLI provider by dropping a spec file under `.agent-comms/adapters/`, no Go changes required.
 - `runtime.delete`, `task lock`, `runtime verify-adapter`, and human-readable table output by default for agent/runtime/invocation list commands.
-- A public marketing site and docs site, and a nightly beta build channel.
+- A public marketing site and docs site.
 
 **Fixed**
 
@@ -135,23 +135,9 @@ First tagged release: terminal-native, signed coordination between humans and ag
 - Initialization refuses an existing `.agents` and publishes a complete runtime atomically.
 - Governed mutations revalidate authorization, leases, scopes, and conflicts inside the authoritative transaction.
 
-## Nightly builds
+## Running `dev` before a release
 
-Separate from every release above: an unstable snapshot builds from `dev`'s latest commit daily, for developers sanity-checking current work -- not a numbered release, not installed by `install.sh`/`install.ps1`, and not **Beta** either. It's published as a public OCI artifact rather than a GitHub Release, so it never appears alongside real tagged versions and carries no version history of its own -- the `:latest` tag is simply overwritten every run.
-
-```sh
-oras pull ghcr.io/dhanushsantosh/agentcomms-nightly:latest
-```
-
-No login required. The binaries are still Cosign-signed and attested exactly like a real release, just under a different workflow identity. `oras pull` fetches the whole bundle, including `agent-comms-verify` (see [Verify a release](/security/releases/)) -- no separately installed `cosign` needed:
-
-```sh
-./agent-comms-verify \
-  --bundle agent-comms-linux-amd64.bundle \
-  --certificate-identity-regexp '^https://github.com/DhanushSantosh/AgentComms/.github/workflows/nightly.yml@refs/heads/dev' \
-  --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
-  agent-comms-linux-amd64
-```
+There is no prebuilt developer channel. To run what is on `dev`, [build from source](https://github.com/DhanushSantosh/AgentComms/blob/main/CONTRIBUTING.md#build-from-source). Source builds are unsigned and are for development only; regular users install a signed release.
 
 ## Verifying a release
 
