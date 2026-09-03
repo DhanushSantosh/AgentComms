@@ -353,7 +353,7 @@ func (e *Engine) Mutate(ctx context.Context, command controlplane.Command) (cont
 	// small, targeted queries instead (kept cheap deliberately: signature
 	// verification runs before an attacker's invalid-signature command gets
 	// to touch the full project state).
-	payload, err := decodePayload(command.Type, command.Payload)
+	payload, err := model.DecodePayloadValue(command.Type, command.Payload)
 	if err != nil {
 		return controlplane.Event{}, controlplane.Receipt{}, &controlplane.Error{Code: controlplane.CodeValidation, Message: err.Error()}
 	}
@@ -566,93 +566,6 @@ func scopedElevationState(ctx context.Context, tx *sql.Tx, command controlplane.
 	}
 }
 
-func decodePayload(eventType string, raw json.RawMessage) (any, error) {
-	decoded, err := model.DecodePayload(eventType, raw)
-	if err != nil {
-		return nil, err
-	}
-	switch value := decoded.(type) {
-	case *model.AgentRegistered:
-		return *value, nil
-	case *model.AgentActivated:
-		return *value, nil
-	case *model.AgentRoleSwitched:
-		return *value, nil
-	case *model.AgentKeyRotated:
-		return *value, nil
-	case *model.AgentElevatedKeyRegistered:
-		return *value, nil
-	case *model.AgentRenamed:
-		return *value, nil
-	case *model.AgentDeleted:
-		return *value, nil
-	case *model.TaskCreated:
-		return *value, nil
-	case *model.TaskOffered:
-		return *value, nil
-	case *model.TaskClaimed:
-		return *value, nil
-	case *model.TaskRenewed:
-		return *value, nil
-	case *model.TaskHandoff:
-		return *value, nil
-	case *model.TaskStatus:
-		return *value, nil
-	case *model.MessagePosted:
-		return *value, nil
-	case *model.MessageResponse:
-		return *value, nil
-	case *model.InvocationRequested:
-		return *value, nil
-	case *model.InvocationDeliveryAttempted:
-		return *value, nil
-	case *model.InvocationNotified:
-		return *value, nil
-	case *model.InvocationClaimed:
-		return *value, nil
-	case *model.InvocationProgress:
-		return *value, nil
-	case *model.InvocationWaiting:
-		return *value, nil
-	case *model.InvocationCompleted:
-		return *value, nil
-	case *model.InvocationRejected:
-		return *value, nil
-	case *model.InvocationDeliveryFailed:
-		return *value, nil
-	case *model.RuntimeRegistered:
-		return *value, nil
-	case *model.RuntimeConfigured:
-		return *value, nil
-	case *model.RuntimeHeartbeat:
-		return *value, nil
-	case *model.RuntimeStatusChanged:
-		return *value, nil
-	case *model.InvocationPolicyUpdated:
-		return *value, nil
-	case *model.ProjectSettingsUpdated:
-		return *value, nil
-	case *model.ApprovalRequested:
-		return *value, nil
-	case *model.ApprovalResponse:
-		return *value, nil
-	case *model.ArtifactAdded:
-		return *value, nil
-	case *model.ArchiveRun:
-		return *value, nil
-	case *model.DecisionPayload:
-		return *value, nil
-	case *model.DocumentPayload:
-		return *value, nil
-	case *model.EnvSetPayload:
-		return *value, nil
-	case *model.EnvDeletePayload:
-		return *value, nil
-	default:
-		return nil, fmt.Errorf("unsupported payload for %s", eventType)
-	}
-}
-
 func conflictOrUnavailable(err error) error {
 	lower := strings.ToLower(err.Error())
 	if strings.Contains(lower, "duplicate key") || strings.Contains(lower, "serialization") ||
@@ -674,16 +587,7 @@ func cloneState(state model.State) model.State {
 }
 
 func loadState(ctx context.Context, tx *sql.Tx, projectID string) (model.State, error) {
-	state := model.State{
-		Agents: map[string]model.Agent{}, Tasks: map[string]model.Task{},
-		Messages: map[string]model.Message{}, Approvals: map[string]model.Approval{},
-		Invocations: map[string]model.Invocation{}, InvocationDeliveries: map[string]model.InvocationDelivery{},
-		AgentRuntimes: map[string]model.AgentRuntime{}, InvocationPolicies: map[string]model.InvocationPolicy{},
-		Documents:       map[string]model.Document{},
-		Env:             map[string]model.EnvEntry{},
-		Artifacts:       map[string]model.Artifact{},
-		ProjectSettings: model.DefaultProjectSettings(),
-	}
+	state := model.EmptyState()
 	loaders := []func() error{
 		func() error {
 			return loadProjection(ctx, tx, "agents", "agent_id", projectID, func(id string, raw []byte) error {

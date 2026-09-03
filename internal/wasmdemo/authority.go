@@ -20,7 +20,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -82,7 +81,7 @@ func (a *MemoryAuthority) CreateProject(_ context.Context, projectID, ownerID st
 	}
 	a.projects[projectID] = &authorityProject{
 		ownerID:          ownerID,
-		state:            emptyState(),
+		state:            model.EmptyState(),
 		byIdempotencyKey: map[string]int{},
 	}
 	return nil
@@ -138,7 +137,7 @@ func (a *MemoryAuthority) Command(_ context.Context, command controlplane.Comman
 	// the most consequential identity/HUMAN-approval transitions as needing
 	// the actor's elevated key, and that classification depends on the
 	// decoded payload/target state. Mirrors personalauthority.Engine.Mutate.
-	payload, err := decodePayload(command.Type, command.Payload)
+	payload, err := model.DecodePayloadValue(command.Type, command.Payload)
 	if err != nil {
 		return controlplane.Event{}, controlplane.Receipt{}, controlError(controlplane.CodeValidation, err.Error())
 	}
@@ -286,32 +285,6 @@ func commandPublicKey(state model.State, command controlplane.Command, payload a
 		return agent.ElevatedPublicKey, nil
 	}
 	return agent.PublicKey, nil
-}
-
-func decodePayload(eventType string, raw json.RawMessage) (any, error) {
-	decoded, err := model.DecodePayload(eventType, raw)
-	if err != nil {
-		return nil, err
-	}
-	value := reflect.ValueOf(decoded)
-	if value.Kind() != reflect.Pointer || value.IsNil() {
-		return decoded, nil
-	}
-	return value.Elem().Interface(), nil
-}
-
-func emptyState() model.State {
-	return model.State{
-		Agents: map[string]model.Agent{}, Tasks: map[string]model.Task{},
-		Messages: map[string]model.Message{}, Invocations: map[string]model.Invocation{},
-		InvocationDeliveries: map[string]model.InvocationDelivery{},
-		AgentRuntimes:        map[string]model.AgentRuntime{},
-		InvocationPolicies:   map[string]model.InvocationPolicy{},
-		Approvals:            map[string]model.Approval{},
-		Documents:            map[string]model.Document{}, Env: map[string]model.EnvEntry{},
-		Artifacts:       map[string]model.Artifact{},
-		ProjectSettings: model.DefaultProjectSettings(),
-	}
 }
 
 func controlError(code controlplane.ErrorCode, message string) error {

@@ -511,4 +511,3 @@ func TestDeliverToPtyFailsClosedWhenTargetStaysBusy(t *testing.T) {
 		t.Fatal("deliverToPty must not have written anything while the target stayed busy")
 	}
 }
-

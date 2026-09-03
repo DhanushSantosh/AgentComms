@@ -283,3 +283,24 @@ type State struct {
 	ProjectSettings      ProjectSettings               `json:"project_settings"`
 	Integrity            Integrity                     `json:"integrity"`
 }
+
+// EmptyState returns a State with every collection allocated and default
+// project settings applied. Every authority backend and the projection
+// cache start from this; keeping one constructor means a new State
+// collection can never be silently left nil in one backend out of four.
+func EmptyState() State {
+	return State{
+		Agents:               map[string]Agent{},
+		Tasks:                map[string]Task{},
+		Messages:             map[string]Message{},
+		Invocations:          map[string]Invocation{},
+		InvocationDeliveries: map[string]InvocationDelivery{},
+		AgentRuntimes:        map[string]AgentRuntime{},
+		InvocationPolicies:   map[string]InvocationPolicy{},
+		Approvals:            map[string]Approval{},
+		Documents:            map[string]Document{},
+		Env:                  map[string]EnvEntry{},
+		Artifacts:            map[string]Artifact{},
+		ProjectSettings:      DefaultProjectSettings(),
+	}
+}

@@ -88,7 +88,7 @@ func (c *MemoryCache) Apply(_ context.Context, event controlplane.Event, receipt
 
 	project, found := c.projects[event.ProjectID]
 	if !found {
-		project = &cacheProject{state: emptyState()}
+		project = &cacheProject{state: model.EmptyState()}
 		c.projects[event.ProjectID] = project
 	}
 
