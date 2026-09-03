@@ -2,9 +2,9 @@
 
 ## Status
 
-**Proposed, 2026-09-02.** Owner: Dhanush Santosh. Implementation branch:
-`review/feature-validity`. Awaiting owner acceptance before implementation,
-per `docs/rfcs/README.md`.
+**Accepted, 2026-09-02.** Owner: Dhanush Santosh. Implementation branch:
+`review/feature-validity`. The project owner accepted this before
+implementation began, per `docs/rfcs/README.md`.
 
 Removes a public command group and a durable state collection; requires
 review.
@@ -109,10 +109,9 @@ verifiable like any other event.
   (may be the same PR as RFC 0028 — both are "feature-validity" removals
   with schema bumps and share the migration surface).
 
-## Unresolved questions
+## Resolved questions
 
-1. One combined schema bump for RFC 0028 + 0029, or two? Leaning one —
-   both land in the same PR, one `project upgrade` for the user.
-2. Does `--decision` warrant being more than sugar for `--tag decision`
-   (e.g. a first-class `Kind` field on `Document`)? Leaning no; a
-   reserved tag is enough and keeps the model flat.
+1. One combined schema bump for RFC 0028 + 0029, landing in one PR with
+   one `project upgrade` for the user.
+2. `--decision` is sugar for `--tag decision`; `decision` is a reserved
+   tag. No `Kind` field is added to `Document`.

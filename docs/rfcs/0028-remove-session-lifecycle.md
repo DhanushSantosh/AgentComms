@@ -2,9 +2,9 @@
 
 ## Status
 
-**Proposed, 2026-09-02.** Owner: Dhanush Santosh. Implementation branch:
-`review/feature-validity`. Awaiting owner acceptance before implementation,
-per `docs/rfcs/README.md`.
+**Accepted, 2026-09-02.** Owner: Dhanush Santosh. Implementation branch:
+`review/feature-validity`. The project owner accepted this before
+implementation began, per `docs/rfcs/README.md`.
 
 This removes a public command group and a durable state collection, so it
 requires review.
