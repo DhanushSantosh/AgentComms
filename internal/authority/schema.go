@@ -84,25 +84,42 @@ DROP TABLE IF EXISTS sessions;
 // consolidateDecisionsMigration folds the decisions table into documents
 // as `decision`-tagged rows (RFC 0029), then drops it. Author is unknown
 // from a decision row and left empty on the migrated document.
+//
+// schema.sql no longer creates `decisions` -- a fresh install (every
+// integration test, every new project) never has the table at all, so
+// the fold-then-drop only runs when it actually exists (a pre-existing
+// database upgrading from an older schema). Unguarded, `SELECT ... FROM
+// decisions` fails outright with "relation does not exist" on any fresh
+// schema; `DROP TABLE IF EXISTS` alone (dropSessionsMigration's pattern)
+// isn't enough here because this migration's real work is the SELECT,
+// not just the drop.
 const consolidateDecisionsMigration = `
-INSERT INTO documents (project_id, document_id, status, state, updated_sequence)
-SELECT d.project_id, d.decision_id,
-       COALESCE(d.state->>'status', 'ACTIVE'),
-       jsonb_build_object(
-         'id', d.decision_id,
-         'title', COALESCE(d.state->>'title', ''),
-         'body', COALESCE(d.state->>'statement', ''),
-         'tags', jsonb_build_array('decision'),
-         'status', COALESCE(d.state->>'status', 'ACTIVE'),
-         'version', 1,
-         'author', '',
-         'supersedes', COALESCE(d.state->>'supersedes', '')
-       ),
-       d.updated_sequence
-FROM decisions d
-ON CONFLICT (project_id, document_id) DO NOTHING;
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'decisions'
+  ) THEN
+    INSERT INTO documents (project_id, document_id, status, state, updated_sequence)
+    SELECT d.project_id, d.decision_id,
+           COALESCE(d.state->>'status', 'ACTIVE'),
+           jsonb_build_object(
+             'id', d.decision_id,
+             'title', COALESCE(d.state->>'title', ''),
+             'body', COALESCE(d.state->>'statement', ''),
+             'tags', jsonb_build_array('decision'),
+             'status', COALESCE(d.state->>'status', 'ACTIVE'),
+             'version', 1,
+             'author', '',
+             'supersedes', COALESCE(d.state->>'supersedes', '')
+           ),
+           d.updated_sequence
+    FROM decisions d
+    ON CONFLICT (project_id, document_id) DO NOTHING;
 
-DROP TABLE IF EXISTS decisions;
+    DROP TABLE decisions;
+  END IF;
+END $$;
 `
 
 // schemaMigration is one ordered, checksummed step. Automatic migrations
