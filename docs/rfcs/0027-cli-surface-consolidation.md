@@ -2,9 +2,21 @@
 
 ## Status
 
-**Proposed, 2026-09-02.** Owner: Dhanush Santosh. Implementation branch:
-`review/cli-commands`. Awaiting owner acceptance before implementation, per
-`docs/rfcs/README.md` and `docs/development-workflow.md`.
+**Accepted, 2026-09-02.** Owner: Dhanush Santosh. Implementation branch:
+`review/cli-commands`. The project owner accepted the command-surface
+changes and the three resolved questions below before implementation began,
+per `docs/rfcs/README.md` and `docs/development-workflow.md`.
+
+Resolved questions (was "Unresolved"):
+
+1. `invocation inspect` keeps its name; no `show` alias. It shows
+   delivery evidence, not just the stored record, so `inspect` is the
+   accurate verb.
+2. `attention` ships as a standalone top-level command, not a `watch`
+   flag. It is a categorized snapshot, a different shape from `watch`'s
+   stream.
+3. `live tail --provider codex` is a hard error ("tail is only available
+   for --provider claude"), not a silent no-op.
 
 This RFC changes the human-facing CLI command surface -- it removes,
 renames, and regroups public commands -- so it requires review before
@@ -292,13 +304,4 @@ the chance of a future field leaking into a match unintentionally.
 
 ## Unresolved questions
 
-1. **`invocation inspect` vs `invocation show`.** Keep `inspect`
-   (accurate -- it shows delivery evidence), add `show` as a hidden alias,
-   or rename to `show` for consistency with the other domains? Leaning
-   "keep `inspect`, no alias."
-2. **`attention` as a top-level verb vs `watch --once`.** `watch` already
-   streams operator-relevant changes; `attention` could be `watch --once
-   --attention`. Leaning standalone `attention` -- it is a different
-   shape (a categorized snapshot, not a stream).
-3. **`live tail` for a non-claude provider.** Error, or silently no-op?
-   Leaning hard error (`--provider codex` + `tail` is a user mistake).
+None. The three questions above were resolved at acceptance; see Status.
