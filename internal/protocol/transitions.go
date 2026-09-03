@@ -1,6 +1,9 @@
 package protocol
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -44,17 +47,63 @@ func hasApproval(st model.State, action string) bool {
 	return false
 }
 
-// hasHumanApproval is hasApproval narrowed to HUMAN-tier approvals only. An
-// ORCHESTRATOR-tier approval can be approved by any AGENT-principal
-// orchestrator (see the elevated()/approval.approve handling below), so it
-// cannot stand in for genuine human sign-off on the orchestrator grant itself.
-func hasHumanApproval(st model.State, action string) bool {
-	for _, a := range st.Approvals {
-		if a.Action == action && a.Status == "APPROVED" && a.Tier == "HUMAN" {
+// ApprovalSubjectDigest returns the canonical digest that an approval must
+// carry for a later transition. It includes the requester, transition type,
+// entity ID, and submitted payload so an approval cannot be replayed for a
+// different principal or operation.
+func ApprovalSubjectJSON(actor, typ, id string, payload any) string {
+	canonical, err := json.Marshal(struct {
+		Actor   string `json:"actor"`
+		Type    string `json:"type"`
+		ID      string `json:"id"`
+		Payload any    `json:"payload"`
+	}{actor, typ, id, payload})
+	if err != nil {
+		return ""
+	}
+	return string(canonical)
+}
+
+func ApprovalSubjectDigestFromJSON(subject string) string {
+	digest := sha256.Sum256([]byte(subject))
+	return hex.EncodeToString(digest[:])
+}
+
+func ApprovalSubjectDigest(actor, typ, id string, payload any) string {
+	return ApprovalSubjectDigestFromJSON(ApprovalSubjectJSON(actor, typ, id, payload))
+}
+
+func hasBoundApproval(st model.State, action, digest, requiredTier string, now time.Time) bool {
+	for _, approval := range st.Approvals {
+		if approval.Action == action && approval.Status == "APPROVED" && approval.SubjectDigest == digest && approval.ExpiresAt != nil && approval.ExpiresAt.After(now) && (requiredTier == "" || approval.Tier == requiredTier) {
 			return true
 		}
 	}
 	return false
+}
+
+// NormalizeInvocationApprovalSubject applies every state-derived default that
+// changes the accepted invocation. Approval creation and redemption share it.
+func NormalizeInvocationApprovalSubject(st model.State, p model.InvocationRequested) model.InvocationRequested {
+	if p.TaskID != "" && len(p.Scopes) == 0 {
+		if task, exists := st.Tasks[p.TaskID]; exists {
+			p.Scopes = append([]string(nil), task.Resources...)
+		}
+	}
+	p.Priority = strings.ToUpper(strings.TrimSpace(p.Priority))
+	if p.Priority == "" {
+		p.Priority = "NORMAL"
+	}
+	policy := st.InvocationPolicies[p.Target]
+	defaultConsumer, _ := effectiveConsumerPolicy(policy)
+	if p.ConsumerMode == "" {
+		p.ConsumerMode = defaultConsumer
+	}
+	p.ConsumerMode = model.ConsumerMode(strings.ToUpper(strings.TrimSpace(string(p.ConsumerMode))))
+	if p.PreferredRuntimeID == "" && p.ConsumerMode != model.ConsumerModeWorkerOnly {
+		p.PreferredRuntimeID = policy.PreferredInteractiveRuntimeID
+	}
+	return p
 }
 
 // OrchestratorGrantApprovalAction is the approval.request Action string that
@@ -63,14 +112,52 @@ func hasHumanApproval(st model.State, action string) bool {
 // exact command instead of duplicating the "agent.activate:"+id format.
 func OrchestratorGrantApprovalAction(id string) string { return "agent.activate:" + id }
 
-// OrchestratorGrantApprovalID is a suggested approval.request --id for
-// OrchestratorGrantApprovalAction(id)'s HUMAN-tier approval record.
-// Approval IDs are freely chosen by the caller -- the server never
-// generates one -- so this exists only so the "run this command" text in
-// error messages and docs is copy-pasteable as-is instead of silently
-// omitting the required --id flag (a real gap this once had: the
-// suggested command failed with "required flag(s) \"id\" not set").
+// OrchestratorGrantApprovalID is the approval.request --id for
+// OrchestratorGrantApprovalAction(id)'s HUMAN-tier approval record -- the
+// *only* ID hasOrchestratorGrantApproval will accept (see RFC 0023; before
+// that RFC, approval IDs for this purpose were freely chosen by the caller
+// and this was merely a suggestion for the "run this command" text in error
+// messages and docs, so it was copy-pasteable as-is instead of silently
+// omitting the required --id flag).
 func OrchestratorGrantApprovalID(id string) string { return "grant-orchestrator-" + id }
+
+// hasOrchestratorGrantApproval reports whether a HUMAN-tier approval
+// specifically authorizing principalID's ORCHESTRATOR grant exists and is
+// APPROVED. Looked up by the exact conventional ID
+// (OrchestratorGrantApprovalID(principalID)), not scanned for by action
+// string alone across every approval in state -- a different approval that
+// happens to share the same action string (requested for an unrelated
+// reason, or a stale leftover from a much earlier grant) can never
+// substitute for it. See RFC 0023: this used to be hasApproval narrowed to
+// HUMAN tier, action-string-matched against every approval in state, which
+// meant any HUMAN-tier approval ever approved for this exact action --
+// however long ago, however unrelated its original purpose -- permanently
+// pre-authorized every future grant of the same role to the same
+// principal, including a fully unattended one with no human anywhere in
+// the loop at that later moment. internal/projection's apply() consumes
+// (APPROVED -> CONSUMED) exactly the approval this function required to
+// exist and be APPROVED, the moment it authorizes a grant, so it can never
+// satisfy this check a second time.
+func hasOrchestratorGrantApproval(st model.State, principalID string) bool {
+	approval, exists := st.Approvals[OrchestratorGrantApprovalID(principalID)]
+	return exists && approval.Tier == "HUMAN" && approval.Status == "APPROVED" &&
+		approval.Action == OrchestratorGrantApprovalAction(principalID)
+}
+
+// canReplaceConsumedOrchestratorGrantApproval is the sole exception to
+// approval IDs being immutable. RFC 0023 requires each later orchestrator
+// grant to use a fresh approval, while also requiring the one conventional
+// ID for that principal. Re-requesting that exact ID after its previous
+// record reached CONSUMED starts a new PENDING lifecycle; the event log still
+// retains the complete history. No other terminal approval can be replaced.
+func canReplaceConsumedOrchestratorGrantApproval(id string, existing model.Approval, request model.ApprovalRequested) bool {
+	if existing.Status != "CONSUMED" || existing.Tier != "HUMAN" || request.Tier != "HUMAN" ||
+		existing.Action != request.Action {
+		return false
+	}
+	principalID, ok := strings.CutPrefix(request.Action, "agent.activate:")
+	return ok && principalID != "" && id == OrchestratorGrantApprovalID(principalID)
+}
 
 // RequiresElevatedKey reports whether actor/typ/id/payload is one of the
 // transitions that must be signed with the actor's passphrase-protected
@@ -470,7 +557,7 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 		// manually approve (e.g. in the TUI) before the grant can proceed,
 		// rather than a single self-contained command completing the whole
 		// escalation unattended.
-		if activation.Role == model.RoleOrchestrator && !hasHumanApproval(st, OrchestratorGrantApprovalAction(id)) {
+		if activation.Role == model.RoleOrchestrator && !hasOrchestratorGrantApproval(st, id) {
 			return nil, fmt.Errorf("granting the orchestrator role to %s requires an approved HUMAN-tier approval first: run `approval request --id %s --tier HUMAN --action %s`, then have a human approve it separately", id, OrchestratorGrantApprovalID(id), OrchestratorGrantApprovalAction(id))
 		}
 	}
@@ -519,7 +606,7 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 			if st.Agents[actor].PrincipalType != model.PrincipalHuman {
 				return nil, errors.New("human principal required to switch to the orchestrator role")
 			}
-			if !hasHumanApproval(st, OrchestratorGrantApprovalAction(actor)) {
+			if !hasOrchestratorGrantApproval(st, actor) {
 				return nil, fmt.Errorf("switching to the orchestrator role requires an approved HUMAN-tier approval first: run `approval request --id %s --tier HUMAN --action %s`, then have a human approve it separately", OrchestratorGrantApprovalID(actor), OrchestratorGrantApprovalAction(actor))
 			}
 		}
@@ -796,7 +883,7 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 		}
 		if p.Kind == "CONTRACT" {
 			a, _ := active(st, actor)
-			if a.Role != model.RoleOwner && a.Role != model.RoleOrchestrator && !hasApproval(st, "contract:"+id) {
+			if a.Role != model.RoleOwner && a.Role != model.RoleOrchestrator && !hasBoundApproval(st, "contract:"+id, ApprovalSubjectDigest(actor, typ, id, p), "", now) {
 				return nil, errors.New("approved contract publication is required")
 			}
 		}
@@ -869,13 +956,13 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 			if !targetExists || target.Status != "ACTIVE" || target.PrincipalType != model.PrincipalAgent {
 				return nil, errors.New("active agent invocation target is required")
 			}
+			p = NormalizeInvocationApprovalSubject(st, p)
+			submittedDigest := ApprovalSubjectDigest(actor, typ, id, p)
 			requester, _ := active(st, actor)
 			if !actorElevated(st, actor) {
 				policy, configured := st.InvocationPolicies[p.Target]
 				if !configured || policy.Mode == "MANUAL" {
-					if !hasApproval(st, "invocation:"+id) {
-						return nil, errors.New("approved invocation is required by target policy")
-					}
+					// Enforced after normalization so it binds the accepted operation.
 				} else if policy.Mode == "DISABLED" {
 					return nil, errors.New("target invocation policy is disabled")
 				} else if policy.Mode == "TRUSTED" && !containsString(policy.TrustedActors, actor) {
@@ -886,12 +973,9 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 				return nil, fmt.Errorf("invocation content exceeds %d bytes", controlplane.MaxInvocationBytes)
 			}
 			if p.TaskID != "" {
-				task, taskExists := st.Tasks[p.TaskID]
+				_, taskExists := st.Tasks[p.TaskID]
 				if !taskExists {
 					return nil, errors.New("related task not found")
-				}
-				if len(p.Scopes) == 0 {
-					p.Scopes = append([]string(nil), task.Resources...)
 				}
 			}
 			if len(p.Scopes) > 0 {
@@ -902,14 +986,10 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 					return nil, errors.New("invocation scopes exceed target scopes")
 				}
 			}
-			priority := strings.ToUpper(strings.TrimSpace(p.Priority))
-			if priority == "" {
-				priority = "NORMAL"
-			}
+			priority := p.Priority
 			if priority != "LOW" && priority != "NORMAL" && priority != "HIGH" && priority != "URGENT" {
 				return nil, errors.New("invocation priority must be LOW, NORMAL, HIGH, or URGENT")
 			}
-			p.Priority = priority
 			if p.Deadline != nil {
 				if !p.Deadline.After(now) {
 					return nil, errors.New("invocation deadline must be in the future")
@@ -938,24 +1018,12 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 			if len(policy.AllowedScopes) > 0 && !scopeAllows(policy.AllowedScopes, p.Scopes) {
 				return nil, errors.New("invocation scopes exceed target policy")
 			}
-			if policy.RequireHumanForSensitive && invocationIsSensitive(st, p) &&
-				requester.PrincipalType != model.PrincipalHuman &&
-				!hasApproval(st, "invocation-sensitive:"+id) {
-				return nil, errors.New("human approval is required for sensitive invocation")
-			}
-			defaultConsumer, allowedConsumers := effectiveConsumerPolicy(policy)
-			if p.ConsumerMode == "" {
-				p.ConsumerMode = defaultConsumer
-			}
-			p.ConsumerMode = model.ConsumerMode(strings.ToUpper(strings.TrimSpace(string(p.ConsumerMode))))
+			_, allowedConsumers := effectiveConsumerPolicy(policy)
 			if !validConsumerMode(p.ConsumerMode) {
 				return nil, errors.New("invocation consumer mode must be INTERACTIVE_ONLY, WORKER_ONLY, or EITHER")
 			}
 			if !containsConsumerMode(allowedConsumers, p.ConsumerMode) {
 				return nil, errors.New("invocation consumer mode is not allowed by target policy")
-			}
-			if p.PreferredRuntimeID == "" && p.ConsumerMode != model.ConsumerModeWorkerOnly {
-				p.PreferredRuntimeID = policy.PreferredInteractiveRuntimeID
 			}
 			if p.PreferredRuntimeID != "" {
 				preferred, preferredExists := st.AgentRuntimes[p.PreferredRuntimeID]
@@ -965,6 +1033,15 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 				}
 				if preferred.Status == "REVOKED" {
 					return nil, errors.New("preferred runtime is revoked")
+				}
+			}
+			if !actorElevated(st, actor) {
+				policy, configured := st.InvocationPolicies[p.Target]
+				if (!configured || policy.Mode == "MANUAL") && !hasBoundApproval(st, "invocation:"+id, submittedDigest, "", now) && !hasBoundApproval(st, "invocation-sensitive:"+id, submittedDigest, "HUMAN", now) {
+					return nil, errors.New("approved invocation is required by target policy")
+				}
+				if policy.RequireHumanForSensitive && invocationIsSensitive(st, p) && requester.PrincipalType != model.PrincipalHuman && !hasBoundApproval(st, "invocation-sensitive:"+id, submittedDigest, "HUMAN", now) {
+					return nil, errors.New("human approval is required for sensitive invocation")
 				}
 			}
 			payload = p
@@ -1441,7 +1518,12 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 			strings.TrimSpace(request.Action) == "" {
 			return nil, errors.New("approval tier and action are required")
 		}
-		if _, exists := st.Approvals[id]; exists {
+		boundAction := strings.HasPrefix(request.Action, "contract:") || strings.HasPrefix(request.Action, "invocation:") || strings.HasPrefix(request.Action, "invocation-sensitive:")
+		if boundAction && (request.Subject == "" || request.SubjectDigest == "" || request.SubjectDigest != ApprovalSubjectDigestFromJSON(request.Subject) || request.ExpiresAt == nil || !request.ExpiresAt.After(now)) {
+			return nil, errors.New("contract and invocation approvals require a subject digest and future expiry")
+		}
+		if existing, exists := st.Approvals[id]; exists &&
+			!canReplaceConsumedOrchestratorGrantApproval(id, existing, request) {
 			return nil, errors.New("approval already exists")
 		}
 	}

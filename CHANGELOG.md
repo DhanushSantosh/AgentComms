@@ -5,6 +5,95 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-09-02 — “Chain of Trust”
+
+*A governance and transport-security pass: approvals now bind to the exact
+operation and expiry a reviewer saw, standalone installers verify against a
+digest pinned in the release tag instead of mutable release assets, and the
+shared authority service gets an application-level access token — plus two
+approval-reuse gaps closed in orchestrator grants and task takeovers.*
+
+**Security**
+- **Breaking:** approvals for contract publication and approval-gated
+  invocations now carry a SHA-256 subject digest and an expiry; existing
+  action-only approvals no longer authorize these operations and must be
+  renewed. See [RFC 0025](docs/rfcs/0025-security-bound-approvals-and-authority-capacity.md).
+- **Breaking:** production `agent-comms-server` startup now requires
+  `AGENT_COMMS_AUTHORITY_TOKEN`, alongside existing TLS and signing-key
+  requirements. See [RFC 0026](docs/rfcs/0026-authority-bearer-token.md).
+- **Breaking:** standalone installers now require an exact release version,
+  authenticate the downloaded verifier against six platform digests
+  committed in that protected tag, and bind Sigstore verification to the
+  exact requested tag. A separately installed Cosign binary is still not
+  required.
+- Orchestrator-grant and task-takeover approvals are now ID-scoped and
+  single-use: a matching approval is consumed once used and can no longer be
+  replayed to re-authorize the same grant or takeover indefinitely. See
+  [RFC 0023](docs/rfcs/0023-single-use-orchestrator-grant-approval.md) and
+  [RFC 0024](docs/rfcs/0024-single-use-task-takeover-approval.md).
+- Authority SSE streams now use a dedicated bounded connection pool so
+  long-lived stream holders can no longer exhaust health-check or mutation
+  capacity.
+- Updated `google.golang.org/grpc` to 1.83.1 (fixes a high-severity HTTP/2
+  DATA-frame-fragmentation heap exhaustion) and `fast-uri` to 3.1.7 (fixes
+  two high-severity SSRF/host-confusion issues from percent-decoding and
+  IDN-canonicalization handling).
+
+Full technical detail is below and in [CHANGELOG.md](https://github.com/DhanushSantosh/AgentComms/blob/main/CHANGELOG.md).
+
+### Security
+
+- **[RFC 0025](docs/rfcs/0025-security-bound-approvals-and-authority-capacity.md):
+  bound approvals, verified first install, and authority capacity
+  isolation.** Closes three medium-severity findings from a security review:
+  approval records for `contract:` and approval-gated `invocation:`/
+  `invocation-sensitive:` actions now carry a canonical SHA-256 digest of the
+  normalized operation plus an expiry, and the transition validator requires
+  an unexpired, digest-matching approved record — a later, differing
+  operation can no longer ride an approval issued for something else.
+  Standalone installers (`install.sh`/`install.ps1`) are now version-pinned
+  and verify the release verifier's own SHA-256 digest against a value
+  committed in that protected tag before executing it, removing the prior
+  circular trust (the verifier's checksum previously came from the same
+  mutable release assets it was verifying). Authority SSE streams moved to a
+  dedicated bounded connection pool, separate from normal HTTP/mutation
+  admission.
+- **[RFC 0026](docs/rfcs/0026-authority-bearer-token.md): authority bearer
+  token.** The shared PostgreSQL authority service previously accepted HTTP
+  admission from any caller that could reach it — project creation, state
+  reads, event streams, metrics, and verification responses were all
+  reachable pre-authentication, even though signed control-plane commands
+  still verified project identity, roles, leases, approvals, and event
+  integrity. Adds an optional `Authorization: Bearer $AGENT_COMMS_AUTHORITY_TOKEN`
+  requirement on every authority endpoint except `GET /health/live` and
+  `GET /health/ready`. Production server startup now requires the token;
+  development and in-process tests keep it optional. Service-mode clients
+  and the daemon read the same environment variable and attach it
+  automatically. Comparison is constant-time to avoid leaking prefix/length
+  information.
+- **[RFC 0024](docs/rfcs/0024-single-use-task-takeover-approval.md):
+  single-use task-takeover approval.** Completes the reuse-gap audit RFC
+  0023 deferred: `task.takeover:<taskID>` was the one remaining unsafe site
+  among five audited `hasApproval` call sites — a task ID is long-lived
+  across ownership changes, so one approved takeover record could otherwise
+  authorize taking over that task indefinitely. A takeover now consumes one
+  matching approved record, selected deterministically when more than one
+  independently-approved record exists for the same action.
+  `shared-write:`, `contract:`, `invocation:`, and `invocation-sensitive:`
+  were audited and confirmed to need no change (either intentionally
+  reusable, or already effectively single-use by construction).
+- **[RFC 0023](docs/rfcs/0023-single-use-orchestrator-grant-approval.md):
+  single-use, ID-scoped approval for orchestrator grants.** Closes a
+  real-world approval-reuse gap: granting a principal the `ORCHESTRATOR`
+  role required a `HUMAN`-tier approval matched by action string only and
+  never consumed, so any approval ever granted for that action string
+  permanently pre-authorized every future grant of it, and an unrelated
+  approval that happened to share the same action string could substitute
+  for the intended one. Grants now require an unexpired, ID-scoped approval
+  that is consumed on use; a `CONSUMED` grant may be replaced by exactly one
+  fresh request at the same conventional ID, so a principal can be
+  re-granted `ORCHESTRATOR` again after a later, independent approval.
+
 ## [0.5.0] - 2026-08-26 — “Plain Speech”
 
 *Every command's default human output changes from a raw JSON dump to a

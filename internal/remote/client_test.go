@@ -1,7 +1,9 @@
 package remote
 
 import (
+	"bytes"
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -26,4 +28,31 @@ func TestClientMapsStableError(t *testing.T) {
 	if !ok || controlErr.Code != controlplane.CodeConflict || controlErr.RetryAfter != 25*time.Millisecond {
 		t.Fatalf("error=%#v", err)
 	}
+}
+
+func TestClientAddsBearerToken(t *testing.T) {
+	transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if got := request.Header.Get("Authorization"); got != "Bearer secret-token" {
+			t.Fatalf("authorization header=%q", got)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(bytes.NewReader([]byte(`{}`))),
+			Header:     make(http.Header),
+		}, nil
+	})
+	client, err := NewWithToken("https://authority.example", time.Second, " secret-token ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.http.Transport = transport
+	if err = client.CreateProject(context.Background(), "project", "owner"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return f(request)
 }

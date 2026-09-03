@@ -1,11 +1,13 @@
 package projection
 
 import (
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/DhanushSantosh/AgentComms/internal/identity"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
+	"github.com/DhanushSantosh/AgentComms/internal/protocol"
 )
 
 func ApplyEvent(s *model.State, e model.Event) error {
@@ -35,12 +37,20 @@ func ApplyEvent(s *model.State, e model.Event) error {
 		a.Capabilities = p.Capabilities
 		a.Scopes = p.Scopes
 		s.Agents[e.EntityID] = a
+		if p.Role == model.RoleOrchestrator {
+			consumeOrchestratorGrantApproval(s, e.EntityID)
+		}
 	case *model.AgentRoleSwitched:
 		// Only Role changes -- Capabilities and Scopes are untouched,
 		// unlike AgentActivated. See RFC 0018.
 		a := s.Agents[e.EntityID]
 		a.Role = p.Role
 		s.Agents[e.EntityID] = a
+		if p.Role == model.RoleOrchestrator {
+			// e.EntityID == e.Actor here always -- agent.switch-role is
+			// self-service only (ValidateTransition rejects id != actor).
+			consumeOrchestratorGrantApproval(s, e.EntityID)
+		}
 	case *model.AgentKeyRotated:
 		a := s.Agents[e.EntityID]
 		a.PublicKey = p.PublicKey
@@ -124,6 +134,7 @@ func ApplyEvent(s *model.State, e model.Event) error {
 			t.Status = "CLAIMED"
 			t.LeaseUntil = e.Time.Add(defaultLease)
 			t.StaleUntil = t.LeaseUntil.Add(staleGrace)
+			consumeApprovedAction(s, "task.takeover:"+e.EntityID)
 		}
 		s.Tasks[e.EntityID] = t
 	case *model.MessagePosted:
@@ -377,7 +388,7 @@ func ApplyEvent(s *model.State, e model.Event) error {
 			UpdatedBy: e.Actor, UpdatedAt: e.Time,
 		}
 	case *model.ApprovalRequested:
-		s.Approvals[e.EntityID] = model.Approval{ID: e.EntityID, Tier: p.Tier, Action: p.Action, Reason: p.Reason, Status: "PENDING", Requester: e.Actor, Affected: p.Affected}
+		s.Approvals[e.EntityID] = model.Approval{ID: e.EntityID, Tier: p.Tier, Action: p.Action, SubjectDigest: p.SubjectDigest, Subject: p.Subject, Reason: p.Reason, Status: "PENDING", Requester: e.Actor, Affected: p.Affected, ExpiresAt: p.ExpiresAt}
 	case *model.ApprovalResponse:
 		a := s.Approvals[e.EntityID]
 		if e.Type == "approval.approve" {
@@ -437,6 +448,51 @@ func ApplyEvent(s *model.State, e model.Event) error {
 	}
 	return nil
 }
+
+// consumeOrchestratorGrantApproval marks the specific HUMAN-tier approval
+// that authorized principalID's ORCHESTRATOR grant as CONSUMED, so it can
+// never satisfy protocol.hasOrchestratorGrantApproval again -- the next
+// attempt to grant that principal ORCHESTRATOR, whenever it happens,
+// requires a brand new request-then-separately-approved approval. See RFC
+// 0023. Mirrors that function's exact lookup (same conventional ID,
+// derived the same way from principalID); ValidateTransition already
+// required this approval to exist and be APPROVED for the AgentActivated/
+// AgentRoleSwitched event applied here to have been produced at all, so it
+// is guaranteed present.
+func consumeOrchestratorGrantApproval(s *model.State, principalID string) {
+	approvalID := protocol.OrchestratorGrantApprovalID(principalID)
+	approval, exists := s.Approvals[approvalID]
+	if !exists {
+		return
+	}
+	approval.Status = "CONSUMED"
+	s.Approvals[approvalID] = approval
+}
+
+// consumeApprovedAction spends one approval that authorized a single event.
+// RFC 0024: task.takeover:<taskID> approvals share hasApproval's unscoped,
+// action-string-only match, and a task ID is long-lived across ownership
+// changes, so one approved record could otherwise authorize every future
+// takeover of that task. Sorting IDs before picking the first APPROVED match
+// makes consumption deterministic when callers have independently requested
+// and approved more than one record for the same action -- each approved
+// record still authorizes exactly one event.
+func consumeApprovedAction(s *model.State, action string) {
+	ids := make([]string, 0)
+	for id, approval := range s.Approvals {
+		if approval.Action == action && approval.Status == "APPROVED" {
+			ids = append(ids, id)
+		}
+	}
+	if len(ids) == 0 {
+		return
+	}
+	sort.Strings(ids)
+	approval := s.Approvals[ids[0]]
+	approval.Status = "CONSUMED"
+	s.Approvals[ids[0]] = approval
+}
+
 func defaultRisk(v string) string {
 	if v == "" {
 		return "ROUTINE"

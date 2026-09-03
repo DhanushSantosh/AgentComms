@@ -12,29 +12,35 @@ The installer places the CLI at user level. Existing managed projects reconcile 
 
 ## Before installation
 
-Nothing to install first. The installers verify the signed release bundle themselves -- they automatically download `agent-comms-verify`, a small companion binary, and use it to check the signature; no separately installed Cosign is required (see [Verify a release](/security/releases)). Linux and macOS also require `curl` and Python 3.
+Nothing to install first. Select an exact release from the [release page](https://github.com/DhanushSantosh/AgentComms/releases), then use the installer stored in that protected release tag. The installer verifies the tag-pinned digest of `agent-comms-verify` before using it to check the release signature; no separately installed Cosign is required (see [Verify a release](/security/releases)). Linux and macOS also require `curl` and Python 3.
 
 ## Linux and macOS
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/DhanushSantosh/AgentComms/main/install.sh | sh
+VERSION=vX.Y.Z # replace with the release you selected
+curl -fsSL "https://raw.githubusercontent.com/DhanushSantosh/AgentComms/$VERSION/install.sh" | AGENT_COMMS_VERSION="$VERSION" sh
 ```
 
 The default destination is `~/.local/bin/agent-comms`. Ensure `~/.local/bin` is on `PATH`.
 
-To install a preview or a specific release:
+To install a preview, choose its exact tag in the same way. Standalone
+installers deliberately do not resolve mutable `stable` or `preview` channels.
+After the first verified install, the built-in updater provides the convenient
+latest-release flow:
 
 ```sh
-AGENT_COMMS_CHANNEL=preview ./install.sh
-AGENT_COMMS_VERSION=v0.2.0 ./install.sh
+agent-comms update check
+agent-comms update apply
 ```
 
 ## Windows PowerShell
 
-Download `install.ps1` from the release repository, then run:
+Download `install.ps1` from the exact release tag, then pass that same tag:
 
 ```powershell
-.\install.ps1
+$Version = 'vX.Y.Z' # replace with the release you selected
+Invoke-WebRequest "https://raw.githubusercontent.com/DhanushSantosh/AgentComms/$Version/install.ps1" -OutFile install.ps1
+.\install.ps1 -Version $Version
 ```
 
 The default destination is `%LOCALAPPDATA%\Programs\AgentComms`. The installer adds that directory to the user `PATH` when needed.

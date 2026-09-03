@@ -32,7 +32,11 @@ jobs:
           if ($errors.Count) { throw ($errors -join "`n") }
       - name: Validate POSIX installer
         if: runner.os != 'Windows'
-        run: sh -n install.sh
+        run: |
+          sh -n install.sh
+          sh -n scripts/generate-verifier-checksums.sh
+          sh -n scripts/verify-verifier-checksums.sh
+          go test -count=1 -run TestInstallerAuthenticatesVerifierBeforeExecution ./internal/releaseverify
   security:
     timeout-minutes: 20
     runs-on: ubuntu-latest
@@ -113,7 +117,7 @@ jobs:
         with: {fetch-depth: 0}
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with: {go-version: '1.26.6', cache: true}
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with: {node-version: '22', cache: npm}
       - run: npm ci
       - run: npm audit --audit-level=high
@@ -122,7 +126,7 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: npm run docs:test
       - run: npm run docs:lighthouse
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: agent-comms-docs
           path: sites/docs/dist
@@ -133,7 +137,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
         with: {fetch-depth: 0}
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with: {node-version: '22', cache: npm}
       - run: npm ci
       - run: npm audit --audit-level=high
@@ -141,7 +145,7 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: npm run landing:test
       - run: npm run landing:lighthouse
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: agent-comms-landing
           path: sites/landing/dist

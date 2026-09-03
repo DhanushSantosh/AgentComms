@@ -51,7 +51,8 @@ func run() error {
 	slog.Info("daemon listening", "endpoint", endpoint)
 	return daemon.Run(ctx, daemon.RunConfig{
 		AuthorityURL: authorityURL, ServicePublicKey: serverPublicKey,
-		CachePath: cachePath, Endpoint: endpoint,
+		AuthorityToken: strings.TrimSpace(os.Getenv("AGENT_COMMS_AUTHORITY_TOKEN")),
+		CachePath:      cachePath, Endpoint: endpoint,
 		ConnectorConfigPath: strings.TrimSpace(os.Getenv("AGENT_COMMS_CONNECTOR_CONFIG")),
 		RuntimeMode:         "service", ProjectID: "*",
 	})

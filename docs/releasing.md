@@ -45,17 +45,22 @@ TUI, agent controls, command palette, and resilient local control plane.
    and known limitations — including any new optional runtime dependency a
    worker adapter now requires (for example, Node.js/npm for the `claude-acp`
    and `codex-acp` ACP adapters, or the `opencode` binary for `opencode-acp`).
-4. Obtain core-maintainer review and merge using a merge commit.
-5. A release/security maintainer chooses a unique change-reflective episode
+4. Choose the release version in the release pull request, run
+   `./scripts/generate-verifier-checksums.sh vX.Y.Z > release-verifier-checksums.txt`,
+   review the six platform pins, and commit the resulting manifest.
+   The release workflow rebuilds the verifier deterministically and refuses to
+   publish if any committed pin differs.
+5. Obtain core-maintainer review and merge using a merge commit.
+6. A release/security maintainer chooses a unique change-reflective episode
    nickname, records it in the changelog, and creates the protected annotated
    SemVer tag on the resulting `main` commit — the tag's own annotation
    message (`v<version> — "<Episode Title>"`) becomes the GitHub Release
    title via `release.yml`, so it must exist (`git tag -a`, not a
    lightweight tag).
-6. Approve the protected GitHub `release` environment.
-7. Automation builds and publishes binaries, checksums, SBOMs, provenance, and keyless Cosign bundles.
-8. Verify a clean install and signature from the published assets.
-9. Merge `main`'s new tip back into `dev` (a fast-forward or simple merge
+7. Approve the protected GitHub `release` environment.
+8. Automation builds and publishes binaries, checksums, SBOMs, provenance, and keyless Cosign bundles.
+9. Verify a clean install and signature from the published assets.
+10. Merge `main`'s new tip back into `dev` (a fast-forward or simple merge
    commit, not a rebase). Skipping this leaves `dev` missing the commit
    GitHub created when merging the release PR, which makes the *next*
    release PR show as behind its base and can fail its own DCO signoff

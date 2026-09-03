@@ -1,12 +1,23 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/table"
+	tea "charm.land/bubbletea/v2"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 	"github.com/DhanushSantosh/AgentComms/internal/service"
 )
+
+func buildMessagePost(values []string) (any, error) {
+	kind := strings.ToUpper(strings.TrimSpace(values[1]))
+	if kind == "" {
+		kind = "FYI"
+	}
+	return model.MessagePosted{Kind: kind, To: splitCSV(values[2]), Subject: values[3], Body: values[4], TaskID: values[5]}, nil
+}
 
 var messagePostForm = &ActionForm{
 	Title: "Post message",
@@ -18,14 +29,12 @@ var messagePostForm = &ActionForm{
 		{Label: "Subject", Placeholder: "Run integration tests", Required: true},
 		{Label: "Body", Placeholder: ""},
 		{Label: "Related task ID", Placeholder: ""},
+		{Label: "Request approval instead", Options: []string{"NO", "YES"}},
+		{Label: "Approval ID", Placeholder: "approval-contract-001"},
+		{Label: "Approval reason", Placeholder: "Review these exact terms"},
+		{Label: "Approval expires in", Placeholder: "24h"},
 	},
-	Build: func(v []string) (any, error) {
-		kind := strings.ToUpper(strings.TrimSpace(v[1]))
-		if kind == "" {
-			kind = "FYI"
-		}
-		return model.MessagePosted{Kind: kind, To: splitCSV(v[2]), Subject: v[3], Body: v[4], TaskID: v[5]}, nil
-	},
+	Build:     buildMessagePost,
 	ResolveID: func(_ string, v []string) string { return v[0] },
 	ConfirmIf: func(payload any) (bool, string) {
 		p := payload.(model.MessagePosted)
@@ -33,6 +42,48 @@ var messagePostForm = &ActionForm{
 			return true, "Publish a CONTRACT to " + strings.Join(p.To, ", ") + "? All named parties must accept before it is satisfied."
 		}
 		return false, ""
+	},
+	Dispatch: func(m Model, values []string, _ string) (tea.Model, tea.Cmd) {
+		payload, err := buildMessagePost(values)
+		if err != nil {
+			m.err = err
+			return m, nil
+		}
+		message := payload.(model.MessagePosted)
+		id := values[0]
+		if values[6] == "YES" {
+			if message.Kind != "CONTRACT" {
+				m.err = fmt.Errorf("approval requests are only available for CONTRACT messages")
+				return m, nil
+			}
+			approvalID := values[7]
+			if approvalID == "" {
+				approvalID = "approval-contract-" + id
+			}
+			ttl := 24 * time.Hour
+			if values[9] != "" {
+				ttl, err = time.ParseDuration(values[9])
+				if err != nil || ttl <= 0 {
+					m.err = fmt.Errorf("approval expiry must be a positive duration")
+					return m, nil
+				}
+			}
+			_, err = m.svc.RequestApprovalForOperation(m.actor, approvalID, "ORCHESTRATOR", "message.post", id, message, values[8], ttl)
+			if err != nil {
+				m.err = err
+				return m, nil
+			}
+			m.form, m.inputs, m.err, m.formSpec = "", nil, nil, nil
+			m.notice = "Requested approval " + approvalID + " for contract " + id
+			m.refreshState()
+			return m, nil
+		}
+		if message.Kind == "CONTRACT" {
+			m.form, m.inputs, m.formSpec = "", nil, nil
+			m.confirm = &confirmState{prompt: "Publish a CONTRACT to " + strings.Join(message.To, ", ") + "? All named parties must accept before it is satisfied.", typ: "message.post", id: id, payload: message}
+			return m, nil
+		}
+		return m.dispatchEvent("message.post", id, message)
 	},
 }
 

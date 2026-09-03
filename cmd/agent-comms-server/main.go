@@ -42,6 +42,10 @@ func run() error {
 		return runMigrationCommand(databaseURL, os.Args[2:])
 	}
 	production := strings.EqualFold(os.Getenv("AGENT_COMMS_ENV"), "production")
+	authorityToken := strings.TrimSpace(os.Getenv("AGENT_COMMS_AUTHORITY_TOKEN"))
+	if err := validateRuntimeSecrets(production, authorityToken); err != nil {
+		return err
+	}
 	signer, ephemeral, err := loadSigner(production)
 	if err != nil {
 		return err
@@ -73,6 +77,7 @@ func run() error {
 	server := &http.Server{
 		Addr: address, Handler: authority.NewHTTPServer(engine, authority.HTTPConfig{
 			MaxInFlight: envInt("AGENT_COMMS_MAX_IN_FLIGHT", 256),
+			BearerToken: authorityToken,
 			Logger:      logger,
 		}).Handler(),
 		ReadHeaderTimeout: serverReadTimeout, ReadTimeout: serverReadTimeout,
@@ -114,6 +119,13 @@ func run() error {
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), serverShutdownTimeout)
 	defer shutdownCancel()
 	return server.Shutdown(shutdownCtx)
+}
+
+func validateRuntimeSecrets(production bool, authorityToken string) error {
+	if production && strings.TrimSpace(authorityToken) == "" {
+		return errors.New("production mode requires AGENT_COMMS_AUTHORITY_TOKEN")
+	}
+	return nil
 }
 
 // parseMigrationCommand validates the migrate subcommand's arguments and

@@ -26,7 +26,7 @@ func registerAgent(t *testing.T, s *service.Service, id string, role model.Role,
 		// approval on top of the ordinary elevation/human-principal checks
 		// (internal/protocol/transitions.go) — apply and approve it here so
 		// existing fixtures asking for an orchestrator still get one.
-		approvalID := id + "-orchestrator-approval"
+		approvalID := protocol.OrchestratorGrantApprovalID(id)
 		if _, e := s.Execute("owner", "approval.request", approvalID, model.ApprovalRequested{
 			Tier: "HUMAN", Action: protocol.OrchestratorGrantApprovalAction(id), Reason: "test fixture",
 		}); e != nil {

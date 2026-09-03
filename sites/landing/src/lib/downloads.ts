@@ -1,8 +1,8 @@
 import { site } from "@/lib/site";
 
 const repositoryUrl = "https://github.com/DhanushSantosh/AgentComms";
-const repositoryRawUrl = "https://raw.githubusercontent.com/DhanushSantosh/AgentComms/main";
 const releaseTag = `v${site.productVersion}`;
+const repositoryRawUrl = `https://raw.githubusercontent.com/DhanushSantosh/AgentComms/${releaseTag}`;
 const releaseBaseUrl = `${repositoryUrl}/releases/download/${releaseTag}`;
 
 export type InstallerMethod = {
@@ -19,14 +19,14 @@ export const installerMethods: readonly InstallerMethod[] = [
     name: "Linux + macOS",
     environment: "Terminal",
     requirements: "curl · Python 3",
-    command: `curl -fsSL ${repositoryRawUrl}/install.sh | sh`
+    command: `curl -fsSL ${repositoryRawUrl}/install.sh | AGENT_COMMS_VERSION=${releaseTag} sh`
   },
   {
     id: "windows",
     name: "Windows",
     environment: "PowerShell",
     requirements: "PowerShell 7",
-    command: `Invoke-WebRequest ${repositoryRawUrl}/install.ps1 -OutFile install.ps1\n.\\install.ps1`
+    command: `Invoke-WebRequest ${repositoryRawUrl}/install.ps1 -OutFile install.ps1\n.\\install.ps1 -Version ${releaseTag}`
   }
 ] as const;
 
@@ -42,8 +42,8 @@ export const downloadRelease = {
   allReleasesUrl: `${repositoryUrl}/releases`,
   checksumsUrl: `${releaseBaseUrl}/checksums.txt`,
   sourceUrl: `${repositoryUrl}/tree/${releaseTag}`,
-  installerStatus: "Verification assets incomplete",
-  installerDetail: `The ${releaseTag} CLI Cosign bundles required by both official installers are not published yet. The commands below are the supported install path, but they intentionally fail closed until those verification assets are restored.`
+  installerStatus: "Verified release",
+  installerDetail: `${releaseTag}'s tag pins the installer and verifier digest. Both installers authenticate the verifier before it checks the signed CLI bundle.`
 } as const;
 
 // A separate, unstable channel from the release above: builds from dev's

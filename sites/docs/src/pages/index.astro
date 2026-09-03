@@ -3,6 +3,8 @@ import BaseLayout from "@layouts/BaseLayout.astro";
 import CoordinationRail from "@components/CoordinationRail.astro";
 import PlatformTabs from "@components/PlatformTabs.astro";
 import Sidebar from "@components/Sidebar.astro";
+
+const releaseTag = `v${import.meta.env.PUBLIC_PRODUCT_VERSION}`;
 ---
 
 <BaseLayout title="Agent Comms Documentation" description="The operating manual for governed coordination between concurrent AI agents and the people directing them.">
@@ -67,8 +69,8 @@ import Sidebar from "@components/Sidebar.astro";
             id="home-install"
             label="Installation platform"
             tabs={[
-              { label: "Linux / macOS", language: "shell", code: "curl -fsSL https://raw.githubusercontent.com/DhanushSantosh/AgentComms/main/install.sh | sh\nagent-comms init\nagent-comms tui" },
-              { label: "Windows", language: "PowerShell", code: ".\\install.ps1\nagent-comms init\nagent-comms tui" }
+              { label: "Linux / macOS", language: "shell", code: `curl -fsSL https://raw.githubusercontent.com/DhanushSantosh/AgentComms/${releaseTag}/install.sh | AGENT_COMMS_VERSION=${releaseTag} sh\nagent-comms init\nagent-comms tui` },
+              { label: "Windows", language: "PowerShell", code: `Invoke-WebRequest https://raw.githubusercontent.com/DhanushSantosh/AgentComms/${releaseTag}/install.ps1 -OutFile install.ps1\n.\\install.ps1 -Version ${releaseTag}\nagent-comms init\nagent-comms tui` }
             ]}
           />
           <a href="/start/install/">Read installation and verification details →</a>

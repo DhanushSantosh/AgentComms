@@ -106,7 +106,7 @@ func registerOnlineDeliverableWorker(t *testing.T, s *service.Service, agentID, 
 // (owner/orchestrator) and a HUMAN principal for the approve step to work.
 func grantOrchestrator(t *testing.T, s *service.Service, approver, id string, scopes []string) {
 	t.Helper()
-	approvalID := id + "-orchestrator-approval"
+	approvalID := protocol.OrchestratorGrantApprovalID(id)
 	must(t, s, approver, "approval.request", approvalID, model.ApprovalRequested{
 		Tier: "HUMAN", Action: protocol.OrchestratorGrantApprovalAction(id), Reason: "test fixture",
 	})
@@ -360,27 +360,43 @@ func TestGrantingOrchestratorRoleRequiresPriorHumanApproval(t *testing.T) {
 	}
 
 	// Applying (requesting) alone is not enough either — the request must be
-	// separately approved before the grant proceeds.
-	must(t, s, "owner", "approval.request", "candidate-orchestrator-approval",
+	// separately approved before the grant proceeds. See RFC 0023: this must
+	// live at the exact conventional ID (OrchestratorGrantApprovalID), not
+	// an arbitrary caller-chosen one, or nothing will ever find it.
+	approvalID := protocol.OrchestratorGrantApprovalID("candidate")
+	must(t, s, "owner", "approval.request", approvalID,
 		model.ApprovalRequested{Tier: "HUMAN", Action: protocol.OrchestratorGrantApprovalAction("candidate"), Reason: "promotion"})
 	if _, err := s.Execute("owner", "agent.activate", "candidate",
 		model.AgentActivated{Role: model.RoleOrchestrator, Scopes: []string{"src"}}); err == nil {
 		t.Fatal("expected the orchestrator grant to be rejected while the approval is still pending")
 	}
 
-	// An approved ORCHESTRATOR-tier (not HUMAN-tier) approval for the same
-	// action must not substitute — only a HUMAN-tier approval closes the gap.
-	must(t, s, "owner", "approval.request", "candidate-orchestrator-tier-approval",
-		model.ApprovalRequested{Tier: "ORCHESTRATOR", Action: protocol.OrchestratorGrantApprovalAction("candidate"), Reason: "wrong tier"})
-	must(t, s, "owner", "approval.approve", "candidate-orchestrator-tier-approval", model.ApprovalResponse{})
-	if _, err := s.Execute("owner", "agent.activate", "candidate",
+	// An approved ORCHESTRATOR-tier (not HUMAN-tier) approval for a
+	// different candidate, at that candidate's own conventional ID, must
+	// not substitute — only a HUMAN-tier approval closes the gap. Uses a
+	// separate principal rather than reusing "candidate"'s own ID: RFC
+	// 0023's ID-scoped lookup means a wrong-tier approval has to occupy the
+	// exact ID the check looks up to prove the tier gate at all (a
+	// differently-ID'd approval would simply never be found, proving
+	// nothing about tier specifically) — and approval.request rejects a
+	// second request at an ID that already exists, so a distinct principal
+	// is the only way to get a second, differently-tiered approval at *its*
+	// own conventional ID without disturbing "candidate"'s still-pending one.
+	if _, err := s.Register("wrong-tier-candidate", "Wrong Tier Candidate", model.PrincipalAgent); err != nil {
+		t.Fatal(err)
+	}
+	wrongTierApprovalID := protocol.OrchestratorGrantApprovalID("wrong-tier-candidate")
+	must(t, s, "owner", "approval.request", wrongTierApprovalID,
+		model.ApprovalRequested{Tier: "ORCHESTRATOR", Action: protocol.OrchestratorGrantApprovalAction("wrong-tier-candidate"), Reason: "wrong tier"})
+	must(t, s, "owner", "approval.approve", wrongTierApprovalID, model.ApprovalResponse{})
+	if _, err := s.Execute("owner", "agent.activate", "wrong-tier-candidate",
 		model.AgentActivated{Role: model.RoleOrchestrator, Scopes: []string{"src"}}); err == nil {
 		t.Fatal("expected an ORCHESTRATOR-tier approval to be rejected as insufficient for the orchestrator grant")
 	}
 
 	// Once a matching HUMAN-tier approval is actually approved, the grant
 	// succeeds.
-	must(t, s, "owner", "approval.approve", "candidate-orchestrator-approval", model.ApprovalResponse{})
+	must(t, s, "owner", "approval.approve", approvalID, model.ApprovalResponse{})
 	must(t, s, "owner", "agent.activate", "candidate", model.AgentActivated{Role: model.RoleOrchestrator, Scopes: []string{"src"}})
 
 	state, err := s.State()
@@ -389,6 +405,61 @@ func TestGrantingOrchestratorRoleRequiresPriorHumanApproval(t *testing.T) {
 	}
 	if state.Agents["candidate"].Role != model.RoleOrchestrator {
 		t.Fatalf("expected candidate to be granted the orchestrator role, got %+v", state.Agents["candidate"])
+	}
+}
+
+// TestOrchestratorGrantApprovalIsConsumedOnUse guards RFC 0023's core fix:
+// an approval that has already authorized one orchestrator grant must never
+// authorize a second one. Reproduces the exact live scenario a real
+// project's approval history surfaced -- a HUMAN-tier approval, once
+// APPROVED, silently pre-authorizing every future grant of the same role to
+// the same principal, with no fresh human decision required.
+func TestOrchestratorGrantApprovalIsConsumedOnUse(t *testing.T) {
+	s := setup(t)
+	if _, err := s.Register("candidate", "Candidate", model.PrincipalAgent); err != nil {
+		t.Fatal(err)
+	}
+	approvalID := protocol.OrchestratorGrantApprovalID("candidate")
+	must(t, s, "owner", "approval.request", approvalID,
+		model.ApprovalRequested{Tier: "HUMAN", Action: protocol.OrchestratorGrantApprovalAction("candidate"), Reason: "promotion"})
+	must(t, s, "owner", "approval.approve", approvalID, model.ApprovalResponse{})
+	must(t, s, "owner", "agent.activate", "candidate", model.AgentActivated{Role: model.RoleOrchestrator, Scopes: []string{"src"}})
+
+	state, err := s.State()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := state.Approvals[approvalID].Status; got != "CONSUMED" {
+		t.Fatalf("expected the approval to be CONSUMED after authorizing the grant, got %q", got)
+	}
+
+	// Self-switch away from ORCHESTRATOR (self-service, no elevation needed
+	// for a non-orchestrator target -- RFC 0018) and attempt to re-grant:
+	// the principal is still ACTIVE the whole time, so a failure here can
+	// only be the consumed approval doing its job, not the unrelated
+	// "revoked principals can never be reactivated" rule
+	// (TestAgentRevokeIsTerminal) that a revoke-based version of this test
+	// would have accidentally exercised instead.
+	must(t, s, "candidate", "agent.switch-role", "candidate", model.AgentRoleSwitched{Role: model.Role("MEMBER")})
+	if _, err := s.Execute("owner", "agent.activate", "candidate",
+		model.AgentActivated{Role: model.RoleOrchestrator, Scopes: []string{"src"}}); err == nil {
+		t.Fatal("expected re-granting orchestrator after switching away from it to require a fresh approval, not reuse the consumed one")
+	}
+
+	// The conventional approval ID is intentionally reusable only after its
+	// previous record has been consumed. A fresh request and human approval
+	// must make exactly one later re-grant possible.
+	must(t, s, "owner", "approval.request", approvalID,
+		model.ApprovalRequested{Tier: "HUMAN", Action: protocol.OrchestratorGrantApprovalAction("candidate"), Reason: "promotion again"})
+	must(t, s, "owner", "approval.approve", approvalID, model.ApprovalResponse{})
+	must(t, s, "owner", "agent.activate", "candidate", model.AgentActivated{Role: model.RoleOrchestrator, Scopes: []string{"src"}})
+
+	state, err = s.State()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := state.Approvals[approvalID].Status; got != "CONSUMED" {
+		t.Fatalf("expected the fresh approval to be CONSUMED after authorizing the re-grant, got %q", got)
 	}
 }
 
@@ -680,7 +751,7 @@ func TestExecuteRequiresPassphrasePromptOnceElevatedKeyIsRegistered(t *testing.T
 		t.Fatal(err)
 	}
 
-	approvalID := "candidate-orchestrator-approval"
+	approvalID := protocol.OrchestratorGrantApprovalID("candidate")
 	action := protocol.OrchestratorGrantApprovalAction("candidate")
 	// approval.request itself is never classified as needing the elevated
 	// key (only approval.approve is), so this must still succeed signed
@@ -775,7 +846,7 @@ func TestSwitchRoleToOrchestratorRequiresPassphrasePromptOnceElevatedKeyIsRegist
 		t.Fatal(err)
 	}
 
-	approvalID := "human-candidate-orchestrator-approval"
+	approvalID := protocol.OrchestratorGrantApprovalID("human-candidate")
 	action := protocol.OrchestratorGrantApprovalAction("human-candidate")
 	must(t, s, "owner", "approval.request", approvalID, model.ApprovalRequested{Tier: "HUMAN", Action: action, Reason: "test"})
 	must(t, s, "owner", "approval.approve", approvalID, model.ApprovalResponse{})

@@ -1027,6 +1027,7 @@ func (c *cli) initCmd() *cobra.Command {
 		}
 		initialized, e := runtimeinit.Initialize(cmd.Context(), runtimeinit.Config{
 			ProjectRoot: root, Owner: owner, Mode: mode, AuthorityURL: authorityURL,
+			AuthorityToken:   strings.TrimSpace(os.Getenv("AGENT_COMMS_AUTHORITY_TOKEN")),
 			ServicePublicKey: servicePublicKey, DaemonEndpoint: daemonEndpoint,
 		})
 		if e != nil {

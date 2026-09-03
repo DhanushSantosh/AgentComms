@@ -130,6 +130,54 @@ func (s *Service) State() (model.State, error) {
 	return state, nil
 }
 
+// RequestApprovalForOperation creates an approval whose digest is derived
+// from the exact operation clients will later submit. Callers never handle
+// approval digests directly; invocation defaults are normalized against the
+// same current state used by protocol validation.
+func (s *Service) RequestApprovalForOperation(actor, approvalID, tier, typ, id string, payload any, reason string, ttl time.Duration) (model.Event, error) {
+	if ttl <= 0 {
+		return model.Event{}, errors.New("approval TTL must be positive")
+	}
+	tier = strings.ToUpper(strings.TrimSpace(tier))
+	action := ""
+	affected := []string{}
+	subject := payload
+	switch typ {
+	case "message.post":
+		message, ok := payload.(model.MessagePosted)
+		if !ok || message.Kind != "CONTRACT" {
+			return model.Event{}, errors.New("payload-bound message approval requires a CONTRACT message")
+		}
+		action = "contract:" + id
+		affected = append(affected, message.To...)
+	case "invocation.request":
+		invocation, ok := payload.(model.InvocationRequested)
+		if !ok {
+			return model.Event{}, errors.New("payload-bound invocation approval requires an invocation request")
+		}
+		state, err := s.State()
+		if err != nil {
+			return model.Event{}, err
+		}
+		invocation = protocol.NormalizeInvocationApprovalSubject(state, invocation)
+		subject = invocation
+		affected = []string{invocation.Target}
+		if tier == "HUMAN" {
+			action = "invocation-sensitive:" + id
+		} else {
+			action = "invocation:" + id
+		}
+	default:
+		return model.Event{}, errors.New("operation does not support payload-bound approval")
+	}
+	expires := time.Now().UTC().Add(ttl)
+	subjectJSON := protocol.ApprovalSubjectJSON(actor, typ, id, subject)
+	return s.Execute(actor, "approval.request", approvalID, model.ApprovalRequested{
+		Tier: tier, Action: action, SubjectDigest: protocol.ApprovalSubjectDigestFromJSON(subjectJSON), Subject: subjectJSON,
+		Reason: reason, Affected: affected, ExpiresAt: &expires,
+	})
+}
+
 // retryOnDaemonOffline runs op up to 3 times with the same backoff-and-
 // recover shape signed writes have always had (originally only in
 // executeRemoteWithCredential, now shared): on a retryable daemon error
@@ -843,7 +891,7 @@ func (s *Service) DeleteProject(actor, passphrase, confirmDirectoryName string) 
 	ctx, cancel := context.WithTimeout(context.Background(), controlplane.DefaultRequestTimeout)
 	defer cancel()
 	if cfg.RuntimeMode == "service" {
-		client, clientErr := remote.New(cfg.AuthorityURL, controlplane.DefaultRequestTimeout)
+		client, clientErr := remote.NewWithToken(cfg.AuthorityURL, controlplane.DefaultRequestTimeout, strings.TrimSpace(os.Getenv("AGENT_COMMS_AUTHORITY_TOKEN")))
 		if clientErr != nil {
 			return DeleteProjectResult{}, clientErr
 		}

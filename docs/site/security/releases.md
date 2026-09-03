@@ -14,13 +14,14 @@ Official releases contain platform binaries, SHA-256 checksums, Cosign bundles, 
 
 Before replacing the user-level binary, `install.sh` and `install.ps1`:
 
-1. select the requested stable, preview, or exact release;
+1. require an exact release tag and confirm the GitHub release has that tag;
 2. download the binary, checksum file, matching Cosign bundle, and the `agent-comms-verify` companion binary for your platform;
-3. compare every downloaded binary's SHA-256 digest against `checksums.txt`;
-4. verify the bundle against the expected GitHub Actions workflow identity and OIDC issuer, using `agent-comms-verify` -- no separately installed `cosign` CLI required;
-5. preserve the prior binary and install the verified replacement.
+3. fetch the verifier digest committed in that protected release tag and refuse to execute the verifier unless its SHA-256 digest matches;
+4. compare the CLI binary's SHA-256 digest against `checksums.txt`;
+5. verify the bundle against the exact release tag's GitHub Actions workflow identity and OIDC issuer, using `agent-comms-verify` -- no separately installed `cosign` CLI required;
+6. preserve the prior binary and install the verified replacement.
 
-Any missing asset or verification failure stops installation. `agent-comms update` (self-updating an already-installed copy) verifies the same way, built directly into the binary -- see [docs/rfcs/0015-cosign-free-release-verification.md](https://github.com/DhanushSantosh/AgentComms/blob/main/docs/rfcs/0015-cosign-free-release-verification.md) for why this no longer needs `cosign` on `PATH` at all.
+Any missing pin, asset, or verification failure stops installation. The pin is independent of mutable release assets: release automation refuses to publish unless its deterministic verifier build matches all six platform digests committed before the tag was created. `agent-comms update` (self-updating an already-installed copy) remains convenient for latest-version updates because its trusted verifier is built directly into the already-installed binary.
 
 ## Manual verification
 

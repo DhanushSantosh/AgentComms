@@ -97,7 +97,7 @@ func (f *elevatedKeyFixture) register(id string, signer *controlplane.Signer, pr
 func (f *elevatedKeyFixture) grantOrchestratorApproval(target string) {
 	f.t.Helper()
 	action := protocol.OrchestratorGrantApprovalAction(target)
-	approvalID := target + "-approval"
+	approvalID := protocol.OrchestratorGrantApprovalID(target)
 	f.mustMutate("owner", f.owner, "approval.request", approvalID,
 		model.ApprovalRequested{Tier: "HUMAN", Action: action, Reason: "test"})
 	f.mustMutate("owner", f.owner, "approval.approve", approvalID, model.ApprovalResponse{})

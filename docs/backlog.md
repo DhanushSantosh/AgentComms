@@ -102,6 +102,31 @@ one is picked up, remove it from here and note the landing commit.
 
 ## Security / governance
 
+- **RESOLVED 2026-09-02: added first-phase application authentication for the
+  shared authority service ([RFC 0026](rfcs/0026-authority-bearer-token.md)).**
+  Production `agent-comms-server` now requires
+  `AGENT_COMMS_AUTHORITY_TOKEN`; all authority endpoints except
+  `/health/live` and `/health/ready` require that bearer token when it is
+  configured, including project creation, state/events/stream, verification,
+  metrics, deletion, and signed command submission. Service-mode clients and
+  daemons send the token from the same environment variable without storing it
+  in `.agent-comms/config.json`. This closes the anonymous service-admission
+  part of the audit follow-up; per-principal durable quotas and token rotation
+  remain future hardening, not part of this first phase.
+
+- **RESOLVED 2026-09-02: audited the five non-`HUMAN` `hasApproval` call
+  sites deferred by [RFC 0023](rfcs/0023-single-use-orchestrator-grant-approval.md)
+  and closed the one real gap ([RFC 0024](rfcs/0024-single-use-task-takeover-approval.md)).**
+  `contract:<messageID>`, `invocation:<invocationID>`, and
+  `invocation-sensitive:<invocationID>` already describe one create event:
+  duplicate message and invocation IDs are rejected, so their approvals
+  cannot authorize a second event. `shared-write:<taskA>:<taskB>` is
+  intentionally reusable for the lifetime of that task-pair arrangement.
+  `task.takeover:<taskID>` was the one real gap because a long-lived task
+  can be taken over repeatedly; a takeover now consumes one matching
+  approved record deterministically. Independently approved records for
+  the same action each remain good for one takeover.
+
 - **SHIPPED 2026-08-13: self-service role switching, custom role labels,
   and removal of the AGENT/OBSERVER roles ([RFC 0018](rfcs/0018-self-service-role-switching-and-custom-roles.md)).**
   `model.Role` was a closed four-value enum (`OWNER`, `ORCHESTRATOR`,
