@@ -11,7 +11,16 @@ import (
 // `agent-comms` binary, and the by-name symlink must still resolve to the
 // new one afterward.
 func TestReplaceExecutableFollowsSymlink(t *testing.T) {
-	dir := t.TempDir()
+	// macOS's own /tmp is itself a symlink (/var -> /private/var), so
+	// t.TempDir()'s path and what filepath.EvalSymlinks returns for a path
+	// under it differ purely from that OS-level indirection -- nothing to
+	// do with the agc alias symlink under test. Resolve once up front so
+	// `real` is already in the same fully-resolved form replaceExecutable
+	// (which calls EvalSymlinks) will return, on every platform.
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	real := filepath.Join(dir, "agent-comms")
 	if err := os.WriteFile(real, []byte("OLD BINARY"), 0o755); err != nil {
 		t.Fatal(err)
