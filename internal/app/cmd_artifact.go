@@ -16,6 +16,7 @@ import (
 	"github.com/DhanushSantosh/AgentComms/internal/cliui"
 	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
+	"github.com/DhanushSantosh/AgentComms/internal/service"
 	"github.com/DhanushSantosh/AgentComms/internal/store"
 	"github.com/spf13/cobra"
 )
@@ -182,11 +183,7 @@ func (c *cli) documentCmd() *cobra.Command {
 		if e != nil {
 			return e
 		}
-		ids := make([]string, 0, len(st.Documents))
-		for id := range st.Documents {
-			ids = append(ids, id)
-		}
-		sort.Strings(ids)
+		ids := service.SortedKeys(st.Documents)
 		rows := make([][]string, 0, len(ids))
 		for _, id := range ids {
 			document := st.Documents[id]

@@ -3,12 +3,12 @@ package app
 import (
 	"errors"
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
 	"github.com/DhanushSantosh/AgentComms/internal/cliui"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
+	"github.com/DhanushSantosh/AgentComms/internal/service"
 	"github.com/spf13/cobra"
 )
 
@@ -127,11 +127,7 @@ func (c *cli) taskCmd() *cobra.Command {
 		if e != nil {
 			return e
 		}
-		ids := make([]string, 0, len(st.Tasks))
-		for id := range st.Tasks {
-			ids = append(ids, id)
-		}
-		sort.Strings(ids)
+		ids := service.SortedKeys(st.Tasks)
 		rows := make([][]string, 0, len(ids))
 		for _, id := range ids {
 			task := st.Tasks[id]

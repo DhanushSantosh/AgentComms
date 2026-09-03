@@ -3,12 +3,12 @@ package app
 import (
 	"fmt"
 	"os"
-	"sort"
 	"strings"
 	"time"
 
 	"github.com/DhanushSantosh/AgentComms/internal/cliui"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
+	"github.com/DhanushSantosh/AgentComms/internal/service"
 	"github.com/spf13/cobra"
 )
 
@@ -104,11 +104,7 @@ func (c *cli) messageCmd() *cobra.Command {
 			}
 			out = trimmed
 		}
-		ids := make([]string, 0, len(out))
-		for id := range out {
-			ids = append(ids, id)
-		}
-		sort.Strings(ids)
+		ids := service.SortedKeys(out)
 		rows := make([][]string, 0, len(ids))
 		for _, id := range ids {
 			message := out[id]
@@ -158,11 +154,7 @@ func (c *cli) approvalCmd() *cobra.Command {
 		if e != nil {
 			return e
 		}
-		ids := make([]string, 0, len(st.Approvals))
-		for id := range st.Approvals {
-			ids = append(ids, id)
-		}
-		sort.Strings(ids)
+		ids := service.SortedKeys(st.Approvals)
 		rows := make([][]string, 0, len(ids))
 		for _, id := range ids {
 			approval := st.Approvals[id]
