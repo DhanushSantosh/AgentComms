@@ -1533,15 +1533,6 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 			return nil, errors.New("pending approval is required")
 		}
 	}
-	if typ == "decision.create" {
-		decision, ok := payload.(model.DecisionPayload)
-		if !ok || strings.TrimSpace(decision.Title) == "" || strings.TrimSpace(decision.Statement) == "" {
-			return nil, errors.New("decision title and statement are required")
-		}
-		if _, exists := st.Decisions[id]; exists {
-			return nil, errors.New("decision already exists")
-		}
-	}
 	if strings.HasPrefix(typ, "env.") {
 		switch typ {
 		case "env.set":

@@ -14,7 +14,7 @@ import (
 //go:embed schema.sql
 var schema string
 
-const CurrentSchemaVersion = 4
+const CurrentSchemaVersion = 6
 
 const addActorKeyFingerprintMigration = `
 ALTER TABLE events
@@ -74,6 +74,37 @@ CREATE TABLE IF NOT EXISTS deleted_projects (
 );
 `
 
+// dropSessionsMigration removes the unconsumed session-lifecycle table
+// (RFC 0028). Nothing read `State.Sessions`; the `session start/end`
+// commands and the `sessions` projection are gone.
+const dropSessionsMigration = `
+DROP TABLE IF EXISTS sessions;
+`
+
+// consolidateDecisionsMigration folds the decisions table into documents
+// as `decision`-tagged rows (RFC 0029), then drops it. Author is unknown
+// from a decision row and left empty on the migrated document.
+const consolidateDecisionsMigration = `
+INSERT INTO documents (project_id, document_id, status, state, updated_sequence)
+SELECT d.project_id, d.decision_id,
+       COALESCE(d.state->>'status', 'ACTIVE'),
+       jsonb_build_object(
+         'id', d.decision_id,
+         'title', COALESCE(d.state->>'title', ''),
+         'body', COALESCE(d.state->>'statement', ''),
+         'tags', jsonb_build_array('decision'),
+         'status', COALESCE(d.state->>'status', 'ACTIVE'),
+         'version', 1,
+         'author', '',
+         'supersedes', COALESCE(d.state->>'supersedes', '')
+       ),
+       d.updated_sequence
+FROM decisions d
+ON CONFLICT (project_id, document_id) DO NOTHING;
+
+DROP TABLE IF EXISTS decisions;
+`
+
 // schemaMigration is one ordered, checksummed step. Automatic migrations
 // apply at every normal server startup; a migration with Automatic:false
 // only applies via `agent-comms-server migrate apply --yes
@@ -95,6 +126,8 @@ var schemaMigrations = []schemaMigration{
 	{Version: 2, Name: "event-actor-key-fingerprint", Automatic: true, SQL: addActorKeyFingerprintMigration},
 	{Version: 3, Name: "interactive-delivery-integrity", Automatic: true, SQL: addDeliveryIntegrityColumnsMigration},
 	{Version: 4, Name: "project-deletion-tombstone", Automatic: true, SQL: addDeletedProjectsMigration},
+	{Version: 5, Name: "drop-unconsumed-sessions", Automatic: true, SQL: dropSessionsMigration},
+	{Version: 6, Name: "consolidate-decisions-into-documents", Automatic: true, SQL: consolidateDecisionsMigration},
 }
 
 type SchemaMigrationStatus struct {

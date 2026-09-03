@@ -636,13 +636,11 @@ func decodePayload(eventType string, raw json.RawMessage) (any, error) {
 		return *value, nil
 	case *model.ApprovalResponse:
 		return *value, nil
-	case *model.DecisionPayload:
-		return *value, nil
-	case *model.SessionPayload:
-		return *value, nil
 	case *model.ArtifactAdded:
 		return *value, nil
 	case *model.ArchiveRun:
+		return *value, nil
+	case *model.DecisionPayload:
 		return *value, nil
 	case *model.DocumentPayload:
 		return *value, nil
@@ -681,8 +679,8 @@ func loadState(ctx context.Context, tx *sql.Tx, projectID string) (model.State, 
 		Messages: map[string]model.Message{}, Approvals: map[string]model.Approval{},
 		Invocations: map[string]model.Invocation{}, InvocationDeliveries: map[string]model.InvocationDelivery{},
 		AgentRuntimes: map[string]model.AgentRuntime{}, InvocationPolicies: map[string]model.InvocationPolicy{},
-		Decisions: map[string]model.Decision{}, Documents: map[string]model.Document{},
-		Env: map[string]model.EnvEntry{}, Sessions: map[string]model.SessionPayload{},
+		Documents:       map[string]model.Document{},
+		Env:             map[string]model.EnvEntry{},
 		Artifacts:       map[string]model.Artifact{},
 		ProjectSettings: model.DefaultProjectSettings(),
 	}
@@ -768,16 +766,6 @@ func loadState(ctx context.Context, tx *sql.Tx, projectID string) (model.State, 
 			})
 		},
 		func() error {
-			return loadProjection(ctx, tx, "decisions", "decision_id", projectID, func(id string, raw []byte) error {
-				var v model.Decision
-				if err := json.Unmarshal(raw, &v); err != nil {
-					return err
-				}
-				state.Decisions[id] = v
-				return nil
-			})
-		},
-		func() error {
 			return loadProjection(ctx, tx, "documents", "document_id", projectID, func(id string, raw []byte) error {
 				var v model.Document
 				if err := json.Unmarshal(raw, &v); err != nil {
@@ -807,16 +795,6 @@ func loadState(ctx context.Context, tx *sql.Tx, projectID string) (model.State, 
 				return nil
 			})
 		},
-		func() error {
-			return loadProjection(ctx, tx, "sessions", "session_id", projectID, func(id string, raw []byte) error {
-				var v model.SessionPayload
-				if err := json.Unmarshal(raw, &v); err != nil {
-					return err
-				}
-				state.Sessions[id] = v
-				return nil
-			})
-		},
 	}
 	for _, load := range loaders {
 		if err := load(); err != nil {
@@ -840,9 +818,9 @@ func loadProjection(ctx context.Context, tx *sql.Tx, table, idColumn, projectID 
 		"agents.agent_id": true, "tasks.task_id": true, "messages.message_id": true,
 		"invocations.invocation_id": true, "invocation_deliveries.delivery_id": true,
 		"agent_runtimes.runtime_id": true, "invocation_policies.agent_id": true,
-		"approvals.approval_id": true, "decisions.decision_id": true,
+		"approvals.approval_id": true,
 		"documents.document_id": true, "artifacts.sha256": true,
-		"environment_entries.entry_key": true, "sessions.session_id": true,
+		"environment_entries.entry_key": true,
 	}
 	if !allowed[table+"."+idColumn] {
 		return errors.New("invalid projection query")
@@ -919,19 +897,13 @@ func persistProjectionChanges(ctx context.Context, tx *sql.Tx, projectID string,
 	if err := persistSimpleChanges(ctx, tx, projectID, sequence, "approvals", "approval_id", before.Approvals, after.Approvals); err != nil {
 		return err
 	}
-	if err := persistSimpleChanges(ctx, tx, projectID, sequence, "decisions", "decision_id", before.Decisions, after.Decisions); err != nil {
-		return err
-	}
 	if err := persistSimpleChanges(ctx, tx, projectID, sequence, "documents", "document_id", before.Documents, after.Documents); err != nil {
 		return err
 	}
 	if err := persistSimpleChanges(ctx, tx, projectID, sequence, "artifacts", "sha256", before.Artifacts, after.Artifacts); err != nil {
 		return err
 	}
-	if err := persistSimpleChanges(ctx, tx, projectID, sequence, "environment_entries", "entry_key", before.Env, after.Env); err != nil {
-		return err
-	}
-	return persistSessions(ctx, tx, projectID, sequence, before.Sessions, after.Sessions)
+	return persistSimpleChanges(ctx, tx, projectID, sequence, "environment_entries", "entry_key", before.Env, after.Env)
 }
 
 func persistRuntimeChanges(ctx context.Context, tx *sql.Tx, projectID string, sequence uint64, before, after map[string]model.AgentRuntime) error {
@@ -1074,8 +1046,8 @@ func upsertTask(ctx context.Context, tx *sql.Tx, projectID string, sequence uint
 func persistSimpleChanges[V any](ctx context.Context, tx *sql.Tx, projectID string, sequence uint64, table, idColumn string, before, after map[string]V) error {
 	allowed := map[string]bool{
 		"messages.message_id": true, "approvals.approval_id": true,
-		"decisions.decision_id": true, "documents.document_id": true,
-		"artifacts.sha256": true, "environment_entries.entry_key": true,
+		"documents.document_id": true,
+		"artifacts.sha256":      true, "environment_entries.entry_key": true,
 	}
 	if !allowed[table+"."+idColumn] {
 		return errors.New("invalid projection update")
@@ -1128,28 +1100,6 @@ func persistSimpleChanges[V any](ctx context.Context, tx *sql.Tx, projectID stri
 			continue
 		}
 		if _, err := tx.ExecContext(ctx, query, projectID, id, raw, sequence); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func persistSessions(ctx context.Context, tx *sql.Tx, projectID string, sequence uint64, before, after map[string]model.SessionPayload) error {
-	for id := range before {
-		if _, exists := after[id]; !exists {
-			if _, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE project_id=$1 AND session_id=$2`, projectID, id); err != nil {
-				return err
-			}
-		}
-	}
-	for id, session := range after {
-		if reflect.DeepEqual(before[id], session) {
-			continue
-		}
-		raw, _ := json.Marshal(session)
-		if _, err := tx.ExecContext(ctx, `INSERT INTO sessions (project_id,session_id,state,updated_sequence)
-			VALUES ($1,$2,$3,$4) ON CONFLICT (project_id,session_id) DO UPDATE SET state=EXCLUDED.state,updated_sequence=EXCLUDED.updated_sequence`,
-			projectID, id, raw, sequence); err != nil {
 			return err
 		}
 	}

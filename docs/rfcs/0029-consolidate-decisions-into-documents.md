@@ -2,9 +2,11 @@
 
 ## Status
 
-**Accepted, 2026-09-02.** Owner: Dhanush Santosh. Implementation branch:
+**Implemented, 2026-09-02.** Owner: Dhanush Santosh. Implementation branch:
 `review/feature-validity`. The project owner accepted this before
 implementation began, per `docs/rfcs/README.md`.
+
+Implemented: the `decision` group is gone, `document create --decision`/`--notify` replaces it, historical `decision.*` events project into `decision`-tagged documents, the projection-cache version bumped to 4 (local rebuild) and Postgres migration 6 folds the `decisions` table into `documents`. State schema 2.2.0.
 
 Removes a public command group and a durable state collection; requires
 review.
@@ -48,15 +50,25 @@ already does.
    projection case.
 5. **Authority backends:** remove decision persistence from
    `postgres.go`, `personalauthority`, `localcache`.
-6. **Migration:** `projectlifecycle` converts each existing
-   `State.Decisions[id]` into `State.Documents[id]` with
-   `Body = Statement`, `Tags = ["decision"]`, `Author` = the original
-   event actor, preserving `Supersedes` and `Status`. Historical
-   `decision.*` events stay in the immutable log and project into the
-   migrated documents via the upgrade, not via replay of the old
-   transition (which is gone) — the upgrade writes a single
-   `document.create` catch-up event per migrated decision, signed by the
-   project owner, referencing the original in its payload.
+6. **Migration.** Two mechanisms, both idempotent:
+   - **Projection** (`internal/projection/apply.go`): historical
+     `decision.create` / `decision.supersede` events stay in the
+     immutable log and now project into a `decision`-tagged
+     `Document` -- so any fresh replay (new project, cache rebuild,
+     `verify`) is already correct. The `DecisionPayload` type and its
+     payload-registry entries are kept for decoding those historical
+     events; only the `decision.*` *transition* is removed, so no new
+     ones can be created.
+   - **Snapshot** (`projectlifecycle.foldDecisionsIntoDocuments`):
+     personal-authority and projection-cache SQLite DBs keep an
+     incremental `state_json` snapshot that is not replayed on load.
+     `migrateDatabases` rewrites each snapshot in place, moving the
+     `decisions` map into `documents` as tagged entries. Triggered by
+     the `model.SchemaVersion` bump; a no-op on a snapshot with no
+     `decisions` key. `Author` is unknown from a snapshot decision and
+     left empty.
+   - **Postgres** (team mode): schema migration 6 folds the `decisions`
+     table into `documents` and drops it.
 7. **TUI:** delete `internal/tui/decisions.go`; the Documents view
    (`documents.go`) filters by the `decision` tag for an equivalent
    "decisions" listing.
@@ -75,9 +87,13 @@ already does.
 - **Fold both into messages.** Rejected: messages are transient
   obligations with an inbox lifecycle; documents are durable reference
   state. They are genuinely different and both are needed.
-- **Leave the migration to replay** (re-run a shim transition). Rejected:
-  keeping a dead transition alive only to migrate is worse than a
-  one-time catch-up event the upgrade emits.
+- **Catch-up events** (the upgrade emits a `document.create` per
+  migrated decision). Rejected during implementation: a derived-state
+  system already replays `decision.*` through the changed projection, so
+  the only gap is the non-replayed `state_json` snapshot, which an
+  in-place fold handles without adding events to a signed log.
+- **Keep a `decision.*` shim transition alive only to migrate.**
+  Rejected: worse than the in-place fold.
 
 ## Compatibility and rollout
 
@@ -91,8 +107,9 @@ for team mode). `CHANGELOG.md` gets a **Breaking** entry with the
 
 Neutral. Same signing, same supersession semantics, same authorization
 (document mutations already revalidate authorization in the authoritative
-transaction). The migration's catch-up events are owner-signed and
-verifiable like any other event.
+transaction). No events are added to any signed log by the migration --
+the immutable `decision.*` history stays exactly as it was and still
+verifies; only the derived snapshot is rewritten.
 
 ## Test and rollout plan
 

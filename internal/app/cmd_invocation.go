@@ -3,7 +3,6 @@ package app
 import (
 	"errors"
 	"fmt"
-	"os"
 	"os/exec"
 	"sort"
 	"strings"
@@ -437,27 +436,4 @@ func consumerModes(values []string) []model.ConsumerMode {
 		result = append(result, model.ConsumerMode(strings.ToUpper(strings.TrimSpace(value))))
 	}
 	return result
-}
-
-func (c *cli) sessionCmd() *cobra.Command {
-	root := &cobra.Command{Use: "session", Short: "Manage durable invocation sessions"}
-	shorts := map[string]string{
-		"start": "Open a durable invocation session for this agent",
-		"end":   "Close a durable invocation session",
-	}
-	for _, sub := range []string{"start", "end"} {
-		sub := sub
-		cmd := &cobra.Command{Use: sub, Short: shorts[sub], RunE: func(cmd *cobra.Command, args []string) error {
-			id, _ := cmd.Flags().GetString("id")
-			v, e := c.svc.Execute(c.actor, "session."+sub, id, model.SessionPayload{AgentID: c.actor, PID: os.Getpid()})
-			if e != nil {
-				return e
-			}
-			return c.emit("session."+sub, v)
-		}}
-		cmd.Flags().String("id", "", "session ID")
-		_ = cmd.MarkFlagRequired("id")
-		root.AddCommand(cmd)
-	}
-	return root
 }

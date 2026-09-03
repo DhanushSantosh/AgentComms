@@ -418,7 +418,7 @@ func (m Model) openCreateForm() (tea.Model, tea.Cmd) {
 	case "Documents":
 		return m.openActionForm(documentCreateForm, "document.create", "")
 	case "Contracts & decisions":
-		return m.openActionForm(decisionCreateForm, "decision.create", "")
+		return m.openActionForm(decisionCreateForm, "document.create", "")
 	case "Artifacts":
 		return m.openActionForm(artifactAddForm, "artifact.add", "")
 	case "Drafts":

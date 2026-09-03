@@ -546,7 +546,7 @@ func paletteCommands() []paletteCommand {
 		{label: "new document", aliases: []string{"create document"}, view: "Documents",
 			open: func(v Model) (tea.Model, tea.Cmd) { return v.openActionForm(documentCreateForm, "document.create", "") }},
 		{label: "new decision", aliases: []string{"create decision"}, view: "Contracts & decisions",
-			open: func(v Model) (tea.Model, tea.Cmd) { return v.openActionForm(decisionCreateForm, "decision.create", "") }},
+			open: func(v Model) (tea.Model, tea.Cmd) { return v.openActionForm(decisionCreateForm, "document.create", "") }},
 		{label: "new artifact", aliases: []string{"add artifact"}, view: "Artifacts",
 			open: func(v Model) (tea.Model, tea.Cmd) { return v.openActionForm(artifactAddForm, "artifact.add", "") }},
 		{label: "new draft", aliases: []string{"save draft"}, view: "Drafts",

@@ -394,9 +394,9 @@ func emptyState() model.State {
 		InvocationDeliveries: map[string]model.InvocationDelivery{},
 		AgentRuntimes:        map[string]model.AgentRuntime{},
 		InvocationPolicies:   map[string]model.InvocationPolicy{},
-		Approvals:            map[string]model.Approval{}, Decisions: map[string]model.Decision{},
-		Documents: map[string]model.Document{}, Env: map[string]model.EnvEntry{},
-		Sessions: map[string]model.SessionPayload{}, Artifacts: map[string]model.Artifact{},
+		Approvals:            map[string]model.Approval{},
+		Documents:            map[string]model.Document{}, Env: map[string]model.EnvEntry{},
+		Artifacts:       map[string]model.Artifact{},
 		ProjectSettings: model.DefaultProjectSettings(),
 	}
 }

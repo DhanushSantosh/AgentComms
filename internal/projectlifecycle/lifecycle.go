@@ -175,6 +175,9 @@ func versionOlder(a, b string) bool {
 }
 
 func Reconcile(ctx context.Context, options Options) (Result, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if options.Timeout <= 0 {
 		options.Timeout = 10 * time.Second
 	}
@@ -468,6 +471,9 @@ func sqliteVersion(path string) (int, error) {
 func migrateDatabases(ctx context.Context, root string, config store.Config) error {
 	if config.RuntimeMode == "personal" {
 		path := filepath.Join(root, store.Runtime, "cache", "personal-authority.db")
+		if err := foldDecisionsIntoDocuments(path); err != nil {
+			return err
+		}
 		if err := setSQLiteVersion("personal_authority", path, PersonalAuthoritySchemaVersion); err != nil {
 			return err
 		}
@@ -480,11 +486,112 @@ func migrateDatabases(ctx context.Context, root string, config store.Config) err
 		return err
 	}
 	if _, statErr := os.Stat(cachePath); statErr == nil {
+		if err = foldDecisionsIntoDocuments(cachePath); err != nil {
+			return err
+		}
 		if err = setSQLiteVersion("projection_cache", cachePath, ProjectionCacheSchemaVersion); err != nil {
 			return err
 		}
 	} else if !os.IsNotExist(statErr) {
 		return statErr
+	}
+	return nil
+}
+
+// foldDecisionsIntoDocuments rewrites the per-project state_json snapshot
+// in a personal-authority or projection-cache SQLite DB, moving any
+// `decisions` map into `documents` as `decision`-tagged entries (RFC
+// 0029). Idempotent: a snapshot with no `decisions` key is left
+// untouched, so it is safe to run on every `project upgrade`. Both DBs
+// keep the same `projects(project_id, state_json)` shape.
+func foldDecisionsIntoDocuments(dbPath string) error {
+	if _, err := os.Stat(dbPath); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+
+	rows, err := db.Query(`SELECT project_id, state_json FROM projects`)
+	if err != nil {
+		return err
+	}
+	type pending struct {
+		id   string
+		blob []byte
+	}
+	var updates []pending
+	for rows.Next() {
+		var id string
+		var blob []byte
+		if err = rows.Scan(&id, &blob); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		var state map[string]json.RawMessage
+		if err = json.Unmarshal(blob, &state); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		rawDecisions, ok := state["decisions"]
+		if !ok {
+			continue
+		}
+		var decisions map[string]map[string]any
+		if err = json.Unmarshal(rawDecisions, &decisions); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		documents := map[string]map[string]any{}
+		if raw, has := state["documents"]; has {
+			if err = json.Unmarshal(raw, &documents); err != nil {
+				_ = rows.Close()
+				return err
+			}
+		}
+		for did, d := range decisions {
+			if _, clash := documents[did]; clash {
+				continue
+			}
+			status, _ := d["status"].(string)
+			if status == "" {
+				status = "ACTIVE"
+			}
+			supersedes, _ := d["supersedes"].(string)
+			documents[did] = map[string]any{
+				"id": did, "title": d["title"], "body": d["statement"],
+				"tags": []string{"decision"}, "status": status,
+				"version": 1, "author": "", "supersedes": supersedes,
+			}
+		}
+		delete(state, "decisions")
+		docBlob, marshalErr := json.Marshal(documents)
+		if marshalErr != nil {
+			_ = rows.Close()
+			return marshalErr
+		}
+		state["documents"] = docBlob
+		out, marshalErr := json.Marshal(state)
+		if marshalErr != nil {
+			_ = rows.Close()
+			return marshalErr
+		}
+		updates = append(updates, pending{id: id, blob: out})
+	}
+	if err = rows.Err(); err != nil {
+		_ = rows.Close()
+		return err
+	}
+	_ = rows.Close()
+	for _, u := range updates {
+		if _, err = db.Exec(`UPDATE projects SET state_json=? WHERE project_id=?`, u.blob, u.id); err != nil {
+			return err
+		}
 	}
 	return nil
 }

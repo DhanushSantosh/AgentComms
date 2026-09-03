@@ -2,9 +2,11 @@
 
 ## Status
 
-**Accepted, 2026-09-02.** Owner: Dhanush Santosh. Implementation branch:
+**Implemented, 2026-09-02.** Owner: Dhanush Santosh. Implementation branch:
 `review/feature-validity`. The project owner accepted this before
 implementation began, per `docs/rfcs/README.md`.
+
+Implemented across the CLI, model, protocol, projection, and all three authority backends; `session_payloads`/`sessions` dropped via Postgres migration 5 and the state schema bumped to 2.2.0 (combined with RFC 0029).
 
 This removes a public command group and a durable state collection, so it
 requires review.

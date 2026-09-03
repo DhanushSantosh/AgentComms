@@ -456,7 +456,7 @@ func (c *cli) root() *cobra.Command {
 	f.BoolVarP(&c.quiet, "quiet", "q", false, "suppress non-essential output")
 	f.BoolVarP(&c.verbose, "verbose", "v", false, "show operational metadata in human output")
 	f.BoolVar(&c.details, "details", false, "show secondary and nested fields in human output")
-	r.AddCommand(c.versionCmd(), c.initCmd(), c.projectCmd(), c.doctorCmd(), c.verifyCmd(), c.statusCmd(), c.attentionCmd(), c.historyCmd(), c.agentCmd(), c.runtimeCmd(), c.invocationCmd(), c.sessionCmd(), c.taskCmd(), c.messageCmd(), c.decisionCmd(), c.approvalCmd(), c.artifactCmd(), c.documentCmd(), c.envCmd(), c.draftCmd(), c.archiveCmd(), c.exportCmd(), c.profileCmd(), c.configCmd(), c.updateCmd(), c.completionCmd(r), c.agentInstructionsCmd(), c.mcpCmd(), c.watchCmd(), c.tuiCmd(), c.daemonCmd(), c.liveCmd())
+	r.AddCommand(c.versionCmd(), c.initCmd(), c.projectCmd(), c.doctorCmd(), c.verifyCmd(), c.statusCmd(), c.attentionCmd(), c.historyCmd(), c.agentCmd(), c.runtimeCmd(), c.invocationCmd(), c.taskCmd(), c.messageCmd(), c.approvalCmd(), c.artifactCmd(), c.documentCmd(), c.envCmd(), c.draftCmd(), c.archiveCmd(), c.exportCmd(), c.profileCmd(), c.configCmd(), c.updateCmd(), c.completionCmd(r), c.agentInstructionsCmd(), c.mcpCmd(), c.watchCmd(), c.tuiCmd(), c.daemonCmd(), c.liveCmd())
 	configureRootHelp(r)
 	return r
 }
@@ -464,8 +464,8 @@ func (c *cli) root() *cobra.Command {
 func configureRootHelp(root *cobra.Command) {
 	groups := map[string]string{
 		"version": "start", "init": "start", "status": "start", "doctor": "start", "verify": "start", "tui": "start",
-		"task": "coordinate", "message": "coordinate", "decision": "coordinate", "approval": "coordinate", "invocation": "coordinate", "attention": "coordinate",
-		"agent": "identity", "runtime": "identity", "session": "identity", "profile": "identity",
+		"task": "coordinate", "message": "coordinate", "approval": "coordinate", "invocation": "coordinate", "attention": "coordinate",
+		"agent": "identity", "runtime": "identity", "profile": "identity",
 		"artifact": "knowledge", "document": "knowledge", "env": "knowledge", "draft": "knowledge", "archive": "knowledge", "history": "knowledge",
 		"project": "operations", "config": "operations", "update": "operations", "watch": "operations", "export": "operations", "agent-instructions": "operations", "completion": "operations", "mcp": "operations", "live": "operations",
 	}
@@ -474,14 +474,14 @@ func configureRootHelp(root *cobra.Command) {
 		"archive": "Archive eligible completed project state", "artifact": "Store, inspect, and verify content-addressed artifacts",
 		"attention":  "List everything currently needing operator intervention",
 		"completion": "Generate shell completion source", "config": "Inspect and set user and project configuration",
-		"decision": "Record and supersede durable decisions", "doctor": "Diagnose project health and actionable findings",
+		"doctor":   "Diagnose project health and actionable findings",
 		"document": "Create and manage governed project documents", "env": "Manage governed project environment values",
 		"export": "Export project history as JSONL or Markdown", "history": "Inspect and search the signed event timeline",
 		"live":    "Serve, attach to, or tail a provider's live agent sessions",
 		"message": "Post messages and manage recipient obligations", "mcp": "Serve the protocol-only MCP stdio interface",
 		"profile": "Inspect and select local signing profiles",
-		"session": "Manage durable invocation sessions", "status": "Show a concise project operational summary",
-		"task": "Coordinate ownership, leases, handoffs, and task lifecycle", "tui": "Open the full-screen control room",
+		"status":  "Show a concise project operational summary",
+		"task":    "Coordinate ownership, leases, handoffs, and task lifecycle", "tui": "Open the full-screen control room",
 		"update": "Check for and install verified Agent Comms releases", "verify": "Verify the signed project event chain",
 		"version": "Show binary, schema, and project format versions", "watch": "Stream changes that require operator attention",
 	}

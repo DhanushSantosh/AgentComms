@@ -399,17 +399,18 @@ func ApplyEvent(s *model.State, e model.Event) error {
 		a.Approver = e.Actor
 		s.Approvals[e.EntityID] = a
 	case *model.DecisionPayload:
-		s.Decisions[e.EntityID] = model.Decision{ID: e.EntityID, Title: p.Title, Statement: p.Statement, Supersedes: p.Supersedes, To: p.To, Status: "ACTIVE"}
-		if p.Supersedes != "" {
-			d := s.Decisions[p.Supersedes]
-			d.Status = "SUPERSEDED"
-			s.Decisions[p.Supersedes] = d
+		// RFC 0029: `decision` is no longer its own type. Historical
+		// decision.create / decision.supersede events in the immutable log
+		// still project -- into a `decision`-tagged Document, the same
+		// place `document create --decision` writes now.
+		s.Documents[e.EntityID] = model.Document{
+			ID: e.EntityID, Title: p.Title, Body: p.Statement, Tags: []string{"decision"},
+			Status: "ACTIVE", Version: 1, Author: e.Actor, Supersedes: p.Supersedes,
 		}
-	case *model.SessionPayload:
-		if e.Type == "session.start" {
-			s.Sessions[e.EntityID] = *p
-		} else {
-			delete(s.Sessions, e.EntityID)
+		if p.Supersedes != "" {
+			d := s.Documents[p.Supersedes]
+			d.Status = "SUPERSEDED"
+			s.Documents[p.Supersedes] = d
 		}
 	case *model.ArtifactAdded:
 		s.Artifacts[p.SHA256] = model.Artifact{SHA256: p.SHA256, Size: p.Size, Name: p.Name, MediaType: p.MediaType, Storage: p.Storage}
