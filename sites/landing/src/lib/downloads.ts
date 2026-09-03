@@ -30,6 +30,18 @@ export const installerMethods: readonly InstallerMethod[] = [
   }
 ] as const;
 
+// Not a fourth installer -- a distinct path for contributors who want dev's
+// current tip rather than a signed release, shown alongside the installers
+// with its own commands inline rather than only a link out to CONTRIBUTING.md.
+export const buildFromSourceMethod = {
+  id: "source" as const,
+  name: "Build from source",
+  environment: "Terminal · dev's tip",
+  requirements: "git · Go (see go.mod)",
+  command: `git clone ${repositoryUrl}.git\ncd AgentComms\ngo build -o ./bin/agent-comms ./cmd/agent-comms\n./bin/agent-comms version`,
+  detailUrl: `${repositoryUrl}/blob/main/CONTRIBUTING.md#build-from-source`
+} as const;
+
 // Before v1, every release is beta-maturity, not "Stable" -- SemVer's own
 // 0.x.y convention means anything may still change without notice.
 const releaseChannel = site.productVersion.split(".")[0] === "0" ? "Beta" : "Stable";

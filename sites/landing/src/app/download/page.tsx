@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { PageBreadcrumb } from "@/components/PageBreadcrumb";
 import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
-import { downloadRelease, installerMethods } from "@/lib/downloads";
+import { buildFromSourceMethod, downloadRelease, installerMethods } from "@/lib/downloads";
 import { documentationPage, site } from "@/lib/site";
 import { softwareApplicationJsonLd } from "@/lib/structuredData";
 import styles from "./download.module.css";
@@ -28,8 +28,7 @@ const downloadNavItems = [
   { label: "Releases", href: "/releases" }
 ];
 
-const buildFromSourceUrl =
-  "https://github.com/DhanushSantosh/AgentComms/blob/main/CONTRIBUTING.md#build-from-source";
+const desk = [...installerMethods, buildFromSourceMethod];
 
 export default function DownloadPage() {
   return (
@@ -63,7 +62,7 @@ export default function DownloadPage() {
             <aside className={styles.buildIndex}>
               <p>INSTALL INDEX</p>
               <ol>
-                {installerMethods.map((method, index) => (
+                {desk.map((method, index) => (
                   <li key={method.id}>
                     <a href={`#${method.id}`}><span>{String(index + 1).padStart(2, "0")}</span>{method.name}</a>
                   </li>
@@ -76,7 +75,7 @@ export default function DownloadPage() {
             </aside>
 
             <div className={styles.platformShelf}>
-              {installerMethods.map((method, index) => {
+              {desk.map((method, index) => {
                 const commandID = `install-command-${method.id}`;
                 return (
                   <article className={styles.platform} id={method.id} key={method.id} data-reveal={`download-${method.id}`}>
@@ -95,6 +94,13 @@ export default function DownloadPage() {
                         data-copy-command
                       ><span data-copy-label>Copy</span><b aria-hidden="true" /></button>
                     </div>
+                    {"detailUrl" in method && (
+                      <p className={styles.sourceNote}>
+                        Unsigned, no <code>agent-comms update</code>, no verified provenance — for trying{" "}
+                        <code>dev</code> or running your own build.{" "}
+                        <a href={method.detailUrl}>Other shipped binaries & contributing ↗</a>
+                      </p>
+                    )}
                   </article>
                 );
               })}
@@ -122,7 +128,6 @@ export default function DownloadPage() {
           <a href={documentationPage("/start/install/")}><span>Installation guide</span><i>Paths and prerequisites</i><b>↗</b></a>
           <a href="/releases"><span>All releases</span><i>Channels and history</i><b>↗</b></a>
           <a href={documentationPage("/security/releases/")}><span>Verify a release</span><i>Checksums, signatures, provenance</i><b>↗</b></a>
-          <a href={buildFromSourceUrl}><span>Build from source</span><i>Run <code>dev</code> before a release</i><b>↗</b></a>
         </nav>
       </main>
 

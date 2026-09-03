@@ -228,7 +228,7 @@ test("offers the supported installer commands without direct binary actions", as
 
   await expect(page.getByRole("heading", { level: 1, name: /Agent Comms, ready to run/ })).toBeVisible();
   await expect(page.getByText("Verified release", { exact: true })).toBeVisible();
-  await expect(page.locator("[data-copy-command]")).toHaveCount(2);
+  await expect(page.locator("[data-copy-command]")).toHaveCount(3);
   await expect(page.locator("code").filter({ hasText: "install.sh" })).toBeVisible();
   await expect(page.locator("code").filter({ hasText: "install.ps1" })).toBeVisible();
   await expect(page.getByRole("link", { name: /Download Agent Comms/ })).toHaveCount(0);
@@ -240,12 +240,14 @@ test("offers the supported installer commands without direct binary actions", as
   await expect(page.getByText(/every governed project/i)).toBeVisible();
 });
 
-test("links to the build-from-source guide instead of a prebuilt dev channel", async ({ page }) => {
+test("offers a build-from-source card with inline commands, not a prebuilt dev channel", async ({ page }) => {
   await page.goto("/download");
 
   await expect(page.locator("#nightly")).toHaveCount(0);
-  const buildLink = page.getByRole("link", { name: /Build from source/i });
-  await expect(buildLink).toHaveAttribute("href", /CONTRIBUTING\.md#build-from-source/);
+  await expect(page.getByRole("heading", { level: 2, name: "Build from source" })).toBeVisible();
+  await expect(page.locator("code").filter({ hasText: "git clone" })).toBeVisible();
+  const contributingLink = page.getByRole("link", { name: /Other shipped binaries/i });
+  await expect(contributingLink).toHaveAttribute("href", /CONTRIBUTING\.md#build-from-source/);
 });
 
 test("reveals and activates installer rows as they enter the viewport", async ({ page }) => {
