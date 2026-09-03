@@ -34,6 +34,10 @@ approval-reuse gaps closed in orchestrator grants and task takeovers.*
 - Authority SSE streams now use a dedicated bounded connection pool so
   long-lived stream holders can no longer exhaust health-check or mutation
   capacity.
+- Updated `google.golang.org/grpc` to 1.83.1 (fixes a high-severity HTTP/2
+  DATA-frame-fragmentation heap exhaustion) and `fast-uri` to 3.1.7 (fixes
+  two high-severity SSRF/host-confusion issues from percent-decoding and
+  IDN-canonicalization handling).
 
 Full technical detail is below and in [CHANGELOG.md](https://github.com/DhanushSantosh/AgentComms/blob/main/CHANGELOG.md).
 
