@@ -18,6 +18,34 @@ Thank you for improving Agent Comms. All development, including urgent fixes, ta
    Then add that same public key to your GitHub account as a **signing key** (not just an authentication key): `gh auth refresh -h github.com -s admin:ssh_signing_key && gh ssh-key add ~/.ssh/id_ed25519.pub --type signing`. Verify locally with `git log --show-signature`.
 8. Run `go test ./...` and `go vet ./...`. CI performs the authoritative platform, race, static, vulnerability, contamination, and build checks.
 
+## Build from source
+
+Source builds are for development and for trying what is on `dev` before it is released. They are unsigned and are not a substitute for [release verification](docs/site/security/releases.md) — install a signed release for regular use.
+
+```sh
+git clone https://github.com/DhanushSantosh/AgentComms.git
+cd AgentComms
+```
+
+Build the CLI and run it in place:
+
+```sh
+go build -o ./bin/agent-comms ./cmd/agent-comms
+./bin/agent-comms version
+```
+
+The other shipped binaries build the same way:
+
+```sh
+for cmd in agent-comms agent-comms-daemon agent-comms-server agent-comms-verify; do
+  go build -o "./bin/$cmd" "./cmd/$cmd"
+done
+```
+
+To install your own build onto `PATH`, copy `agent-comms` into a directory on it — for example `~/.local/bin` (Linux/macOS) — or run `go install ./cmd/agent-comms`, which places it in `$(go env GOBIN)` or `$(go env GOPATH)/bin`. A source-built `agent-comms` reports its version as the value baked in at build time; use a signed release if you need `agent-comms update` and verified provenance.
+
+Source builds target the Go version declared in `go.mod`.
+
 Do not weaken authorization, integrity verification, authority transactions, release verification, or the contamination guard.
 
 Public contracts, schemas, governance, signing, storage transactions, installation security, supported platforms, and major TUI navigation require an accepted RFC before implementation. See [development workflow](docs/development-workflow.md), [RFC guidance](docs/rfcs/README.md), and [maintainer guidance](docs/maintainers.md).

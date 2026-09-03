@@ -58,7 +58,7 @@ export const releases: readonly Release[] = [
       "Full native mouse support across the TUI, which now scales to a real terminal size instead of requiring a desktop-sized minimum.",
       "Session-pinned interactive delivery — a restarted session resumes the exact right conversation instead of racing each provider CLI's own guess.",
       "A declarative JSON adapter system: add a new CLI provider without touching Go.",
-      "A public marketing site, docs site, and nightly beta build channel."
+      "A public marketing site and docs site."
     ]
   },
   {

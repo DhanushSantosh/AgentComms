@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { PageBreadcrumb } from "@/components/PageBreadcrumb";
 import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
-import { downloadRelease, installerMethods, nightlyBuild } from "@/lib/downloads";
+import { downloadRelease, installerMethods } from "@/lib/downloads";
 import { documentationPage, site } from "@/lib/site";
 import { softwareApplicationJsonLd } from "@/lib/structuredData";
 import styles from "./download.module.css";
@@ -25,9 +25,11 @@ export const metadata: Metadata = {
 
 const downloadNavItems = [
   { label: "Installers", href: "#installer" },
-  { label: "Nightly", href: "#nightly" },
   { label: "Releases", href: "/releases" }
 ];
+
+const buildFromSourceUrl =
+  "https://github.com/DhanushSantosh/AgentComms/blob/main/CONTRIBUTING.md#build-from-source";
 
 export default function DownloadPage() {
   return (
@@ -66,9 +68,6 @@ export default function DownloadPage() {
                     <a href={`#${method.id}`}><span>{String(index + 1).padStart(2, "0")}</span>{method.name}</a>
                   </li>
                 ))}
-                <li>
-                  <a href="#nightly"><span>{String(installerMethods.length + 1).padStart(2, "0")}</span>Nightly (dev)</a>
-                </li>
               </ol>
               <div className={styles.releaseStatus}>
                 <span aria-hidden="true">!</span>
@@ -101,23 +100,6 @@ export default function DownloadPage() {
               })}
             </div>
           </section>
-          <aside className={styles.nightly} id="nightly" aria-label="Nightly build" data-reveal="download-nightly">
-            <div>
-              <p>FOR DEVELOPERS · NOT BETA · NOT FOR REGULAR USE</p>
-              <h2>Want dev's current state?</h2>
-              <p>An unstable snapshot builds from <code>dev</code> daily. Signed and verifiable the same way, no version, no login required to pull it.</p>
-            </div>
-            <div className={styles.installCommand}>
-              <pre><code id="nightly-command">{nightlyBuild.command}</code></pre>
-              <button
-                type="button"
-                aria-live="polite"
-                aria-label="Copy nightly build command"
-                data-command-source="nightly-command"
-                data-copy-command
-              ><span data-copy-label>Copy</span><b aria-hidden="true" /></button>
-            </div>
-          </aside>
         </section>
 
         <section className={styles.handoff} aria-labelledby="handoff-heading" data-reveal="download-handoff">
@@ -140,6 +122,7 @@ export default function DownloadPage() {
           <a href={documentationPage("/start/install/")}><span>Installation guide</span><i>Paths and prerequisites</i><b>↗</b></a>
           <a href="/releases"><span>All releases</span><i>Channels and history</i><b>↗</b></a>
           <a href={documentationPage("/security/releases/")}><span>Verify a release</span><i>Checksums, signatures, provenance</i><b>↗</b></a>
+          <a href={buildFromSourceUrl}><span>Build from source</span><i>Run <code>dev</code> before a release</i><b>↗</b></a>
         </nav>
       </main>
 

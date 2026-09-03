@@ -4,7 +4,7 @@ description: Install a signed release on Linux, macOS, or Windows and verify tha
 section: Start here
 order: 2
 audience: Human operators
-lastVerified: 2026-08-12
+lastVerified: 2026-09-02
 related: [security/releases, guide/maintenance]
 ---
 
@@ -58,13 +58,4 @@ Installation preserves the previous binary as `agent-comms.previous` or `agent-c
 
 ## Build from source
 
-Use source builds for development, not as an unsigned substitute for release verification:
-
-```sh
-git clone https://github.com/DhanushSantosh/AgentComms.git
-cd AgentComms
-go build -o ./bin/agent-comms ./cmd/agent-comms
-./bin/agent-comms version
-```
-
-The project currently targets the Go version declared in `go.mod`.
+Source builds are for development and for trying `dev` before a release, not an unsigned substitute for release verification. See [Build from source](https://github.com/DhanushSantosh/AgentComms/blob/main/CONTRIBUTING.md#build-from-source) in the contributor guide.
