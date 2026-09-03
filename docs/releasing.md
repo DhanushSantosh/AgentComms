@@ -49,7 +49,11 @@ TUI, agent controls, command palette, and resilient local control plane.
    `./scripts/generate-verifier-checksums.sh vX.Y.Z > release-verifier-checksums.txt`,
    review the six platform pins, and commit the resulting manifest.
    The release workflow rebuilds the verifier deterministically and refuses to
-   publish if any committed pin differs.
+   publish if any committed pin differs. Also bump the pinned `vX.Y.Z` in
+   `README.md`'s quickstart install command to the new version -- unlike
+   `docs/site/start/install.md` (resolved automatically at doc-build time by
+   `sites/docs/remark-release-tag.mjs`), the README is plain GitHub markdown
+   with no build step, so this is a manual edit every release.
 5. Obtain core-maintainer review and merge using a merge commit.
 6. A release/security maintainer chooses a unique change-reflective episode
    nickname, records it in the changelog, and creates the protected annotated
