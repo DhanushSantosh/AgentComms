@@ -301,7 +301,8 @@ func (c *cli) root() *cobra.Command {
 		Use:   "agent-comms",
 		Short: "Governed coordination for concurrent agents",
 		Long: "Agent Comms coordinates agents through signed project state, explicit ownership, and auditable transitions.\n\n" +
-			"Output contracts: --output human|plain|json|jsonl. Human is TTY-aware; plain is stable text; JSON preserves the versioned envelope; JSONL is available only for natural streams.",
+			"Output contracts: --output human|plain|json|jsonl. Human is TTY-aware; plain is stable text; JSON preserves the versioned envelope; JSONL is available only for natural streams.\n\n" +
+			"`agc` is a shorter alias for this same CLI, installed alongside it -- agc status works identically to agent-comms status.",
 		Example: "  agent-comms status\n" +
 			"  agent-comms task list --output plain\n" +
 			"  agent-comms watch --output jsonl\n" +

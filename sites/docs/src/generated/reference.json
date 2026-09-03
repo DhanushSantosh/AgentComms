@@ -7,7 +7,7 @@
       "path": "agent-comms",
       "use": "agent-comms",
       "summary": "Governed coordination for concurrent agents",
-      "description": "Agent Comms coordinates agents through signed project state, explicit ownership, and auditable transitions.\n\nOutput contracts: --output human|plain|json|jsonl. Human is TTY-aware; plain is stable text; JSON preserves the versioned envelope; JSONL is available only for natural streams.",
+      "description": "Agent Comms coordinates agents through signed project state, explicit ownership, and auditable transitions.\n\nOutput contracts: --output human|plain|json|jsonl. Human is TTY-aware; plain is stable text; JSON preserves the versioned envelope; JSONL is available only for natural streams.\n\n`agc` is a shorter alias for this same CLI, installed alongside it -- agc status works identically to agent-comms status.",
       "example": "  agent-comms status\n  agent-comms task list --output plain\n  agent-comms watch --output jsonl\n  agent-comms invocation request --to builder --instruction \"Run tests\" --json",
       "flags": [
         {
