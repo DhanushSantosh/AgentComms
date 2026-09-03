@@ -45,7 +45,7 @@ for cmd in agent-comms-daemon agent-comms-server agent-comms-verify; do
 done
 ```
 
-To put your build on `PATH` instead of running it from `./bin`, either copy it into a directory already on `PATH` (e.g. `~/.local/bin` on Linux/macOS), or run `go install ./cmd/agent-comms`, which places it in `$(go env GOBIN)` or `$(go env GOPATH)/bin`.
+To put your build on `PATH` instead of running it from `./bin`, either copy it into a directory already on `PATH` (e.g. `~/.local/bin` on Linux/macOS), or run `go install ./cmd/agent-comms`, which places it in `$(go env GOBIN)` or `$(go env GOPATH)/bin`. The signed-release installers also put a short `agc` alias beside `agent-comms`; add your own with `ln -s agent-comms <dir>/agc`.
 
 ## Rules for any change
 

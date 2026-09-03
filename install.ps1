@@ -42,7 +42,11 @@ try {
   $target = Join-Path $InstallDir 'agent-comms.exe'
   if (Test-Path $target) { Copy-Item $target "$target.previous" -Force }
   Move-Item (Join-Path $tmp $name) $target -Force
+  # agc: a static shim (Windows symlinks need Developer Mode / elevation).
+  # %~dp0 resolves to the shim's own directory, so it finds agent-comms.exe
+  # beside it regardless of PATH order, and never needs updating. RFC 0030.
+  Set-Content -Path (Join-Path $InstallDir 'agc.cmd') -Value '@"%~dp0agent-comms.exe" %*' -Encoding Ascii -Force
   $userPath = [Environment]::GetEnvironmentVariable('Path','User')
   if (($userPath -split ';') -notcontains $InstallDir) { [Environment]::SetEnvironmentVariable('Path',(($userPath.TrimEnd(';') + ';' + $InstallDir).TrimStart(';')),'User') }
-  Write-Host "Installed Agent Comms $($release.tag_name) to $target"
+  Write-Host "Installed Agent Comms $($release.tag_name) to $target (also as agc)"
 } finally { Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue }

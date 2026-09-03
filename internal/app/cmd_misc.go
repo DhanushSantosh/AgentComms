@@ -30,19 +30,24 @@ import (
 )
 
 func (c *cli) completionCmd(root *cobra.Command) *cobra.Command {
-	return &cobra.Command{Use: "completion <bash|zsh|fish|powershell>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-		switch args[0] {
-		case "bash":
-			return root.GenBashCompletion(c.out)
-		case "zsh":
-			return root.GenZshCompletion(c.out)
-		case "fish":
-			return root.GenFishCompletion(c.out, true)
-		case "powershell":
-			return root.GenPowerShellCompletion(c.out)
-		}
-		return errors.New("unsupported shell")
-	}}
+	return &cobra.Command{Use: "completion <bash|zsh|fish|powershell>", Args: cobra.ExactArgs(1),
+		Long: "Generate a shell completion script for agent-comms.\n\n" +
+			"The script completes the `agent-comms` command. To also complete the\n" +
+			"`agc` alias in bash, append `complete -F __start_agent-comms agc` to it\n" +
+			"(zsh: `compdef _agent-comms agc`).",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			switch args[0] {
+			case "bash":
+				return root.GenBashCompletion(c.out)
+			case "zsh":
+				return root.GenZshCompletion(c.out)
+			case "fish":
+				return root.GenFishCompletion(c.out, true)
+			case "powershell":
+				return root.GenPowerShellCompletion(c.out)
+			}
+			return errors.New("unsupported shell")
+		}}
 }
 func (c *cli) agentInstructionsCmd() *cobra.Command {
 	return &cobra.Command{Use: "agent-instructions", Args: cobra.NoArgs, Short: "Print setup and command guidance for a collaborating agent", RunE: func(cmd *cobra.Command, args []string) error {

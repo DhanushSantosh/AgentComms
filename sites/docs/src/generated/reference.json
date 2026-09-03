@@ -2139,6 +2139,7 @@
       "path": "agent-comms completion",
       "use": "agent-comms completion \u003cbash|zsh|fish|powershell\u003e",
       "summary": "Generate shell completion source",
+      "description": "Generate a shell completion script for agent-comms.\n\nThe script completes the `agent-comms` command. To also complete the\n`agc` alias in bash, append `complete -F __start_agent-comms agc` to it\n(zsh: `compdef _agent-comms agc`).",
       "flags": [
         {
           "name": "actor",

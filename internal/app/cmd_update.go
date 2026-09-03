@@ -301,39 +301,56 @@ func installRelease(ctx context.Context, r githubRelease) (map[string]any, error
 	if e != nil {
 		return nil, e
 	}
-	backup := exe + ".previous"
-	_ = os.Remove(backup)
-	temporary, e := os.CreateTemp(filepath.Dir(exe), "."+filepath.Base(exe)+".update-*")
+	exe, backup, e := replaceExecutable(exe, b)
 	if e != nil {
-		return nil, e
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if e = temporary.Chmod(0o755); e == nil {
-		_, e = temporary.Write(b)
-	}
-	if e == nil {
-		e = temporary.Sync()
-	}
-	closeErr := temporary.Close()
-	if e == nil {
-		e = closeErr
-	}
-	if e != nil {
-		return nil, e
-	}
-	if e = os.Rename(exe, backup); e != nil {
-		return nil, e
-	}
-	if e = os.Rename(temporaryPath, exe); e != nil {
-		_ = os.Rename(backup, exe)
-		return nil, e
-	}
-	if e = durablefs.SyncDirectory(filepath.Dir(exe)); e != nil {
 		return nil, e
 	}
 	return map[string]any{"version": r.Tag, "installed": exe, "previous": backup, "verified": true}, nil
 }
+
+// replaceExecutable atomically swaps the file at exePath for b, keeping
+// the old one as "<path>.previous". If exePath is a symlink (the `agc`
+// alias, RFC 0030), it follows it and replaces the real target -- an
+// updater invoked through a symlink must update the target, and the
+// by-name `agc` symlink then keeps resolving to the new binary. Returns
+// the real installed path and the backup path.
+func replaceExecutable(exePath string, b []byte) (installed, backup string, err error) {
+	if resolved, resolveErr := filepath.EvalSymlinks(exePath); resolveErr == nil {
+		exePath = resolved
+	}
+	backup = exePath + ".previous"
+	_ = os.Remove(backup)
+	temporary, err := os.CreateTemp(filepath.Dir(exePath), "."+filepath.Base(exePath)+".update-*")
+	if err != nil {
+		return "", "", err
+	}
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+	if err = temporary.Chmod(0o755); err == nil {
+		_, err = temporary.Write(b)
+	}
+	if err == nil {
+		err = temporary.Sync()
+	}
+	if closeErr := temporary.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return "", "", err
+	}
+	if err = os.Rename(exePath, backup); err != nil {
+		return "", "", err
+	}
+	if err = os.Rename(temporaryPath, exePath); err != nil {
+		_ = os.Rename(backup, exePath)
+		return "", "", err
+	}
+	if err = durablefs.SyncDirectory(filepath.Dir(exePath)); err != nil {
+		return "", "", err
+	}
+	return exePath, backup, nil
+}
+
 func download(ctx context.Context, url, path string) error {
 	req, e := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if e != nil {

@@ -40,6 +40,8 @@ agent-comms version
 agent-comms update check
 ```
 
+The installer also places `agc`, a shorter synonym for `agent-comms` — `agc version`, `agc tui`, and so on all work identically. Every example in these docs uses the full name.
+
 Installation preserves the previous binary as `agent-comms.previous` or `agent-comms.exe.previous`. Release assets are checked against SHA-256 and a Sigstore bundle before replacement. Running the installer again upgrades in place; once installed, `agent-comms update apply` is the faster way to pick up a new release than re-running the installer.
 
 ## Installing a different release

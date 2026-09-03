@@ -5,6 +5,12 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 
 ## [Unreleased]
 
+**Added**
+- `agc`, a short alias for `agent-comms` — the installers place it beside
+  the main binary (a symlink on Linux/macOS, an `agc.cmd` shim on
+  Windows). `agent-comms` stays the canonical name in all docs and help.
+  See [RFC 0030](docs/rfcs/0030-agc-cli-alias.md).
+
 **Changed**
 - Every CLI command now has a one-line description under `--help`; the
   non-obvious lifecycle and approval commands also gained examples. See
