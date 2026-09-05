@@ -29,11 +29,14 @@ func (c *cli) taskCmd() *cobra.Command {
 	}}
 	create.Flags().String("id", "", "task ID (auto-generated if omitted)")
 	create.Flags().StringVar(&title, "title", "", "title")
+	_ = create.MarkFlagRequired("title")
 	create.Flags().StringVar(&summary, "summary", "", "summary")
 	create.Flags().StringVar(&repo, "repository", "local", "repository")
 	create.Flags().StringVar(&branch, "branch", "", "branch")
+	_ = create.MarkFlagRequired("branch")
 	create.Flags().StringVar(&worktree, "worktree", "", "worktree path")
-	create.Flags().StringSliceVar(&resources, "resource", nil, "write resource")
+	create.Flags().StringSliceVar(&resources, "resource", nil, "write resource (repeatable; at least one required)")
+	_ = create.MarkFlagRequired("resource")
 	create.Flags().StringVar(&external, "external-ref", "", "external reference")
 	create.Flags().StringVar(&risk, "risk", "ROUTINE", "risk tier")
 	var to string

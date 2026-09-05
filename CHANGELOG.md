@@ -19,6 +19,13 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
   See [RFC 0030](docs/rfcs/0030-agc-cli-alias.md).
 
 **Fixed**
+- `task create` now marks `--title`, `--branch`, and `--resource` as
+  required flags, so an omission fails fast with cobra's own message
+  naming the exact missing flag instead of reaching backend validation.
+  The backend's own error (reached directly by MCP or a script driving
+  `Execute`) now names exactly which of title/repository/branch/resources
+  is missing instead of one combined message listing all four regardless
+  of which was actually omitted. (UX-09)
 - `invocation request`'s receipt no longer shows blank Consumer/Runtime
   fields for an ordinary queued invocation (no runtime online yet) --
   Consumer now resolves the actual effective mode, and Runtime/the hint

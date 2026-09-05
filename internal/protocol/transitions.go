@@ -769,8 +769,28 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 		}
 		switch p := payload.(type) {
 		case model.TaskCreated:
-			if p.Title == "" || p.Repository == "" || p.Branch == "" || len(p.Resources) == 0 {
-				return nil, errors.New("title, repository, branch, and resources are required")
+			// UX-09: the CLI marks these required so an interactive `task
+			// create` never reaches here missing one, but any other
+			// caller (MCP, a script driving Execute directly) still can --
+			// naming exactly which field(s) are missing, instead of one
+			// combined message regardless of which single field was
+			// actually omitted, is what a fixture missing only --branch
+			// needs to fix its own call instead of guessing.
+			var missing []string
+			if p.Title == "" {
+				missing = append(missing, "title")
+			}
+			if p.Repository == "" {
+				missing = append(missing, "repository")
+			}
+			if p.Branch == "" {
+				missing = append(missing, "branch")
+			}
+			if len(p.Resources) == 0 {
+				missing = append(missing, "resources")
+			}
+			if len(missing) > 0 {
+				return nil, fmt.Errorf("%s required", strings.Join(missing, ", "))
 			}
 			if exists {
 				return nil, errors.New("task already exists")
