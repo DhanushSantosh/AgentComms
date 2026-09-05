@@ -19,6 +19,12 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
   See [RFC 0030](docs/rfcs/0030-agc-cli-alias.md).
 
 **Fixed**
+- TUI command palette: Up/Down now move a real selection cursor, and
+  Enter applies whichever match is actually highlighted instead of
+  always `matches[0]` regardless of what Down had moved to. The query
+  input now accepts any single Unicode character (accented letters,
+  CJK, emoji), not only single-byte ASCII, and backspace removes one
+  whole character instead of truncating a multi-byte one. (UX-11)
 - `task claim`'s receipt now reports "scope lease acquired" and
   "Worktree lock: not requested (scope lease only)" as two distinct
   outcomes instead of a blank Worktree field for a scope-only claim --

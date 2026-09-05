@@ -46,6 +46,11 @@ type Model struct {
 	view, cursor   int
 	palette        bool
 	query, notice  string
+	// paletteSelected is UX-11's keyboard selection cursor: which of
+	// paletteMatches()'s (capped at 6) rows Up/Down/Enter/mouse-hover
+	// currently targets. Reset to 0 whenever the palette opens or the
+	// query changes, since the match list itself changes underneath it.
+	paletteSelected int
 	err            error
 	highContrast   bool
 	form           string
@@ -295,6 +300,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.focusCurrentView()
 		case "/", "ctrl+p":
 			m.palette = true
+			m.paletteSelected = 0
 		case "o":
 			m.openView("Overview")
 		case "g":

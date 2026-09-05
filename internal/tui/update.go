@@ -2,6 +2,7 @@ package tui
 
 import (
 	"strings"
+	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 )
@@ -103,6 +104,19 @@ func (m Model) updatePalette(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case "esc":
 		m.palette = false
 		m.query = ""
+		m.paletteSelected = 0
+	case "up":
+		// UX-11: Up/Down move the same selection that's both highlighted
+		// (paletteLayout) and what Enter/click apply -- there is exactly
+		// one selected-match concept now, not a highlight that Enter
+		// ignores.
+		if m.paletteSelected > 0 {
+			m.paletteSelected--
+		}
+	case "down":
+		if n := len(m.paletteMatches()); m.paletteSelected < n-1 {
+			m.paletteSelected++
+		}
 	case "enter":
 		// An empty query doing nothing (rather than applying whatever
 		// paletteMatches() lists first for an empty filter) matches the
@@ -110,24 +124,38 @@ func (m Model) updatePalette(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// should never silently open a form.
 		if strings.TrimSpace(m.query) != "" {
 			if matches := m.paletteMatches(); len(matches) > 0 {
-				return matches[0].apply(m)
+				return matches[m.paletteSelectedIndex()].apply(m)
 			}
 		}
 	case "backspace":
 		if len(m.query) > 0 {
-			m.query = m.query[:len(m.query)-1]
+			// Trim by rune, not byte, so backspacing a multi-byte UTF-8
+			// character (see the Unicode note on the default case below)
+			// removes the whole character, not just its last byte.
+			runes := []rune(m.query)
+			m.query = string(runes[:len(runes)-1])
+			m.paletteSelected = 0
 		}
 	case "space":
 		// bubbletea/ultraviolet's Key.String() reports the spacebar as
 		// the literal word "space", never a single " " character --
 		// confirmed straight from the vendored key.go source -- so the
-		// len(k)==1 branch below can never see it. Without this case, no
-		// multi-word command ("new task", "new environment key", ...)
+		// single-rune branch below can never see it. Without this case,
+		// no multi-word command ("new task", "new environment key", ...)
 		// could ever actually be typed.
 		m.query += " "
+		m.paletteSelected = 0
 	default:
-		if len(k) == 1 {
+		// UX-11: matching on len(k) == 1 checked byte length, so it could
+		// only ever match single-byte ASCII -- Key.String() for any
+		// multi-byte UTF-8 rune (accented letters, CJK, emoji) has byte
+		// length > 1, so Unicode input into the palette query was
+		// silently dropped entirely. utf8.RuneCountInString counts runes,
+		// not bytes, so exactly one printable character -- of any width --
+		// is accepted here, matching what backspace above now removes.
+		if utf8.RuneCountInString(k) == 1 {
 			m.query += k
+			m.paletteSelected = 0
 		}
 	}
 	return m, nil

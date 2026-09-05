@@ -793,10 +793,14 @@ func (m Model) paletteLayout(p palette) (panel string, matchLine []int) {
 	} else {
 		rows = append(rows, lipgloss.NewStyle().Foreground(p.muted).Render("Matches"))
 		matchLine = make([]int, len(matches))
+		// UX-11: highlight (and, in updatePalette, actually apply) the
+		// keyboard-selected row, not always index 0 -- previously Up/Down
+		// had no effect on either the highlight or what Enter did.
+		selected := m.paletteSelectedIndex()
 		for index, match := range matches {
 			marker := "  "
 			style := lipgloss.NewStyle().Foreground(p.text)
-			if index == 0 {
+			if index == selected {
 				marker = "› "
 				style = style.Foreground(p.cyan).Bold(true)
 			}
@@ -836,6 +840,23 @@ func (m Model) renderPalette(p palette, under string) string {
 type paletteMatch struct {
 	label string
 	apply func(Model) (tea.Model, tea.Cmd)
+}
+
+// paletteSelectedIndex clamps m.paletteSelected into the current match
+// list's bounds, so a query change that shrinks the list (or an index left
+// over from a previous open) never selects a row that no longer exists.
+func (m Model) paletteSelectedIndex() int {
+	n := len(m.paletteMatches())
+	if n == 0 {
+		return 0
+	}
+	if m.paletteSelected < 0 {
+		return 0
+	}
+	if m.paletteSelected >= n {
+		return n - 1
+	}
+	return m.paletteSelected
 }
 
 func (m Model) paletteMatches() []paletteMatch {

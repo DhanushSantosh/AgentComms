@@ -500,6 +500,7 @@ func (m Model) updateRowList(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case "/", "ctrl+p":
 		m.palette = true
+		m.paletteSelected = 0
 		return m, nil
 	case "r":
 		m.refresh()
