@@ -19,6 +19,18 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
   See [RFC 0030](docs/rfcs/0030-agc-cli-alias.md).
 
 **Fixed**
+- `invocation request`'s receipt no longer shows blank Consumer/Runtime
+  fields for an ordinary queued invocation (no runtime online yet) --
+  Consumer now resolves the actual effective mode, and Runtime/the hint
+  name that specific case with a concrete next step
+  (`invocation next`/`invocation listen`). `invocation inspect` now shows
+  the instruction (and result/reason, once available) by default instead
+  of only under `--details`/`--json`. `attention` gained an "Awaiting a
+  consumer" category for invocations nobody has ever claimed
+  (Status `PENDING`), a lifecycle stage distinct from -- and previously
+  invisible next to -- "Waiting invocations" (Status `WAITING`); a grace
+  period keeps a just-requested invocation from reading as an alarm.
+  (UX-08)
 - `document create --notify <principal>` now reports each recipient's
   outcome (`sent`/`failed`/`already-sent`) in the JSON response's new
   `notify` field, unaffected by `--quiet`; a failed notification used to be

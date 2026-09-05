@@ -91,12 +91,44 @@ func (c *cli) invocationCmd() *cobra.Command {
 		} else if outcome.Outcome == "UNAVAILABLE" || outcome.Outcome == "AMBIGUOUS" {
 			warnings = append(warnings, "invocation was recorded, but no compatible delivery transport completed")
 		}
+		// UX-08: --consumer's raw flag value is blank whenever the caller
+		// relies on the target's policy default, and outcome.RuntimeID is
+		// blank for every outcome except a completed delivery -- neither is
+		// "nothing happened," but the receipt showed them as empty fields
+		// with only one generic hint regardless of which case this was.
+		// Resolve both from actual state and explain the specific outcome.
+		resolvedConsumer := consumerMode
+		if state, stateErr := c.svc.State(); stateErr == nil {
+			if invocation, ok := state.Invocations[id]; ok {
+				resolvedConsumer = string(invocation.ConsumerMode)
+			}
+		}
+		runtimeField := outcome.RuntimeID
+		var hint string
+		switch outcome.Outcome {
+		case "PENDING_CONSUMER":
+			runtimeField = "none observed yet"
+			hint = "No runtime has claimed this invocation yet -- a normal queued state, not necessarily a blocker. The target agent should run `agent-comms invocation next --runtime <id>` to poll for it, or run `agent-comms invocation listen --id " + id + "` to wait for delivery."
+		case "UNAVAILABLE":
+			runtimeField = "none eligible"
+			hint = "No compatible local interactive runtime completed delivery. Run `agent-comms invocation inspect --id " + id + "` for evidence, or `agent-comms invocation redeliver --id " + id + " --runtime <id>` once one is online."
+		case "AMBIGUOUS":
+			runtimeField = "multiple eligible"
+			hint = "Multiple local interactive runtimes are eligible; rerun with --runtime to select one, or set a policy default via `agent-comms invocation policy set --to " + target + " --interactive-runtime <id>`."
+		default:
+			if runtimeField == "" {
+				runtimeField = "not yet claimed"
+			}
+			hint = "Inspect the invocation to review delivery evidence and lifecycle state."
+		}
 		if c.json {
 			return c.emitWithDelivery("invocation.request", event, outcome, warnings...)
 		}
 		status := cliui.StatusSuccess
 		if outcome.Outcome == "UNAVAILABLE" || outcome.Outcome == "AMBIGUOUS" || outcomeErr != nil {
 			status = cliui.StatusWarning
+		} else if outcome.Outcome == "PENDING_CONSUMER" {
+			status = cliui.StatusInfo
 		}
 		delivery := outcome.Outcome
 		if delivery == "" {
@@ -109,11 +141,11 @@ func (c *cli) invocationCmd() *cobra.Command {
 				{Label: "Invocation", Value: id},
 				{Label: "Target", Value: target},
 				{Label: "Priority", Value: priority},
-				{Label: "Consumer", Value: consumerMode},
+				{Label: "Consumer", Value: resolvedConsumer},
 				{Label: "Delivery", Value: delivery},
-				{Label: "Runtime", Value: outcome.RuntimeID},
+				{Label: "Runtime", Value: runtimeField},
 			},
-			Hint: "Inspect the invocation to review delivery evidence and lifecycle state.",
+			Hint: hint,
 		}, warnings...)
 	}}
 	request.Flags().String("id", "", "invocation ID (auto-generated if omitted)")
@@ -187,17 +219,34 @@ func (c *cli) invocationCmd() *cobra.Command {
 			"invocation": deliveriesAcknowledged(invocation),
 			"deliveries": deliveries,
 		}
+		// UX-08: instruction and result/rejection details were only ever
+		// visible via --details or --json, even though the whole point of
+		// inspecting one invocation by ID is almost always "what was it
+		// asked to do, and what came back" -- not secondary metadata here.
+		runtimeField := invocation.RuntimeID
+		if runtimeField == "" {
+			runtimeField = "not yet claimed"
+		}
+		fields := []cliui.Field{
+			{Label: "Status", Value: invocation.Status},
+			{Label: "Target", Value: invocation.Target},
+			{Label: "Requested by", Value: invocation.RequestedBy},
+			{Label: "Priority", Value: invocation.Priority},
+			{Label: "Consumer", Value: string(invocation.ConsumerMode)},
+			{Label: "Runtime", Value: runtimeField},
+			{Label: "Deliveries", Value: fmt.Sprint(len(deliveries))},
+			{Label: "Instruction", Value: invocation.Instruction},
+		}
+		if invocation.Summary != "" {
+			fields = append(fields, cliui.Field{Label: "Result", Value: invocation.Summary})
+		}
+		if invocation.Reason != "" {
+			fields = append(fields, cliui.Field{Label: "Reason", Value: invocation.Reason})
+		}
 		return c.emitDocument("invocation.inspect", result, cliui.Document{
 			Title:  "Invocation " + invocation.ID,
 			Status: invocationStatus(invocation.Status),
-			Fields: []cliui.Field{
-				{Label: "Status", Value: invocation.Status},
-				{Label: "Target", Value: invocation.Target},
-				{Label: "Requested by", Value: invocation.RequestedBy},
-				{Label: "Priority", Value: invocation.Priority},
-				{Label: "Runtime", Value: invocation.RuntimeID},
-				{Label: "Deliveries", Value: fmt.Sprint(len(deliveries))},
-			},
+			Fields: fields,
 		})
 	}}
 	inspect.Flags().String("id", "", "invocation ID")

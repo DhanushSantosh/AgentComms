@@ -588,15 +588,24 @@ func (c *cli) statusCmd() *cobra.Command {
 // promoted to a top-level command. It lists everything currently needing
 // operator intervention as a categorized snapshot (distinct from `watch`,
 // which streams changes).
+// attentionPendingConsumerGrace is how long a freshly requested invocation
+// gets to be claimed before attention treats it as worth surfacing. UX-08:
+// without a grace period, a normal queued invocation (the ordinary case
+// right after `invocation request` returns) would generate a constant
+// alarm identical to one nobody has picked up in a long time.
+var attentionPendingConsumerGrace = 30 * time.Second
+
 func (c *cli) attentionCmd() *cobra.Command {
 	return &cobra.Command{Use: "attention", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		state, err := c.svc.State()
 		if err != nil {
 			return err
 		}
+		now := time.Now().UTC()
 		blockedTasks := map[string]model.Task{}
 		pendingApprovals := map[string]model.Approval{}
 		waitingInvocations := map[string]model.Invocation{}
+		pendingConsumerInvocations := map[string]model.Invocation{}
 		failedDeliveries := map[string]model.InvocationDelivery{}
 		degradedRuntimes := map[string]model.AgentRuntime{}
 		for id, task := range state.Tasks {
@@ -613,6 +622,14 @@ func (c *cli) attentionCmd() *cobra.Command {
 			if invocation.Status == "WAITING" {
 				waitingInvocations[id] = invocation
 			}
+			// UX-08: `invocation.request` for a target with no runtime
+			// online leaves the invocation at Status "PENDING" -- a
+			// consumer was never even notified -- which is a distinct,
+			// earlier lifecycle stage from "WAITING" (an explicitly paused
+			// RUNNING invocation) and was invisible here entirely.
+			if invocation.Status == "PENDING" && now.Sub(invocation.CreatedAt) > attentionPendingConsumerGrace {
+				pendingConsumerInvocations[id] = invocation
+			}
 		}
 		for id, delivery := range state.InvocationDeliveries {
 			if delivery.Status == "FAILED" || delivery.Status == "EXHAUSTED" {
@@ -626,10 +643,11 @@ func (c *cli) attentionCmd() *cobra.Command {
 		}
 		result := map[string]any{
 			"blocked_tasks": blockedTasks, "pending_approvals": pendingApprovals,
-			"waiting_invocations": waitingInvocations, "failed_deliveries": failedDeliveries,
-			"degraded_runtimes": degradedRuntimes,
+			"waiting_invocations": waitingInvocations, "pending_consumer_invocations": pendingConsumerInvocations,
+			"failed_deliveries": failedDeliveries, "degraded_runtimes": degradedRuntimes,
 		}
-		total := len(blockedTasks) + len(pendingApprovals) + len(waitingInvocations) + len(failedDeliveries) + len(degradedRuntimes)
+		total := len(blockedTasks) + len(pendingApprovals) + len(waitingInvocations) + len(pendingConsumerInvocations) +
+			len(failedDeliveries) + len(degradedRuntimes)
 		status := cliui.StatusSuccess
 		if total > 0 {
 			status = cliui.StatusWarning
@@ -638,7 +656,8 @@ func (c *cli) attentionCmd() *cobra.Command {
 			Title: "Attention queue", Status: status,
 			Fields: []cliui.Field{
 				{Label: "Blocked tasks", Value: fmt.Sprint(len(blockedTasks))}, {Label: "Pending approvals", Value: fmt.Sprint(len(pendingApprovals))},
-				{Label: "Waiting invocations", Value: fmt.Sprint(len(waitingInvocations))}, {Label: "Failed deliveries", Value: fmt.Sprint(len(failedDeliveries))},
+				{Label: "Waiting invocations", Value: fmt.Sprint(len(waitingInvocations))}, {Label: "Awaiting a consumer", Value: fmt.Sprint(len(pendingConsumerInvocations))},
+				{Label: "Failed deliveries", Value: fmt.Sprint(len(failedDeliveries))},
 				{Label: "Degraded runtimes", Value: fmt.Sprint(len(degradedRuntimes))},
 			},
 			Hint: "Use --details to inspect every item requiring intervention.",
