@@ -92,6 +92,19 @@ func (c *cli) progress() *cliui.Progress {
 // the same envelope and payload as emit. Human and plain modes use the shared,
 // display-width-aware table presenter.
 func (c *cli) emitTable(command string, v any, headers []string, rows [][]string, warnings ...string) error {
+	return c.emitTableWithPriorities(command, v, headers, nil, rows, warnings...)
+}
+
+// emitTableWithPriorities is emitTable with explicit column-removal
+// priorities (cliui.Table.Priorities -- higher removes first under width
+// pressure). A nil priorities slice keeps emitTable's existing default
+// (last column removed first, i.e. priority == column index), so every
+// caller but one is unaffected by this existing.
+//
+// UX-04: `message inbox`'s SUBJECT column -- the one thing a person
+// actually came to read -- was the last column and so the first one
+// dropped at a narrow width, with the long machine ID protected instead.
+func (c *cli) emitTableWithPriorities(command string, v any, headers []string, priorities []int, rows [][]string, warnings ...string) error {
 	if c.json || c.quiet {
 		return c.emit(command, v, warnings...)
 	}
@@ -106,7 +119,7 @@ func (c *cli) emitTable(command string, v any, headers []string, rows [][]string
 		Out:          c.out,
 		Mode:         mode,
 		Capabilities: cliui.DetectCapabilities(c.out, c.noColor),
-	}).RenderTable(cliui.Table{Headers: headers, Rows: rows}); err != nil {
+	}).RenderTable(cliui.Table{Headers: headers, Priorities: priorities, Rows: rows}); err != nil {
 		return err
 	}
 	presenter := cliui.Presenter{Out: c.out, Mode: mode, Capabilities: cliui.DetectCapabilities(c.out, c.noColor)}

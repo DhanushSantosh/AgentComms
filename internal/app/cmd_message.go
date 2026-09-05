@@ -79,8 +79,25 @@ func (c *cli) messageCmd() *cobra.Command {
 		limit, _ := cmd.Flags().GetInt("limit")
 		out := map[string]model.Message{}
 		for id, m := range st.Messages {
-			if unread && (m.Status != "OPEN" && m.Status != "DELIVERED") {
-				continue
+			// UX-05: unread must reflect *this* recipient's own obligation,
+			// not the message's aggregate Status -- a two-recipient ACTION
+			// stays "OPEN" (aggregate) until every recipient has responded,
+			// so an already-acknowledged recipient kept seeing it as
+			// unread here purely because someone else hadn't acted yet.
+			// FYI has no obligation (initialRecipientStatus never sets it
+			// to PENDING for FYI), so it correctly never matches --unread
+			// either way -- no new durable read-state invented for it.
+			if unread {
+				pending := false
+				for _, recipient := range m.Recipients {
+					if recipient.Principal == c.actor && recipient.Status == "PENDING" {
+						pending = true
+						break
+					}
+				}
+				if !pending {
+					continue
+				}
 			}
 			if from != "" && m.From != from {
 				continue
@@ -92,30 +109,56 @@ func (c *cli) messageCmd() *cobra.Command {
 				}
 			}
 		}
-		if limit > 0 && len(out) > limit {
-			trimmed := map[string]model.Message{}
-			n := 0
-			for id, m := range out {
-				if n >= limit {
-					break
-				}
-				trimmed[id] = m
-				n++
-			}
-			out = trimmed
-		}
+		// UX-05: sort before limiting, not after -- trimming a Go map
+		// (whose iteration order is randomized per-run) before sorting
+		// meant an unchanged inbox returned different IDs across repeated
+		// `--limit 1` calls, breaking any kind of stable pagination.
 		ids := service.SortedKeys(out)
+		if limit > 0 && len(ids) > limit {
+			ids = ids[:limit]
+			limited := make(map[string]model.Message, len(ids))
+			for _, id := range ids {
+				limited[id] = out[id]
+			}
+			out = limited
+		}
 		rows := make([][]string, 0, len(ids))
 		for _, id := range ids {
 			message := out[id]
 			rows = append(rows, []string{id, message.Kind, message.From, message.Status, message.Subject})
 		}
-		return c.emitTable("message.inbox", out, []string{"ID", "KIND", "FROM", "STATUS", "SUBJECT"}, rows)
+		// UX-04: SUBJECT and FROM are what a person actually reads this
+		// list for; ID is the long machine identifier `message show --id`
+		// needs, useful but the most acceptable to drop first when the
+		// terminal is narrow. Column order (for muscle memory / --json
+		// stability) is unchanged; only removal priority moves.
+		headers := []string{"ID", "KIND", "FROM", "STATUS", "SUBJECT"}
+		priorities := []int{4, 2, 0, 3, 1}
+		return c.emitTableWithPriorities("message.inbox", out, headers, priorities, rows)
 	}}
 	inbox.Flags().Bool("unread", false, "show only unread messages")
 	inbox.Flags().String("from", "", "filter by sender")
 	inbox.Flags().Int("limit", 0, "max results (0 = unlimited)")
-	root.AddCommand(post, inbox)
+	// UX-04 / RFC 0032: every other domain RFC 0027 touched (task, agent,
+	// approval, decision) got a uniform `show`; messages were missed. This
+	// is the one place to read a message's subject and body directly
+	// instead of already knowing to pass inbox --details or --json.
+	show := c.entityShow("message", func(st model.State, id string) (any, []cliui.Field, bool) {
+		m, ok := st.Messages[id]
+		if !ok {
+			return nil, nil, false
+		}
+		recipients := make([]string, 0, len(m.Recipients))
+		for _, r := range m.Recipients {
+			recipients = append(recipients, r.Principal+": "+r.Status)
+		}
+		return m, []cliui.Field{
+			{Label: "Kind", Value: m.Kind}, {Label: "From", Value: m.From},
+			{Label: "Status", Value: m.Status}, {Label: "Subject", Value: m.Subject},
+			{Label: "Body", Value: m.Body}, {Label: "Recipients", Value: strings.Join(recipients, ", ")},
+		}, true
+	})
+	root.AddCommand(post, inbox, show)
 	return root
 }
 func (c *cli) approvalCmd() *cobra.Command {

@@ -25,11 +25,21 @@ type TerminalContext struct {
 // CapabilitiesFor converts raw terminal facts into the presentation features
 // the CLI may safely use.
 func CapabilitiesFor(context TerminalContext) Capabilities {
+	interactive := context.Interactive && !strings.EqualFold(context.Term, "dumb")
+	// UX-04: defaultWidth used to apply unconditionally, so redirected/
+	// piped output (context.Width is only ever set for a real TTY, see
+	// DetectCapabilities) got column-truncated at a guessed 80 columns for
+	// no reason -- there is no terminal to wrap against once output isn't
+	// going to one. Gated on the *raw* context.Interactive, not the
+	// derived `interactive` above: a real TTY running TERM=dumb still has
+	// an actual physical width worth wrapping to even though its color/
+	// unicode/hyperlink support is correctly treated as absent; only a
+	// genuinely non-interactive destination (no TTY at all) should get
+	// Width 0, which RenderTable already treats as "never truncate."
 	width := context.Width
-	if width <= 0 {
+	if width <= 0 && context.Interactive {
 		width = defaultWidth
 	}
-	interactive := context.Interactive && !strings.EqualFold(context.Term, "dumb")
 	locale := strings.ToUpper(context.Locale)
 	unicode := interactive && (strings.Contains(locale, "UTF-8") || strings.Contains(locale, "UTF8"))
 	profile := context.ColorProfile

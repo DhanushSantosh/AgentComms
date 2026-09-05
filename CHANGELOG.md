@@ -6,6 +6,9 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 ## [Unreleased]
 
 **Added**
+- `message show --id <id>` — read one message's subject and body directly,
+  matching the uniform `show` RFC 0027 already gave `task`/`agent`/
+  `approval`/`decision`. See [RFC 0032](docs/rfcs/0032-message-show.md).
 - `agc`, a short alias for `agent-comms` — the installers place it beside
   the main binary (a symlink on Linux/macOS, an `agc.cmd` shim on
   Windows). `agent-comms` stays the canonical name in all docs and help.
@@ -65,6 +68,19 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
   | `task claim --repo` | `task claim --worktree` (`--repo` hidden alias, one release) |
 
 **Fixed**
+- `message inbox`'s `SUBJECT` column — the one thing a person actually
+  reads this list for — was the last column and so the first one dropped
+  at a narrow terminal width, with the long machine ID protected instead;
+  it and `FROM` are now the most protected columns. Redirected/piped
+  output (including `--output plain`) no longer gets column-truncated at
+  a guessed 80-column width at all — there is no terminal to wrap against
+  once output isn't going to one.
+- `message inbox --unread` checked a message's aggregate status, not the
+  current recipient's own obligation, so a two-recipient `ACTION` a
+  recipient had already acknowledged still showed as unread purely
+  because the other recipient hadn't acted yet. `--limit` trimmed a Go
+  map before sorting, so an unchanged inbox could return a different page
+  across repeated calls; results are now sorted first, then limited.
 - `agent register` now states the new agent's `PENDING` status, that the
   session's own active profile did not switch to it, who can activate it,
   and the exact `agent activate` command to run. `status` now shows a
