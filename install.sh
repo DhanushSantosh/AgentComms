@@ -4,6 +4,7 @@ VERSION="${AGENT_COMMS_VERSION:-}"
 INSTALL_DIR="${AGENT_COMMS_INSTALL_DIR:-$HOME/.local/bin}"
 REPO="DhanushSantosh/AgentComms"
 command -v curl >/dev/null || { echo "curl is required" >&2; exit 1; }
+command -v python3 >/dev/null || { echo "python3 is required" >&2; exit 1; }
 echo "$VERSION" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-(preview|rc)\.[0-9]+)?$' || { echo "AGENT_COMMS_VERSION must name an exact release (for example v0.6.0)" >&2; exit 1; }
 OS=$(uname -s | tr '[:upper:]' '[:lower:]'); [ "$OS" = "darwin" ] || OS=linux
 case "$(uname -m)" in arm64|aarch64) ARCH=arm64;; x86_64|amd64) ARCH=amd64;; *) echo "unsupported architecture" >&2; exit 1;; esac
@@ -22,7 +23,25 @@ VERIFIER="agent-comms-verify-$OS-$ARCH"
 asset_url(){ awk -v n="$1" '$1==n{print $2}' "$TMP/urls"; }
 for F in "$NAME" "$VERIFIER" checksums.txt "$NAME.bundle"; do U=$(asset_url "$F"); [ -n "$U" ] || { echo "release missing $F" >&2; exit 1; }; curl -fsSL "$U" -o "$TMP/$F"; done
 curl -fsSL "https://raw.githubusercontent.com/$REPO/$VERSION/release-verifier-checksums.txt" -o "$TMP/verifier-pins.txt"
-checksum_of(){ sha256sum "$TMP/$1" 2>/dev/null | awk '{print $1}' || shasum -a 256 "$TMP/$1" | awk '{print $1}'; }
+checksum_of(){
+  # UX-02: a pipeline's exit status is its last command's (awk's), not
+  # sha256sum's -- so `sha256sum ... | awk ... || shasum ...` never ran the
+  # fallback: a missing/failing sha256sum still left awk exit 0 on empty
+  # input, silently returning an empty digest instead of falling through.
+  # Check tool availability explicitly instead, and capture each tool's own
+  # command-substitution exit status directly (a pipe would mask that too).
+  if command -v sha256sum >/dev/null 2>&1; then
+    OUTPUT=$(sha256sum "$TMP/$1") || { echo "sha256sum failed to hash $1" >&2; return 1; }
+  elif command -v shasum >/dev/null 2>&1; then
+    OUTPUT=$(shasum -a 256 "$TMP/$1") || { echo "shasum failed to hash $1" >&2; return 1; }
+  else
+    echo "checksum_of: neither sha256sum nor shasum is available; install one to verify release integrity" >&2
+    return 1
+  fi
+  DIGEST=$(printf '%s\n' "$OUTPUT" | awk '{print $1}')
+  printf '%s\n' "$DIGEST" | grep -Eq '^[0-9a-f]{64}$' || { echo "unexpected SHA-256 digest shape for $1: $DIGEST" >&2; return 1; }
+  printf '%s\n' "$DIGEST"
+}
 PINNED=$(awk -v v="$VERSION" -v n="$VERIFIER" '$1==v && $2==n{print $3}' "$TMP/verifier-pins.txt")
 case "$PINNED" in *' '*|'') echo "release tag has no unique verifier pin for $VERIFIER" >&2; exit 1;; esac
 ACTUAL=$(checksum_of "$VERIFIER")

@@ -64,6 +64,18 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
   | `theme set --name X` | `config theme X` |
   | `task claim --repo` | `task claim --worktree` (`--repo` hidden alias, one release) |
 
+**Fixed**
+- `install.sh`'s checksum fallback (`sha256sum` unavailable, fall back to
+  `shasum`) never actually ran: a shell pipeline's exit status is its
+  *last* command's, not `sha256sum`'s, so a missing `sha256sum` still left
+  the pipeline exiting 0 on empty output. Systems without `sha256sum` but
+  with `shasum` (some macOS/BSD setups) failed installation with a
+  confusing "verification failed" instead of installing normally.
+  `checksum_of` now checks tool availability explicitly, fails with an
+  actionable prerequisite error if neither tool exists, and validates the
+  digest shape. `python3` (already required, used unconditionally) is now
+  preflighted alongside `curl` instead of failing with a raw shell error.
+
 ## [0.6.0] - 2026-09-02 — “Chain of Trust”
 
 *A governance and transport-security pass: approvals now bind to the exact
