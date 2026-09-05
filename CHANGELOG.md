@@ -19,6 +19,17 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
   See [RFC 0030](docs/rfcs/0030-agc-cli-alias.md).
 
 **Fixed**
+- TUI: a missing required field on any create/edit form now names the
+  exact field ("Body is required.") and moves focus to it, instead of
+  one generic "Complete every required field." `document update`'s
+  form now prefills Title/Body/Tags from the document being edited
+  instead of starting every field blank, so editing one field no
+  longer risks silently publishing a blanked-out body for anything the
+  operator didn't retype from memory. (UX-12; scoped to these two
+  reproduced issues -- ID auto-generation parity, multiline editing,
+  dirty-state-aware navigation discard, and progressive disclosure for
+  the 15-field invocation form are unaddressed follow-up work, not
+  attempted here)
 - TUI command palette: Up/Down now move a real selection cursor, and
   Enter applies whichever match is actually highlighted instead of
   always `matches[0]` regardless of what Down had moved to. The query

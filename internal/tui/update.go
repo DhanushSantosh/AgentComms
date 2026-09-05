@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"unicode/utf8"
 
@@ -212,10 +213,18 @@ func (m Model) updateForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 				raw[i] = m.inputs[i].Value()
 				values[i] = strings.TrimSpace(raw[i])
 			}
+			// UX-12: name and focus the specific missing field instead of
+			// one generic "complete every required field" notice that left
+			// a multi-field form (the invocation form has fifteen) exactly
+			// as unhelpful as task.create's own former combined validation
+			// error (UX-09) -- the same underlying problem in a different
+			// surface.
 			for i, f := range m.formSpec.Fields {
 				if f.Required && values[i] == "" {
-					m.notice = "Complete every required field."
-					return m, nil
+					m.notice = fmt.Sprintf("%s is required.", f.Label)
+					m.inputs[m.formFocus].Blur()
+					m.formFocus = i
+					return m, m.inputs[m.formFocus].Focus()
 				}
 			}
 			passphrase := ""

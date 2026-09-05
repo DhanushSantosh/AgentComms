@@ -51,6 +51,14 @@ type ActionForm struct {
 	// untrimmed input on submit, since a passphrase's whitespace is
 	// significant unlike every other field's.
 	CollectsPassphrase bool
+	// Prefill, when set, returns the initial text for each non-Mask field
+	// (same length and order as Fields) given the entity id an edit-style
+	// form was opened for. UX-12: an update/edit form used to always start
+	// every field blank -- even Title and Body on `document update`, which
+	// meant editing one field of an existing document required manually
+	// retyping every other field's current value from memory, or the whole
+	// document was silently replaced with blanks for anything not retyped.
+	Prefill func(m Model, id string) []string
 }
 type RowAction struct {
 	Key       string
@@ -714,6 +722,10 @@ func (m Model) dispatchRowAction(act RowAction, id string) (tea.Model, tea.Cmd) 
 	return mm, cmd
 }
 func (m Model) openActionForm(spec *ActionForm, typ, id string) (tea.Model, tea.Cmd) {
+	var prefill []string
+	if spec.Prefill != nil && id != "" {
+		prefill = spec.Prefill(m, id)
+	}
 	m.inputs = make([]textinput.Model, len(spec.Fields))
 	for i, f := range spec.Fields {
 		input := textinput.New()
@@ -723,9 +735,12 @@ func (m Model) openActionForm(spec *ActionForm, typ, id string) (tea.Model, tea.
 			input.EchoMode = textinput.EchoPassword
 			input.EchoCharacter = '•'
 		}
-		if len(f.Options) > 0 {
+		switch {
+		case i < len(prefill) && prefill[i] != "" && !f.Mask:
+			input.SetValue(prefill[i])
+		case len(f.Options) > 0:
 			input.SetValue(f.Options[0])
-		} else {
+		default:
 			input.Placeholder = f.Placeholder
 		}
 		m.inputs[i] = input
