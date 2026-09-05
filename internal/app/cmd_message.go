@@ -210,11 +210,29 @@ func (c *cli) approvalCmd() *cobra.Command {
 		if !ok {
 			return nil, nil, false
 		}
-		return a, []cliui.Field{
+		// UX-06: the operation being reviewed, its expiry, and who it
+		// affects were only available under --details, even though a
+		// reviewer following the natural "show then approve" workflow is
+		// exactly who needs that information -- it's what RFC 0025's bound-
+		// approval design expects a reviewer to actually check, not
+		// secondary metadata. The TUI's approval inspector already shows
+		// expiry and subject by default; this brings the CLI's default
+		// view to the same bar.
+		fields := []cliui.Field{
 			{Label: "Tier", Value: a.Tier}, {Label: "Status", Value: a.Status},
 			{Label: "Requester", Value: a.Requester}, {Label: "Action", Value: a.Action},
-			{Label: "Reason", Value: a.Reason},
-		}, true
+		}
+		if a.Subject != "" {
+			fields = append(fields, cliui.Field{Label: "Subject", Value: a.Subject})
+		}
+		if len(a.Affected) > 0 {
+			fields = append(fields, cliui.Field{Label: "Affected", Value: strings.Join(a.Affected, ", ")})
+		}
+		if a.ExpiresAt != nil {
+			fields = append(fields, cliui.Field{Label: "Expires", Value: a.ExpiresAt.Format(time.RFC3339)})
+		}
+		fields = append(fields, cliui.Field{Label: "Reason", Value: a.Reason})
+		return a, fields, true
 	})
 	root.AddCommand(request, approve, reject, list, show)
 	return root

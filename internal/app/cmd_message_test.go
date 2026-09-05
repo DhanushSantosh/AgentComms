@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -156,6 +157,53 @@ func TestMessageShow(t *testing.T) {
 
 	if err := run("message", "show", "--actor", "recipient", "--id", "does-not-exist"); err == nil {
 		t.Fatal("expected message show for an unknown ID to fail")
+	}
+}
+
+// TestApprovalShowDefaultsIncludeReviewedOperationAndExpiry is the
+// regression test for UX-06: the default `approval show` view had tier,
+// status, requester, action, and reason, but not the reviewed operation's
+// subject, its expiry, or affected principals -- all present, but only
+// under --details, even though a reviewer following the natural "show
+// then approve" workflow is exactly who needs to see them without an
+// extra flag.
+func TestApprovalShowDefaultsIncludeReviewedOperationAndExpiry(t *testing.T) {
+	project := t.TempDir()
+	cleanupProjectDaemon(t, project)
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
+	var out, stderr bytes.Buffer
+	run := func(args ...string) error {
+		t.Helper()
+		out.Reset()
+		stderr.Reset()
+		args = append(args, "--project", project, "--json")
+		return Run(args, &out, &stderr)
+	}
+	must := func(args ...string) {
+		t.Helper()
+		if err := run(args...); err != nil {
+			t.Fatalf("%v: %v\n%s", args, err, stderr.String())
+		}
+	}
+	must("init", "--non-interactive", "--owner", "owner", "--mode", "personal")
+	must("agent", "register", "--actor", "owner", "--id", "reviewer")
+	must("agent", "activate", "--actor", "owner", "--id", "reviewer", "--role", "AGENT", "--scope", "src")
+	must("message", "post", "--actor", "owner", "--id", "bound-contract", "--kind", "CONTRACT",
+		"--to", "reviewer", "--subject", "Review exact operation", "--body", "Only publish these reviewed terms",
+		"--request-approval", "--approval-id", "bound-contract-approval", "--non-interactive")
+
+	// Plain human output is the actual bar the audit found too low --
+	// --json always carried the full struct regardless of this bug.
+	if err := Run([]string{"approval", "show", "--project", project, "--actor", "reviewer",
+		"--id", "bound-contract-approval", "--output", "plain"}, &out, &stderr); err != nil {
+		t.Fatalf("approval show (plain): %v\n%s", err, stderr.String())
+	}
+	plain := out.String()
+	for _, want := range []string{"Subject", "Review exact operation", "Expires"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("default approval show is missing %q:\n%s", want, plain)
+		}
 	}
 }
 

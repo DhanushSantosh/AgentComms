@@ -68,6 +68,12 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
   | `task claim --repo` | `task claim --worktree` (`--repo` hidden alias, one release) |
 
 **Fixed**
+- `approval show`'s default view omitted the reviewed operation's
+  subject, expiry, and affected principals — present, but only under
+  `--details`, even though a reviewer following the natural "show then
+  approve" workflow is exactly who needs to see them without an extra
+  flag. Applies uniformly to every approval kind (contract, invocation,
+  invocation-sensitive, takeover, orchestrator-grant).
 - `message inbox`'s `SUBJECT` column — the one thing a person actually
   reads this list for — was the last column and so the first one dropped
   at a narrow terminal width, with the long machine ID protected instead;
