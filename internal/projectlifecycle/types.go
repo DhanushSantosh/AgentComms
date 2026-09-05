@@ -29,6 +29,14 @@ const (
 type Error struct {
 	Code    ErrorCode
 	Message string
+	// Details carries machine-readable facts about a partially-completed
+	// operation that would otherwise only be inferable from Message's
+	// prose. UX-14: `update apply` failing after the binary was already
+	// replaced but before project reconciliation completed used to leave
+	// "was the binary actually updated?" answerable only by parsing the
+	// error string -- Details{"binary_updated": true, ...} lets a --json
+	// caller check a real field instead.
+	Details any
 }
 
 func (e *Error) Error() string { return e.Message }

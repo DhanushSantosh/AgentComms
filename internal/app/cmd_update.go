@@ -93,13 +93,26 @@ func (c *cli) updateCmd() *cobra.Command {
 				// (e.g. UPGRADE_REQUIRED is a normal, expected outcome, not
 				// a failure) rather than collapsing every kind of error
 				// into a generic UPGRADE_FAILED.
+				// UX-14: attach Details{"binary_updated": true, ...} to
+				// whichever error is actually returned here so a --json
+				// caller can check a real field for "did the binary
+				// change" instead of only inferring it from the message
+				// string -- true either way execution reaches this branch,
+				// since installRelease already succeeded above.
+				details := map[string]any{
+					"binary_updated":    true,
+					"installed_version": result["version"],
+					"previous_version":  result["previous"],
+				}
 				var lifecycleErr *projectlifecycle.Error
 				if errors.As(upgradeErr, &lifecycleErr) {
+					lifecycleErr.Details = details
 					return lifecycleErr
 				}
 				return &projectlifecycle.Error{
 					Code:    projectlifecycle.CodeUpgradeFailed,
 					Message: "binary updated successfully but project reconciliation failed: " + upgradeErr.Error(),
+					Details: details,
 				}
 			}
 			result["project_upgrade"] = upgradeResult

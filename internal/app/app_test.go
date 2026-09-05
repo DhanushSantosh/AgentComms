@@ -2101,3 +2101,44 @@ func TestInteractiveServeRejectsClaudeAllowAgentCommsForOtherCommands(t *testing
 		t.Fatal("expected --claude-allow-agent-comms to reject a non-claude wrapped command")
 	}
 }
+
+// TestErrorDetailsSurfacesProjectlifecycleDetails is the regression test
+// for UX-14's app-level wiring: errorDetails must actually reach
+// ErrorBody.Details (and round-trip through JSON), not just exist as dead
+// plumbing -- confirming the exact fact `update apply` needs a --json
+// caller to see when it fails after the binary was already replaced (see
+// internal/failure's own TestDetailsSurfacesProjectlifecycleErrorDetails
+// for the extraction logic itself).
+func TestErrorDetailsSurfacesProjectlifecycleDetails(t *testing.T) {
+	err := &projectlifecycle.Error{
+		Code: projectlifecycle.CodeUpgradeFailed, Message: "binary updated successfully but project reconciliation failed: x",
+		Details: map[string]any{"binary_updated": true, "installed_version": "v0.7.0", "previous_version": "v0.6.0"},
+	}
+	body := ErrorBody{Code: errorCode(err), Message: err.Error(), Details: errorDetails(err)}
+	encoded, marshalErr := json.Marshal(body)
+	if marshalErr != nil {
+		t.Fatal(marshalErr)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	details, ok := decoded["details"].(map[string]any)
+	if !ok {
+		t.Fatalf("encoded error body missing a \"details\" object: %s", encoded)
+	}
+	if details["binary_updated"] != true || details["installed_version"] != "v0.7.0" {
+		t.Fatalf("details = %+v, want binary_updated/installed_version preserved through JSON", details)
+	}
+
+	// An error with no Details must omit the field entirely (omitempty),
+	// not encode a null.
+	plain := ErrorBody{Code: "VALIDATION", Message: "y", Details: errorDetails(errors.New("y"))}
+	encoded, marshalErr = json.Marshal(plain)
+	if marshalErr != nil {
+		t.Fatal(marshalErr)
+	}
+	if strings.Contains(string(encoded), "details") {
+		t.Fatalf("expected no details field for a plain error, got: %s", encoded)
+	}
+}

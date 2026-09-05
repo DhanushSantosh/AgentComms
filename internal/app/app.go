@@ -196,11 +196,11 @@ func Run(args []string, stdout, stderr io.Writer) error {
 		if containsOutputJSONL(args) {
 			_ = json.NewEncoder(stderr).Encode(StreamEnvelope{
 				APIVersion: APIVersion, Command: c.cmd, Event: "error", Timestamp: time.Now().UTC(),
-				Error: &ErrorBody{Code: errorCode(e), Message: e.Error()},
+				Error: &ErrorBody{Code: errorCode(e), Message: e.Error(), Details: errorDetails(e)},
 			})
 			reported = true
 		} else if c.json || ContainsJSONFlag(args) || containsOutputJSON(args) {
-			body := Envelope{APIVersion: APIVersion, OK: false, Command: c.cmd, Error: &ErrorBody{Code: errorCode(e), Message: e.Error()}}
+			body := Envelope{APIVersion: APIVersion, OK: false, Command: c.cmd, Error: &ErrorBody{Code: errorCode(e), Message: e.Error(), Details: errorDetails(e)}}
 			_ = json.NewEncoder(stderr).Encode(body)
 			reported = true
 		} else {
@@ -533,6 +533,14 @@ func (c *cli) captureRuntimeSession(runtimeID string) {
 // unwrapped in exactly one place, not duplicated per interface.
 func errorCode(e error) string {
 	return failure.Code(e)
+}
+
+// errorDetails surfaces failure.Details(e) as ErrorBody.Details, so an
+// error carrying machine-readable partial-outcome facts (see
+// projectlifecycle.Error.Details) exposes them as real JSON instead of
+// only inside the human-readable Message string.
+func errorDetails(e error) any {
+	return failure.Details(e)
 }
 func exitCode(e error) int {
 	return failure.ExitStatus(e)

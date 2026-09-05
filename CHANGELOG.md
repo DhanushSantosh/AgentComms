@@ -19,6 +19,18 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
   See [RFC 0030](docs/rfcs/0030-agc-cli-alias.md).
 
 **Fixed**
+- `update apply` failing after the binary was already replaced but
+  before project reconciliation completed used to leave "did the
+  binary actually change?" answerable only by parsing the error
+  message's prose. Errors can now carry a machine-readable `details`
+  field (`ErrorBody.Details` for the CLI, `error.data.details` for
+  MCP) -- `update apply` sets `{"binary_updated": true,
+  "installed_version": ..., "previous_version": ...}` on this specific
+  failure. Additive and empty (omitted) for every other error. (UX-14;
+  scoped to this one reproduced ambiguity -- a guided upgrade-plan
+  view, resumable repair guidance, and any change to upgrade
+  scope/confirmation policy are unaddressed follow-up work explicitly
+  requiring their own RFC per the audit's own acceptance note)
 - Docs: the install guide no longer claims the stable v0.6.0 installer
   places `agc` (that alias ships in the next release, confirmed against
   v0.6.0's actual `install.sh`) or that a source build lacks
