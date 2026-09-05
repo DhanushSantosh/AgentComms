@@ -40,7 +40,7 @@ agent-comms version
 agent-comms update check
 ```
 
-The installer also places `agc`, a shorter synonym for `agent-comms` — `agc version`, `agc tui`, and so on all work identically. Every example in these docs uses the full name.
+Starting with the next release after v0.6.0, the installer also places `agc`, a shorter synonym for `agent-comms` (`agc version`, `agc tui`, and so on work identically once it's installed) — see the [changelog](https://github.com/DhanushSantosh/AgentComms/blob/dev/CHANGELOG.md#unreleased) for exactly which release. The commands on this page target v0.6.0, which does not yet install `agc`; every example in these docs uses the full `agent-comms` name regardless.
 
 Installation preserves the previous binary as `agent-comms.previous` or `agent-comms.exe.previous`. Release assets are checked against SHA-256 and a Sigstore bundle before replacement. Running the installer again upgrades in place; once installed, `agent-comms update apply` is the faster way to pick up a new release than re-running the installer.
 
@@ -59,4 +59,4 @@ go build -o ./bin/agent-comms ./cmd/agent-comms
 ./bin/agent-comms version
 ```
 
-`./bin/agent-comms` is a real, working binary built from whatever commit you cloned — `dev`'s current tip by default. It won't have `agent-comms update` or a verifiable release signature; install a signed release above for that. Building the other shipped binaries, contributing changes back, and the project's development rules are in [CONTRIBUTING.md](https://github.com/DhanushSantosh/AgentComms/blob/main/CONTRIBUTING.md#build-from-source).
+`./bin/agent-comms` is a real, working binary built from whatever commit you cloned — `dev`'s current tip by default. It has no verifiable release signature of its own -- it wasn't produced by the signed release process -- but `agent-comms update check`/`update apply` are present and functional even here: they check against and can replace this binary with an actual signed release, verified the same way the installer verifies one. Building the other shipped binaries, contributing changes back, and the project's development rules are in [CONTRIBUTING.md](https://github.com/DhanushSantosh/AgentComms/blob/main/CONTRIBUTING.md#build-from-source).

@@ -19,6 +19,18 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
   See [RFC 0030](docs/rfcs/0030-agc-cli-alias.md).
 
 **Fixed**
+- Docs: the install guide no longer claims the stable v0.6.0 installer
+  places `agc` (that alias ships in the next release, confirmed against
+  v0.6.0's actual `install.sh`) or that a source build lacks
+  `agent-comms update` (confirmed against a real built binary: it's
+  present and functional there too, verifying against a real release
+  the same way the installer does). `agent-invocations.md` and
+  `agent-onboarding.md` no longer reference the CLI command
+  `invocation wait`, renamed to `invocation defer` by RFC 0027 (the MCP
+  tool and underlying event type intentionally kept the name `wait`,
+  now noted explicitly instead of read as a stale CLI example). (UX-13;
+  semantic example-checking in release automation, beyond link
+  checking, is unaddressed follow-up work)
 - TUI: a missing required field on any create/edit form now names the
   exact field ("Body is required.") and moves focus to it, instead of
   one generic "Complete every required field." `document update`'s

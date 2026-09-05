@@ -35,7 +35,7 @@ agent-comms runtime heartbeat \
 agent-comms invocation next --actor reviewer --runtime reviewer-runtime
 agent-comms invocation claim --actor reviewer --id inv-123 --runtime reviewer-runtime
 agent-comms invocation start --actor reviewer --id inv-123 --summary "Review started"
-agent-comms invocation wait --actor reviewer --id inv-123 --reason "Waiting for CI"
+agent-comms invocation defer --actor reviewer --id inv-123 --reason "Waiting for CI"
 agent-comms invocation resume --actor reviewer --id inv-123 --summary "CI completed"
 agent-comms invocation complete --actor reviewer --id inv-123 --summary "Review passed"
 ```
