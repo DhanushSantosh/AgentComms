@@ -120,18 +120,30 @@ func (c *cli) documentCmd() *cobra.Command {
 		if e != nil {
 			return e
 		}
-		// --notify reproduces the former Decision.To acknowledgement
-		// semantics with the mechanism built for obligations.
+		// UX-07 / RFC 0033: a failed --notify used to be visible only as a
+		// raw stderr line -- itself suppressed under --quiet -- so a caller
+		// relying on --json/--quiet had no field to check and got a plain
+		// ok:true regardless of whether a requested notification actually
+		// went out. notifyResults is now part of the emitted result
+		// unconditionally (only present at all when --notify was used, so
+		// the common no-notify response shape is unchanged), fixing the
+		// gap the stderr warning alone could not.
+		var notifyResults []documentNotifyResult
 		for _, principal := range notify {
-			msgID := fmt.Sprintf("msg-%s-%s", id, principal)
-			if _, ne := c.svc.Execute(c.actor, "message.post", msgID, model.MessagePosted{
-				Kind: "DECISION", To: []string{principal}, Subject: title,
-				Body: "Governed document " + id + " requires your acknowledgement.",
-			}); ne != nil && !c.quiet {
-				fmt.Fprintf(c.err, "warning: --notify %s: %v\n", cliui.SanitizeInline(principal), ne)
+			result := notifyDocumentRecipient(c, id, title, principal)
+			notifyResults = append(notifyResults, result)
+			if result.Status == "failed" && !c.quiet {
+				fmt.Fprintf(c.err, "warning: --notify %s: %s\n", cliui.SanitizeInline(principal), result.Error)
 			}
 		}
-		return c.emit("document.create", v)
+		if notifyResults == nil {
+			return c.emit("document.create", v)
+		}
+		type createResult struct {
+			model.Event
+			Notify []documentNotifyResult `json:"notify"`
+		}
+		return c.emit("document.create", createResult{Event: v, Notify: notifyResults})
 	}}
 	create.Flags().String("id", "", "document ID (auto-generated if omitted)")
 	create.Flags().StringVar(&title, "title", "", "title")
@@ -221,8 +233,71 @@ func (c *cli) documentCmd() *cobra.Command {
 		})
 	}}
 	show.Flags().String("id", "", "document ID")
-	root.AddCommand(create, update, supersede, list, show)
+	// UX-07 / RFC 0033: retry a failed --notify without re-creating (or
+	// duplicating a notification for) the document. Uses the same
+	// deterministic message ID as `create --notify`, so a principal whose
+	// notification already exists is reported "already-sent" rather than
+	// re-attempted.
+	var retryNotify []string
+	notifyCmd := &cobra.Command{Use: "notify", Short: "Retry a document acknowledgement notification", RunE: func(cmd *cobra.Command, args []string) error {
+		id, _ := cmd.Flags().GetString("id")
+		if id == "" {
+			return errors.New("document ID required (use --id)")
+		}
+		if len(retryNotify) == 0 {
+			return errors.New("at least one --notify principal is required")
+		}
+		st, e := c.svc.State()
+		if e != nil {
+			return e
+		}
+		d, ok := st.Documents[id]
+		if !ok {
+			return fmt.Errorf("document %q not found", id)
+		}
+		results := make([]documentNotifyResult, 0, len(retryNotify))
+		for _, principal := range retryNotify {
+			results = append(results, notifyDocumentRecipient(c, id, d.Title, principal))
+		}
+		return c.emit("document.notify", struct {
+			Notify []documentNotifyResult `json:"notify"`
+		}{Notify: results})
+	}}
+	notifyCmd.Flags().String("id", "", "document ID")
+	notifyCmd.Flags().StringSliceVar(&retryNotify, "notify", nil, "principal to (re)notify (repeatable)")
+	root.AddCommand(create, update, supersede, list, show, notifyCmd)
 	return root
+}
+
+// documentNotifyResult is one recipient's outcome from a `document create
+// --notify` or `document notify` attempt. UX-07 / RFC 0033: this is what
+// makes a partial notification failure visible in the JSON envelope itself,
+// not only as a stderr line that --quiet suppresses.
+type documentNotifyResult struct {
+	Principal string `json:"principal"`
+	MessageID string `json:"message_id"`
+	Status    string `json:"status"` // "sent", "failed", or "already-sent"
+	Error     string `json:"error,omitempty"`
+}
+
+// notifyDocumentRecipient posts (or confirms already-posted) a DECISION
+// acknowledgement message for one document/principal pair, using the
+// deterministic ID scheme that lets a retry recognize a notification that
+// already went out instead of duplicating it.
+func notifyDocumentRecipient(c *cli, documentID, title, principal string) documentNotifyResult {
+	msgID := fmt.Sprintf("msg-%s-%s", documentID, principal)
+	if st, e := c.svc.State(); e == nil {
+		if _, exists := st.Messages[msgID]; exists {
+			return documentNotifyResult{Principal: principal, MessageID: msgID, Status: "already-sent"}
+		}
+	}
+	if _, ne := c.svc.Execute(c.actor, "message.post", msgID, model.MessagePosted{
+		Kind: "DECISION", To: []string{principal}, Subject: title,
+		Body: "Governed document " + documentID + " requires your acknowledgement.",
+	}); ne != nil {
+		return documentNotifyResult{Principal: principal, MessageID: msgID, Status: "failed", Error: ne.Error()}
+	}
+	return documentNotifyResult{Principal: principal, MessageID: msgID, Status: "sent"}
 }
 func (c *cli) envCmd() *cobra.Command {
 	root := &cobra.Command{Use: "env", Short: "Manage governed project environment values"}

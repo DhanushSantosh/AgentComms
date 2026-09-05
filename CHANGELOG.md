@@ -6,6 +6,10 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 ## [Unreleased]
 
 **Added**
+- `document notify --id <id> --notify <principal>` — retry a document
+  acknowledgement notification without re-creating the document or
+  duplicating a notification that already went out. See
+  [RFC 0033](docs/rfcs/0033-document-notify-partial-outcome.md).
 - `message show --id <id>` — read one message's subject and body directly,
   matching the uniform `show` RFC 0027 already gave `task`/`agent`/
   `approval`/`decision`. See [RFC 0032](docs/rfcs/0032-message-show.md).
@@ -13,6 +17,14 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
   the main binary (a symlink on Linux/macOS, an `agc.cmd` shim on
   Windows). `agent-comms` stays the canonical name in all docs and help.
   See [RFC 0030](docs/rfcs/0030-agc-cli-alias.md).
+
+**Fixed**
+- `document create --notify <principal>` now reports each recipient's
+  outcome (`sent`/`failed`/`already-sent`) in the JSON response's new
+  `notify` field, unaffected by `--quiet`; a failed notification used to be
+  visible only as a stderr line, so a script relying on `--json`/`--quiet`
+  had no way to detect a partial failure. See
+  [RFC 0033](docs/rfcs/0033-document-notify-partial-outcome.md).
 
 **Changed**
 - **Breaking:** the managed bootstrap marker file renamed from `.agents`
