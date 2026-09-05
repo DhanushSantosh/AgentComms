@@ -737,6 +737,18 @@ func (m Model) openActionForm(spec *ActionForm, typ, id string) (tea.Model, tea.
 		}
 		switch {
 		case i < len(prefill) && prefill[i] != "" && !f.Mask:
+			// Codex review, 2026-09-05: SetValue truncates silently to
+			// CharLimit (bubbles/textinput's own behavior) -- prefilling an
+			// existing document whose body already exceeds 1200 characters
+			// clipped it at load time, before the operator ever touched
+			// anything, so a title-only edit and save republished the
+			// truncated body as if it were the whole document. Raise the
+			// limit to at least the prefilled content's own length so
+			// loading existing content can never itself be lossy; a
+			// shorter new value typed in afterward is unaffected.
+			if runeLen := len([]rune(prefill[i])); runeLen > input.CharLimit {
+				input.CharLimit = runeLen
+			}
 			input.SetValue(prefill[i])
 		case len(f.Options) > 0:
 			input.SetValue(f.Options[0])

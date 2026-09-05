@@ -962,7 +962,17 @@ func (s *Service) DeleteProject(actor, passphrase, confirmDirectoryName string) 
 	// the pre-rename bootstrap file. Deletion must not require every prior
 	// migration to have already run, so this tolerates it being absent
 	// without affecting result.BootstrapRemoved either way.
-	_ = os.Remove(filepath.Join(s.Store.Root, store.LegacyBootstrap))
+	//
+	// Codex review, 2026-09-05: this used to run unconditionally for
+	// every project regardless of whether it ever actually used
+	// LegacyBootstrap -- a project already at the current
+	// ManagedFilesVersion that happens to have an unrelated third-party
+	// .agents file left by other tooling would have had it silently
+	// deleted here. Only remove it when cfg confirms this project's own
+	// managed files genuinely predate the rename.
+	if cfg.ManagedFilesVersion < store.LegacyBootstrapManagedFilesVersion {
+		_ = os.Remove(filepath.Join(s.Store.Root, store.LegacyBootstrap))
+	}
 	return result, nil
 }
 

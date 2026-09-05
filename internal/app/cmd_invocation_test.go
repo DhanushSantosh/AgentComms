@@ -107,6 +107,59 @@ func TestInvocationListEmptyStateDistinguishesNothingFromNoMatches(t *testing.T)
 	}
 }
 
+// TestInvocationRequestOutcomeHintsNameOnlyRealFlags is the regression
+// test for a bug an independent review caught before release:
+// invocationRequestOutcomeHint's PENDING_CONSUMER hint suggested
+// `invocation listen --id <id>` (that command has no --id flag at all --
+// it isn't scoped to one invocation) and its AMBIGUOUS hint suggested
+// `invocation policy set --to <target>` (that flag is --agent, not --to).
+// This checks both the hint text directly and, live, that every command
+// name/flag combination the hints mention for every outcome actually
+// exists on the real cobra command tree, so a future flag rename can't
+// silently reintroduce the same class of bug.
+func TestInvocationRequestOutcomeHintsNameOnlyRealFlags(t *testing.T) {
+	for _, outcome := range []string{"PENDING_CONSUMER", "UNAVAILABLE", "AMBIGUOUS", "SUCCEEDED"} {
+		_, hint := invocationRequestOutcomeHint(outcome, "", "inv-1", "builder")
+		if strings.Contains(hint, "listen --id") {
+			t.Fatalf("%s hint suggests unsupported `listen --id`: %s", outcome, hint)
+		}
+		if strings.Contains(hint, "policy set --to") {
+			t.Fatalf("%s hint suggests unsupported `policy set --to`: %s", outcome, hint)
+		}
+	}
+	_, pendingHint := invocationRequestOutcomeHint("PENDING_CONSUMER", "", "inv-1", "builder")
+	if !strings.Contains(pendingHint, "invocation listen --runtime") {
+		t.Fatalf("PENDING_CONSUMER hint should suggest the real `listen --runtime` flag: %s", pendingHint)
+	}
+	_, ambiguousHint := invocationRequestOutcomeHint("AMBIGUOUS", "", "inv-1", "builder")
+	if !strings.Contains(ambiguousHint, "policy set --agent") {
+		t.Fatalf("AMBIGUOUS hint should suggest the real `policy set --agent` flag: %s", ambiguousHint)
+	}
+
+	// Live cross-check: every flag named above must actually exist.
+	root := (&cli{}).invocationCmd()
+	listen, _, err := root.Find([]string{"listen"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if listen.Flags().Lookup("runtime") == nil {
+		t.Fatal("invocation listen has no --runtime flag")
+	}
+	if listen.Flags().Lookup("id") != nil {
+		t.Fatal("invocation listen unexpectedly has an --id flag -- the hint's own reasoning for omitting it is now stale")
+	}
+	policySet, _, err := (&cli{}).invocationPolicyCmd().Find([]string{"set"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if policySet.Flags().Lookup("agent") == nil {
+		t.Fatal("invocation policy set has no --agent flag")
+	}
+	if policySet.Flags().Lookup("to") != nil {
+		t.Fatal("invocation policy set unexpectedly has a --to flag -- the hint's own reasoning for using --agent is now stale")
+	}
+}
+
 // TestInvocationInspectShowsInstructionByDefault is the regression test for
 // UX-08's inspect half: instruction (what the invocation actually asked
 // for) was only visible under --details/--json even though it's the first

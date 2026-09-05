@@ -47,6 +47,16 @@ const (
 	// handles the rename for every already-initialized project; no new
 	// migration mechanism was needed.
 	ManagedFilesVersion = 2
+	// LegacyBootstrapManagedFilesVersion is the ManagedFilesVersion a
+	// project must be strictly below for LegacyBootstrap to ever have been
+	// ITS OWN bootstrap file -- a project already at or past this version
+	// never wrote LegacyBootstrap, so anything at that path in such a
+	// project is unrelated third-party content and must never be backed
+	// up as part of this migration or removed by it. Deliberately a
+	// separate constant from ManagedFilesVersion (rather than reusing it
+	// directly) so a future unrelated managed-files bump doesn't silently
+	// widen what counts as "this project used to use .agents."
+	LegacyBootstrapManagedFilesVersion = 2
 )
 
 type Config struct {

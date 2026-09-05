@@ -16,6 +16,37 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// invocationRequestOutcomeHint names, for one delivery outcome, the
+// Runtime receipt field text and the specific next step -- extracted so
+// the exact commands/flags named here are unit-testable directly (an
+// independent review caught two that named unsupported flags: `invocation
+// listen --id` and `invocation policy set --to`, neither of which is a
+// real flag on that command).
+func invocationRequestOutcomeHint(outcome, runtimeID, invocationID, target string) (runtimeField, hint string) {
+	switch outcome {
+	case "PENDING_CONSUMER":
+		// `invocation listen` has no --id flag at all -- it isn't scoped
+		// to one invocation, it blocks on a --runtime for whatever arrives
+		// next.
+		return "none observed yet", "No runtime has claimed this invocation yet -- a normal queued state, not necessarily a blocker. " +
+			"The target agent should run `agent-comms invocation next --runtime <id>` to poll for it, or " +
+			"`agent-comms invocation listen --runtime <id>` on its own runtime to wait for the next delivery."
+	case "UNAVAILABLE":
+		return "none eligible", "No compatible local interactive runtime completed delivery. " +
+			"Run `agent-comms invocation inspect --id " + invocationID + "` for evidence, or " +
+			"`agent-comms invocation redeliver --id " + invocationID + " --runtime <id>` once one is online."
+	case "AMBIGUOUS":
+		// `invocation policy set` takes --agent, not --to.
+		return "multiple eligible", "Multiple local interactive runtimes are eligible; rerun with --runtime to select one, or set a policy default via " +
+			"`agent-comms invocation policy set --agent " + target + " --interactive-runtime <id>`."
+	default:
+		if runtimeID == "" {
+			runtimeID = "not yet claimed"
+		}
+		return runtimeID, "Inspect the invocation to review delivery evidence and lifecycle state."
+	}
+}
+
 func invocationStatus(status string) cliui.Status {
 	switch status {
 	case "COMPLETED":
@@ -103,24 +134,7 @@ func (c *cli) invocationCmd() *cobra.Command {
 				resolvedConsumer = string(invocation.ConsumerMode)
 			}
 		}
-		runtimeField := outcome.RuntimeID
-		var hint string
-		switch outcome.Outcome {
-		case "PENDING_CONSUMER":
-			runtimeField = "none observed yet"
-			hint = "No runtime has claimed this invocation yet -- a normal queued state, not necessarily a blocker. The target agent should run `agent-comms invocation next --runtime <id>` to poll for it, or run `agent-comms invocation listen --id " + id + "` to wait for delivery."
-		case "UNAVAILABLE":
-			runtimeField = "none eligible"
-			hint = "No compatible local interactive runtime completed delivery. Run `agent-comms invocation inspect --id " + id + "` for evidence, or `agent-comms invocation redeliver --id " + id + " --runtime <id>` once one is online."
-		case "AMBIGUOUS":
-			runtimeField = "multiple eligible"
-			hint = "Multiple local interactive runtimes are eligible; rerun with --runtime to select one, or set a policy default via `agent-comms invocation policy set --to " + target + " --interactive-runtime <id>`."
-		default:
-			if runtimeField == "" {
-				runtimeField = "not yet claimed"
-			}
-			hint = "Inspect the invocation to review delivery evidence and lifecycle state."
-		}
+		runtimeField, hint := invocationRequestOutcomeHint(outcome.Outcome, outcome.RuntimeID, id, target)
 		if c.json {
 			return c.emitWithDelivery("invocation.request", event, outcome, warnings...)
 		}

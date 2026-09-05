@@ -99,6 +99,30 @@ func TestDeleteProjectPersonalModeSuccess(t *testing.T) {
 	}
 }
 
+// TestDeleteProjectPreservesUnrelatedThirdPartyAgentsFile is the
+// regression test for a bug an independent review caught before release:
+// DeleteProject's best-effort LegacyBootstrap (.agents) cleanup used to run
+// unconditionally for every project, regardless of whether that project's
+// own ManagedFilesVersion ever actually used that name. A project already
+// on the current scheme with an unrelated third-party .agents file left by
+// some other tool would have had it silently deleted here.
+func TestDeleteProjectPreservesUnrelatedThirdPartyAgentsFile(t *testing.T) {
+	s, root := testsupport.StartPersonalProject(t)
+	legacyPath := filepath.Join(root, store.LegacyBootstrap)
+	if err := os.WriteFile(legacyPath, []byte("unrelated tool data"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ElevateKey("owner", "correct passphrase"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DeleteProject("owner", "correct passphrase", filepath.Base(root)); err != nil {
+		t.Fatalf("expected deletion to succeed, got %v", err)
+	}
+	if _, statErr := os.Stat(legacyPath); statErr != nil {
+		t.Fatalf("unrelated third-party %s was removed: %v", store.LegacyBootstrap, statErr)
+	}
+}
+
 func requireRuntimeSurvives(t *testing.T, root string) {
 	t.Helper()
 	if _, statErr := os.Stat(filepath.Join(root, store.Runtime)); statErr != nil {

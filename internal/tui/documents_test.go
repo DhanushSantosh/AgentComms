@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/DhanushSantosh/AgentComms/internal/model"
@@ -169,5 +170,50 @@ func TestFormRequiredFieldErrorNamesAndFocusesTheMissingField(t *testing.T) {
 	}
 	if view.formFocus != 2 {
 		t.Fatalf("formFocus = %d, want focus moved to the missing Body field (index 2)", view.formFocus)
+	}
+}
+
+// TestDocumentUpdateFormPrefillPreservesBodyLongerThan1200Chars is the
+// regression test for a bug an independent review caught before release:
+// openActionForm's textinput.CharLimit was always 1200, and SetValue
+// silently truncates to that limit -- prefilling the update form (added
+// for UX-12) with an existing document's body longer than 1200 characters
+// clipped it at load time, before the operator ever touched anything, so a
+// title-only edit and save republished the truncated body as the whole
+// document.
+func TestDocumentUpdateFormPrefillPreservesBodyLongerThan1200Chars(t *testing.T) {
+	instance := newTestService(t)
+	longBody := strings.Repeat("x", 1300)
+	if _, err := instance.Execute("owner", "document.create", "guide-v1",
+		model.DocumentPayload{Title: "Operator guide", Body: longBody}); err != nil {
+		t.Fatal(err)
+	}
+	view, err := New(instance, "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	view.openView("Documents")
+	view.rowFocus = true
+	view = pressKey(t, view, keyText("e"))
+	if view.form != "document.update" {
+		t.Fatalf("expected document.update form, got %q", view.form)
+	}
+	if got := view.inputs[1].Value(); got != longBody {
+		t.Fatalf("prefilled body was clipped: got %d chars, want %d", len(got), len(longBody))
+	}
+	// Edit only the title and save -- the prefilled (untouched) body must
+	// survive unclipped.
+	view.inputs[0].SetValue("Operator guide (revised)")
+	view.formFocus = len(view.inputs) - 1
+	view = pressKey(t, view, keyEnter())
+	if view.err != nil {
+		t.Fatal(view.err)
+	}
+	st, err := instance.State()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := st.Documents["guide-v1"].Body; got != longBody {
+		t.Fatalf("title-only edit lost body content: got %d chars, want %d", len(got), len(longBody))
 	}
 }

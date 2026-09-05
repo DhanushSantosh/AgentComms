@@ -245,8 +245,20 @@ func Reconcile(ctx context.Context, options Options) (Result, error) {
 			filepath.Join(plan.ProjectRoot, store.Runtime, journalName),
 			filepath.Join(plan.ProjectRoot, store.Runtime, "backups"))}
 	}
+	// Codex review, 2026-09-05: config here is freshly re-read from disk
+	// (the Inspect() call above) and, on every call including a resumed
+	// one, still reflects whatever ManagedFilesVersion this project
+	// actually recorded BEFORE this Reconcile call ever mutates it below
+	// -- publishManagedFiles is what writes the bumped version to disk,
+	// and that hasn't happened yet on any path that reaches here. This is
+	// the one place that can honestly answer "did this project's OWN
+	// managed files ever use LegacyBootstrap" instead of "does something
+	// merely exist at that path" -- a fresh v2 project with an unrelated
+	// third-party .agents directory or file (a real, reproduced bug this
+	// fixes) must never have it backed up or removed by this migration.
+	legacyBootstrapMigration := config.ManagedFilesVersion < store.LegacyBootstrapManagedFilesVersion
 	if state.Stage == "prepared" {
-		state.BackupPath, err = backupProject(plan.ProjectRoot, config, state.ID)
+		state.BackupPath, err = backupProject(plan.ProjectRoot, config, state.ID, legacyBootstrapMigration)
 		if err != nil {
 			return result, upgradeFailed("back up project", err)
 		}
@@ -274,7 +286,7 @@ func Reconcile(ctx context.Context, options Options) (Result, error) {
 		config.SchemaVersion = model.SchemaVersion
 		config.DaemonEndpoint = runtimeinit.DaemonEndpoint(plan.ProjectRoot, config.ProjectID)
 		config.ManagedFileHashes = store.ManagedHashes(config)
-		if err = publishManagedFiles(plan.ProjectRoot, config); err != nil {
+		if err = publishManagedFiles(plan.ProjectRoot, config, legacyBootstrapMigration); err != nil {
 			return result, upgradeFailed("publish managed files", err)
 		}
 		state.Stage = "files_published"
@@ -807,7 +819,7 @@ func existingBackup(backupsDir, id string) (string, error) {
 	return "", nil
 }
 
-func backupProject(root string, config store.Config, id string) (string, error) {
+func backupProject(root string, config store.Config, id string, legacyBootstrapMigration bool) (string, error) {
 	backupsDir := filepath.Join(root, store.Runtime, "backups")
 	destination, err := existingBackup(backupsDir, id)
 	if err != nil {
@@ -831,7 +843,16 @@ func backupProject(root string, config store.Config, id string) (string, error) 
 	if err := os.MkdirAll(destination, 0o700); err != nil {
 		return "", err
 	}
-	files := []string{filepath.Join(store.Runtime, "config.json"), store.LegacyBootstrap}
+	files := []string{filepath.Join(store.Runtime, "config.json")}
+	// Codex review, 2026-09-05: only back up LegacyBootstrap when this
+	// project's own recorded ManagedFilesVersion says it genuinely used
+	// to be named that -- store.ManagedFiles(config) below only ever lists
+	// the CURRENT bootstrap name, so a fresh v2 project's unrelated
+	// third-party .agents was never covered by that loop either, and must
+	// not be swept in here as if it were.
+	if legacyBootstrapMigration {
+		files = append(files, store.LegacyBootstrap)
+	}
 	for relative := range store.ManagedFiles(config) {
 		files = append(files, relative)
 	}
@@ -970,7 +991,7 @@ func pruneBackups(directory, current string) error {
 	return nil
 }
 
-func publishManagedFiles(root string, config store.Config) error {
+func publishManagedFiles(root string, config store.Config, legacyBootstrapMigration bool) error {
 	for relative, content := range store.ManagedFiles(config) {
 		mode := os.FileMode(0o644)
 		if err := writeAtomic(filepath.Join(root, relative), content, mode); err != nil {
@@ -982,11 +1003,22 @@ func publishManagedFiles(root string, config store.Config) error {
 	// above as part of store.ManagedFiles(). Remove the old file so a
 	// reconciled project doesn't end up carrying both -- backupProject
 	// already preserved its content earlier in this same Reconcile before
-	// this function ever runs. A project already past this migration (or
-	// one that never had the legacy file) simply has nothing to remove.
-	if legacy := filepath.Join(root, store.LegacyBootstrap); legacy != filepath.Join(root, store.Bootstrap) {
-		if err := os.Remove(legacy); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("remove legacy bootstrap %s: %w", store.LegacyBootstrap, err)
+	// this function ever runs.
+	//
+	// Codex review, 2026-09-05: this used to run unconditionally, gated
+	// only on the two path strings differing (always true) -- for a fresh
+	// v2 project that happens to have an unrelated third-party .agents
+	// left by other tooling, that meant either a regular file silently
+	// deleted, or a non-empty directory left for a later os.IsNotExist
+	// check that never matches "directory not empty," surfacing as a
+	// confusing failure from an entirely unrelated caller. Only actually
+	// remove it when this project's own ManagedFilesVersion confirms it
+	// really did use LegacyBootstrap as ITS bootstrap file.
+	if legacyBootstrapMigration {
+		if legacy := filepath.Join(root, store.LegacyBootstrap); legacy != filepath.Join(root, store.Bootstrap) {
+			if err := os.Remove(legacy); err != nil && !os.IsNotExist(err) {
+				return fmt.Errorf("remove legacy bootstrap %s: %w", store.LegacyBootstrap, err)
+			}
 		}
 	}
 	return writeJSONAtomic(filepath.Join(root, store.Runtime, "config.json"), config, 0o600)

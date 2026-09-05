@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -64,8 +65,8 @@ func TestDocumentCreateNotifyReportsPartialFailure(t *testing.T) {
 	for _, r := range result.Notify {
 		byPrincipal[r.Principal] = r
 	}
-	if got := byPrincipal["reviewer"]; got.Status != "sent" || got.MessageID != "msg-doc-1-reviewer" {
-		t.Fatalf("reviewer notify result = %+v, want status=sent message_id=msg-doc-1-reviewer", got)
+	if got := byPrincipal["reviewer"]; got.Status != "sent" || got.MessageID != "msg-5:doc-1:reviewer" {
+		t.Fatalf("reviewer notify result = %+v, want status=sent message_id=msg-5:doc-1:reviewer", got)
 	}
 	failed := byPrincipal["nonexistent-agent"]
 	if failed.Status != "failed" || failed.Error == "" {
@@ -179,11 +180,63 @@ func TestDocumentNotifyRetriesOnlyFailedRecipientWithoutDuplicating(t *testing.T
 	}
 	count := 0
 	for id := range inbox {
-		if id == "msg-doc-1-reviewer" {
+		if id == "msg-5:doc-1:reviewer" {
 			count++
 		}
 	}
 	if count != 1 {
-		t.Fatalf("expected exactly one msg-doc-1-reviewer in reviewer's inbox, found %d: %s", count, out.String())
+		t.Fatalf("expected exactly one msg-5:doc-1:reviewer in reviewer's inbox, found %d: %s", count, out.String())
+	}
+}
+
+// TestDocumentNotifyMessageIDsDoNotCollideAcrossDashes is the regression
+// test for a bug an independent review caught before release: the original
+// "msg-" + documentID + "-" + principal ID scheme was ambiguous whenever
+// either ID itself contains a dash. Document "a-b" notifying "c" and
+// document "a" notifying "b-c" both produced "msg-a-b-c" -- creating the
+// second collided with the first's already-sent message and silently
+// reported "already-sent" without "b-c" ever actually being notified.
+func TestDocumentNotifyMessageIDsDoNotCollideAcrossDashes(t *testing.T) {
+	project := t.TempDir()
+	cleanupProjectDaemon(t, project)
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
+	var out, stderr bytes.Buffer
+	run := func(args ...string) error {
+		out.Reset()
+		stderr.Reset()
+		args = append(args, "--project", project, "--json", "--quiet")
+		return Run(args, &out, &stderr)
+	}
+	must := func(args ...string) {
+		if err := run(args...); err != nil {
+			t.Fatalf("%v: %v\n%s", args, err, stderr.String())
+		}
+	}
+	must("init", "--non-interactive", "--owner", "owner", "--mode", "personal")
+	for _, id := range []string{"c", "b-c"} {
+		must("agent", "register", "--actor", "owner", "--id", id)
+		must("agent", "activate", "--actor", "owner", "--id", id, "--role", "AGENT", "--scope", "src")
+	}
+	// document "a-b" notifying "c" -- under the old scheme, both this and
+	// the next call produce "msg-a-b-c".
+	must("document", "create", "--actor", "owner", "--id", "a-b", "--title", "First", "--body", "first", "--notify", "c")
+	// document "a" notifying "b-c" -- must be its own, unambiguous message.
+	must("document", "create", "--actor", "owner", "--id", "a", "--title", "Second", "--body", "second", "--notify", "b-c")
+
+	if strings.Contains(out.String(), "already-sent") {
+		t.Fatalf("false success for a never-notified recipient (message ID collision): %s", out.String())
+	}
+	var result struct {
+		Notify []struct {
+			Principal string `json:"principal"`
+			Status    string `json:"status"`
+		} `json:"notify"`
+	}
+	if err := json.Unmarshal(extractResult(t, out.Bytes()), &result); err != nil {
+		t.Fatalf("decode: %v\n%s", err, out.String())
+	}
+	if len(result.Notify) != 1 || result.Notify[0].Principal != "b-c" || result.Notify[0].Status != "sent" {
+		t.Fatalf("expected b-c to be actually notified, got: %+v", result.Notify)
 	}
 }

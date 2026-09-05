@@ -280,12 +280,35 @@ type documentNotifyResult struct {
 	Error     string `json:"error,omitempty"`
 }
 
+// notifyMessageID deterministically derives the DECISION message ID for
+// one (documentID, principal) pair.
+//
+// Codex review, 2026-09-05: the original "msg-" + documentID + "-" +
+// principal scheme was ambiguous whenever either ID itself contains a
+// dash -- document "a-b" notifying "c" and document "a" notifying "b-c"
+// both produced "msg-a-b-c", so retrying/creating the second collided
+// with the first's already-sent message and silently reported success
+// without ever notifying "b-c" (CLI-reproduced). Length-prefixing
+// documentID makes the split point between the two IDs unambiguous
+// regardless of what characters either one contains: for the combined
+// string to match between two different (documentID, principal) pairs,
+// len(documentID) would have to differ (which changes the decimal prefix
+// itself, and that prefix is immediately followed by ':', a character no
+// decimal length ever produces, so a longer/shorter prefix can never look
+// like a valid continuation of a shorter one) or be equal (in which case
+// the following len(documentID) characters are pinned to be documentID
+// itself, forcing an exact match there too, and only then the remaining
+// suffix is the principal).
+func notifyMessageID(documentID, principal string) string {
+	return fmt.Sprintf("msg-%d:%s:%s", len(documentID), documentID, principal)
+}
+
 // notifyDocumentRecipient posts (or confirms already-posted) a DECISION
 // acknowledgement message for one document/principal pair, using the
 // deterministic ID scheme that lets a retry recognize a notification that
 // already went out instead of duplicating it.
 func notifyDocumentRecipient(c *cli, documentID, title, principal string) documentNotifyResult {
-	msgID := fmt.Sprintf("msg-%s-%s", documentID, principal)
+	msgID := notifyMessageID(documentID, principal)
 	if st, e := c.svc.State(); e == nil {
 		if _, exists := st.Messages[msgID]; exists {
 			return documentNotifyResult{Principal: principal, MessageID: msgID, Status: "already-sent"}

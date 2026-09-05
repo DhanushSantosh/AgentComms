@@ -38,8 +38,8 @@ response shape is unchanged):
 
 ```json
 "notify": [
-  {"principal": "reviewer", "message_id": "msg-doc-1-reviewer", "status": "sent"},
-  {"principal": "nonexistent-agent", "message_id": "msg-doc-1-nonexistent-agent", "status": "failed", "error": "active message recipient nonexistent-agent is required"}
+  {"principal": "reviewer", "message_id": "msg-5:doc-1:reviewer", "status": "sent"},
+  {"principal": "nonexistent-agent", "message_id": "msg-5:doc-1:nonexistent-agent", "status": "failed", "error": "active message recipient nonexistent-agent is required"}
 ]
 ```
 
@@ -51,17 +51,31 @@ interactive human use; it is not the fix, the JSON field is.
 
 ### 2. Retry without duplicating anything
 
-The notify message ID is already deterministic:
-`"msg-" + documentID + "-" + principal`. A failed notification's message
-was therefore never created; a succeeded one already exists under that
-exact ID. `document notify --id <documentID> --notify <principal>...`
-re-runs only the notification step for an existing document, one
-recipient at a time, using that same deterministic ID -- a principal
-whose message already exists gets a `"status": "already-sent"` result
-without a second message.post attempt, not a duplicate-ID error surfaced
-as a fresh failure. The document itself is never re-created or modified;
-this command requires the document to already exist and only touches the
-notification messages.
+The notify message ID is deterministic:
+`fmt.Sprintf("msg-%d:%s:%s", len(documentID), documentID, principal)`. A
+failed notification's message was therefore never created; a succeeded
+one already exists under that exact ID. `document notify --id
+<documentID> --notify <principal>...` re-runs only the notification step
+for an existing document, one recipient at a time, using that same
+deterministic ID -- a principal whose message already exists gets a
+`"status": "already-sent"` result without a second message.post attempt,
+not a duplicate-ID error surfaced as a fresh failure. The document
+itself is never re-created or modified; this command requires the
+document to already exist and only touches the notification messages.
+
+**Amendment, 2026-09-05 (pre-release, caught by an independent review
+before this shipped):** the ID scheme as originally accepted here was
+`"msg-" + documentID + "-" + principal`, plain dash-joining with no
+length prefix. That is ambiguous whenever either ID itself contains a
+dash: document `a-b` notifying `c` and document `a` notifying `b-c`
+both produce `msg-a-b-c`, so creating the second collided with the
+first's already-sent message and silently reported `"already-sent"`
+without `b-c` ever actually being notified -- confirmed with a live CLI
+reproduction. The length-prefixed scheme above (`msg-%d:%s:%s`) fixes
+this: the decimal length is immediately followed by `:`, a character no
+decimal digit ever produces, so the split point between documentID and
+principal can never be misread regardless of what either one contains.
+No other part of this RFC's design changes.
 
 ### 3. What does not change
 
