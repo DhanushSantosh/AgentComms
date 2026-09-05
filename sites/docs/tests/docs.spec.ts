@@ -29,6 +29,39 @@ test("theme choice persists and code can be copied", async ({ page, context }) =
   await expect(page.getByRole("button", { name: "Copy code block" }).first()).toHaveText("Copied");
 });
 
+// UX-16 regression test: a denied/unavailable clipboard used to leave the
+// copy button's await rejecting with no catch at all -- no feedback that
+// anything failed, and no way to tell what to do about it. This is the
+// audit's own "clipboard-denied fixture" acceptance criterion.
+test("copy failure falls back to selecting the code and says so", async ({ page }) => {
+  await page.addInitScript(() => {
+    // Simulate a denied permission / unavailable API without needing a
+    // real browser permission-denial flow, which Playwright can't easily
+    // trigger deterministically across browsers.
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText: () => Promise.reject(new Error("denied")) },
+      configurable: true,
+    });
+    // execCommand("copy") also fails in the fallback path, so the failure
+    // feedback (not the fallback's own success path) is what's exercised.
+    document.execCommand = () => false;
+  });
+  await page.goto("/agents/interactive/");
+  const button = page.getByRole("button", { name: "Copy code block" }).first();
+  await button.click();
+  await expect(button).toHaveText("Copy failed -- code selected, use Ctrl/Cmd+C");
+  // The code itself must actually be selected, so the person can still
+  // copy it manually.
+  const codeBlock = page.locator(".prose pre").first().locator("code");
+  await expect.poll(() => page.evaluate(() => window.getSelection()?.toString().length ?? 0)).toBeGreaterThan(0);
+  const selectedText = await page.evaluate(() => window.getSelection()?.toString() ?? "");
+  const codeText = await codeBlock.textContent();
+  expect(selectedText).toBe(codeText);
+  // And it must revert back to "Copy" after the feedback window, not get
+  // stuck on the failure message forever.
+  await expect(button).toHaveText("Copy", { timeout: 3000 });
+});
+
 test("mobile navigation exposes the current manual tree", async ({ page }, testInfo) => {
   test.skip(!testInfo.project.name.startsWith("mobile"), "mobile-only interaction");
   await page.goto("/agents/invocations/");

@@ -19,6 +19,19 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
   See [RFC 0030](docs/rfcs/0030-agc-cli-alias.md).
 
 **Fixed**
+- Docs site: code-block copy buttons (`PlatformTabs`, the `.prose pre`
+  copy button) awaited `navigator.clipboard.writeText` with no failure
+  path -- a denied permission, non-secure context, or unavailable API
+  left the button silently unchanged, no feedback at all. New shared
+  `src/lib/clipboard.ts` falls back to the legacy `execCommand("copy")`
+  technique, and if that also fails, selects the code text and says
+  "Copy failed -- code selected, use Ctrl/Cmd+C" so the person can
+  still get it. (UX-16; scoped to this one reproduced gap -- terminal
+  accessibility testing on core journeys, a linear CLI alternative for
+  every critical TUI workflow, and explaining the web demo's simulated
+  state are unaddressed follow-up work, each needing practical
+  keyboard/assistive-tech verification the audit itself notes a
+  screenshot or Lighthouse run cannot establish)
 - `task list`, `message inbox`, and `invocation list` no longer print
   the generic `(no rows)` for every empty result -- "nothing exists
   yet" and "your filter matched nothing" now read differently, and
