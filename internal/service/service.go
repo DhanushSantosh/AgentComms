@@ -952,11 +952,17 @@ func (s *Service) DeleteProject(actor, passphrase, confirmDirectoryName string) 
 	} else {
 		result.RuntimeRemoved = true
 	}
-	if removeErr := os.Remove(filepath.Join(s.Store.Root, ".agents")); removeErr != nil && !os.IsNotExist(removeErr) {
-		result.Warnings = append(result.Warnings, "remove .agents: "+removeErr.Error())
+	if removeErr := os.Remove(filepath.Join(s.Store.Root, store.Bootstrap)); removeErr != nil && !os.IsNotExist(removeErr) {
+		result.Warnings = append(result.Warnings, "remove "+store.Bootstrap+": "+removeErr.Error())
 	} else {
 		result.BootstrapRemoved = true
 	}
+	// Best-effort: a project deleted before ever reconciling past the
+	// ManagedFilesVersion 1->2 migration (RFC 0031) can still be carrying
+	// the pre-rename bootstrap file. Deletion must not require every prior
+	// migration to have already run, so this tolerates it being absent
+	// without affecting result.BootstrapRemoved either way.
+	_ = os.Remove(filepath.Join(s.Store.Root, store.LegacyBootstrap))
 	return result, nil
 }
 

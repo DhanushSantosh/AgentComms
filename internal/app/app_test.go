@@ -1384,7 +1384,7 @@ func TestDoctorReportsRuntimeAndBootstrapProblems(t *testing.T) {
 	cfg["toolkit_version"] = "9.9.9"
 	b, _ = json.Marshal(cfg)
 	_ = os.WriteFile(cfgPath, b, 0600)
-	_ = os.Remove(filepath.Join(d, ".agents"))
+	_ = os.Remove(filepath.Join(d, store.Bootstrap))
 	_ = os.Remove(filepath.Join(d, ".agent-comms", "AGENT_INSTRUCTIONS.md"))
 	out.Reset()
 	err.Reset()

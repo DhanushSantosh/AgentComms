@@ -139,6 +139,105 @@ func TestReconcileUpgradesBaselineWithoutChangingSignedEventsOrDrafts(t *testing
 	}
 }
 
+// TestReconcileRenamesLegacyBootstrapFile is the regression test for RFC
+// 0031: a project initialized before the bootstrap marker moved from
+// LegacyBootstrap (".agents") to store.Bootstrap (".agentcomms") upgrades
+// automatically -- the old file's content is preserved in the backup this
+// same Reconcile already takes, store.Bootstrap ends up present with
+// current content, and LegacyBootstrap is actually gone from the project
+// root afterward, not just newly ignored.
+func TestReconcileRenamesLegacyBootstrapFile(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(t.TempDir(), "credentials"))
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(t.TempDir(), "config"))
+	store.RuntimeVersion = "0.1.0"
+	store.RuntimeBuildID = "old-build"
+	if _, err := runtimeinit.Initialize(context.Background(), runtimeinit.Config{
+		ProjectRoot: root, Owner: "owner", Mode: "personal",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Simulate the pre-RFC-0031 on-disk layout: rename the just-created
+	// current bootstrap back to the legacy name, and roll ManagedFilesVersion
+	// back to what a project initialized before this RFC would have.
+	currentBootstrap := filepath.Join(root, store.Bootstrap)
+	legacyBootstrap := filepath.Join(root, store.LegacyBootstrap)
+	legacyContent, err := os.ReadFile(currentBootstrap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.Rename(currentBootstrap, legacyBootstrap); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(root, store.Runtime, "config.json")
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var config map[string]any
+	if err = json.Unmarshal(raw, &config); err != nil {
+		t.Fatal(err)
+	}
+	config["managed_files_version"] = 1
+	delete(config, "managed_file_hashes")
+	raw, _ = json.MarshalIndent(config, "", "  ")
+	if err = os.WriteFile(configPath, append(raw, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	plan, _, err := Inspect(root, "0.2.0", "new-build")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, action := range plan.Actions {
+		if action.Component == "managed_files" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected a pending managed_files migration, got %+v", plan.Actions)
+	}
+
+	result, err := Reconcile(context.Background(), Options{
+		Root: root, Version: "0.2.0", BuildID: "new-build", Apply: true, Approved: true, StopDaemon: false,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Changed || !result.Verified || result.BackupPath == "" {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+
+	if _, err = os.Stat(currentBootstrap); err != nil {
+		t.Fatalf("expected %s to exist after reconciliation: %v", store.Bootstrap, err)
+	}
+	if _, err = os.Stat(legacyBootstrap); !os.IsNotExist(err) {
+		t.Fatalf("expected legacy %s to be gone, stat returned: %v", store.LegacyBootstrap, err)
+	}
+	backedUp, err := os.ReadFile(filepath.Join(result.BackupPath, store.LegacyBootstrap))
+	if err != nil {
+		t.Fatalf("expected the legacy bootstrap's content to be backed up: %v", err)
+	}
+	if string(backedUp) != string(legacyContent) {
+		t.Fatalf("backed-up legacy bootstrap content = %q, want %q", backedUp, legacyContent)
+	}
+	if !store.Open(root).ManagedBootstrapValid() {
+		t.Fatal("expected the current bootstrap to be valid after reconciliation")
+	}
+
+	// Idempotent: reconciling again is a no-op, not an error, and does not
+	// try to remove an already-gone legacy file.
+	plan, _, err = Inspect(root, "0.2.0", "new-build")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Actions) != 0 {
+		t.Fatalf("expected no pending actions after a completed reconciliation, got %+v", plan.Actions)
+	}
+}
+
 func TestLifecycleLockSerializesClients(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "upgrade.lock")
 	first, err := lockFile(path, time.Second)

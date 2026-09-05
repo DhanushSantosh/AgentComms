@@ -15,6 +15,7 @@ import (
 	"github.com/DhanushSantosh/AgentComms/internal/identity"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 	"github.com/DhanushSantosh/AgentComms/internal/service"
+	"github.com/DhanushSantosh/AgentComms/internal/store"
 )
 
 // Finding mirrors the shape `agent-comms doctor --json` has always emitted.
@@ -50,7 +51,7 @@ func Findings(ctx context.Context, svc *service.Service) ([]Finding, error) {
 		add("WARNING", "BINARY_RUNTIME_VERSION_MISMATCH", fmt.Sprintf("installed binary is %s but runtime was prepared by %s", buildinfo.Version, cfg.ToolkitVersion), "Install the intended release before normal work.")
 	}
 	if !svc.Store.ManagedBootstrapValid() {
-		add("ERROR", "MANAGED_BOOTSTRAP_MISSING", "project root .agents does not match the configured authority mode", "Restore the bootstrap for this project before normal work.")
+		add("ERROR", "MANAGED_BOOTSTRAP_MISSING", fmt.Sprintf("project root %s does not match the configured authority mode", store.Bootstrap), "Restore the bootstrap for this project before normal work.")
 	}
 	if !svc.Store.InstructionsPresent() {
 		add("ERROR", "AGENT_INSTRUCTIONS_MISSING", ".agent-comms/AGENT_INSTRUCTIONS.md is missing or empty", "Restore the generated instructions with the matching Agent Comms release.")

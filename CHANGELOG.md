@@ -12,6 +12,16 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
   See [RFC 0030](docs/rfcs/0030-agc-cli-alias.md).
 
 **Changed**
+- **Breaking:** the managed bootstrap marker file renamed from `.agents`
+  to `.agentcomms` — `.agents` is a name several unrelated agent-tooling
+  projects also use for their own directory, so `init` refusing to run
+  against anything at all at that path was a false-positive collision,
+  not a real one. Already-initialized projects migrate automatically on
+  the next reconcile (the existing managed-files upgrade path backs up
+  the old file before removing it); a fresh `init` no longer looks at
+  `.agents` at all. See [RFC 0031](docs/rfcs/0031-rename-bootstrap-file-to-agentcomms.md).
+
+**Changed**
 - Every CLI command now has a one-line description under `--help`; the
   non-obvious lifecycle and approval commands also gained examples. See
   [RFC 0027](docs/rfcs/0027-cli-surface-consolidation.md).

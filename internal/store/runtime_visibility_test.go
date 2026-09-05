@@ -27,7 +27,7 @@ func TestEnsureRuntimeHiddenCreatesGitignore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, rule := range []string{"/.agents", "/.agent-comms/"} {
+	for _, rule := range []string{"/" + Bootstrap, "/.agent-comms/"} {
 		if count := strings.Count(string(raw), rule); count != 1 {
 			t.Fatalf("%s count=%d in .gitignore, want 1:\n%s", rule, count, raw)
 		}
@@ -55,7 +55,7 @@ func TestEnsureRuntimeHiddenAppendsToExistingGitignore(t *testing.T) {
 	if !strings.Contains(string(raw), "node_modules/") {
 		t.Fatalf("pre-existing entry was lost:\n%s", raw)
 	}
-	for _, rule := range []string{"/.agents", "/.agent-comms/"} {
+	for _, rule := range []string{"/" + Bootstrap, "/.agent-comms/"} {
 		if !strings.Contains(string(raw), rule) {
 			t.Fatalf("missing %s:\n%s", rule, raw)
 		}

@@ -28,10 +28,13 @@ delivery, target claim, and completion remain separate facts.
 Personal mode coordinates concurrent processes on one machine. It does not
 claim multi-host availability or PostgreSQL service-mode load targets.
 
-`agent-comms init` refuses to overwrite an existing `.agents` bootstrap file
-rather than risk splitting an already-initialized project's history. Remove
-or rename that file yourself only after confirming it is not an active Agent
-Comms bootstrap; initialization never does this automatically.
+`agent-comms init` refuses to overwrite an existing `.agentcomms` bootstrap
+file rather than risk splitting an already-initialized project's history.
+Remove or rename that file yourself only after confirming it is not an
+active Agent Comms bootstrap; initialization never does this automatically.
+An `.agents` directory or file left by unrelated tooling is untouched --
+that name is common enough among agent-tooling projects that this product
+deliberately does not use it (RFC 0031).
 
 ## Authoritative service mode
 
@@ -74,7 +77,7 @@ authority receipts, ranges, or the full chain. Actor public-key history and
 rotation boundaries remain part of the audit record.
 
 In both modes, private actor keys live in platform keyrings. The target
-repository receives a compact `.agents` bootstrap; credentials are never
+repository receives a compact `.agentcomms` bootstrap; credentials are never
 stored in project history.
 
 A HUMAN principal may additionally hold a second, distinct "elevated" key

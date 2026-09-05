@@ -70,7 +70,7 @@ func TestDeleteProjectWrongPassphraseFails(t *testing.T) {
 
 // TestDeleteProjectPersonalModeSuccess is the full happy-path end to end:
 // owner, correct directory-name confirmation, correct passphrase -- the
-// runtime directory and .agents bootstrap file are actually gone from disk
+// runtime directory and the bootstrap file are actually gone from disk
 // afterward, and the result correctly reports no remote deletion happened
 // (personal mode has no authority to delete from).
 func TestDeleteProjectPersonalModeSuccess(t *testing.T) {
@@ -94,8 +94,8 @@ func TestDeleteProjectPersonalModeSuccess(t *testing.T) {
 	if _, statErr := os.Stat(filepath.Join(root, store.Runtime)); !os.IsNotExist(statErr) {
 		t.Fatalf("expected the runtime directory to be gone, stat returned: %v", statErr)
 	}
-	if _, statErr := os.Stat(filepath.Join(root, ".agents")); !os.IsNotExist(statErr) {
-		t.Fatalf("expected .agents to be gone, stat returned: %v", statErr)
+	if _, statErr := os.Stat(filepath.Join(root, store.Bootstrap)); !os.IsNotExist(statErr) {
+		t.Fatalf("expected the bootstrap file to be gone, stat returned: %v", statErr)
 	}
 }
 
@@ -104,7 +104,7 @@ func requireRuntimeSurvives(t *testing.T, root string) {
 	if _, statErr := os.Stat(filepath.Join(root, store.Runtime)); statErr != nil {
 		t.Fatalf("expected the runtime directory to survive a refused delete: %v", statErr)
 	}
-	if _, statErr := os.Stat(filepath.Join(root, ".agents")); statErr != nil {
-		t.Fatalf("expected .agents to survive a refused delete: %v", statErr)
+	if _, statErr := os.Stat(filepath.Join(root, store.Bootstrap)); statErr != nil {
+		t.Fatalf("expected the bootstrap file to survive a refused delete: %v", statErr)
 	}
 }

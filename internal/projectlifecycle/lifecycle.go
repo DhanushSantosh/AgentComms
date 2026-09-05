@@ -831,7 +831,7 @@ func backupProject(root string, config store.Config, id string) (string, error) 
 	if err := os.MkdirAll(destination, 0o700); err != nil {
 		return "", err
 	}
-	files := []string{filepath.Join(store.Runtime, "config.json")}
+	files := []string{filepath.Join(store.Runtime, "config.json"), store.LegacyBootstrap}
 	for relative := range store.ManagedFiles(config) {
 		files = append(files, relative)
 	}
@@ -975,6 +975,18 @@ func publishManagedFiles(root string, config store.Config) error {
 		mode := os.FileMode(0o644)
 		if err := writeAtomic(filepath.Join(root, relative), content, mode); err != nil {
 			return err
+		}
+	}
+	// ManagedFilesVersion 1->2 (RFC 0031): the bootstrap marker moved from
+	// LegacyBootstrap to the now-current store.Bootstrap, already written
+	// above as part of store.ManagedFiles(). Remove the old file so a
+	// reconciled project doesn't end up carrying both -- backupProject
+	// already preserved its content earlier in this same Reconcile before
+	// this function ever runs. A project already past this migration (or
+	// one that never had the legacy file) simply has nothing to remove.
+	if legacy := filepath.Join(root, store.LegacyBootstrap); legacy != filepath.Join(root, store.Bootstrap) {
+		if err := os.Remove(legacy); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove legacy bootstrap %s: %w", store.LegacyBootstrap, err)
 		}
 	}
 	return writeJSONAtomic(filepath.Join(root, store.Runtime, "config.json"), config, 0o600)

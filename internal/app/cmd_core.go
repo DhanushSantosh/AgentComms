@@ -293,7 +293,7 @@ func (c *cli) initCmd() *cobra.Command {
 			return errors.New("--mode must be personal or service")
 		}
 		if !yes && !c.nonInteractive {
-			fmt.Fprintf(c.out, "\nCreate .agents and isolated .agent-comms runtime in %s? [y/N] ", cliui.SanitizeInline(root))
+			fmt.Fprintf(c.out, "\nCreate %s and isolated %s runtime in %s? [y/N] ", store.Bootstrap, store.Runtime, cliui.SanitizeInline(root))
 			scan := bufio.NewScanner(os.Stdin)
 			if !scan.Scan() || !strings.EqualFold(strings.TrimSpace(scan.Text()), "y") {
 				return errors.New("initialization cancelled")

@@ -17,6 +17,23 @@ import (
 
 const Runtime = ".agent-comms"
 
+// Bootstrap is the managed marker file every initialized project carries at
+// its root. Renamed from the previous LegacyBootstrap (RFC 0031): ".agents"
+// is a name several unrelated agent-tooling projects also use for their own
+// directory, so init unconditionally refusing to run against anything at
+// that path (file or populated/empty directory) was a false-positive
+// collision, not a real one. ".agentcomms" matches this product's own name
+// and the "Runtime" directory it points at, removing the collision surface
+// instead of just making it more recoverable.
+const Bootstrap = ".agentcomms"
+
+// LegacyBootstrap is the pre-RFC-0031 bootstrap file name. Only referenced
+// by the ManagedFilesVersion 1->2 migration (removing a stale one left by
+// an older Agent Comms version) and project deletion (best-effort cleanup
+// of a project that was deleted before ever reconciling past that
+// migration) -- never written by a fresh init.
+const LegacyBootstrap = ".agents"
+
 var (
 	RuntimeVersion = "dev"
 	RuntimeBuildID = "dev"
@@ -24,7 +41,12 @@ var (
 
 const (
 	ProjectFormatVersion = 1
-	ManagedFilesVersion  = 1
+	// ManagedFilesVersion 2: the managed bootstrap marker moved from
+	// LegacyBootstrap to Bootstrap (RFC 0031). Reconcile's existing
+	// managed-files migration path (backup, then publishManagedFiles)
+	// handles the rename for every already-initialized project; no new
+	// migration mechanism was needed.
+	ManagedFilesVersion = 2
 )
 
 type Config struct {
@@ -117,7 +139,7 @@ func validateConfig(config Config) (Config, error) {
 // runtimeIgnoreRules are the project-root entries that keep Agent Comms'
 // own bootstrap file and runtime directory out of the host repository's
 // tracked/untracked-file surface.
-var runtimeIgnoreRules = []string{"/.agents", "/.agent-comms/"}
+var runtimeIgnoreRules = []string{"/" + Bootstrap, "/.agent-comms/"}
 
 // EnsureRuntimeHidden adds runtimeIgnoreRules to the project's .gitignore
 // if the project root is a Git repository, creating the file if the
@@ -188,7 +210,7 @@ func ManagedFiles(config Config) map[string][]byte {
 		bootstrap = ServiceBootstrap()
 	}
 	return map[string][]byte{
-		".agents": bootstrap,
+		Bootstrap: bootstrap,
 		filepath.Join(Runtime, "AGENT_INSTRUCTIONS.md"): AgentInstructions(),
 		filepath.Join(Runtime, ".gitignore"):            []byte("cache/\ntmp/\n"),
 	}
@@ -208,7 +230,7 @@ func (s *Store) ManagedBootstrapValid() bool {
 	if err != nil {
 		return false
 	}
-	actual, err := os.ReadFile(filepath.Join(s.Root, ".agents"))
+	actual, err := os.ReadFile(filepath.Join(s.Root, Bootstrap))
 	if err != nil {
 		return false
 	}
