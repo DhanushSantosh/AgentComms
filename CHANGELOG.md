@@ -65,6 +65,12 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
   | `task claim --repo` | `task claim --worktree` (`--repo` hidden alias, one release) |
 
 **Fixed**
+- `agent register` now states the new agent's `PENDING` status, that the
+  session's own active profile did not switch to it, who can activate it,
+  and the exact `agent activate` command to run. `status` now shows a
+  leading "Acting as `<actor>` · `<role>` · `<status>`" line and the
+  project root, instead of only project-wide counts with no indication of
+  which identity is making the request or whether it can act yet.
 - `install.sh`'s checksum fallback (`sha256sum` unavailable, fall back to
   `shasum`) never actually ran: a shell pipeline's exit status is its
   *last* command's, not `sha256sum`'s, so a missing `sha256sum` still left

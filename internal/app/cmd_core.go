@@ -554,10 +554,24 @@ func (c *cli) statusCmd() *cobra.Command {
 			_ = json.Unmarshal(raw, &result)
 		}
 		result["breakdown"] = breakdown
+		// UX-03: status previously showed only aggregate project counts,
+		// never which identity is acting or whether it's actually usable
+		// yet -- a newly registered (PENDING) agent had no way to see that
+		// fact here, only by having a write fail with a generic
+		// AUTHORIZATION hint. "You" is one glance, always present,
+		// regardless of whether c.actor happens to be registered at all
+		// (an unregistered/legacy actor still has a project to report on).
+		you := "unregistered"
+		if agent, ok := v.Agents[c.actor]; ok {
+			you = fmt.Sprintf("%s · %s", agent.Role, agent.Status)
+		}
+		result["acting_as"] = map[string]any{"actor": c.actor, "state": you, "project_root": c.svc.Store.Root}
 		return c.emitDocument("status", result, cliui.Document{
 			Title:  "Project status",
 			Status: status,
 			Fields: []cliui.Field{
+				{Label: "Acting as", Value: fmt.Sprintf("%s · %s", c.actor, you)},
+				{Label: "Project", Value: cliui.SanitizeInline(c.svc.Store.Root)},
 				{Label: "Agents", Value: fmt.Sprint(len(v.Agents))},
 				{Label: "Runtimes", Value: fmt.Sprintf("%d (%d online)", len(v.AgentRuntimes), onlineRuntimes)},
 				{Label: "Tasks", Value: fmt.Sprint(len(v.Tasks))},

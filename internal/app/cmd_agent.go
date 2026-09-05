@@ -32,9 +32,10 @@ func (c *cli) agentCmd() *cobra.Command {
 		// where their identity was persisted.
 		type registerResult struct {
 			model.Event
-			ProfileName string `json:"profile_name"`
-			ProjectRoot string `json:"project_root"`
-			ActorSource string `json:"actor_source"`
+			ProfileName   string `json:"profile_name"`
+			ProjectRoot   string `json:"project_root"`
+			ActorSource   string `json:"actor_source"`
+			ActiveProfile string `json:"active_profile"`
 		}
 		actorSource := "self-registration"
 		if id != c.actor {
@@ -49,17 +50,31 @@ func (c *cli) agentCmd() *cobra.Command {
 			ProfileName: cfg.ProjectID + ":" + id,
 			ProjectRoot: c.svc.Store.Root,
 			ActorSource: actorSource,
+			// UX-03: registering a different id never switches the
+			// session's own active profile -- the CLI keeps writing as
+			// whoever ran this command (c.actor). Reported explicitly
+			// instead of leaving it to be inferred, because acting on that
+			// wrong assumption is exactly what produced the "active
+			// principal required" surprise the audit reproduced: a script
+			// that registers an agent and immediately tries to act as it
+			// (still unactivated, and the session is still signed as the
+			// sponsor either way) fails for two independent reasons at
+			// once, easy to conflate into one.
+			ActiveProfile: c.actor,
 		}
 		return c.emitDocument("agent.register", result, cliui.Document{
-			Title:  "Agent registered",
+			Title:  "Agent registered · PENDING, awaiting activation",
 			Status: cliui.StatusSuccess,
 			Fields: []cliui.Field{
 				{Label: "Agent", Value: id},
+				{Label: "Status", Value: "PENDING"},
 				{Label: "Registered by", Value: c.actor},
+				{Label: "Active profile", Value: c.actor + " (unchanged -- registering never switches it)"},
 				{Label: "Profile", Value: result.ProfileName},
 				{Label: "Project", Value: result.ProjectRoot},
 				{Label: "Sequence", Value: fmt.Sprint(v.Sequence)},
 			},
+			Hint: fmt.Sprintf("An active orchestrator or human principal must run `agent-comms agent activate --id %s --role <role> --scope <scope>` before %s can act.", id, id),
 		})
 	}}
 	reg.Flags().String("id", "", "principal ID")

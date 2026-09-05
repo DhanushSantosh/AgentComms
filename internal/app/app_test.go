@@ -180,6 +180,105 @@ func TestMutationCommandPlainOutputIsAConciseReceipt(t *testing.T) {
 	}
 }
 
+// TestAgentRegisterExplainsPendingActivation is the regression test for
+// UX-03: the registration receipt used to print identity/profile/sequence
+// but never said the new agent is PENDING, that the session's own active
+// profile did not switch to it, who can activate it, or the exact command
+// to do so -- a caller had to already know the model to avoid the "active
+// principal required" surprise the audit reproduced.
+func TestAgentRegisterExplainsPendingActivation(t *testing.T) {
+	project := t.TempDir()
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
+	cleanupProjectDaemon(t, project)
+	var stdout, stderr bytes.Buffer
+	if err := Run([]string{"init", "--project", project, "--non-interactive", "--owner", "owner", "--json"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if err := Run([]string{"agent", "register", "--project", project, "--id", "builder", "--output", "plain"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	plain := stdout.String()
+	for _, want := range []string{
+		"PENDING", "awaiting activation",
+		"owner (unchanged -- registering never switches it)",
+		"agent-comms agent activate --id builder",
+	} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("registration receipt is missing %q:\n%s", want, plain)
+		}
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if err := Run([]string{"agent", "register", "--project", project, "--id", "builder2", "--json"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	var envelope struct {
+		Result struct {
+			ActiveProfile string `json:"active_profile"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Result.ActiveProfile != "owner" {
+		t.Fatalf("active_profile = %q, want %q (registering must never implicitly switch the session's own actor)", envelope.Result.ActiveProfile, "owner")
+	}
+}
+
+// TestStatusShowsActingIdentity is the regression test for UX-03's other
+// half: `status` reported project-wide counts but never which identity was
+// making the request, its role/activation state, or the project root --
+// the exact context a person or script needs to explain "who am I and can
+// I act" without a failed write first.
+func TestStatusShowsActingIdentity(t *testing.T) {
+	project := t.TempDir()
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
+	cleanupProjectDaemon(t, project)
+	var stdout, stderr bytes.Buffer
+	if err := Run([]string{"init", "--project", project, "--non-interactive", "--owner", "owner", "--json"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if err := Run([]string{"status", "--project", project, "--output", "plain"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	plain := stdout.String()
+	for _, want := range []string{"Acting as", "owner", "OWNER", "ACTIVE", "Project", project} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("status output is missing %q:\n%s", want, plain)
+		}
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if err := Run([]string{"status", "--project", project, "--actor", "nobody-registered", "--json"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	var envelope struct {
+		Result struct {
+			ActingAs struct {
+				Actor       string `json:"actor"`
+				State       string `json:"state"`
+				ProjectRoot string `json:"project_root"`
+			} `json:"acting_as"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Result.ActingAs.State != "unregistered" {
+		t.Fatalf("state for an unregistered actor = %q, want %q", envelope.Result.ActingAs.State, "unregistered")
+	}
+}
+
 func TestVerboseAndDetailsExpandHumanOutputWithoutChangingJSONMode(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	if err := Run([]string{"version", "--output", "plain", "--verbose", "--details"}, &stdout, &stderr); err != nil {
