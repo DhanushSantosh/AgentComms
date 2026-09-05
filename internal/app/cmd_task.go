@@ -147,7 +147,11 @@ func (c *cli) taskCmd() *cobra.Command {
 			task := st.Tasks[id]
 			rows = append(rows, []string{id, task.Title, task.Status, task.Owner, task.Branch})
 		}
-		return c.emitTable("task.list", st.Tasks, []string{"ID", "TITLE", "STATUS", "OWNER", "BRANCH"}, rows)
+		// UX-15: `task list` has no filters (unlike invocation list/message
+		// inbox), so an empty result always means the same thing -- name
+		// the next step instead of a bare "(no rows)".
+		return c.emitTableWithEmpty("task.list", st.Tasks, []string{"ID", "TITLE", "STATUS", "OWNER", "BRANCH"},
+			"No tasks yet. Use `agent-comms task create` to add one.", rows)
 	}}
 	var lockWorktree, lockNote string
 	var lockDuration time.Duration

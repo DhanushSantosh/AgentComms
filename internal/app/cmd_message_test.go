@@ -207,6 +207,55 @@ func TestApprovalShowDefaultsIncludeReviewedOperationAndExpiry(t *testing.T) {
 	}
 }
 
+// TestInboxEmptyStateDistinguishesNothingFromNoMatches is the regression
+// test for UX-15: an empty inbox and a filter (--unread/--from) matching
+// nothing real both used to print the identical "(no rows)", giving no
+// signal about which case it was or what to do about it.
+func TestInboxEmptyStateDistinguishesNothingFromNoMatches(t *testing.T) {
+	project := t.TempDir()
+	cleanupProjectDaemon(t, project)
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
+	var out, stderr bytes.Buffer
+	run := func(args ...string) error {
+		t.Helper()
+		out.Reset()
+		stderr.Reset()
+		args = append(args, "--project", project)
+		return Run(args, &out, &stderr)
+	}
+	must := func(args ...string) {
+		t.Helper()
+		if err := run(args...); err != nil {
+			t.Fatalf("%v: %v\n%s", args, err, stderr.String())
+		}
+	}
+	must("init", "--non-interactive", "--owner", "owner", "--mode", "personal", "--json")
+	must("agent", "register", "--actor", "owner", "--id", "recipient", "--json")
+	must("agent", "activate", "--actor", "owner", "--id", "recipient", "--role", "AGENT", "--scope", "src", "--json")
+
+	// Nothing addressed to this actor at all.
+	if err := run("message", "inbox", "--actor", "recipient"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "Nothing addressed to you yet") {
+		t.Fatalf("expected the genuinely-empty message, got: %q", out.String())
+	}
+
+	// A real message exists, but --from matches nothing.
+	must("message", "post", "--actor", "owner", "--id", "msg-1", "--kind", "FYI",
+		"--to", "recipient", "--subject", "Hi", "--json")
+	if err := run("message", "inbox", "--actor", "recipient", "--from", "nobody"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "No messages match this filter") {
+		t.Fatalf("expected the filtered-empty message, got: %q", out.String())
+	}
+	if strings.Contains(out.String(), "Nothing addressed to you yet") {
+		t.Fatal("filtered-empty must not read as genuinely empty")
+	}
+}
+
 // extractResult pulls the "result" field out of a --json envelope.
 func extractResult(t *testing.T, envelope []byte) []byte {
 	t.Helper()

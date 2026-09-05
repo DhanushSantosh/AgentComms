@@ -77,8 +77,21 @@ func (c *cli) messageCmd() *cobra.Command {
 		unread, _ := cmd.Flags().GetBool("unread")
 		from, _ := cmd.Flags().GetString("from")
 		limit, _ := cmd.Flags().GetInt("limit")
+		filtered := unread || from != ""
+		addressedToActor := false
 		out := map[string]model.Message{}
 		for id, m := range st.Messages {
+			toActor := false
+			for _, to := range m.To {
+				if to == c.actor {
+					toActor = true
+					break
+				}
+			}
+			if !toActor {
+				continue
+			}
+			addressedToActor = true
 			// UX-05: unread must reflect *this* recipient's own obligation,
 			// not the message's aggregate Status -- a two-recipient ACTION
 			// stays "OPEN" (aggregate) until every recipient has responded,
@@ -102,12 +115,7 @@ func (c *cli) messageCmd() *cobra.Command {
 			if from != "" && m.From != from {
 				continue
 			}
-			for _, to := range m.To {
-				if to == c.actor {
-					out[id] = m
-					break
-				}
-			}
+			out[id] = m
 		}
 		// UX-05: sort before limiting, not after -- trimming a Go map
 		// (whose iteration order is randomized per-run) before sorting
@@ -134,7 +142,16 @@ func (c *cli) messageCmd() *cobra.Command {
 		// stability) is unchanged; only removal priority moves.
 		headers := []string{"ID", "KIND", "FROM", "STATUS", "SUBJECT"}
 		priorities := []int{4, 2, 0, 3, 1}
-		return c.emitTableWithPriorities("message.inbox", out, headers, priorities, rows)
+		// UX-15: "(no rows)" read identically whether nothing has ever been
+		// addressed to this actor or --unread/--from just narrowed a real
+		// inbox to zero -- distinguish the two and name the fix for the
+		// filtered case (the unfiltered case has no fix to name; posting a
+		// message is someone else's action, not this actor's).
+		empty := "Nothing addressed to you yet."
+		if filtered && addressedToActor {
+			empty = "No messages match this filter. Remove --unread/--from to see everything addressed to you."
+		}
+		return c.emitTableFull("message.inbox", out, headers, priorities, empty, rows)
 	}}
 	inbox.Flags().Bool("unread", false, "show only unread messages")
 	inbox.Flags().String("from", "", "filter by sender")

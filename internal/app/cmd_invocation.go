@@ -191,7 +191,14 @@ func (c *cli) invocationCmd() *cobra.Command {
 			inv := result[id]
 			rows = append(rows, []string{id, inv.Target, inv.Status, inv.Priority, inv.RequestedBy})
 		}
-		return c.emitTable("invocation.list", result, headers, rows)
+		// UX-15: distinguish no invocations at all from a --status/--to
+		// filter matching nothing real, and name the fix for the filtered
+		// case.
+		empty := "No invocations yet. Use `agent-comms invocation request` to create one."
+		if (status != "" || targetFilter != "") && len(state.Invocations) > 0 {
+			empty = "No invocations match this filter. Remove --status/--to to see everything."
+		}
+		return c.emitTableWithEmpty("invocation.list", result, headers, empty, rows)
 	}}
 	list.Flags().String("status", "", "filter by status")
 	list.Flags().String("to", "", "filter by target agent")

@@ -60,6 +60,53 @@ func TestInvocationRequestExplainsPendingConsumer(t *testing.T) {
 	}
 }
 
+// TestInvocationListEmptyStateDistinguishesNothingFromNoMatches is the
+// regression test for UX-15: a project with zero invocations and a
+// --status/--to filter matching nothing both used to print the identical
+// "(no rows)".
+func TestInvocationListEmptyStateDistinguishesNothingFromNoMatches(t *testing.T) {
+	project := t.TempDir()
+	cleanupProjectDaemon(t, project)
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
+	var out, stderr bytes.Buffer
+	run := func(args ...string) error {
+		t.Helper()
+		out.Reset()
+		stderr.Reset()
+		args = append(args, "--project", project, "--actor", "owner")
+		return Run(args, &out, &stderr)
+	}
+	must := func(args ...string) {
+		t.Helper()
+		if err := run(args...); err != nil {
+			t.Fatalf("%v: %v\n%s", args, err, stderr.String())
+		}
+	}
+	must("init", "--non-interactive", "--owner", "owner", "--mode", "personal", "--json")
+
+	if err := run("invocation", "list"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "No invocations yet") {
+		t.Fatalf("expected the genuinely-empty message, got: %q", out.String())
+	}
+
+	must("agent", "register", "--id", "builder", "--json")
+	must("agent", "activate", "--id", "builder", "--role", "AGENT", "--scope", "src", "--json")
+	must("invocation", "request", "--id", "inv-1", "--to", "builder", "--instruction", "say hi", "--json")
+
+	if err := run("invocation", "list", "--status", "COMPLETED"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "No invocations match this filter") {
+		t.Fatalf("expected the filtered-empty message, got: %q", out.String())
+	}
+	if strings.Contains(out.String(), "No invocations yet") {
+		t.Fatal("filtered-empty must not read as genuinely empty")
+	}
+}
+
 // TestInvocationInspectShowsInstructionByDefault is the regression test for
 // UX-08's inspect half: instruction (what the invocation actually asked
 // for) was only visible under --details/--json even though it's the first

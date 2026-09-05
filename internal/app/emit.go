@@ -95,6 +95,14 @@ func (c *cli) emitTable(command string, v any, headers []string, rows [][]string
 	return c.emitTableWithPriorities(command, v, headers, nil, rows, warnings...)
 }
 
+// emitTableWithEmpty is emitTable with an explicit zero-row message
+// (cliui.Table.Empty) instead of the generic "(no rows)". UX-15: use this
+// for any list a filter can narrow, so "nothing exists yet" and "nothing
+// matches your filter" read differently and name a next step.
+func (c *cli) emitTableWithEmpty(command string, v any, headers []string, empty string, rows [][]string, warnings ...string) error {
+	return c.emitTableFull(command, v, headers, nil, empty, rows, warnings...)
+}
+
 // emitTableWithPriorities is emitTable with explicit column-removal
 // priorities (cliui.Table.Priorities -- higher removes first under width
 // pressure). A nil priorities slice keeps emitTable's existing default
@@ -105,6 +113,12 @@ func (c *cli) emitTable(command string, v any, headers []string, rows [][]string
 // actually came to read -- was the last column and so the first one
 // dropped at a narrow width, with the long machine ID protected instead.
 func (c *cli) emitTableWithPriorities(command string, v any, headers []string, priorities []int, rows [][]string, warnings ...string) error {
+	return c.emitTableFull(command, v, headers, priorities, "", rows, warnings...)
+}
+
+// emitTableFull is emitTable/emitTableWithPriorities/emitTableWithEmpty's
+// shared implementation.
+func (c *cli) emitTableFull(command string, v any, headers []string, priorities []int, empty string, rows [][]string, warnings ...string) error {
 	if c.json || c.quiet {
 		return c.emit(command, v, warnings...)
 	}
@@ -119,7 +133,7 @@ func (c *cli) emitTableWithPriorities(command string, v any, headers []string, p
 		Out:          c.out,
 		Mode:         mode,
 		Capabilities: cliui.DetectCapabilities(c.out, c.noColor),
-	}).RenderTable(cliui.Table{Headers: headers, Priorities: priorities, Rows: rows}); err != nil {
+	}).RenderTable(cliui.Table{Headers: headers, Priorities: priorities, Rows: rows, Empty: empty}); err != nil {
 		return err
 	}
 	presenter := cliui.Presenter{Out: c.out, Mode: mode, Capabilities: cliui.DetectCapabilities(c.out, c.noColor)}

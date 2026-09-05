@@ -19,6 +19,18 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
   See [RFC 0030](docs/rfcs/0030-agc-cli-alias.md).
 
 **Fixed**
+- `task list`, `message inbox`, and `invocation list` no longer print
+  the generic `(no rows)` for every empty result -- "nothing exists
+  yet" and "your filter matched nothing" now read differently, and
+  both name a next step (`task create`, clearing `--unread`/`--from`
+  or `--status`/`--to`). New `cliui.Table.Empty` field and
+  `emitTableWithEmpty` helper make this available to any other list
+  command. (UX-15; scoped to these three lists named in the audit's own
+  evidence -- a consistent filter/pagination system across every
+  entity, search on title/subject instead of only ID, and a "my work"
+  summary view are unaddressed follow-up work, and scale/pagination
+  changes need a 100/1,000/10,000-record benchmark first per the
+  audit's own acceptance note, not attempted here)
 - `update apply` failing after the binary was already replaced but
   before project reconciliation completed used to leave "did the
   binary actually change?" answerable only by parsing the error

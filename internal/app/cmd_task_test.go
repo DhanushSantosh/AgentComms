@@ -87,6 +87,32 @@ func TestTaskClaimDistinguishesScopeLeaseFromWorktreeLock(t *testing.T) {
 	}
 }
 
+// TestTaskListEmptyStateNamesTheNextAction is the regression test for
+// UX-15: `task list` on a fresh project used to print the same generic
+// "(no rows)" a permission-limited or filtered-to-zero view would, naming
+// no next step.
+func TestTaskListEmptyStateNamesTheNextAction(t *testing.T) {
+	project := t.TempDir()
+	cleanupProjectDaemon(t, project)
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
+	var out, stderr bytes.Buffer
+	run := func(args ...string) error {
+		args = append(args, "--project", project, "--actor", "owner")
+		return Run(args, &out, &stderr)
+	}
+	if err := run("init", "--non-interactive", "--owner", "owner", "--mode", "personal", "--json"); err != nil {
+		t.Fatalf("init: %v\n%s", err, stderr.String())
+	}
+	out.Reset()
+	if err := run("task", "list"); err != nil {
+		t.Fatalf("task list: %v\n%s", err, stderr.String())
+	}
+	if !strings.Contains(out.String(), "No tasks yet") || !strings.Contains(out.String(), "task create") {
+		t.Fatalf("expected an empty state naming the next action, got: %q", out.String())
+	}
+}
+
 // TestTaskClaimWithWorktreeShowsThePath is a sanity check alongside the
 // above: a real worktree claim must still show the actual path, not the
 // "not requested" placeholder.
