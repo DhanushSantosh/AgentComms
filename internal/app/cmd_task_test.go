@@ -39,3 +39,85 @@ func TestTaskCreateMissingBranchFailsFastWithFlagName(t *testing.T) {
 		t.Fatalf("error = %q, want it to name the missing --branch flag", err.Error())
 	}
 }
+
+// TestTaskClaimDistinguishesScopeLeaseFromWorktreeLock is the regression
+// test for UX-10: `task claim` without --worktree used to succeed with an
+// empty Worktree field in its receipt -- indistinguishable from "the lock
+// was acquired but happens to be blank" -- despite the command's own help
+// text implying it always acquires a working-directory lock.
+func TestTaskClaimDistinguishesScopeLeaseFromWorktreeLock(t *testing.T) {
+	project := t.TempDir()
+	cleanupProjectDaemon(t, project)
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
+	var out, stderr bytes.Buffer
+	run := func(args ...string) error {
+		out.Reset()
+		stderr.Reset()
+		args = append(args, "--project", project, "--actor", "owner")
+		return Run(args, &out, &stderr)
+	}
+	must := func(args ...string) {
+		if err := run(args...); err != nil {
+			t.Fatalf("%v: %v\n%s", args, err, stderr.String())
+		}
+	}
+	must("init", "--non-interactive", "--owner", "owner", "--mode", "personal", "--json")
+	must("task", "create", "--id", "task-1", "--title", "Scope only", "--branch", "main", "--resource", "src/x", "--json")
+
+	if err := run("task", "claim", "--id", "task-1"); err != nil {
+		t.Fatalf("task claim: %v\n%s", err, stderr.String())
+	}
+	plain := out.String()
+	if !strings.Contains(plain, "scope lease") {
+		t.Fatalf("claim receipt should name the scope lease explicitly, got:\n%s", plain)
+	}
+	if !strings.Contains(plain, "not requested") {
+		t.Fatalf("claim receipt should say the worktree lock was not requested, not leave it blank:\n%s", plain)
+	}
+
+	if err := run("task", "show", "--id", "task-1"); err != nil {
+		t.Fatalf("task show: %v\n%s", err, stderr.String())
+	}
+	plain = out.String()
+	for _, want := range []string{"not requested", "Protected resources", "src/x", "Lease expires"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("default task show is missing %q:\n%s", want, plain)
+		}
+	}
+}
+
+// TestTaskClaimWithWorktreeShowsThePath is a sanity check alongside the
+// above: a real worktree claim must still show the actual path, not the
+// "not requested" placeholder.
+func TestTaskClaimWithWorktreeShowsThePath(t *testing.T) {
+	project := t.TempDir()
+	cleanupProjectDaemon(t, project)
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
+	var out, stderr bytes.Buffer
+	run := func(args ...string) error {
+		out.Reset()
+		stderr.Reset()
+		args = append(args, "--project", project, "--actor", "owner")
+		return Run(args, &out, &stderr)
+	}
+	must := func(args ...string) {
+		if err := run(args...); err != nil {
+			t.Fatalf("%v: %v\n%s", args, err, stderr.String())
+		}
+	}
+	must("init", "--non-interactive", "--owner", "owner", "--mode", "personal", "--json")
+	must("task", "create", "--id", "task-2", "--title", "Worktree claim", "--branch", "main", "--resource", "src/y", "--json")
+
+	worktreePath := filepath.Join(project, "checkout")
+	if err := run("task", "claim", "--id", "task-2", "--worktree", worktreePath); err != nil {
+		t.Fatalf("task claim: %v\n%s", err, stderr.String())
+	}
+	if !strings.Contains(out.String(), worktreePath) {
+		t.Fatalf("claim receipt should show the actual worktree path, got:\n%s", out.String())
+	}
+	if strings.Contains(out.String(), "not requested") {
+		t.Fatalf("a real worktree claim must not say 'not requested':\n%s", out.String())
+	}
+}

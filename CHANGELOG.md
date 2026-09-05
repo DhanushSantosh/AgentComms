@@ -19,6 +19,13 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
   See [RFC 0030](docs/rfcs/0030-agc-cli-alias.md).
 
 **Fixed**
+- `task claim`'s receipt now reports "scope lease acquired" and
+  "Worktree lock: not requested (scope lease only)" as two distinct
+  outcomes instead of a blank Worktree field for a scope-only claim --
+  `claim`'s own help text implied a working-directory lock was always
+  acquired, even though `--worktree` is optional. `task show`'s default
+  view now includes lease expiry and protected resources, previously
+  visible only under `--details`. (UX-10)
 - `task create` now marks `--title`, `--branch`, and `--resource` as
   required flags, so an omission fails fast with cobra's own message
   naming the exact missing flag instead of reaching backend validation.

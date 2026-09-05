@@ -74,19 +74,30 @@ func (c *cli) taskCmd() *cobra.Command {
 		if e != nil {
 			return e
 		}
+		// UX-10: claim's own --help said it "acquires a working-directory
+		// lock," but --worktree is optional, so a scope-only claim (no
+		// --worktree) succeeded with a blank Worktree field -- easy to
+		// misread as "the lock was acquired but is empty" rather than
+		// "no worktree lock was requested at all." Report the two kinds of
+		// protection this command can grant separately and by name, per
+		// the audit's own proposed phrasing.
+		worktreeStatus := "not requested (scope lease only)"
+		if worktree != "" {
+			worktreeStatus = worktree
+		}
 		return c.emitDocument("task.claim", v, cliui.Document{
-			Title:  "Task claimed",
+			Title:  "Task claimed: scope lease acquired",
 			Status: cliui.StatusSuccess,
 			Fields: []cliui.Field{
 				{Label: "Task", Value: id},
 				{Label: "Actor", Value: c.actor},
 				{Label: "Lease until", Value: lease.Format(time.RFC3339)},
-				{Label: "Worktree", Value: worktree},
+				{Label: "Worktree lock", Value: worktreeStatus},
 			},
 			Hint: "Start the task when work begins, then renew the lease with progress before it expires.",
 		})
 	}}
-	claim.Short = "Claim a task and acquire its working-directory lock"
+	claim.Short = "Claim a task's scope lease, and its working-directory lock if --worktree is given"
 	claim.Flags().String("id", "", "task ID")
 	_ = claim.MarkFlagRequired("id")
 	claim.Flags().DurationVar(&leaseDuration, "duration", 4*time.Hour, "lease duration")
@@ -229,11 +240,25 @@ func (c *cli) taskCmd() *cobra.Command {
 		if !ok {
 			return nil, nil, false
 		}
-		return t, []cliui.Field{
+		// UX-10: lease expiry and protected resources -- exactly what a
+		// reviewer needs to tell "still safely held" from "about to lapse"
+		// and to know what a claim actually protects -- were only visible
+		// under --details, and Worktree's blank string for a scope-only
+		// claim was as ambiguous here as it was in claim's own receipt.
+		worktreeStatus := "not requested (scope lease only)"
+		if t.Worktree != "" {
+			worktreeStatus = t.Worktree
+		}
+		fields := []cliui.Field{
 			{Label: "Title", Value: t.Title}, {Label: "Status", Value: t.Status},
 			{Label: "Owner", Value: t.Owner}, {Label: "Branch", Value: t.Branch},
-			{Label: "Worktree", Value: t.Worktree},
-		}, true
+			{Label: "Worktree lock", Value: worktreeStatus},
+			{Label: "Protected resources", Value: strings.Join(t.Resources, ", ")},
+		}
+		if !t.LeaseUntil.IsZero() {
+			fields = append(fields, cliui.Field{Label: "Lease expires", Value: t.LeaseUntil.Local().Format(time.RFC3339)})
+		}
+		return t, fields, true
 	})
 	root.AddCommand(create, offer, claim, start, renew, block, review, complete, cancel, handoff, takeover, list, lock, show)
 	return root
