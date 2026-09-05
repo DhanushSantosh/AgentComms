@@ -727,6 +727,8 @@ func (m Model) openActionForm(spec *ActionForm, typ, id string) (tea.Model, tea.
 		prefill = spec.Prefill(m, id)
 	}
 	m.inputs = make([]textinput.Model, len(spec.Fields))
+	m.formPrefill = make([]string, len(spec.Fields))
+	m.formInitialValue = make([]string, len(spec.Fields))
 	for i, f := range spec.Fields {
 		input := textinput.New()
 		input.Prompt = f.Label + ": "
@@ -750,6 +752,17 @@ func (m Model) openActionForm(spec *ActionForm, typ, id string) (tea.Model, tea.
 				input.CharLimit = runeLen
 			}
 			input.SetValue(prefill[i])
+			// Codex review, 2026-09-05 (round 2): SetValue also collapses
+			// newlines/tabs to spaces (bubbles' own single-line sanitizer)
+			// -- fixing the truncation above still left a multiline body
+			// flattened to one line the moment it was prefilled, so even a
+			// title-only edit that never touched Body corrupted it. Keep
+			// the raw, unsanitized value and what the widget actually
+			// stored right after SetValue, so submit-time can tell "never
+			// edited" from "edited" and use the raw original for the
+			// former. See updateForm's Enter handling.
+			m.formPrefill[i] = prefill[i]
+			m.formInitialValue[i] = input.Value()
 		case len(f.Options) > 0:
 			input.SetValue(f.Options[0])
 		default:

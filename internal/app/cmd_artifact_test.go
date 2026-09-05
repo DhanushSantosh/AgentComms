@@ -240,3 +240,104 @@ func TestDocumentNotifyMessageIDsDoNotCollideAcrossDashes(t *testing.T) {
 		t.Fatalf("expected b-c to be actually notified, got: %+v", result.Notify)
 	}
 }
+
+// TestDocumentNotifyRecognizesLegacySchemeMessage is the regression test
+// for a codex-review follow-up caught after the ID-collision fix: a
+// notification already sent under the pre-fix ID scheme
+// ("msg-"+documentID+"-"+principal) used to be invisible to the new
+// scheme's existence check, so a retry recomputed the new ID, found
+// nothing there, and sent a genuine duplicate.
+func TestDocumentNotifyRecognizesLegacySchemeMessage(t *testing.T) {
+	project := t.TempDir()
+	cleanupProjectDaemon(t, project)
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
+	var out, stderr bytes.Buffer
+	run := func(args ...string) error {
+		out.Reset()
+		stderr.Reset()
+		args = append(args, "--project", project, "--json", "--quiet")
+		return Run(args, &out, &stderr)
+	}
+	must := func(args ...string) {
+		if err := run(args...); err != nil {
+			t.Fatalf("%v: %v\n%s", args, err, stderr.String())
+		}
+	}
+	must("init", "--non-interactive", "--owner", "owner", "--mode", "personal")
+	must("agent", "register", "--actor", "owner", "--id", "reviewer")
+	must("agent", "activate", "--actor", "owner", "--id", "reviewer", "--role", "AGENT", "--scope", "src")
+	must("document", "create", "--actor", "owner", "--id", "doc-1", "--title", "Plan", "--body", "plan")
+
+	// Simulate a notification that was already sent under the pre-fix
+	// scheme, before this document/notify pair ever went through the
+	// current code.
+	must("message", "post", "--actor", "owner", "--id", "msg-doc-1-reviewer", "--kind", "DECISION",
+		"--to", "reviewer", "--subject", "Plan", "--body", "Governed document doc-1 requires your acknowledgement.")
+
+	must("document", "notify", "--actor", "owner", "--id", "doc-1", "--notify", "reviewer")
+	var result struct {
+		Notify []documentNotifyResult `json:"notify"`
+	}
+	if err := json.Unmarshal(extractResult(t, out.Bytes()), &result); err != nil {
+		t.Fatalf("decode: %v\n%s", err, out.String())
+	}
+	if len(result.Notify) != 1 || result.Notify[0].Status != "already-sent" {
+		t.Fatalf("expected the legacy-scheme message to be recognized as already-sent, got: %+v", result.Notify)
+	}
+
+	must("message", "inbox", "--actor", "reviewer")
+	var inbox map[string]any
+	if err := json.Unmarshal(extractResult(t, out.Bytes()), &inbox); err != nil {
+		t.Fatalf("decode inbox: %v\n%s", err, out.String())
+	}
+	if len(inbox) != 1 {
+		t.Fatalf("expected exactly one notification message (no duplicate), found %d: %s", len(inbox), out.String())
+	}
+}
+
+// TestDocumentNotifyIgnoresUnrelatedMessageAtTheExpectedID is the
+// regression test for a codex-review follow-up: an unrelated message
+// (posted by anything else) that happens to occupy the exact ID a notify
+// message would use must not be mistaken for a genuine prior
+// notification -- ID presence alone was previously sufficient to report
+// "already-sent" without checking what that message actually was.
+func TestDocumentNotifyIgnoresUnrelatedMessageAtTheExpectedID(t *testing.T) {
+	project := t.TempDir()
+	cleanupProjectDaemon(t, project)
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
+	var out, stderr bytes.Buffer
+	run := func(args ...string) error {
+		out.Reset()
+		stderr.Reset()
+		args = append(args, "--project", project, "--json", "--quiet")
+		return Run(args, &out, &stderr)
+	}
+	must := func(args ...string) {
+		if err := run(args...); err != nil {
+			t.Fatalf("%v: %v\n%s", args, err, stderr.String())
+		}
+	}
+	must("init", "--non-interactive", "--owner", "owner", "--mode", "personal")
+	must("agent", "register", "--actor", "owner", "--id", "reviewer")
+	must("agent", "activate", "--actor", "owner", "--id", "reviewer", "--role", "AGENT", "--scope", "src")
+	must("document", "create", "--actor", "owner", "--id", "doc-1", "--title", "Plan", "--body", "plan")
+
+	// An unrelated FYI message, posted by something else entirely, happens
+	// to land on the exact ID a notify to "reviewer" for "doc-1" would use.
+	unrelatedID := notifyMessageID("doc-1", "reviewer")
+	must("message", "post", "--actor", "owner", "--id", unrelatedID, "--kind", "FYI",
+		"--to", "reviewer", "--subject", "Unrelated", "--body", "This has nothing to do with doc-1's acknowledgement.")
+
+	must("document", "notify", "--actor", "owner", "--id", "doc-1", "--notify", "reviewer")
+	var result struct {
+		Notify []documentNotifyResult `json:"notify"`
+	}
+	if err := json.Unmarshal(extractResult(t, out.Bytes()), &result); err != nil {
+		t.Fatalf("decode: %v\n%s", err, out.String())
+	}
+	if len(result.Notify) != 1 || result.Notify[0].Status == "already-sent" {
+		t.Fatalf("expected a real notification attempt, not false success from the unrelated message: %+v", result.Notify)
+	}
+}

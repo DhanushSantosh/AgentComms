@@ -58,6 +58,25 @@ type Model struct {
 	formFocus      int
 	formTaskID     string
 	formSpec       *ActionForm
+	// formPrefill and formInitialValue are UX-12/codex-review follow-up:
+	// textinput.Model is single-line and unconditionally collapses
+	// newlines/tabs to spaces (bubbles' own runeutil sanitizer, applied by
+	// every SetValue call) -- prefilling an existing multiline document
+	// body into one of these fields corrupted it immediately on load, so
+	// even a title-only edit that never touched Body silently republished
+	// it flattened to one line. formPrefill holds each field's raw,
+	// unsanitized prefill string (empty when the field had none);
+	// formInitialValue holds what the widget's own Value() actually
+	// returned right after that same SetValue call. At submit, a field
+	// whose current Value() still equals formInitialValue[i] was never
+	// edited, so the raw formPrefill[i] is submitted instead of the
+	// widget's (possibly flattened) current value -- an untouched field's
+	// original content, whitespace included, always survives; only actual
+	// typing goes through the single-line widget's own limitations, a
+	// separate, already-tracked gap (multiline editing is UX-12's own
+	// still-deferred item).
+	formPrefill      []string
+	formInitialValue []string
 	rowFocus       bool
 	taskList       RowList
 	messageList    RowList

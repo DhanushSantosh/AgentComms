@@ -77,6 +77,26 @@ decimal digit ever produces, so the split point between documentID and
 principal can never be misread regardless of what either one contains.
 No other part of this RFC's design changes.
 
+**Amendment 2, 2026-09-05 (same review, round 2 -- two more gaps the
+scheme change itself introduced or left open):**
+
+- **Retry no longer idempotent across the ID-scheme change.** A
+  document notified under the pre-amendment-1 scheme, then retried
+  after this fix, recomputed the new-scheme ID, found nothing there,
+  and sent a genuine second notification -- reproduced live.
+  `notifyDocumentRecipient` now checks both the current and the legacy
+  ID for an existing valid notification before deciding to send.
+- **ID presence alone is not proof of an actual notification.** Message
+  IDs are not a namespace this tool exclusively owns; an unrelated
+  message occupying a notify message's exact expected ID was treated as
+  `"already-sent"` on ID presence alone, silently skipping the real
+  notification. A candidate message under either ID is now also checked
+  against its actual Kind (`DECISION`), Body (the exact acknowledgement
+  text, which embeds documentID), and recipient list before being
+  trusted as a genuine prior notification.
+
+No other part of this RFC's design changes.
+
 ### 3. What does not change
 
 `document create`'s exit code is unaffected: a notification failure was

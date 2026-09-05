@@ -211,6 +211,15 @@ func (m Model) updateForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 			values := make([]string, len(m.inputs))
 			for i := range m.inputs {
 				raw[i] = m.inputs[i].Value()
+				// Codex review, 2026-09-05 (round 2): a field the operator
+				// never touched still reads back through the single-line
+				// widget's own sanitizer -- if this field was prefilled and
+				// its value is unchanged since that prefill, submit the
+				// original raw content (newlines/tabs intact) instead of
+				// what Value() flattened it to.
+				if i < len(m.formPrefill) && m.formPrefill[i] != "" && raw[i] == m.formInitialValue[i] {
+					raw[i] = m.formPrefill[i]
+				}
 				values[i] = strings.TrimSpace(raw[i])
 			}
 			// UX-12: name and focus the specific missing field instead of

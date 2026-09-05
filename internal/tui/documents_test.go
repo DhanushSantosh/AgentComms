@@ -217,3 +217,78 @@ func TestDocumentUpdateFormPrefillPreservesBodyLongerThan1200Chars(t *testing.T)
 		t.Fatalf("title-only edit lost body content: got %d chars, want %d", len(got), len(longBody))
 	}
 }
+
+// TestDocumentUpdateFormPrefillPreservesNewlinesAndTabs is the regression
+// test for a codex-review follow-up caught after the truncation fix above:
+// textinput.Model is single-line and its own SetValue unconditionally
+// collapses newlines/tabs to spaces (bubbles' runeutil sanitizer) --
+// prefilling a multiline document body corrupted it immediately on load,
+// so a title-only edit that never touched Body still flattened it to one
+// line on save.
+func TestDocumentUpdateFormPrefillPreservesNewlinesAndTabs(t *testing.T) {
+	instance := newTestService(t)
+	multilineBody := "First paragraph.\n\nSecond paragraph with a\ttab.\nThird line."
+	if _, err := instance.Execute("owner", "document.create", "guide-v1",
+		model.DocumentPayload{Title: "Operator guide", Body: multilineBody}); err != nil {
+		t.Fatal(err)
+	}
+	view, err := New(instance, "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	view.openView("Documents")
+	view.rowFocus = true
+	view = pressKey(t, view, keyText("e"))
+	if view.form != "document.update" {
+		t.Fatalf("expected document.update form, got %q", view.form)
+	}
+	// Edit only the title -- Body is never touched.
+	view.inputs[0].SetValue("Operator guide (revised)")
+	view.formFocus = len(view.inputs) - 1
+	view = pressKey(t, view, keyEnter())
+	if view.err != nil {
+		t.Fatal(view.err)
+	}
+	st, err := instance.State()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := st.Documents["guide-v1"].Body; got != multilineBody {
+		t.Fatalf("title-only edit flattened the untouched body:\ngot:  %q\nwant: %q", got, multilineBody)
+	}
+}
+
+// TestDocumentUpdateFormActuallyEditingBodyStillWorks is a sanity check
+// alongside the two prefill-preservation tests above: when the operator
+// really does change Body, the new typed value must be what's saved, not
+// the stale original prefill.
+func TestDocumentUpdateFormActuallyEditingBodyStillWorks(t *testing.T) {
+	instance := newTestService(t)
+	if _, err := instance.Execute("owner", "document.create", "guide-v1",
+		model.DocumentPayload{Title: "Operator guide", Body: "Original body"}); err != nil {
+		t.Fatal(err)
+	}
+	view, err := New(instance, "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	view.openView("Documents")
+	view.rowFocus = true
+	view = pressKey(t, view, keyText("e"))
+	if view.form != "document.update" {
+		t.Fatalf("expected document.update form, got %q", view.form)
+	}
+	view.inputs[1].SetValue("Actually edited body")
+	view.formFocus = len(view.inputs) - 1
+	view = pressKey(t, view, keyEnter())
+	if view.err != nil {
+		t.Fatal(view.err)
+	}
+	st, err := instance.State()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := st.Documents["guide-v1"].Body; got != "Actually edited body" {
+		t.Fatalf("actually-edited body was not saved: got %q", got)
+	}
+}

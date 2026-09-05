@@ -303,20 +303,72 @@ func notifyMessageID(documentID, principal string) string {
 	return fmt.Sprintf("msg-%d:%s:%s", len(documentID), documentID, principal)
 }
 
+// legacyNotifyMessageID reproduces the pre-collision-fix ID scheme
+// ("msg-" + documentID + "-" + principal, plain dash-joined). Only ever
+// used to recognize a notification a previous build of this tool already
+// sent under that scheme -- never to construct a new message ID.
+//
+// Codex review round 2, 2026-09-05: the collision fix above changed the ID
+// scheme outright, so a document already notified under the old scheme
+// before that fix was no longer found by the new scheme's existence check
+// -- a retry (or a second `document create --notify` for the same
+// document/principal) recomputed the new ID, found nothing there, and
+// sent a genuine duplicate notification. Checking both schemes' IDs before
+// deciding "already sent" makes retries idempotent across the format
+// change, not just within one format.
+func legacyNotifyMessageID(documentID, principal string) string {
+	return fmt.Sprintf("msg-%s-%s", documentID, principal)
+}
+
+// notifyBody is the exact acknowledgement body every notification for
+// (documentID) carries, under either ID scheme. Checking a candidate
+// message's Body against this (not just its ID) is what makes
+// notifyDocumentRecipient's "already sent" check safe against an
+// unrelated message that merely happens to occupy the expected ID:
+// message IDs are not a namespace this tool exclusively owns, so a
+// script or human could legitimately have posted something else there.
+func notifyBody(documentID string) string {
+	return "Governed document " + documentID + " requires your acknowledgement."
+}
+
+// isValidNotifyMessage reports whether m is genuinely a notification this
+// tool sent for (documentID, principal) -- Kind, Body, and recipient must
+// all match what notifyDocumentRecipient itself would have posted. An ID
+// match alone is not sufficient: it only proves *something* exists there.
+//
+// Codex review round 2, 2026-09-05: an unrelated message (posted by a
+// script, a human, or anything else) occupying a notify message's exact
+// expected ID used to be treated as "already-sent" on ID presence alone,
+// silently skipping the real notification without ever checking what that
+// message actually was.
+func isValidNotifyMessage(m model.Message, documentID, principal string) bool {
+	if m.Kind != "DECISION" || m.Body != notifyBody(documentID) {
+		return false
+	}
+	for _, recipient := range m.Recipients {
+		if recipient.Principal == principal {
+			return true
+		}
+	}
+	return false
+}
+
 // notifyDocumentRecipient posts (or confirms already-posted) a DECISION
-// acknowledgement message for one document/principal pair, using the
+// acknowledgement message for one document/principal pair, using a
 // deterministic ID scheme that lets a retry recognize a notification that
 // already went out instead of duplicating it.
 func notifyDocumentRecipient(c *cli, documentID, title, principal string) documentNotifyResult {
 	msgID := notifyMessageID(documentID, principal)
 	if st, e := c.svc.State(); e == nil {
-		if _, exists := st.Messages[msgID]; exists {
-			return documentNotifyResult{Principal: principal, MessageID: msgID, Status: "already-sent"}
+		for _, candidateID := range [2]string{msgID, legacyNotifyMessageID(documentID, principal)} {
+			if existing, exists := st.Messages[candidateID]; exists && isValidNotifyMessage(existing, documentID, principal) {
+				return documentNotifyResult{Principal: principal, MessageID: candidateID, Status: "already-sent"}
+			}
 		}
 	}
 	if _, ne := c.svc.Execute(c.actor, "message.post", msgID, model.MessagePosted{
 		Kind: "DECISION", To: []string{principal}, Subject: title,
-		Body: "Governed document " + documentID + " requires your acknowledgement.",
+		Body: notifyBody(documentID),
 	}); ne != nil {
 		return documentNotifyResult{Principal: principal, MessageID: msgID, Status: "failed", Error: ne.Error()}
 	}
