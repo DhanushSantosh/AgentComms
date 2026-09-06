@@ -348,8 +348,13 @@ img { max-width: 100%; }
 .collision-copy { order: 2; }
 .collision-lab { order: 1; }
 
-.demo-intro h2, .protocol-intro h2, .control-heading h2, .modes header h2 { font-family: var(--display); font-size: clamp(3rem, 5.8vw, 6rem); font-weight: 620; letter-spacing: -0.066em; line-height: 0.9; margin: 0; overflow-wrap: break-word; text-wrap: balance; }
-.collision-copy h2, .relay-copy h2, .trust-lede h2 { font-family: var(--display); font-size: clamp(2.3rem, 4.2vw, 4.2rem); font-weight: 620; letter-spacing: -0.058em; line-height: 0.96; margin: 0; text-wrap: balance; }
+.demo-intro h2, .control-heading h2, .modes header h2 { font-family: var(--display); font-size: clamp(3rem, 5.8vw, 6rem); font-weight: 620; letter-spacing: -0.066em; line-height: 0.9; margin: 0; overflow-wrap: break-word; text-wrap: balance; }
+/* protocol-intro's headline is a two-sentence statement (like trust-lede's),
+   not a short one-line tagline (like demo-intro/control-heading/modes
+   header) -- sharing the bigger scale wrapped it to four lines and made
+   the section read oversized next to its neighbors, so it takes the same
+   scale trust-lede already uses for the same shape of headline. */
+.collision-copy h2, .relay-copy h2, .trust-lede h2, .protocol-intro h2 { font-family: var(--display); font-size: clamp(2.3rem, 4.2vw, 4.2rem); font-weight: 620; letter-spacing: -0.058em; line-height: 0.96; margin: 0; text-wrap: balance; }
 .collision-copy > p:last-child, .protocol-intro > p:last-child, .relay-copy > p, .control-heading > p:last-child { color: var(--steel-light); font-size: clamp(0.92rem, 1.25vw, 1.1rem); line-height: 1.7; margin: 1.8rem 0 0; max-width: 34rem; }
 .collision-lab { align-self: end; background: var(--panel); border: 1px solid var(--line-dark); color: var(--text); min-width: 0; position: relative; }
 .lab-toolbar { align-items: center; border-bottom: 1px solid var(--line-dark); display: flex; flex-wrap: wrap; font-family: var(--mono); gap: 0.8rem; justify-content: space-between; padding: 0.75rem 1rem; }
@@ -410,12 +415,14 @@ img { max-width: 100%; }
 /* Stacked full-width, not the copy/panel split every other section uses --
    the instrument is dense enough to earn the whole row, and stacking
    breaks up the page's otherwise-relentless two-column rhythm. */
-.protocol { background: var(--ink); border-top: 1px solid var(--line-dark); color: var(--ice); padding: clamp(6rem, 9vw, 9rem) var(--gutter); }
+.protocol { background: var(--ink); border-top: 1px solid var(--line-dark); color: var(--ice); padding: clamp(5rem, 7vw, 7rem) var(--gutter); }
 /* Proportional 2-column, not a fixed-width block floating in a
    full-width section -- a rem-capped single column reads fine at
    ~1440px but leaves most of a wide desktop monitor empty, since it
-   doesn't grow with the viewport the way an fr track does. */
-.protocol-reveal { align-items: center; display: grid; gap: clamp(3rem, 6vw, 6rem); grid-template-columns: minmax(20rem, 0.85fr) minmax(24rem, 1.15fr); }
+   doesn't grow with the viewport the way an fr track does. Even split,
+   not 0.85/1.15: giving the diagram the bigger share was what let it
+   outgrow the text and dictate an oversized section height. */
+.protocol-reveal { align-items: center; display: grid; gap: clamp(3rem, 6vw, 6rem); grid-template-columns: minmax(20rem, 1fr) minmax(22rem, 1fr); }
 .protocol-intro { max-width: 46rem; }
 .protocol .eyebrow { color: var(--cyan); }
 .protocol-intro > p:last-child { color: var(--steel-light); }
@@ -1482,7 +1489,7 @@ img { max-width: 100%; }
   .protocol-readout { border-left: 0; border-top: 1px solid var(--line-dark); min-height: 29rem; }
   .protocol-readout > p { margin: 2.2rem 0; }
   .motion-ready .protocol:not(.is-revealed) .protocol-instrument { clip-path: inset(0 0 100% 0); }
-  .demo-intro h2, .protocol-intro h2, .control-heading h2, .modes header h2 { font-size: clamp(1.9rem, 10vw, 3rem); }
+  .demo-intro h2, .control-heading h2, .modes header h2 { font-size: clamp(1.9rem, 10vw, 3rem); }
   .relay-sequence { min-height: 30rem; }
   .relay-party { width: 10.4rem; }
   .relay-message { left: 16%; top: 35%; width: 70%; }

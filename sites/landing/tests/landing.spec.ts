@@ -244,10 +244,23 @@ test("offers a build-from-source card with inline commands, not a prebuilt dev c
   await page.goto("/download");
 
   await expect(page.locator("#nightly")).toHaveCount(0);
-  await expect(page.getByRole("heading", { level: 2, name: "Build from source" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 2, name: "Building from source?" })).toBeVisible();
+  await expect(page.getByText("FOR CONTRIBUTORS", { exact: true })).toBeVisible();
   await expect(page.locator("code").filter({ hasText: "git clone" })).toBeVisible();
   const contributingLink = page.getByRole("link", { name: /Other shipped binaries/i });
   await expect(contributingLink).toHaveAttribute("href", /CONTRIBUTING\.md#build-from-source/);
+});
+
+test("does not present build-from-source as a third installer", async ({ page }) => {
+  await page.goto("/download");
+
+  // Only the two real installers appear in the numbered INSTALL INDEX --
+  // build-from-source is a distinct, separately-labeled path for
+  // contributors, not an equal-weight "03."
+  const installIndexItems = page.locator("#installer").getByRole("listitem");
+  await expect(installIndexItems).toHaveCount(2);
+  await expect(page.getByRole("heading", { level: 2, name: "Linux + macOS" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 2, name: "Windows" })).toBeVisible();
 });
 
 test("reveals and activates installer rows as they enter the viewport", async ({ page }) => {

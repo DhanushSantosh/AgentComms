@@ -28,7 +28,13 @@ const downloadNavItems = [
   { label: "Releases", href: "/releases" }
 ];
 
-const desk = [...installerMethods, buildFromSourceMethod];
+// buildFromSourceMethod is deliberately not in `desk` -- it's a
+// contributor path, not a third installer for the general audience the
+// numbered INSTALL INDEX and platform cards are built for. It gets its
+// own, visually distinct treatment lower on the page instead of sitting
+// as an equal-weight "03" alongside Linux/macOS and Windows.
+const desk = installerMethods;
+const sourceCommandID = "install-command-source";
 
 export default function DownloadPage() {
   return (
@@ -94,18 +100,39 @@ export default function DownloadPage() {
                         data-copy-command
                       ><span data-copy-label>Copy</span><b aria-hidden="true" /></button>
                     </div>
-                    {"detailUrl" in method && (
-                      <p className={styles.sourceNote}>
-                        Unsigned, no <code>agent-comms update</code>, no verified provenance — for trying{" "}
-                        <code>dev</code> or running your own build.{" "}
-                        <a href={method.detailUrl}>Other shipped binaries & contributing ↗</a>
-                      </p>
-                    )}
                   </article>
                 );
               })}
             </div>
           </section>
+
+          {/* Build from source: a contributor path, not a third installer
+              for the general audience the section above is built for --
+              given its own small, clearly-labeled aside instead of an
+              equal-weight numbered card, so it reads as "also available,
+              for developers" rather than "pick one of three." */}
+          <aside className={styles.sourceBuild} id={buildFromSourceMethod.id} aria-label="Build from source" data-reveal="download-source">
+            <p className={styles.sourceBuildTag}>FOR CONTRIBUTORS</p>
+            <div className={styles.sourceBuildHead}>
+              <h2>Building from source?</h2>
+              <p>{buildFromSourceMethod.requirements}</p>
+            </div>
+            <div className={styles.installCommand}>
+              <pre><code id={sourceCommandID}>{buildFromSourceMethod.command}</code></pre>
+              <button
+                type="button"
+                aria-live="polite"
+                aria-label={`Copy ${buildFromSourceMethod.name} command`}
+                data-command-source={sourceCommandID}
+                data-copy-command
+              ><span data-copy-label>Copy</span><b aria-hidden="true" /></button>
+            </div>
+            <p className={styles.sourceNote}>
+              Unsigned, no <code>agent-comms update</code>, no verified provenance — for trying{" "}
+              <code>dev</code> or running your own build.{" "}
+              <a href={buildFromSourceMethod.detailUrl}>Other shipped binaries & contributing ↗</a>
+            </p>
+          </aside>
         </section>
 
         <section className={styles.handoff} aria-labelledby="handoff-heading" data-reveal="download-handoff">
