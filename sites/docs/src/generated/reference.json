@@ -2710,6 +2710,93 @@
       ]
     },
     {
+      "path": "agent-comms document notify",
+      "use": "agent-comms document notify [flags]",
+      "summary": "Retry a document acknowledgement notification",
+      "flags": [
+        {
+          "name": "actor",
+          "usage": "actor override (credential must match)",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "details",
+          "usage": "show secondary and nested fields in human output",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "id",
+          "usage": "document ID",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "json",
+          "usage": "emit a versioned JSON envelope",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "no-color",
+          "usage": "disable ANSI color",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "non-interactive",
+          "usage": "never prompt",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "notify",
+          "usage": "principal to (re)notify (repeatable)",
+          "default": "[]",
+          "type": "stringSlice"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
+          "name": "profile",
+          "usage": "user profile name",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "project",
+          "usage": "target project root",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "quiet",
+          "shorthand": "q",
+          "usage": "suppress non-essential output",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "timeout",
+          "usage": "transaction lock timeout",
+          "default": "10s",
+          "type": "duration"
+        },
+        {
+          "name": "verbose",
+          "shorthand": "v",
+          "usage": "show operational metadata in human output",
+          "default": "false",
+          "type": "bool"
+        }
+      ]
+    },
+    {
       "path": "agent-comms document show",
       "use": "agent-comms document show [flags]",
       "summary": "Show one governed document by ID",
@@ -9286,7 +9373,7 @@
     {
       "path": "agent-comms task claim",
       "use": "agent-comms task claim [flags]",
-      "summary": "Claim a task and acquire its working-directory lock",
+      "summary": "Claim a task's scope lease, and its working-directory lock if --worktree is given",
       "flags": [
         {
           "name": "actor",
@@ -9549,7 +9636,7 @@
         },
         {
           "name": "resource",
-          "usage": "write resource",
+          "usage": "write resource (repeatable; at least one required)",
           "default": "[]",
           "type": "stringSlice"
         },
