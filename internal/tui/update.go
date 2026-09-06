@@ -217,10 +217,25 @@ func (m Model) updateForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// its value is unchanged since that prefill, submit the
 				// original raw content (newlines/tabs intact) instead of
 				// what Value() flattened it to.
-				if i < len(m.formPrefill) && m.formPrefill[i] != "" && raw[i] == m.formInitialValue[i] {
+				restoredFromPrefill := i < len(m.formPrefill) && m.formPrefill[i] != "" && raw[i] == m.formInitialValue[i]
+				if restoredFromPrefill {
 					raw[i] = m.formPrefill[i]
 				}
-				values[i] = strings.TrimSpace(raw[i])
+				// Codex review, 2026-09-05 (round 3): TrimSpace ran
+				// unconditionally here, including on a field just restored
+				// to its raw, untouched original above -- stripping a
+				// leading-indented first line or a trailing newline from
+				// content the operator never edited (reproduced: "  x\ny\n"
+				// -> "x\ny"), which can change Markdown code-block
+				// formatting nobody asked to change. Trimming stray
+				// whitespace only makes sense for what was actually typed
+				// into the widget; an untouched field's original content is
+				// submitted exactly as it was.
+				if restoredFromPrefill {
+					values[i] = raw[i]
+				} else {
+					values[i] = strings.TrimSpace(raw[i])
+				}
 			}
 			// UX-12: name and focus the specific missing field instead of
 			// one generic "complete every required field" notice that left

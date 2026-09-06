@@ -68,6 +68,11 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
   now noted explicitly instead of read as a stale CLI example). (UX-13;
   semantic example-checking in release automation, beyond link
   checking, is unaddressed follow-up work)
+- TUI: a title-only document-update edit no longer strips the untouched
+  body's leading indentation or trailing newline (`strings.TrimSpace`
+  was applied unconditionally, even to a field just restored to its raw
+  original content) -- could silently change Markdown code-block
+  formatting nobody asked to change.
 - TUI: a missing required field on any create/edit form now names the
   exact field ("Body is required.") and moves focus to it, instead of
   one generic "Complete every required field." `document update`'s

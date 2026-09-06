@@ -292,3 +292,43 @@ func TestDocumentUpdateFormActuallyEditingBodyStillWorks(t *testing.T) {
 		t.Fatalf("actually-edited body was not saved: got %q", got)
 	}
 }
+
+// TestDocumentUpdateFormPrefillPreservesBoundaryWhitespace is the
+// regression test for a codex-review follow-up caught after the
+// newline/tab preservation fix above: TrimSpace ran unconditionally on
+// every field's value, including one just restored to its raw, untouched
+// original -- stripping a leading-indented first line or trailing newline
+// from content the operator never edited, which can change Markdown
+// code-block formatting nobody asked to change.
+func TestDocumentUpdateFormPrefillPreservesBoundaryWhitespace(t *testing.T) {
+	instance := newTestService(t)
+	body := "  indented first line\nnext line\n"
+	if _, err := instance.Execute("owner", "document.create", "guide-v1",
+		model.DocumentPayload{Title: "Operator guide", Body: body}); err != nil {
+		t.Fatal(err)
+	}
+	view, err := New(instance, "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	view.openView("Documents")
+	view.rowFocus = true
+	view = pressKey(t, view, keyText("e"))
+	if view.form != "document.update" {
+		t.Fatalf("expected document.update form, got %q", view.form)
+	}
+	// Edit only the title -- Body is never touched.
+	view.inputs[0].SetValue("Operator guide (revised)")
+	view.formFocus = len(view.inputs) - 1
+	view = pressKey(t, view, keyEnter())
+	if view.err != nil {
+		t.Fatal(view.err)
+	}
+	st, err := instance.State()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := st.Documents["guide-v1"].Body; got != body {
+		t.Fatalf("title-only edit changed the untouched body's boundary whitespace:\ngot:  %q\nwant: %q", got, body)
+	}
+}
