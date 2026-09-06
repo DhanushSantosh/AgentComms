@@ -18,6 +18,16 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
   Windows). `agent-comms` stays the canonical name in all docs and help.
   See [RFC 0030](docs/rfcs/0030-agc-cli-alias.md).
 
+**Breaking**
+- **Removed `agent-comms live tail`.** It read a Claude Code session's
+  transcript directly off disk (an undocumented, internal file format)
+  and was Claude-only; `live attach --provider claude|codex` (backed by
+  `live serve`) is the one supported way to watch a live agent session
+  for both providers now. `claudetail.Format` (used by `live attach` to
+  render Claude transcript lines) is unaffected; only the file-watching
+  path (`claudetail.Tail`/`SessionPath`) is gone. See
+  [RFC 0034](docs/rfcs/0034-remove-live-tail.md).
+
 **Fixed**
 - Docs site: code-block copy buttons (`PlatformTabs`, the `.prose pre`
   copy button) awaited `navigator.clipboard.writeText` with no failure

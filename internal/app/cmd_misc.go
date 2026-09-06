@@ -102,7 +102,7 @@ func (c *cli) mcpCmd() *cobra.Command {
 // by --provider rather than the provider being its own verb, so a third
 // provider is a new --provider value, not a fourth duplicated subtree.
 func (c *cli) liveCmd() *cobra.Command {
-	root := &cobra.Command{Use: "live", Short: "Serve, attach to, or tail a provider's live agent sessions"}
+	root := &cobra.Command{Use: "live", Short: "Serve or attach to a provider's live agent sessions"}
 
 	provider := func(value string) (string, error) {
 		switch strings.ToLower(strings.TrimSpace(value)) {
@@ -191,43 +191,7 @@ func (c *cli) liveCmd() *cobra.Command {
 	_ = attach.MarkFlagRequired("runtime")
 	attach.Flags().StringVar(&serverURL, "server", "", "live broker base URL (provider default when omitted)")
 
-	var tailProvider, sessionID, projectDir string
-	var noReplay bool
-	tail := &cobra.Command{Use: "tail", Args: cobra.NoArgs, Short: "Stream a Claude Code session transcript live (--provider claude only)", RunE: func(cmd *cobra.Command, args []string) error {
-		name, err := provider(tailProvider)
-		if err != nil {
-			return err
-		}
-		if name != "claude" {
-			return errors.New("live tail is only available for --provider claude")
-		}
-		if strings.TrimSpace(sessionID) == "" {
-			return errors.New("--session is required")
-		}
-		dir := projectDir
-		if dir == "" {
-			dir = c.svc.Store.Root
-		}
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return fmt.Errorf("resolve home directory: %w", err)
-		}
-		path, err := claudetail.SessionPath(filepath.Join(home, ".claude"), dir, sessionID)
-		if err != nil {
-			return err
-		}
-		if _, err := os.Stat(path); err != nil {
-			return fmt.Errorf("no Claude session found at %s: %w", path, err)
-		}
-		return claudetail.Tail(cmd.Context(), path, c.out, !noReplay)
-	}}
-	tail.Flags().StringVar(&tailProvider, "provider", "claude", "claude (only)")
-	tail.Flags().StringVar(&sessionID, "session", "", "Claude session ID to watch")
-	_ = tail.MarkFlagRequired("session")
-	tail.Flags().StringVar(&projectDir, "project-dir", "", "Claude Code working directory for this session (defaults to the current AgentComms project root)")
-	tail.Flags().BoolVar(&noReplay, "no-replay", false, "skip replaying existing history, only show new turns")
-
-	root.AddCommand(serve, attach, tail)
+	root.AddCommand(serve, attach)
 	return root
 }
 func (c *cli) watchCmd() *cobra.Command {

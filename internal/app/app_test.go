@@ -503,6 +503,29 @@ func TestCodexAttachDoesNotRequireInitializedProject(t *testing.T) {
 	}
 }
 
+// TestLiveTailRemoved is the regression test for RFC 0034: `live tail`
+// (file-based, Claude-only transcript watching, superseded by
+// `live attach`'s broker-subscription model) is gone -- `live` now offers
+// only `serve` and `attach`, for both providers.
+func TestLiveTailRemoved(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if err := Run([]string{"live", "tail", "--session", "whatever"}, &stdout, &stderr); err == nil {
+		t.Fatal("expected `live tail` to no longer exist")
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if err := Run([]string{"live", "--help"}, &stdout, &stderr); err != nil {
+		t.Fatalf("live --help: %v\n%s", err, stderr.String())
+	}
+	help := stdout.String()
+	if strings.Contains(help, "  tail") {
+		t.Fatalf("`live --help` should no longer list a tail sub-command: %s", help)
+	}
+	if !strings.Contains(help, "serve") || !strings.Contains(help, "attach") {
+		t.Fatalf("`live --help` should still list serve and attach: %s", help)
+	}
+}
+
 func TestVersionEnvelope(t *testing.T) {
 	var out, err bytes.Buffer
 	if e := Run([]string{"version", "--json"}, &out, &err); e != nil {
