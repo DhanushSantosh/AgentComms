@@ -30,6 +30,7 @@
     "sites:generate-icons": "node scripts/generate-icons.mjs landing && node scripts/generate-icons.mjs docs"
   },
   "devDependencies": {
+    "fflate": "^0.7.5",
     "png-to-ico": "^3.0.2",
     "sharp": "^0.35.4",
     "svgo": "^4.1.0"
