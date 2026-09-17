@@ -511,10 +511,3 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(value)
 }
-
-func OfflineMutationError(commandType string) error {
-	return &controlplane.Error{
-		Code:    controlplane.CodeOffline,
-		Message: fmt.Sprintf("%s requires the authoritative service; use an explicit local draft for offline preparation", commandType),
-	}
-}

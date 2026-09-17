@@ -23,7 +23,7 @@ import (
 // terminal shows the child's native UI unmediated — the same experience as
 // running opts.Command directly, in any terminal emulator. It simultaneously
 // listens on this runtime's control socket (SocketPath) so other processes
-// can wake it with Deliver.
+// can wake it with TryDeliverWithEvidence.
 //
 // Only the wrapper's OWN controlling terminal (opts.ControlFD) is put into
 // raw mode; the child's pty retains normal cooked-mode line discipline, so a

@@ -479,10 +479,6 @@ func (s *Service) Drafts(limit int) ([]controlplane.Draft, error) {
 	return s.remote.Drafts(ctx, cfg.ProjectID, limit)
 }
 
-func ValidateTransition(st model.State, actor, typ, id string, payload any, now time.Time) (any, error) {
-	return protocol.ValidateTransition(st, actor, typ, id, payload, now)
-}
-
 func RefreshRuntimePresence(state *model.State, now time.Time) {
 	protocol.RefreshRuntimePresence(state, now)
 }

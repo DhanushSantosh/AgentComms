@@ -22,8 +22,6 @@ func New(baseURL string) *Client {
 	return &Client{baseURL: strings.TrimRight(baseURL, "/"), http: &http.Client{}}
 }
 
-func (c *Client) BaseURL() string { return c.baseURL }
-
 func (c *Client) Health(ctx context.Context) error {
 	return c.do(ctx, http.MethodGet, "/health", nil, nil)
 }

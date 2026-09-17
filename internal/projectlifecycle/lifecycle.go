@@ -12,7 +12,6 @@ package projectlifecycle
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -1140,13 +1139,4 @@ func journalBuildMismatchHint(journalTargetBuildID, runningBuildID string) strin
 		return fmt.Sprintf("this journal targeted build %s, this binary is build %s", journalTargetBuildID, runningBuildID)
 	}
 	return "this may be disk corruption or a manually edited journal file"
-}
-
-func FileHash(path string) (string, error) {
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return "", err
-	}
-	sum := sha256.Sum256(content)
-	return fmt.Sprintf("%x", sum[:]), nil
 }

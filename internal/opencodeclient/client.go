@@ -44,10 +44,6 @@ func New(baseURL, directory string) *Client {
 	return &Client{baseURL: strings.TrimRight(baseURL, "/"), directory: directory, http: &http.Client{}}
 }
 
-// BaseURL returns the server address this client talks to — the same
-// address a user opens in a browser to watch a session live.
-func (c *Client) BaseURL() string { return c.baseURL }
-
 // Session is the subset of OpenCode's session.Info this package uses.
 type Session struct {
 	ID        string `json:"id"`
