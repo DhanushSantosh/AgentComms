@@ -105,7 +105,7 @@ func TestNotifyInvocationCrossesDifferentTempDirectoryEnvironments(t *testing.T)
 	t.Setenv("TMPDIR", secondTempDirectory)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := NotifyInvocation(ctx, projectRoot, "DAMON", "DAMON", "inv-cross-tmpdir", "PRICE"); err != nil {
+	if _, err := NotifyInvocationWithEvidence(ctx, projectRoot, "DAMON", "DAMON", "inv-cross-tmpdir", "PRICE"); err != nil {
 		t.Fatalf("delivery failed across different TMPDIR environments: %v", err)
 	}
 }
@@ -121,8 +121,8 @@ func TestAliveReportsFalseForUnknownRuntime(t *testing.T) {
 func TestDeliverFailsClosedWhenNothingListening(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	if err := Deliver(ctx, t.TempDir(), "no-such-runtime", "hello"); err == nil {
-		t.Fatal("expected Deliver to fail when nothing is listening")
+	if _, err := TryDeliverWithEvidence(ctx, t.TempDir(), "no-such-runtime", "hello"); err == nil {
+		t.Fatal("expected TryDeliverWithEvidence to fail when nothing is listening")
 	}
 }
 
@@ -130,8 +130,8 @@ func TestDeliverRejectsEmbeddedNewlines(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	for _, msg := range []string{"line one\nline two", "carriage\rreturn"} {
-		if err := Deliver(ctx, t.TempDir(), "whatever", msg); err == nil {
-			t.Fatalf("expected Deliver to reject a message containing a newline: %q", msg)
+		if _, err := TryDeliverWithEvidence(ctx, t.TempDir(), "whatever", msg); err == nil {
+			t.Fatalf("expected TryDeliverWithEvidence to reject a message containing a newline: %q", msg)
 		}
 	}
 }
@@ -149,7 +149,7 @@ func TestNotifyInvocationMentionsIDAndTarget(t *testing.T) {
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := NotifyInvocation(ctx, dir, "opencode-runtime", "opencode-agent", "inv-42", "codex-runner"); err != nil {
+	if _, err := NotifyInvocationWithEvidence(ctx, dir, "opencode-runtime", "opencode-agent", "inv-42", "codex-runner"); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(gotMessage, "inv-42") || !strings.Contains(gotMessage, "opencode-agent") || !strings.Contains(gotMessage, "codex-runner") {

@@ -1,31 +1,16 @@
-// Package claudetail streams a Claude Code session transcript live, the
-// same role opencodeclient.Subscribe/opencode attach fills for OpenCode.
-// Claude Code has no server or API for this: each session is just a local,
-// append-only JSONL file, and nothing else watches it while the process
-// that owns it is running. This package tails that file directly instead.
+// Package claudetail renders one Claude Code transcript line as a
+// human-readable turn. Historically this package also tailed a Claude
+// Code session's transcript file directly off disk (RFC 0008); RFC 0034
+// removed that file-watching path in favor of `live attach`'s
+// broker-subscription model, which is what this package's sole remaining
+// export, Format, now serves exclusively.
 package claudetail
 
 import (
-	"bufio"
-	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"os"
-	"path/filepath"
 	"strings"
-	"time"
-
-	"github.com/DhanushSantosh/AgentComms/internal/claudepath"
-	"github.com/fsnotify/fsnotify"
 )
-
-// SessionPath returns the local file Claude Code appends this session's
-// transcript to, confirmed by inspecting real session files on disk:
-// <claudeHome>/projects/<projectDir, "/" replaced by "-">/<sessionID>.jsonl.
-func SessionPath(claudeHome, projectDir, sessionID string) (string, error) {
-	return claudepath.SessionPath(claudeHome, projectDir, sessionID)
-}
 
 type transcriptEntry struct {
 	Type    string `json:"type"`
@@ -88,85 +73,4 @@ func Format(line []byte) (rendered string, ok bool) {
 		label = "ASSISTANT"
 	}
 	return fmt.Sprintf("--- %s ---\n%s\n", label, text), true
-}
-
-// Tail streams a Claude Code session transcript to out as it grows:
-// replays existing content once if replayHistory is set, then watches path
-// for appended lines until ctx is canceled.
-func Tail(ctx context.Context, path string, out io.Writer, replayHistory bool) error {
-	file, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = file.Close() }()
-
-	reader := bufio.NewReader(file)
-	if replayHistory {
-		if err := drain(reader, out); err != nil {
-			return err
-		}
-	} else if _, err := file.Seek(0, io.SeekEnd); err != nil {
-		return err
-	}
-
-	watcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		return err
-	}
-	defer func() { _ = watcher.Close() }()
-	if err := watcher.Add(filepath.Dir(path)); err != nil {
-		return err
-	}
-
-	// A periodic drain alongside the fsnotify watch guards against any
-	// write that doesn't cleanly surface as a Write event for this exact
-	// path (e.g. an editor's atomic rename-based save elsewhere in the same
-	// directory triggering a directory-level event instead) -- it should
-	// never be the only thing keeping this live, but it stops the tail from
-	// silently stalling if fsnotify ever misses one.
-	ticker := time.NewTicker(2 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		case event, ok := <-watcher.Events:
-			if !ok {
-				return nil
-			}
-			if event.Name != path || event.Op&(fsnotify.Write|fsnotify.Create) == 0 {
-				continue
-			}
-			if err := drain(reader, out); err != nil {
-				return err
-			}
-		case err, ok := <-watcher.Errors:
-			if !ok {
-				return nil
-			}
-			return err
-		case <-ticker.C:
-			if err := drain(reader, out); err != nil {
-				return err
-			}
-		}
-	}
-}
-
-func drain(reader *bufio.Reader, out io.Writer) error {
-	for {
-		line, err := reader.ReadBytes('\n')
-		if len(line) > 0 {
-			if rendered, ok := Format(line); ok {
-				fmt.Fprint(out, rendered)
-			}
-		}
-		if err != nil {
-			if err == io.EOF {
-				return nil
-			}
-			return err
-		}
-	}
 }

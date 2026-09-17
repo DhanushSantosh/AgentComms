@@ -180,6 +180,105 @@ func TestMutationCommandPlainOutputIsAConciseReceipt(t *testing.T) {
 	}
 }
 
+// TestAgentRegisterExplainsPendingActivation is the regression test for
+// UX-03: the registration receipt used to print identity/profile/sequence
+// but never said the new agent is PENDING, that the session's own active
+// profile did not switch to it, who can activate it, or the exact command
+// to do so -- a caller had to already know the model to avoid the "active
+// principal required" surprise the audit reproduced.
+func TestAgentRegisterExplainsPendingActivation(t *testing.T) {
+	project := t.TempDir()
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
+	cleanupProjectDaemon(t, project)
+	var stdout, stderr bytes.Buffer
+	if err := Run([]string{"init", "--project", project, "--non-interactive", "--owner", "owner", "--json"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if err := Run([]string{"agent", "register", "--project", project, "--id", "builder", "--output", "plain"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	plain := stdout.String()
+	for _, want := range []string{
+		"PENDING", "awaiting activation",
+		"owner (unchanged -- registering never switches it)",
+		"agent-comms agent activate --id builder",
+	} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("registration receipt is missing %q:\n%s", want, plain)
+		}
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if err := Run([]string{"agent", "register", "--project", project, "--id", "builder2", "--json"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	var envelope struct {
+		Result struct {
+			ActiveProfile string `json:"active_profile"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Result.ActiveProfile != "owner" {
+		t.Fatalf("active_profile = %q, want %q (registering must never implicitly switch the session's own actor)", envelope.Result.ActiveProfile, "owner")
+	}
+}
+
+// TestStatusShowsActingIdentity is the regression test for UX-03's other
+// half: `status` reported project-wide counts but never which identity was
+// making the request, its role/activation state, or the project root --
+// the exact context a person or script needs to explain "who am I and can
+// I act" without a failed write first.
+func TestStatusShowsActingIdentity(t *testing.T) {
+	project := t.TempDir()
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
+	cleanupProjectDaemon(t, project)
+	var stdout, stderr bytes.Buffer
+	if err := Run([]string{"init", "--project", project, "--non-interactive", "--owner", "owner", "--json"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if err := Run([]string{"status", "--project", project, "--output", "plain"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	plain := stdout.String()
+	for _, want := range []string{"Acting as", "owner", "OWNER", "ACTIVE", "Project", project} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("status output is missing %q:\n%s", want, plain)
+		}
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if err := Run([]string{"status", "--project", project, "--actor", "nobody-registered", "--json"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	var envelope struct {
+		Result struct {
+			ActingAs struct {
+				Actor       string `json:"actor"`
+				State       string `json:"state"`
+				ProjectRoot string `json:"project_root"`
+			} `json:"acting_as"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Result.ActingAs.State != "unregistered" {
+		t.Fatalf("state for an unregistered actor = %q, want %q", envelope.Result.ActingAs.State, "unregistered")
+	}
+}
+
 func TestVerboseAndDetailsExpandHumanOutputWithoutChangingJSONMode(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	if err := Run([]string{"version", "--output", "plain", "--verbose", "--details"}, &stdout, &stderr); err != nil {
@@ -376,7 +475,7 @@ func TestClaudeAttachDoesNotRequireInitializedProject(t *testing.T) {
 	}))
 	defer server.Close()
 	var stdout, stderr bytes.Buffer
-	if err := Run([]string{"claude", "attach", "--runtime", "runtime-one", "--server", server.URL}, &stdout, &stderr); err != nil {
+	if err := Run([]string{"live", "attach", "--provider", "claude", "--runtime", "runtime-one", "--server", server.URL}, &stdout, &stderr); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -399,8 +498,31 @@ func TestCodexAttachDoesNotRequireInitializedProject(t *testing.T) {
 	}))
 	defer server.Close()
 	var stdout, stderr bytes.Buffer
-	if err := Run([]string{"codex", "attach", "--runtime", "runtime-one", "--server", server.URL}, &stdout, &stderr); err != nil {
+	if err := Run([]string{"live", "attach", "--provider", "codex", "--runtime", "runtime-one", "--server", server.URL}, &stdout, &stderr); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestLiveTailRemoved is the regression test for RFC 0034: `live tail`
+// (file-based, Claude-only transcript watching, superseded by
+// `live attach`'s broker-subscription model) is gone -- `live` now offers
+// only `serve` and `attach`, for both providers.
+func TestLiveTailRemoved(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if err := Run([]string{"live", "tail", "--session", "whatever"}, &stdout, &stderr); err == nil {
+		t.Fatal("expected `live tail` to no longer exist")
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if err := Run([]string{"live", "--help"}, &stdout, &stderr); err != nil {
+		t.Fatalf("live --help: %v\n%s", err, stderr.String())
+	}
+	help := stdout.String()
+	if strings.Contains(help, "  tail") {
+		t.Fatalf("`live --help` should no longer list a tail sub-command: %s", help)
+	}
+	if !strings.Contains(help, "serve") || !strings.Contains(help, "attach") {
+		t.Fatalf("`live --help` should still list serve and attach: %s", help)
 	}
 }
 
@@ -1145,7 +1267,7 @@ func TestAgentDeleteCLIRequiresReasonAndAllowsIDReuse(t *testing.T) {
 		!bytes.Contains(out.Bytes(), []byte(replacementRegistration.Result.KeyFingerprint)) {
 		t.Fatalf("history key-fingerprint filter did not isolate the replacement identity: %s", out.String())
 	}
-	must("search", "agent.register", "--key-fingerprint", replacementRegistration.Result.KeyFingerprint)
+	must("history", "--grep", "agent.register", "--all", "--key-fingerprint", replacementRegistration.Result.KeyFingerprint)
 	if bytes.Contains(out.Bytes(), []byte(originalRegistration.Result.KeyFingerprint)) ||
 		!bytes.Contains(out.Bytes(), []byte(replacementRegistration.Result.KeyFingerprint)) {
 		t.Fatalf("search key-fingerprint filter did not isolate the replacement identity: %s", out.String())
@@ -1384,7 +1506,7 @@ func TestDoctorReportsRuntimeAndBootstrapProblems(t *testing.T) {
 	cfg["toolkit_version"] = "9.9.9"
 	b, _ = json.Marshal(cfg)
 	_ = os.WriteFile(cfgPath, b, 0600)
-	_ = os.Remove(filepath.Join(d, ".agents"))
+	_ = os.Remove(filepath.Join(d, store.Bootstrap))
 	_ = os.Remove(filepath.Join(d, ".agent-comms", "AGENT_INSTRUCTIONS.md"))
 	out.Reset()
 	err.Reset()
@@ -1435,14 +1557,14 @@ func TestInvocationAndRuntimeCLIWorkflow(t *testing.T) {
 	if !bytes.Contains(out.Bytes(), []byte(`"status":"COMPLETED"`)) {
 		t.Fatalf("CLI did not return the completed invocation: %s", out.String())
 	}
-	run("control", "overview")
+	run("status", "--details")
 	if !bytes.Contains(out.Bytes(), []byte(`"online_runtimes"`)) ||
 		!bytes.Contains(out.Bytes(), []byte(`"invocations_completed":1`)) {
-		t.Fatalf("control overview did not summarize project state: %s", out.String())
+		t.Fatalf("status --details did not summarize project state: %s", out.String())
 	}
-	run("control", "settings")
+	run("config", "--details")
 	if !bytes.Contains(out.Bytes(), []byte(`"max_delivery_attempts":10`)) {
-		t.Fatalf("control settings omitted invocation limits: %s", out.String())
+		t.Fatalf("config --details omitted invocation limits: %s", out.String())
 	}
 }
 
@@ -2000,5 +2122,46 @@ func TestInteractiveServeRejectsClaudeAllowAgentCommsForOtherCommands(t *testing
 		"--project", project, "--json", "--", "bash", "-c", "true"}, &out, &stderr)
 	if err == nil {
 		t.Fatal("expected --claude-allow-agent-comms to reject a non-claude wrapped command")
+	}
+}
+
+// TestErrorDetailsSurfacesProjectlifecycleDetails is the regression test
+// for UX-14's app-level wiring: errorDetails must actually reach
+// ErrorBody.Details (and round-trip through JSON), not just exist as dead
+// plumbing -- confirming the exact fact `update apply` needs a --json
+// caller to see when it fails after the binary was already replaced (see
+// internal/failure's own TestDetailsSurfacesProjectlifecycleErrorDetails
+// for the extraction logic itself).
+func TestErrorDetailsSurfacesProjectlifecycleDetails(t *testing.T) {
+	err := &projectlifecycle.Error{
+		Code: projectlifecycle.CodeUpgradeFailed, Message: "binary updated successfully but project reconciliation failed: x",
+		Details: map[string]any{"binary_updated": true, "installed_version": "v0.7.0", "previous_version": "v0.6.0"},
+	}
+	body := ErrorBody{Code: errorCode(err), Message: err.Error(), Details: errorDetails(err)}
+	encoded, marshalErr := json.Marshal(body)
+	if marshalErr != nil {
+		t.Fatal(marshalErr)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	details, ok := decoded["details"].(map[string]any)
+	if !ok {
+		t.Fatalf("encoded error body missing a \"details\" object: %s", encoded)
+	}
+	if details["binary_updated"] != true || details["installed_version"] != "v0.7.0" {
+		t.Fatalf("details = %+v, want binary_updated/installed_version preserved through JSON", details)
+	}
+
+	// An error with no Details must omit the field entirely (omitempty),
+	// not encode a null.
+	plain := ErrorBody{Code: "VALIDATION", Message: "y", Details: errorDetails(errors.New("y"))}
+	encoded, marshalErr = json.Marshal(plain)
+	if marshalErr != nil {
+		t.Fatal(marshalErr)
+	}
+	if strings.Contains(string(encoded), "details") {
+		t.Fatalf("expected no details field for a plain error, got: %s", encoded)
 	}
 }

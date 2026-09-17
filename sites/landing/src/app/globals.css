@@ -348,8 +348,13 @@ img { max-width: 100%; }
 .collision-copy { order: 2; }
 .collision-lab { order: 1; }
 
-.demo-intro h2, .protocol-intro h2, .control-heading h2, .modes header h2 { font-family: var(--display); font-size: clamp(3rem, 5.8vw, 6rem); font-weight: 620; letter-spacing: -0.066em; line-height: 0.9; margin: 0; overflow-wrap: break-word; text-wrap: balance; }
-.collision-copy h2, .relay-copy h2, .trust-lede h2 { font-family: var(--display); font-size: clamp(2.3rem, 4.2vw, 4.2rem); font-weight: 620; letter-spacing: -0.058em; line-height: 0.96; margin: 0; text-wrap: balance; }
+.demo-intro h2, .control-heading h2, .modes header h2 { font-family: var(--display); font-size: clamp(3rem, 5.8vw, 6rem); font-weight: 620; letter-spacing: -0.066em; line-height: 0.9; margin: 0; overflow-wrap: break-word; text-wrap: balance; }
+/* protocol-intro's headline is a two-sentence statement (like trust-lede's),
+   not a short one-line tagline (like demo-intro/control-heading/modes
+   header) -- sharing the bigger scale wrapped it to four lines and made
+   the section read oversized next to its neighbors, so it takes the same
+   scale trust-lede already uses for the same shape of headline. */
+.collision-copy h2, .relay-copy h2, .trust-lede h2, .protocol-intro h2 { font-family: var(--display); font-size: clamp(2.3rem, 4.2vw, 4.2rem); font-weight: 620; letter-spacing: -0.058em; line-height: 0.96; margin: 0; text-wrap: balance; }
 .collision-copy > p:last-child, .protocol-intro > p:last-child, .relay-copy > p, .control-heading > p:last-child { color: var(--steel-light); font-size: clamp(0.92rem, 1.25vw, 1.1rem); line-height: 1.7; margin: 1.8rem 0 0; max-width: 34rem; }
 .collision-lab { align-self: end; background: var(--panel); border: 1px solid var(--line-dark); color: var(--text); min-width: 0; position: relative; }
 .lab-toolbar { align-items: center; border-bottom: 1px solid var(--line-dark); display: flex; flex-wrap: wrap; font-family: var(--mono); gap: 0.8rem; justify-content: space-between; padding: 0.75rem 1rem; }
@@ -410,45 +415,17 @@ img { max-width: 100%; }
 /* Stacked full-width, not the copy/panel split every other section uses --
    the instrument is dense enough to earn the whole row, and stacking
    breaks up the page's otherwise-relentless two-column rhythm. */
-.protocol { background: var(--ink); border-top: 1px solid var(--line-dark); color: var(--ice); padding: clamp(6rem, 9vw, 9rem) var(--gutter); }
+.protocol { background: var(--ink); border-top: 1px solid var(--line-dark); color: var(--ice); padding: clamp(5rem, 7vw, 7rem) var(--gutter); }
 /* Proportional 2-column, not a fixed-width block floating in a
    full-width section -- a rem-capped single column reads fine at
    ~1440px but leaves most of a wide desktop monitor empty, since it
-   doesn't grow with the viewport the way an fr track does. */
-.protocol-reveal { align-items: center; display: grid; gap: clamp(3rem, 6vw, 6rem); grid-template-columns: minmax(20rem, 0.85fr) minmax(24rem, 1.15fr); }
+   doesn't grow with the viewport the way an fr track does. Even split,
+   not 0.85/1.15: giving the diagram the bigger share was what let it
+   outgrow the text and dictate an oversized section height. */
+.protocol-reveal { align-items: center; display: grid; gap: clamp(3rem, 6vw, 6rem); grid-template-columns: minmax(20rem, 1fr) minmax(22rem, 1fr); }
 .protocol-intro { max-width: 46rem; }
 .protocol .eyebrow { color: var(--cyan); }
 .protocol-intro > p:last-child { color: var(--steel-light); }
-.protocol-instrument { border-bottom: 1px solid var(--line-dark); border-top: 1px solid var(--line-dark); display: grid; grid-template-columns: 0.86fr 1.14fr; min-width: 0; }
-.protocol-rail { list-style: none; margin: 0; padding: 0; }
-.protocol-rail li { border-bottom: 1px solid var(--line-dark); }
-.protocol-rail li:last-child { border-bottom: 0; }
-.protocol-rail button { align-items: center; background: transparent; border: 0; color: var(--steel-light); cursor: pointer; display: grid; gap: 0.75rem; grid-template-columns: 0.8rem 7rem 1fr; min-height: 4.7rem; padding: 0 1rem; text-align: left; width: 100%; }
-.protocol-rail button i { border: 1px solid currentColor; border-radius: 50%; height: 0.55rem; position: relative; width: 0.55rem; }
-.protocol-rail button span, .protocol-rail button small { font-family: var(--mono); }
-.protocol-rail button span { font-size: 0.62rem; }
-.protocol-rail button small { font-size: 0.46rem; }
-.protocol-rail button.is-active { background: var(--cyan); color: var(--ink); }
-.protocol-rail button.is-active i { background: var(--cyan); border-color: var(--cyan); box-shadow: 0 0 0 0.3rem color-mix(in srgb, var(--cyan) 18%, transparent); }
-.protocol-readout { align-content: start; background: var(--ink-raised); border-left: 1px solid var(--line-dark); display: grid; overflow: hidden; padding: clamp(1.5rem, 4vw, 3.2rem); position: relative; }
-.readout-head { align-items: center; display: flex; font-family: var(--mono); justify-content: space-between; }
-.readout-head span { color: var(--steel-light); font-size: 0.5rem; }
-.readout-head strong { color: var(--cyan); font-size: 0.7rem; }
-.protocol-readout > p { font-family: var(--display); font-size: clamp(1.6rem, 3vw, 2.8rem); font-weight: 510; letter-spacing: -0.04em; line-height: 1.08; margin: 3rem 0; }
-.protocol-readout dl { border-top: 1px solid var(--line-dark); margin: 0; }
-.protocol-readout dl > div { border-bottom: 1px solid var(--line-dark); display: grid; gap: 1rem; grid-template-columns: 7rem 1fr; padding: 0.8rem 0; }
-.protocol-readout dt, .protocol-readout dd { font-family: var(--mono); font-size: 0.5rem; margin: 0; }
-.protocol-readout dt { color: var(--steel-light); }
-.readout-event { align-items: center; display: grid; font-family: var(--mono); gap: 0.8rem; grid-template-columns: auto 1fr auto; margin-top: 2rem; }
-.readout-event span { color: var(--steel-light); font-size: 0.47rem; }
-.readout-event code { color: var(--lilac); font-family: inherit; font-size: 0.55rem; }
-.readout-event i { color: var(--cyan); font-size: 0.45rem; font-style: normal; }
-.readout-gap { background: var(--amber); color: var(--ink); display: grid; gap: 0.25rem; margin-top: 1rem; padding: 0.7rem; }
-.readout-gap[hidden] { display: none; }
-.readout-gap strong { font-family: var(--mono); font-size: 0.5rem; }
-.readout-gap span { font-size: 0.68rem; }
-.protocol-replay { align-self: end; background: transparent; border: 0; color: var(--steel-light); cursor: pointer; font-family: var(--mono); font-size: 0.46rem; justify-self: end; margin-top: 1rem; padding: 0.45rem 0; }
-.protocol-replay:hover, .protocol-replay:focus-visible { color: var(--cyan); }
 
 .relay { background: var(--panel); display: grid; gap: clamp(4rem, 9vw, 10rem); grid-template-columns: minmax(18rem, 0.68fr) minmax(30rem, 1.32fr); padding: clamp(7rem, 11vw, 11rem) var(--gutter); }
 .relay .eyebrow { color: var(--cyan); }
@@ -824,30 +801,6 @@ img { max-width: 100%; }
 .motion-ready .collision.is-active .code-track--reviewer i::after { animation: collision-node-reverse var(--motion-loop-medium) var(--ease-handoff) 1.1s infinite; }
 .motion-ready .collision.is-active .collision-lab[data-mode="governed"] .collision-zone b { animation: none; }
 
-.motion-ready .protocol-instrument { transition: clip-path var(--motion-slow) var(--ease-authority), opacity var(--motion-medium) ease; }
-.motion-ready .protocol:not(.is-revealed) .protocol-instrument { clip-path: inset(0 0 100% 0); opacity: 0.3; }
-.motion-ready .protocol-rail li { transition: opacity var(--motion-medium) ease, transform var(--motion-medium) var(--ease-authority); }
-.motion-ready .protocol:not(.is-revealed) .protocol-rail li { opacity: 0; transform: translateX(-1.5rem); }
-.motion-ready .protocol.is-revealed .protocol-rail li:nth-child(1) { transition-delay: calc(var(--motion-stagger) * 2); }
-.motion-ready .protocol.is-revealed .protocol-rail li:nth-child(2) { transition-delay: calc(var(--motion-stagger) * 3); }
-.motion-ready .protocol.is-revealed .protocol-rail li:nth-child(3) { transition-delay: calc(var(--motion-stagger) * 4); }
-.motion-ready .protocol.is-revealed .protocol-rail li:nth-child(4) { transition-delay: calc(var(--motion-stagger) * 5); }
-.motion-ready .protocol.is-revealed .protocol-rail li:nth-child(5) { transition-delay: calc(var(--motion-stagger) * 6); }
-.protocol-readout.is-updating > :is(p, dl, .readout-event) { animation: readout-refresh var(--motion-fast) var(--ease-handoff) both; }
-.protocol-readout::after {
-  background: linear-gradient(90deg, transparent, var(--cyan), transparent);
-  content: "";
-  height: 1px;
-  left: 0;
-  opacity: 0;
-  pointer-events: none;
-  position: absolute;
-  right: 0;
-  top: 0;
-}
-.motion-ready .protocol.is-active .protocol-readout::after { animation: protocol-scan var(--motion-loop-long) linear 1.3s infinite; }
-.motion-ready .protocol.is-active .protocol-rail button.is-active i { animation: protocol-confirm var(--motion-loop-brief) ease-out 1.1s infinite; }
-
 .motion-ready .relay-sequence::before,
 .motion-ready .relay-party,
 .motion-ready .relay-message,
@@ -1030,22 +983,6 @@ img { max-width: 100%; }
   48%, 66% { transform: translateX(-6rem); }
 }
 
-@keyframes readout-refresh {
-  0% { clip-path: inset(0 100% 0 0); opacity: 0; transform: translateX(0.75rem); }
-  100% { clip-path: inset(0); opacity: 1; transform: translateX(0); }
-}
-
-@keyframes protocol-scan {
-  0%, 16%, 100% { opacity: 0; transform: translateY(-1rem); }
-  22%, 54% { opacity: 0.72; }
-  62%, 99% { opacity: 0; transform: translateY(38rem); }
-}
-
-@keyframes protocol-confirm {
-  0%, 58%, 100% { box-shadow: 0 0 0 0.3rem color-mix(in srgb, var(--cyan) 18%, transparent); }
-  76% { box-shadow: 0 0 0 0.65rem transparent; }
-}
-
 @keyframes relay-message-in {
   0%, 6% { opacity: 0; transform: rotate(-7deg) scale(0.72) translateY(-0.4rem); }
   16%, 88% { opacity: 1; transform: rotate(-1deg) scale(1) translateY(0); }
@@ -1202,20 +1139,6 @@ img { max-width: 100%; }
   0%, 18%, 100% { opacity: 0; transform: translateX(-105%); }
   28%, 62% { opacity: 1; }
   72%, 99% { opacity: 0; transform: translateX(105%); }
-}
-
-@keyframes terminal-cursor {
-  0%, 48% { opacity: 1; }
-  49%, 100% { opacity: 0; }
-}
-
-@keyframes receipt-confirm {
-  50% { box-shadow: 0.45rem 0.45rem 0 var(--lilac); transform: translate(-0.15rem, -0.15rem); }
-}
-
-@keyframes receipt-reject {
-  30% { background: var(--coral); transform: translateX(-0.25rem); }
-  70% { background: var(--coral); transform: translateX(0.25rem); }
 }
 
 @keyframes collision-pulse { 0% { opacity: 1; transform: scale(0.7); } 70%, 100% { opacity: 0; transform: scale(1.2); } }
@@ -1477,12 +1400,7 @@ img { max-width: 100%; }
   .lab-proof strong { margin-left: 0; width: 100%; }
   .motion-ready .collision:not(.is-revealed) .collision-lab { clip-path: inset(0 0 100% 0); }
   .motion-ready .collision:not(.is-revealed) :is(.code-track--developer, .code-track--reviewer) { transform: translateY(0.75rem); }
-  .protocol-instrument { grid-template-columns: 1fr; }
-  .protocol-rail button { grid-template-columns: 0.8rem 7rem 1fr; }
-  .protocol-readout { border-left: 0; border-top: 1px solid var(--line-dark); min-height: 29rem; }
-  .protocol-readout > p { margin: 2.2rem 0; }
-  .motion-ready .protocol:not(.is-revealed) .protocol-instrument { clip-path: inset(0 0 100% 0); }
-  .demo-intro h2, .protocol-intro h2, .control-heading h2, .modes header h2 { font-size: clamp(1.9rem, 10vw, 3rem); }
+  .demo-intro h2, .control-heading h2, .modes header h2 { font-size: clamp(1.9rem, 10vw, 3rem); }
   .relay-sequence { min-height: 30rem; }
   .relay-party { width: 10.4rem; }
   .relay-message { left: 16%; top: 35%; width: 70%; }

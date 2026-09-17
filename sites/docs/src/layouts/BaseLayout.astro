@@ -66,6 +66,8 @@ const organizationJsonLd = {
     <slot />
     <SearchDialog />
     <script>
+      import { copyToClipboard, selectText } from "../lib/clipboard";
+
       for (const block of document.querySelectorAll<HTMLElement>(".prose pre")) {
         if (block.querySelector(".code-copy")) continue;
         const button = document.createElement("button");
@@ -74,9 +76,18 @@ const organizationJsonLd = {
         button.textContent = "Copy";
         button.setAttribute("aria-label", "Copy code block");
         button.addEventListener("click", async () => {
-          const code = block.querySelector("code")?.textContent ?? "";
-          await navigator.clipboard.writeText(code);
-          button.textContent = "Copied";
+          const codeElement = block.querySelector("code");
+          const code = codeElement?.textContent ?? "";
+          if (!code || !codeElement) return;
+          // UX-16: see src/lib/clipboard.ts -- this await used to have no
+          // failure path at all.
+          const outcome = await copyToClipboard(code);
+          if (outcome === "failed") {
+            button.textContent = "Copy failed -- code selected, use Ctrl/Cmd+C";
+            selectText(codeElement);
+          } else {
+            button.textContent = "Copied";
+          }
           window.setTimeout(() => { button.textContent = "Copy"; }, 1400);
         });
         block.append(button);

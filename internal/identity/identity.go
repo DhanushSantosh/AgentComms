@@ -13,10 +13,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	keyring "github.com/zalando/go-keyring"
@@ -194,33 +192,6 @@ func DefaultStore() Store {
 	return KeyringStore{}
 }
 
-type MemoryStore struct {
-	mu sync.RWMutex
-	m  map[string]Credential
-}
-
-func NewMemoryStore() *MemoryStore { return &MemoryStore{m: map[string]Credential{}} }
-func (m *MemoryStore) Put(c Credential) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.m[account(c.ProjectID, c.Actor)] = c
-	return nil
-}
-func (m *MemoryStore) Get(p, a string) (Credential, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	c, ok := m.m[account(p, a)]
-	if !ok {
-		return Credential{}, errors.New("credential not found")
-	}
-	return c, nil
-}
-func (m *MemoryStore) Delete(p, a string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	delete(m.m, account(p, a))
-	return nil
-}
 func Generate(projectID, actor string) (Credential, error) {
 	pub, priv, e := ed25519.GenerateKey(rand.Reader)
 	if e != nil {
@@ -659,13 +630,6 @@ func SaveUserConfig(c UserConfig) error {
 		return e
 	}
 	return os.Rename(tmp, filepath.Join(d, "config.json"))
-}
-func DefaultInstallDir() string {
-	if runtime.GOOS == "windows" {
-		return filepath.Join(os.Getenv("LOCALAPPDATA"), "Programs", "AgentComms")
-	}
-	h, _ := os.UserHomeDir()
-	return filepath.Join(h, ".local", "bin")
 }
 func ResolveCredential(s Store, p, a string) (Credential, error) {
 	if raw := os.Getenv("AGENT_COMMS_CREDENTIAL"); raw != "" {

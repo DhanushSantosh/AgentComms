@@ -3,6 +3,7 @@ import mdx from "@astrojs/mdx";
 import sitemap from "@astrojs/sitemap";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import remarkReleaseTag from "./remark-release-tag.mjs";
 
 const site = process.env.DOCS_SITE_URL ?? "https://agentcomms-docs.vercel.app";
 const marketingSite = process.env.PUBLIC_MARKETING_SITE_URL ?? "https://agentcomms-cli.vercel.app";
@@ -54,6 +55,7 @@ export default defineConfig({
     }
   },
   markdown: {
+    remarkPlugins: [[remarkReleaseTag, { tag: releaseTag || `v${productVersion}`, version: productVersion }]],
     shikiConfig: {
       themes: {
         light: "github-light",

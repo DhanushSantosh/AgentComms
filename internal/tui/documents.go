@@ -42,6 +42,17 @@ var documentUpdateForm = &ActionForm{
 		}
 		return model.DocumentPayload{Title: v[0], Body: v[1], Tags: splitCSV(v[2])}, nil
 	},
+	// UX-12: prefill from the document being edited, so editing one field
+	// (say, just a typo in the title) doesn't require retyping the whole
+	// body from memory -- and doesn't silently publish a blanked-out body
+	// if the operator forgets to.
+	Prefill: func(m Model, id string) []string {
+		d, ok := m.state.Documents[id]
+		if !ok {
+			return nil
+		}
+		return []string{d.Title, d.Body, strings.Join(d.Tags, ", ")}
+	},
 }
 
 var documentSupersedeForm = &ActionForm{

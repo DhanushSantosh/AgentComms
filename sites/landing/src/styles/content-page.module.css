@@ -81,13 +81,6 @@
   text-transform: uppercase;
 }
 
-.cta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.7rem;
-  margin-top: 1.5rem;
-}
-
 .externalLabel {
   color: var(--steel-light);
   font-family: var(--mono);

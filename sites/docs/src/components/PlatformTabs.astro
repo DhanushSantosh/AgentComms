@@ -49,6 +49,8 @@ if (tabs.length === 0) throw new Error(`PlatformTabs ${id} requires at least one
 </section>
 
 <script>
+  import { copyToClipboard, selectText } from "../lib/clipboard";
+
   const copyFeedbackDurationMilliseconds = 1_500;
   for (const root of document.querySelectorAll<HTMLElement>("[data-platform-tabs]")) {
     if (root.dataset.enhanced === "true") continue;
@@ -83,10 +85,20 @@ if (tabs.length === 0) throw new Error(`PlatformTabs ${id} requires at least one
 
     copyButton?.addEventListener("click", async () => {
       const selectedPanel = panels.find((panel) => !panel.hidden);
-      const code = selectedPanel?.querySelector("code")?.textContent;
-      if (!code) return;
-      await navigator.clipboard.writeText(code);
-      copyButton.textContent = "Copied";
+      const codeElement = selectedPanel?.querySelector("code");
+      const code = codeElement?.textContent;
+      if (!code || !codeElement) return;
+      // UX-16: a denied/unavailable clipboard used to leave this await
+      // rejecting with no catch -- the button silently never changed at
+      // all, giving no feedback that anything went wrong or what to do
+      // about it.
+      const outcome = await copyToClipboard(code);
+      if (outcome === "failed") {
+        copyButton.textContent = "Copy failed -- code selected, use Ctrl/Cmd+C";
+        selectText(codeElement);
+      } else {
+        copyButton.textContent = "Copied";
+      }
       window.setTimeout(() => { copyButton.textContent = "Copy"; }, copyFeedbackDurationMilliseconds);
     });
   }

@@ -3,7 +3,11 @@
   position: relative;
   width: 100%;
   aspect-ratio: 1 / 1.1;
-  max-width: 44rem;
+  /* Capped smaller than the text column's own natural width so the
+     circle doesn't out-grow (and out-weigh) the copy it sits beside --
+     at 44rem this was the single largest element on the page and drove
+     the whole section noticeably taller than its neighbors. */
+  max-width: 32rem;
   margin: 0 auto;
   display: flex;
   align-items: center;

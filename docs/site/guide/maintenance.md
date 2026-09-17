@@ -4,7 +4,7 @@ description: Update the user-level installation, reconcile managed projects, ins
 section: User guide
 order: 7
 audience: Human operators
-lastVerified: 2026-08-01
+lastVerified: 2026-09-02
 related: [start/install, operations/recovery]
 ---
 
@@ -33,7 +33,7 @@ The lifecycle manager plans the change, creates a backup when required, stops in
 ```sh
 agent-comms doctor
 agent-comms verify
-agent-comms control attention
+agent-comms attention
 agent-comms runtime list
 agent-comms invocation list
 ```
@@ -43,7 +43,7 @@ agent-comms invocation list
 ## Search and export
 
 ```sh
-agent-comms search "token rotation"
+agent-comms history --grep "token rotation" --all
 agent-comms history --limit 50
 agent-comms export markdown
 agent-comms export jsonl

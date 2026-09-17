@@ -1,47 +1,9 @@
 package claudetail
 
 import (
-	"bytes"
-	"context"
-	"os"
-	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
-	"time"
 )
-
-type synchronizedBuffer struct {
-	mu     sync.RWMutex
-	buffer bytes.Buffer
-}
-
-func (b *synchronizedBuffer) Write(data []byte) (int, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.buffer.Write(data)
-}
-
-func (b *synchronizedBuffer) String() string {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-	return b.buffer.String()
-}
-
-func TestSessionPathMatchesRealClaudeCodeLayout(t *testing.T) {
-	projectDirectory := filepath.Join(t.TempDir(), "Projects", "DeskCrafter")
-	claudeHome := filepath.Join(t.TempDir(), ".claude")
-	got, err := SessionPath(claudeHome, projectDirectory, "a09c5424-1723-4ee9-8fb2-8d2625393561")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if filepath.Dir(filepath.Dir(got)) != filepath.Join(claudeHome, "projects") {
-		t.Fatalf("SessionPath() escaped Claude's project store: %q", got)
-	}
-	if filepath.Base(got) != "a09c5424-1723-4ee9-8fb2-8d2625393561.jsonl" {
-		t.Fatalf("SessionPath() used an unexpected transcript name: %q", got)
-	}
-}
 
 func TestFormatRendersAssistantTextBlock(t *testing.T) {
 	line := []byte(`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"GUAVA CONFIRMED"}]}}`)
@@ -87,71 +49,5 @@ func TestFormatSkipsBookkeepingAndAttachmentLines(t *testing.T) {
 		if _, ok := Format(line); ok {
 			t.Fatalf("expected ok=false for %q", line)
 		}
-	}
-}
-
-func TestTailReplaysExistingHistoryThenFollowsAppends(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "session.jsonl")
-	initial := `{"type":"user","message":{"role":"user","content":"first turn"}}` + "\n"
-	if err := os.WriteFile(path, []byte(initial), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	var out synchronizedBuffer
-	done := make(chan error, 1)
-	go func() { done <- Tail(ctx, path, &out, true) }()
-
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) && !strings.Contains(out.String(), "first turn") {
-		time.Sleep(20 * time.Millisecond)
-	}
-	if !strings.Contains(out.String(), "first turn") {
-		t.Fatalf("expected replayed history to contain %q, got %q", "first turn", out.String())
-	}
-
-	file, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := file.WriteString(`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"second turn"}]}}` + "\n"); err != nil {
-		t.Fatal(err)
-	}
-	_ = file.Close()
-
-	deadline = time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) && !strings.Contains(out.String(), "second turn") {
-		time.Sleep(20 * time.Millisecond)
-	}
-	if !strings.Contains(out.String(), "second turn") {
-		t.Fatalf("expected a live-appended turn to contain %q, got %q", "second turn", out.String())
-	}
-
-	cancel()
-	if err := <-done; err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestTailWithoutReplaySkipsExistingHistory(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "session.jsonl")
-	if err := os.WriteFile(path, []byte(`{"type":"user","message":{"role":"user","content":"should not appear"}}`+"\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	var out bytes.Buffer
-	done := make(chan error, 1)
-	go func() { done <- Tail(ctx, path, &out, false) }()
-
-	time.Sleep(200 * time.Millisecond)
-	cancel()
-	<-done
-
-	if strings.Contains(out.String(), "should not appear") {
-		t.Fatalf("expected no-replay tail to skip existing history, got %q", out.String())
 	}
 }

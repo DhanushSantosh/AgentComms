@@ -16,14 +16,15 @@ import (
 	"github.com/DhanushSantosh/AgentComms/internal/cliui"
 	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
+	"github.com/DhanushSantosh/AgentComms/internal/service"
 	"github.com/DhanushSantosh/AgentComms/internal/store"
 	"github.com/spf13/cobra"
 )
 
 func (c *cli) artifactCmd() *cobra.Command {
-	root := &cobra.Command{Use: "artifact"}
+	root := &cobra.Command{Use: "artifact", Short: "Store, inspect, and verify content-addressed artifacts"}
 	var path, hash string
-	add := &cobra.Command{Use: "add", RunE: func(cmd *cobra.Command, args []string) error {
+	add := &cobra.Command{Use: "add", Short: "Store a file as a content-addressed artifact", RunE: func(cmd *cobra.Command, args []string) error {
 		v, e := c.svc.AddArtifact(c.actor, path)
 		if e != nil {
 			return e
@@ -32,7 +33,7 @@ func (c *cli) artifactCmd() *cobra.Command {
 	}}
 	add.Flags().StringVar(&path, "path", "", "artifact path")
 	_ = add.MarkFlagRequired("path")
-	show := &cobra.Command{Use: "show", RunE: func(cmd *cobra.Command, args []string) error {
+	show := &cobra.Command{Use: "show", Short: "Show an artifact by its SHA-256", RunE: func(cmd *cobra.Command, args []string) error {
 		st, e := c.svc.State()
 		if e != nil {
 			return e
@@ -53,7 +54,7 @@ func (c *cli) artifactCmd() *cobra.Command {
 		})
 	}}
 	show.Flags().StringVar(&hash, "sha256", "", "artifact digest")
-	verify := &cobra.Command{Use: "verify", RunE: func(cmd *cobra.Command, args []string) error {
+	verify := &cobra.Command{Use: "verify", Short: "Verify an artifact's content matches its SHA-256", RunE: func(cmd *cobra.Command, args []string) error {
 		p := filepath.Join(c.svc.Store.Root, store.Runtime, "artifacts", "sha256", hash)
 		b, e := os.ReadFile(p)
 		if e != nil {
@@ -82,11 +83,15 @@ func (c *cli) artifactCmd() *cobra.Command {
 	return root
 }
 func (c *cli) documentCmd() *cobra.Command {
-	root := &cobra.Command{Use: "document"}
+	root := &cobra.Command{Use: "document", Short: "Create and manage governed project documents"}
 	var title, body, docReplacement, bodyFile string
-	var tags []string
-	create := &cobra.Command{Use: "create", RunE: func(cmd *cobra.Command, args []string) error {
+	var tags, notify []string
+	var asDecision bool
+	create := &cobra.Command{Use: "create", Short: "Create a governed document", RunE: func(cmd *cobra.Command, args []string) error {
 		id, _ := cmd.Flags().GetString("id")
+		if strings.TrimSpace(id) == "" {
+			id = fmt.Sprintf("doc-%d", time.Now().UnixNano())
+		}
 		if bodyFile != "" {
 			b, e := os.ReadFile(bodyFile)
 			if e != nil {
@@ -97,20 +102,58 @@ func (c *cli) documentCmd() *cobra.Command {
 		if body == "" {
 			return errors.New("body is required (use --body or --body-file)")
 		}
-		v, e := c.svc.Execute(c.actor, "document.create", id, model.DocumentPayload{Title: title, Body: body, Tags: tags})
+		docTags := tags
+		// RFC 0029: `--decision` is sugar for the reserved `decision` tag;
+		// this is where the former `decision create` lives now.
+		if asDecision {
+			has := false
+			for _, t := range docTags {
+				if t == "decision" {
+					has = true
+				}
+			}
+			if !has {
+				docTags = append(append([]string{}, docTags...), "decision")
+			}
+		}
+		v, e := c.svc.Execute(c.actor, "document.create", id, model.DocumentPayload{Title: title, Body: body, Tags: docTags})
 		if e != nil {
 			return e
 		}
-		return c.emit("document.create", v)
+		// UX-07 / RFC 0033: a failed --notify used to be visible only as a
+		// raw stderr line -- itself suppressed under --quiet -- so a caller
+		// relying on --json/--quiet had no field to check and got a plain
+		// ok:true regardless of whether a requested notification actually
+		// went out. notifyResults is now part of the emitted result
+		// unconditionally (only present at all when --notify was used, so
+		// the common no-notify response shape is unchanged), fixing the
+		// gap the stderr warning alone could not.
+		var notifyResults []documentNotifyResult
+		for _, principal := range notify {
+			result := notifyDocumentRecipient(c, id, title, principal)
+			notifyResults = append(notifyResults, result)
+			if result.Status == "failed" && !c.quiet {
+				fmt.Fprintf(c.err, "warning: --notify %s: %s\n", cliui.SanitizeInline(principal), result.Error)
+			}
+		}
+		if notifyResults == nil {
+			return c.emit("document.create", v)
+		}
+		type createResult struct {
+			model.Event
+			Notify []documentNotifyResult `json:"notify"`
+		}
+		return c.emit("document.create", createResult{Event: v, Notify: notifyResults})
 	}}
-	create.Flags().String("id", "", "document ID")
-	_ = create.MarkFlagRequired("id")
+	create.Flags().String("id", "", "document ID (auto-generated if omitted)")
 	create.Flags().StringVar(&title, "title", "", "title")
 	_ = create.MarkFlagRequired("title")
 	create.Flags().StringVar(&body, "body", "", "body")
 	create.Flags().StringVar(&bodyFile, "body-file", "", "read body from file (bypasses CLI arg limits)")
 	create.Flags().StringSliceVar(&tags, "tag", nil, "tag (repeatable)")
-	update := &cobra.Command{Use: "update", RunE: func(cmd *cobra.Command, args []string) error {
+	create.Flags().BoolVar(&asDecision, "decision", false, "tag this document `decision` (replaces the former `decision create`)")
+	create.Flags().StringSliceVar(&notify, "notify", nil, "post a DECISION message to this principal for acknowledgement (repeatable)")
+	update := &cobra.Command{Use: "update", Short: "Update a governed document's body or tags", RunE: func(cmd *cobra.Command, args []string) error {
 		id, _ := cmd.Flags().GetString("id")
 		if bodyFile != "" {
 			b, e := os.ReadFile(bodyFile)
@@ -134,7 +177,7 @@ func (c *cli) documentCmd() *cobra.Command {
 	update.Flags().StringVar(&body, "body", "", "body")
 	update.Flags().StringVar(&bodyFile, "body-file", "", "read body from file (bypasses CLI arg limits)")
 	update.Flags().StringSliceVar(&tags, "tag", nil, "tag (repeatable)")
-	supersede := &cobra.Command{Use: "supersede", RunE: func(cmd *cobra.Command, args []string) error {
+	supersede := &cobra.Command{Use: "supersede", Short: "Replace a document with a newer one", RunE: func(cmd *cobra.Command, args []string) error {
 		id, _ := cmd.Flags().GetString("id")
 		docReplacement, _ = cmd.Flags().GetString("replacement")
 		v, e := c.svc.Execute(c.actor, "document.supersede", id, model.DocumentPayload{ReplacementID: docReplacement})
@@ -147,16 +190,12 @@ func (c *cli) documentCmd() *cobra.Command {
 	_ = supersede.MarkFlagRequired("id")
 	supersede.Flags().StringVar(&docReplacement, "replacement", "", "replacement document ID")
 	_ = supersede.MarkFlagRequired("replacement")
-	list := &cobra.Command{Use: "list", RunE: func(cmd *cobra.Command, args []string) error {
+	list := &cobra.Command{Use: "list", Short: "List governed documents", RunE: func(cmd *cobra.Command, args []string) error {
 		st, e := c.svc.State()
 		if e != nil {
 			return e
 		}
-		ids := make([]string, 0, len(st.Documents))
-		for id := range st.Documents {
-			ids = append(ids, id)
-		}
-		sort.Strings(ids)
+		ids := service.SortedKeys(st.Documents)
 		rows := make([][]string, 0, len(ids))
 		for _, id := range ids {
 			document := st.Documents[id]
@@ -164,7 +203,7 @@ func (c *cli) documentCmd() *cobra.Command {
 		}
 		return c.emitTable("document.list", st.Documents, []string{"ID", "TITLE", "STATUS", "VERSION", "AUTHOR"}, rows)
 	}}
-	show := &cobra.Command{Use: "show", RunE: func(cmd *cobra.Command, args []string) error {
+	show := &cobra.Command{Use: "show", Short: "Show one governed document by ID", RunE: func(cmd *cobra.Command, args []string) error {
 		id, _ := cmd.Flags().GetString("id")
 		if id == "" && len(args) > 0 {
 			id = args[0]
@@ -194,13 +233,151 @@ func (c *cli) documentCmd() *cobra.Command {
 		})
 	}}
 	show.Flags().String("id", "", "document ID")
-	root.AddCommand(create, update, supersede, list, show)
+	// UX-07 / RFC 0033: retry a failed --notify without re-creating (or
+	// duplicating a notification for) the document. Uses the same
+	// deterministic message ID as `create --notify`, so a principal whose
+	// notification already exists is reported "already-sent" rather than
+	// re-attempted.
+	var retryNotify []string
+	notifyCmd := &cobra.Command{Use: "notify", Short: "Retry a document acknowledgement notification", RunE: func(cmd *cobra.Command, args []string) error {
+		id, _ := cmd.Flags().GetString("id")
+		if id == "" {
+			return errors.New("document ID required (use --id)")
+		}
+		if len(retryNotify) == 0 {
+			return errors.New("at least one --notify principal is required")
+		}
+		st, e := c.svc.State()
+		if e != nil {
+			return e
+		}
+		d, ok := st.Documents[id]
+		if !ok {
+			return fmt.Errorf("document %q not found", id)
+		}
+		results := make([]documentNotifyResult, 0, len(retryNotify))
+		for _, principal := range retryNotify {
+			results = append(results, notifyDocumentRecipient(c, id, d.Title, principal))
+		}
+		return c.emit("document.notify", struct {
+			Notify []documentNotifyResult `json:"notify"`
+		}{Notify: results})
+	}}
+	notifyCmd.Flags().String("id", "", "document ID")
+	notifyCmd.Flags().StringSliceVar(&retryNotify, "notify", nil, "principal to (re)notify (repeatable)")
+	root.AddCommand(create, update, supersede, list, show, notifyCmd)
 	return root
 }
+
+// documentNotifyResult is one recipient's outcome from a `document create
+// --notify` or `document notify` attempt. UX-07 / RFC 0033: this is what
+// makes a partial notification failure visible in the JSON envelope itself,
+// not only as a stderr line that --quiet suppresses.
+type documentNotifyResult struct {
+	Principal string `json:"principal"`
+	MessageID string `json:"message_id"`
+	Status    string `json:"status"` // "sent", "failed", or "already-sent"
+	Error     string `json:"error,omitempty"`
+}
+
+// notifyMessageID deterministically derives the DECISION message ID for
+// one (documentID, principal) pair.
+//
+// Codex review, 2026-09-05: the original "msg-" + documentID + "-" +
+// principal scheme was ambiguous whenever either ID itself contains a
+// dash -- document "a-b" notifying "c" and document "a" notifying "b-c"
+// both produced "msg-a-b-c", so retrying/creating the second collided
+// with the first's already-sent message and silently reported success
+// without ever notifying "b-c" (CLI-reproduced). Length-prefixing
+// documentID makes the split point between the two IDs unambiguous
+// regardless of what characters either one contains: for the combined
+// string to match between two different (documentID, principal) pairs,
+// len(documentID) would have to differ (which changes the decimal prefix
+// itself, and that prefix is immediately followed by ':', a character no
+// decimal length ever produces, so a longer/shorter prefix can never look
+// like a valid continuation of a shorter one) or be equal (in which case
+// the following len(documentID) characters are pinned to be documentID
+// itself, forcing an exact match there too, and only then the remaining
+// suffix is the principal).
+func notifyMessageID(documentID, principal string) string {
+	return fmt.Sprintf("msg-%d:%s:%s", len(documentID), documentID, principal)
+}
+
+// legacyNotifyMessageID reproduces the pre-collision-fix ID scheme
+// ("msg-" + documentID + "-" + principal, plain dash-joined). Only ever
+// used to recognize a notification a previous build of this tool already
+// sent under that scheme -- never to construct a new message ID.
+//
+// Codex review round 2, 2026-09-05: the collision fix above changed the ID
+// scheme outright, so a document already notified under the old scheme
+// before that fix was no longer found by the new scheme's existence check
+// -- a retry (or a second `document create --notify` for the same
+// document/principal) recomputed the new ID, found nothing there, and
+// sent a genuine duplicate notification. Checking both schemes' IDs before
+// deciding "already sent" makes retries idempotent across the format
+// change, not just within one format.
+func legacyNotifyMessageID(documentID, principal string) string {
+	return fmt.Sprintf("msg-%s-%s", documentID, principal)
+}
+
+// notifyBody is the exact acknowledgement body every notification for
+// (documentID) carries, under either ID scheme. Checking a candidate
+// message's Body against this (not just its ID) is what makes
+// notifyDocumentRecipient's "already sent" check safe against an
+// unrelated message that merely happens to occupy the expected ID:
+// message IDs are not a namespace this tool exclusively owns, so a
+// script or human could legitimately have posted something else there.
+func notifyBody(documentID string) string {
+	return "Governed document " + documentID + " requires your acknowledgement."
+}
+
+// isValidNotifyMessage reports whether m is genuinely a notification this
+// tool sent for (documentID, principal) -- Kind, Body, and recipient must
+// all match what notifyDocumentRecipient itself would have posted. An ID
+// match alone is not sufficient: it only proves *something* exists there.
+//
+// Codex review round 2, 2026-09-05: an unrelated message (posted by a
+// script, a human, or anything else) occupying a notify message's exact
+// expected ID used to be treated as "already-sent" on ID presence alone,
+// silently skipping the real notification without ever checking what that
+// message actually was.
+func isValidNotifyMessage(m model.Message, documentID, principal string) bool {
+	if m.Kind != "DECISION" || m.Body != notifyBody(documentID) {
+		return false
+	}
+	for _, recipient := range m.Recipients {
+		if recipient.Principal == principal {
+			return true
+		}
+	}
+	return false
+}
+
+// notifyDocumentRecipient posts (or confirms already-posted) a DECISION
+// acknowledgement message for one document/principal pair, using a
+// deterministic ID scheme that lets a retry recognize a notification that
+// already went out instead of duplicating it.
+func notifyDocumentRecipient(c *cli, documentID, title, principal string) documentNotifyResult {
+	msgID := notifyMessageID(documentID, principal)
+	if st, e := c.svc.State(); e == nil {
+		for _, candidateID := range [2]string{msgID, legacyNotifyMessageID(documentID, principal)} {
+			if existing, exists := st.Messages[candidateID]; exists && isValidNotifyMessage(existing, documentID, principal) {
+				return documentNotifyResult{Principal: principal, MessageID: candidateID, Status: "already-sent"}
+			}
+		}
+	}
+	if _, ne := c.svc.Execute(c.actor, "message.post", msgID, model.MessagePosted{
+		Kind: "DECISION", To: []string{principal}, Subject: title,
+		Body: notifyBody(documentID),
+	}); ne != nil {
+		return documentNotifyResult{Principal: principal, MessageID: msgID, Status: "failed", Error: ne.Error()}
+	}
+	return documentNotifyResult{Principal: principal, MessageID: msgID, Status: "sent"}
+}
 func (c *cli) envCmd() *cobra.Command {
-	root := &cobra.Command{Use: "env"}
+	root := &cobra.Command{Use: "env", Short: "Manage governed project environment values"}
 	var key, value string
-	set := &cobra.Command{Use: "set", RunE: func(cmd *cobra.Command, args []string) error {
+	set := &cobra.Command{Use: "set", Short: "Set a governed environment value", RunE: func(cmd *cobra.Command, args []string) error {
 		if key == "" && len(args) > 0 {
 			key = args[0]
 		}
@@ -218,7 +395,7 @@ func (c *cli) envCmd() *cobra.Command {
 	}}
 	set.Flags().StringVar(&key, "key", "", "key")
 	set.Flags().StringVar(&value, "value", "", "value")
-	get := &cobra.Command{Use: "get", RunE: func(cmd *cobra.Command, args []string) error {
+	get := &cobra.Command{Use: "get", Short: "Get a governed environment value", RunE: func(cmd *cobra.Command, args []string) error {
 		if key == "" && len(args) > 0 {
 			key = args[0]
 		}
@@ -245,7 +422,7 @@ func (c *cli) envCmd() *cobra.Command {
 		})
 	}}
 	get.Flags().StringVar(&key, "key", "", "key")
-	del := &cobra.Command{Use: "delete", RunE: func(cmd *cobra.Command, args []string) error {
+	del := &cobra.Command{Use: "delete", Short: "Delete a governed environment value", RunE: func(cmd *cobra.Command, args []string) error {
 		if key == "" && len(args) > 0 {
 			key = args[0]
 		}
@@ -259,7 +436,7 @@ func (c *cli) envCmd() *cobra.Command {
 		return c.emit("env.delete", v)
 	}}
 	del.Flags().StringVar(&key, "key", "", "key")
-	list := &cobra.Command{Use: "list", RunE: func(cmd *cobra.Command, args []string) error {
+	list := &cobra.Command{Use: "list", Short: "List governed environment values", RunE: func(cmd *cobra.Command, args []string) error {
 		st, e := c.svc.State()
 		if e != nil {
 			return e
@@ -336,7 +513,32 @@ func (c *cli) draftCmd() *cobra.Command {
 		return c.emitTable("draft.list", result, []string{"ID", "KIND", "UPDATED", "AUTHORITY"}, rows)
 	}}
 	list.Flags().IntVar(&limit, "limit", controlplane.DefaultPageSize, "maximum drafts to return")
-	root.AddCommand(save, list)
+	save.Short = "Save a non-authoritative local draft"
+	list.Short = "List local drafts"
+	var showID string
+	show := &cobra.Command{Use: "show", Args: cobra.NoArgs, Short: "Show one local draft by ID", RunE: func(cmd *cobra.Command, args []string) error {
+		if strings.TrimSpace(showID) == "" {
+			return errors.New("--id is required")
+		}
+		drafts, e := c.svc.Drafts(0)
+		if e != nil {
+			return e
+		}
+		for _, draft := range drafts {
+			if draft.ID == showID {
+				return c.emitDocument("draft.show", draft, cliui.Document{
+					Title: "Local draft " + draft.ID, Status: cliui.StatusInfo,
+					Fields: []cliui.Field{
+						{Label: "Kind", Value: draft.Kind}, {Label: "Updated", Value: draft.UpdatedAt.Format(time.RFC3339)},
+						{Label: "Body", Value: string(draft.Body)},
+					},
+				})
+			}
+		}
+		return fmt.Errorf("draft %q not found", showID)
+	}}
+	show.Flags().StringVar(&showID, "id", "", "draft ID")
+	root.AddCommand(save, list, show)
 	return root
 }
 

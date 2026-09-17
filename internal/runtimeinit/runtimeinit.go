@@ -67,11 +67,11 @@ func Initialize(ctx context.Context, config Config) (Result, error) {
 	} else if !os.IsNotExist(err) {
 		return Result{}, fmt.Errorf("inspect runtime: %w", err)
 	}
-	bootstrapPath := filepath.Join(config.ProjectRoot, ".agents")
+	bootstrapPath := filepath.Join(config.ProjectRoot, store.Bootstrap)
 	if _, err := os.Lstat(bootstrapPath); err == nil {
-		return Result{}, errors.New(".agents already exists; remove or rename it before initializing Agent Comms")
+		return Result{}, fmt.Errorf("%s already exists; remove or rename it before initializing Agent Comms", store.Bootstrap)
 	} else if !os.IsNotExist(err) {
-		return Result{}, fmt.Errorf("inspect .agents: %w", err)
+		return Result{}, fmt.Errorf("inspect %s: %w", store.Bootstrap, err)
 	}
 
 	projectID := "ac-" + uuid.NewString()

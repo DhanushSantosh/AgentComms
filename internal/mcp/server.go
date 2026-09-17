@@ -234,9 +234,16 @@ func handle(s *service.Service, resolution identity.ActorResolution, serverVersi
 	return r, true
 }
 func rpcFail(r response, code int, e error) response {
+	data := map[string]any{"code": failure.Code(e)}
+	// UX-14: keep MCP's error Data as machine-readable as the CLI's own
+	// ErrorBody.Details -- see internal/failure's own comment on why this
+	// classifier is shared rather than reimplemented per transport.
+	if details := failure.Details(e); details != nil {
+		data["details"] = details
+	}
 	r.Error = &rpcError{
 		Code: code, Message: e.Error(),
-		Data: map[string]any{"code": failure.Code(e)},
+		Data: data,
 	}
 	return r
 }

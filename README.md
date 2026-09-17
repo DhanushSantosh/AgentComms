@@ -22,14 +22,13 @@ Run more than one coding agent on the same project and you already know the fail
 > No account, no cloud dependency, nothing to configure before this works. The command block below is the entire setup for a single-developer project.
 
 ```sh
-VERSION=vX.Y.Z # replace with the release you selected
-curl -fsSL "https://raw.githubusercontent.com/DhanushSantosh/AgentComms/$VERSION/install.sh" | AGENT_COMMS_VERSION="$VERSION" sh
+curl -fsSL "https://raw.githubusercontent.com/DhanushSantosh/AgentComms/v0.7.0/install.sh" | AGENT_COMMS_VERSION=v0.7.0 sh
 
 agent-comms init
 agent-comms tui
 ```
 
-That's a working project. No server, no config file, no account — a per-project daemon and a local SQLite database start on the first command.
+That's a working project. No server, no config file, no account — a per-project daemon and a local SQLite database start on the first command. (`agc` is a shorter synonym for `agent-comms` if you'd rather type that.)
 
 <br>
 
@@ -102,7 +101,7 @@ Academic work on the wire protocols agents actually speak — MCP, A2A, ACP — 
 
 Releases are signed and verified with SHA-256 and Sigstore — see [release verification](docs/site/security/releases.md). For the full walkthrough, including wiring up a real Claude Code, Codex, or OpenCode agent as a live participant, start at [getting started](docs/site/start/quickstart.md).
 
-Contributing, or just want to try what's on `dev` before it's released? An unstable nightly build is published daily — `oras pull ghcr.io/dhanushsantosh/agentcomms-nightly:latest`, no login required. Not for regular use; see [release verification](docs/site/security/releases.md#nightly-builds-developers-not-for-regular-use).
+Contributing, or want to run what's on `dev` before it's released? Build from source — see [Contributing](CONTRIBUTING.md#build-from-source). Source builds are unsigned and are for development, not a substitute for release verification.
 
 [Documentation](docs/site/start/overview.md) · [Agent integration](docs/site/agents/integrations.md) · [Architecture](docs/architecture.md) · [Governance](docs/site/guide/governance.md) · [Threat model](docs/site/security/threat-model.md) · [Development workflow](docs/development-workflow.md) · [Contributing](CONTRIBUTING.md) · [Release process](docs/releasing.md) · [Changelog](CHANGELOG.md)
 

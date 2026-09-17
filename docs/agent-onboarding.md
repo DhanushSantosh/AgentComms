@@ -104,8 +104,10 @@ on the right — same underlying transaction either way:
   prefer this over polling: it blocks until work arrives and claims it.
 - `invocation claim --id <id> --runtime <runtime-id>` / `invocation_claim`.
 - `invocation start --id <id>` / `invocation_start`.
-- `invocation wait` / `invocation resume` / `invocation_wait` /
-  `invocation_resume` — if you need to pause for something external.
+- `invocation defer` / `invocation resume` / `invocation_wait` /
+  `invocation_resume` — if you need to pause for something external
+  (the CLI command is `defer`; the MCP tool and the underlying event type
+  keep the name `wait`).
 - `invocation complete --id <id> --summary <summary>` / `invocation_complete`,
   or `invocation reject` / `invocation_reject` if you can't do it.
 

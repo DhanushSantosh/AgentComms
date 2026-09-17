@@ -648,25 +648,6 @@ func TestApprovalApproveAndRejectRequirePending(t *testing.T) {
 	}
 }
 
-func TestDecisionCreateValidatesRequiredFieldsAndDuplicateID(t *testing.T) {
-	st := model.State{
-		Agents:    map[string]model.Agent{"owner": humanAgent("owner")},
-		Decisions: map[string]model.Decision{"existing": {}},
-	}
-	if _, err := ValidateTransition(st, "owner", "decision.create", "d1",
-		model.DecisionPayload{Title: "", Statement: "s"}, time.Now()); err == nil {
-		t.Fatal("expected a decision without a title to be rejected")
-	}
-	if _, err := ValidateTransition(st, "owner", "decision.create", "existing",
-		model.DecisionPayload{Title: "T", Statement: "s"}, time.Now()); err == nil {
-		t.Fatal("expected creating a decision with an already-existing ID to be rejected")
-	}
-	if _, err := ValidateTransition(st, "owner", "decision.create", "d1",
-		model.DecisionPayload{Title: "T", Statement: "s"}, time.Now()); err != nil {
-		t.Fatalf("expected a valid decision create to succeed: %v", err)
-	}
-}
-
 func TestDocumentLifecycleCreateUpdateSupersede(t *testing.T) {
 	st := model.State{
 		Agents:    map[string]model.Agent{"owner": humanAgent("owner")},

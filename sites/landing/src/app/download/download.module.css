@@ -17,8 +17,10 @@
   background:
     linear-gradient(90deg, transparent calc(50% - 0.5px), color-mix(in srgb, var(--text) 9%, transparent) 50%, transparent calc(50% + 0.5px)),
     var(--ink);
-  min-height: 100svh;
-  padding: 2rem var(--gutter) clamp(6rem, 10vw, 10rem);
+  /* Bottom padding no longer needs to clear a third stacked platform
+     card + its sticky-index column -- .sourceBuild sets its own,
+     tighter spacing above. */
+  padding: 2rem var(--gutter) clamp(4rem, 7vw, 6rem);
 }
 
 .intro {
@@ -250,6 +252,57 @@
   justify-content: center;
 }
 
+.sourceNote { color: var(--steel); font-size: 0.78rem; line-height: 1.6; margin: 0; max-width: 46rem; }
+.sourceNote code { font-family: var(--mono); font-size: 0.82em; }
+.sourceNote a { color: var(--cyan); text-decoration: underline; text-underline-offset: 0.2em; }
+
+/* Deliberately not another .platform card: a dashed rule (this site's own
+   "alternate path" marker, see LifecycleOrbit's legend-line--alternate)
+   and a compact, text-scale heading -- not a numbered index entry, not a
+   display-scale h2 -- so a contributor path reads as "also here, for
+   developers," not a third equal-weight choice for everyone landing on
+   this page. */
+.sourceBuild {
+  border-top: 1px dashed var(--line-dark);
+  display: grid;
+  gap: 1.1rem;
+  margin-top: clamp(3rem, 5vw, 4rem);
+  padding-top: clamp(2rem, 3.5vw, 2.75rem);
+}
+
+.sourceBuildTag {
+  color: var(--steel);
+  font-family: var(--mono);
+  font-size: 0.48rem;
+  letter-spacing: 0.1em;
+  margin: 0;
+  text-transform: uppercase;
+}
+
+.sourceBuildHead {
+  align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+}
+
+.sourceBuildHead h2 {
+  color: var(--text);
+  font-family: var(--display);
+  font-size: clamp(1.3rem, 2vw, 1.6rem);
+  font-weight: 620;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+
+.sourceBuildHead p {
+  color: var(--steel);
+  font-family: var(--mono);
+  font-size: 0.5rem;
+  margin: 0;
+  text-transform: uppercase;
+}
+
 .installCommand pre { margin: 0; overflow-x: auto; padding: 1.25rem 1.4rem; white-space: pre; }
 .installCommand code { font-family: var(--mono); font-size: clamp(0.82rem, 1vw, 0.96rem); font-weight: 520; line-height: 1.65; }
 .installCommand button { align-items: center; align-self: stretch; background: var(--panel-raised); border: 0; border-left: 1px solid var(--ink); color: var(--text); cursor: pointer; display: flex; flex-direction: column-reverse; font-family: var(--mono); font-size: 0.48rem; font-weight: 700; gap: 0.55rem; justify-content: center; min-width: 5.4rem; padding: 0.7rem; text-transform: uppercase; white-space: nowrap; }
@@ -266,49 +319,6 @@
 .installCommand button[data-copy-state="success"] b::after { background: var(--cyan); }
 .installCommand button[data-copy-state="failure"] { background: var(--text); border-color: var(--text); color: var(--ink); }
 .installCommand button:focus-visible { outline: 3px solid var(--cyan); outline-offset: -4px; }
-
-.nightly {
-  align-items: center;
-  border-top: 1px dashed var(--line-light);
-  display: grid;
-  gap: clamp(1.4rem, 3vw, 2.4rem);
-  grid-template-columns: minmax(18rem, 0.85fr) minmax(20rem, 1.15fr);
-  margin-top: clamp(2rem, 3.5vw, 3rem);
-  padding-top: clamp(2rem, 3.5vw, 3rem);
-}
-
-.nightly > div:first-child > p:first-child {
-  color: var(--steel);
-  font-family: var(--mono);
-  font-size: 0.5rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  margin: 0 0 0.6rem;
-  text-transform: uppercase;
-}
-
-.nightly h2 {
-  font-family: var(--display);
-  font-size: clamp(1.4rem, 2.2vw, 1.9rem);
-  font-weight: 620;
-  letter-spacing: -0.02em;
-  margin: 0 0 0.6rem;
-}
-
-.nightly > div:first-child > p:last-child {
-  color: var(--steel-light);
-  font-size: 0.82rem;
-  line-height: 1.55;
-  margin: 0;
-}
-
-.nightly > div:first-child code { font-family: var(--mono); }
-
-.nightly .installCommand { box-shadow: 0.35rem 0.35rem 0 var(--steel); }
-
-@media (max-width: 60rem) {
-  .nightly { grid-template-columns: 1fr; }
-}
 
 .handoff > header > p,
 .handoff li > span {
@@ -412,20 +422,20 @@
 
 
 :global(.motion-ready) :is(.intro, .buildPicker, .handoff, .supportLinks):not(:global(.is-revealed)) > *,
-:global(.motion-ready) .platform:not(:global(.is-revealed)) > * {
+:global(.motion-ready) :is(.platform, .sourceBuild):not(:global(.is-revealed)) > * {
   opacity: 0;
   transform: translateY(1.4rem);
 }
 
 :global(.motion-ready) :is(.intro, .buildPicker, .handoff, .supportLinks):global(.is-revealed) > *,
-:global(.motion-ready) .platform:global(.is-revealed) > * {
+:global(.motion-ready) :is(.platform, .sourceBuild):global(.is-revealed) > * {
   opacity: 1;
   transform: none;
   transition: opacity var(--download-reveal-duration) var(--ease-authority), transform var(--download-reveal-duration) var(--ease-authority);
 }
 
-:global(.motion-ready) :is(.intro, .buildPicker, .platform, .handoff, .supportLinks):global(.is-revealed) > :nth-child(2) { transition-delay: var(--download-reveal-delay-secondary); }
-:global(.motion-ready) :is(.intro, .buildPicker, .platform, .handoff, .supportLinks):global(.is-revealed) > :nth-child(3) { transition-delay: var(--download-reveal-delay-tertiary); }
+:global(.motion-ready) :is(.intro, .buildPicker, .platform, .sourceBuild, .handoff, .supportLinks):global(.is-revealed) > :nth-child(2) { transition-delay: var(--download-reveal-delay-secondary); }
+:global(.motion-ready) :is(.intro, .buildPicker, .platform, .sourceBuild, .handoff, .supportLinks):global(.is-revealed) > :nth-child(3) { transition-delay: var(--download-reveal-delay-tertiary); }
 
 @media (prefers-reduced-motion: no-preference) {
   .intro:global(.is-active) h1 em { animation: headline-signal var(--download-loop-long) ease-in-out infinite; }

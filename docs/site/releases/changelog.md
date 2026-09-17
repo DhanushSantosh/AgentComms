@@ -4,13 +4,26 @@ description: What changed in each tagged release, why it matters, and where to f
 section: Releases
 order: 1
 audience: Everyone
-lastVerified: 2026-08-26
+lastVerified: 2026-09-03
 related: [guide/maintenance, security/releases]
 ---
 
 Every tagged release is signed and dated. This page summarizes what changed and why; the repository's [CHANGELOG.md](https://github.com/DhanushSantosh/AgentComms/blob/main/CHANGELOG.md) carries the exhaustive per-change detail this page intentionally leaves out.
 
 Every release below is **Beta** — before v1.0.0, SemVer's own 0.x.y convention means anything may still change without notice. There is no Stable channel yet; that label only becomes accurate once a 1.x release ships.
+
+## v0.6.0 — "Chain of Trust" — Beta — 2026-09-03
+
+A governance and transport-security pass: approvals now bind to the exact operation and expiry a reviewer saw, standalone installers verify against a digest pinned in the release tag instead of mutable release assets, and the shared authority service gets an application-level access token — plus two approval-reuse gaps closed in orchestrator grants and task takeovers.
+
+**Security**
+
+- **Breaking:** approvals for contract publication and approval-gated invocations now carry a SHA-256 subject digest and an expiry; existing action-only approvals no longer authorize these operations and must be renewed. See RFC 0025.
+- **Breaking:** production `agent-comms-server` startup now requires `AGENT_COMMS_AUTHORITY_TOKEN`, alongside existing TLS and signing-key requirements. See RFC 0026.
+- **Breaking:** standalone installers now require an exact release version, authenticate the downloaded verifier against six platform digests committed in that protected tag, and bind Sigstore verification to the exact requested tag. A separately installed Cosign binary is still not required. See RFC 0025.
+- Orchestrator-grant and task-takeover approvals are now ID-scoped and single-use: a matching approval is consumed once used and can no longer be replayed to re-authorize the same grant or takeover indefinitely. See RFC 0023 and RFC 0024.
+- Authority SSE streams now use a dedicated bounded connection pool so long-lived stream holders can no longer exhaust health-check or mutation capacity. See RFC 0025.
+- Fixes two high-severity CVEs: `google.golang.org/grpc` (HTTP/2 DATA-frame-fragmentation heap exhaustion) and `fast-uri` (SSRF/host-confusion via percent-decoding and IDN canonicalization).
 
 ## v0.5.0 — "Plain Speech" — Beta — 2026-08-26
 
@@ -58,7 +71,7 @@ A TUI you can drive with a mouse from a real-sized terminal, session-pinned inte
 - `--takeover-pid` safely migrates a live interactive session, and every migrated/resumed session now pins its exact provider session ID (auto-discovered for claude and opencode) instead of racing each provider CLI's own "most recent session" guess.
 - A declarative JSON adapter specification system: add a new CLI provider by dropping a spec file under `.agent-comms/adapters/`, no Go changes required.
 - `runtime.delete`, `task lock`, `runtime verify-adapter`, and human-readable table output by default for agent/runtime/invocation list commands.
-- A public marketing site and docs site, and a nightly beta build channel.
+- A public marketing site and docs site.
 
 **Fixed**
 
@@ -122,23 +135,9 @@ First tagged release: terminal-native, signed coordination between humans and ag
 - Initialization refuses an existing `.agents` and publishes a complete runtime atomically.
 - Governed mutations revalidate authorization, leases, scopes, and conflicts inside the authoritative transaction.
 
-## Nightly builds
+## Running `dev` before a release
 
-Separate from every release above: an unstable snapshot builds from `dev`'s latest commit daily, for developers sanity-checking current work -- not a numbered release, not installed by `install.sh`/`install.ps1`, and not **Beta** either. It's published as a public OCI artifact rather than a GitHub Release, so it never appears alongside real tagged versions and carries no version history of its own -- the `:latest` tag is simply overwritten every run.
-
-```sh
-oras pull ghcr.io/dhanushsantosh/agentcomms-nightly:latest
-```
-
-No login required. The binaries are still Cosign-signed and attested exactly like a real release, just under a different workflow identity. `oras pull` fetches the whole bundle, including `agent-comms-verify` (see [Verify a release](/security/releases/)) -- no separately installed `cosign` needed:
-
-```sh
-./agent-comms-verify \
-  --bundle agent-comms-linux-amd64.bundle \
-  --certificate-identity-regexp '^https://github.com/DhanushSantosh/AgentComms/.github/workflows/nightly.yml@refs/heads/dev' \
-  --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
-  agent-comms-linux-amd64
-```
+There is no prebuilt developer channel. To run what is on `dev`, [build from source](https://github.com/DhanushSantosh/AgentComms/blob/main/CONTRIBUTING.md#build-from-source). Source builds are unsigned and are for development only; regular users install a signed release.
 
 ## Verifying a release
 

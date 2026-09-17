@@ -39,7 +39,7 @@ const (
 )
 
 // call dials socketPath, sends req, and returns the decoded response. Every
-// exported client function in this package (Alive, Deliver) is a thin
+// exported client function in this package (Alive, TryDeliverWithEvidence) is a thin
 // wrapper around this. The actual dial is platform-split (dialLocal, in
 // protocol_unix.go/protocol_windows.go) since Windows uses a named pipe
 // rather than a unix domain socket -- see listenLocal's doc comment in

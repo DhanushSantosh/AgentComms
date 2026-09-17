@@ -7,7 +7,7 @@ import (
 	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
 )
 
-const SchemaVersion = "2.1.0"
+const SchemaVersion = "2.2.0"
 
 type RuntimeKind string
 
@@ -195,14 +195,6 @@ type Approval struct {
 	ExpiresAt     *time.Time `json:"expires_at,omitempty"`
 	Approver      string     `json:"approver,omitempty"`
 }
-type Decision struct {
-	ID         string   `json:"id"`
-	Title      string   `json:"title"`
-	Statement  string   `json:"statement"`
-	Supersedes string   `json:"supersedes,omitempty"`
-	Status     string   `json:"status"`
-	To         []string `json:"to,omitempty"`
-}
 type Artifact struct {
 	SHA256    string `json:"sha256"`
 	Size      int64  `json:"size"`
@@ -285,11 +277,30 @@ type State struct {
 	AgentRuntimes        map[string]AgentRuntime       `json:"agent_runtimes"`
 	InvocationPolicies   map[string]InvocationPolicy   `json:"invocation_policies"`
 	Approvals            map[string]Approval           `json:"approvals"`
-	Decisions            map[string]Decision           `json:"decisions"`
 	Documents            map[string]Document           `json:"documents"`
 	Env                  map[string]EnvEntry           `json:"env"`
-	Sessions             map[string]SessionPayload     `json:"sessions"`
 	Artifacts            map[string]Artifact           `json:"artifacts"`
 	ProjectSettings      ProjectSettings               `json:"project_settings"`
 	Integrity            Integrity                     `json:"integrity"`
+}
+
+// EmptyState returns a State with every collection allocated and default
+// project settings applied. Every authority backend and the projection
+// cache start from this; keeping one constructor means a new State
+// collection can never be silently left nil in one backend out of four.
+func EmptyState() State {
+	return State{
+		Agents:               map[string]Agent{},
+		Tasks:                map[string]Task{},
+		Messages:             map[string]Message{},
+		Invocations:          map[string]Invocation{},
+		InvocationDeliveries: map[string]InvocationDelivery{},
+		AgentRuntimes:        map[string]AgentRuntime{},
+		InvocationPolicies:   map[string]InvocationPolicy{},
+		Approvals:            map[string]Approval{},
+		Documents:            map[string]Document{},
+		Env:                  map[string]EnvEntry{},
+		Artifacts:            map[string]Artifact{},
+		ProjectSettings:      DefaultProjectSettings(),
+	}
 }

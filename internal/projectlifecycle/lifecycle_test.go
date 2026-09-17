@@ -139,6 +139,161 @@ func TestReconcileUpgradesBaselineWithoutChangingSignedEventsOrDrafts(t *testing
 	}
 }
 
+// TestReconcileRenamesLegacyBootstrapFile is the regression test for RFC
+// 0031: a project initialized before the bootstrap marker moved from
+// LegacyBootstrap (".agents") to store.Bootstrap (".agentcomms") upgrades
+// automatically -- the old file's content is preserved in the backup this
+// same Reconcile already takes, store.Bootstrap ends up present with
+// current content, and LegacyBootstrap is actually gone from the project
+// root afterward, not just newly ignored.
+func TestReconcileRenamesLegacyBootstrapFile(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(t.TempDir(), "credentials"))
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(t.TempDir(), "config"))
+	store.RuntimeVersion = "0.1.0"
+	store.RuntimeBuildID = "old-build"
+	if _, err := runtimeinit.Initialize(context.Background(), runtimeinit.Config{
+		ProjectRoot: root, Owner: "owner", Mode: "personal",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Simulate the pre-RFC-0031 on-disk layout: rename the just-created
+	// current bootstrap back to the legacy name, and roll ManagedFilesVersion
+	// back to what a project initialized before this RFC would have.
+	currentBootstrap := filepath.Join(root, store.Bootstrap)
+	legacyBootstrap := filepath.Join(root, store.LegacyBootstrap)
+	legacyContent, err := os.ReadFile(currentBootstrap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.Rename(currentBootstrap, legacyBootstrap); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(root, store.Runtime, "config.json")
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var config map[string]any
+	if err = json.Unmarshal(raw, &config); err != nil {
+		t.Fatal(err)
+	}
+	config["managed_files_version"] = 1
+	delete(config, "managed_file_hashes")
+	raw, _ = json.MarshalIndent(config, "", "  ")
+	if err = os.WriteFile(configPath, append(raw, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	plan, _, err := Inspect(root, "0.2.0", "new-build")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, action := range plan.Actions {
+		if action.Component == "managed_files" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected a pending managed_files migration, got %+v", plan.Actions)
+	}
+
+	result, err := Reconcile(context.Background(), Options{
+		Root: root, Version: "0.2.0", BuildID: "new-build", Apply: true, Approved: true, StopDaemon: false,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Changed || !result.Verified || result.BackupPath == "" {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+
+	if _, err = os.Stat(currentBootstrap); err != nil {
+		t.Fatalf("expected %s to exist after reconciliation: %v", store.Bootstrap, err)
+	}
+	if _, err = os.Stat(legacyBootstrap); !os.IsNotExist(err) {
+		t.Fatalf("expected legacy %s to be gone, stat returned: %v", store.LegacyBootstrap, err)
+	}
+	backedUp, err := os.ReadFile(filepath.Join(result.BackupPath, store.LegacyBootstrap))
+	if err != nil {
+		t.Fatalf("expected the legacy bootstrap's content to be backed up: %v", err)
+	}
+	if string(backedUp) != string(legacyContent) {
+		t.Fatalf("backed-up legacy bootstrap content = %q, want %q", backedUp, legacyContent)
+	}
+	if !store.Open(root).ManagedBootstrapValid() {
+		t.Fatal("expected the current bootstrap to be valid after reconciliation")
+	}
+
+	// Idempotent: reconciling again is a no-op, not an error, and does not
+	// try to remove an already-gone legacy file.
+	plan, _, err = Inspect(root, "0.2.0", "new-build")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Actions) != 0 {
+		t.Fatalf("expected no pending actions after a completed reconciliation, got %+v", plan.Actions)
+	}
+}
+
+// TestReconcilePreservesUnrelatedThirdPartyAgentsPath is the regression
+// test for a bug an independent review caught before release: backupProject
+// and publishManagedFiles used to touch LegacyBootstrap (.agents)
+// unconditionally on every managed-files publish, gated only on the two
+// path strings differing (always true) -- never on whether THIS project's
+// own ManagedFilesVersion ever actually used that name. A fresh v2 project
+// (never on the legacy scheme) with an unrelated .agents directory left by
+// some other tool would have that directory's copy refused during backup
+// (copyRegularFile only handles regular files) and, worse, a plain
+// unrelated .agents *file* would be silently deleted by publishManagedFiles.
+// Both an unrelated directory and an unrelated file must survive untouched.
+func TestReconcilePreservesUnrelatedThirdPartyAgentsPath(t *testing.T) {
+	for _, unrelated := range []struct {
+		name    string
+		prepare func(t *testing.T, path string)
+	}{
+		{"directory", func(t *testing.T, path string) {
+			if err := os.Mkdir(path, 0o700); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"file", func(t *testing.T, path string) {
+			if err := os.WriteFile(path, []byte("unrelated tool data"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	} {
+		t.Run(unrelated.name, func(t *testing.T) {
+			root := t.TempDir()
+			t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(t.TempDir(), "credentials"))
+			t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(t.TempDir(), "config"))
+			legacyPath := filepath.Join(root, store.LegacyBootstrap)
+			unrelated.prepare(t, legacyPath)
+
+			// A fresh v2 project (runtimeinit.Initialize always writes the
+			// current ManagedFilesVersion) reconciling for the first time
+			// against a newer build -- this must not be mistaken for a
+			// v1->v2 migration just because something exists at the legacy
+			// path.
+			if _, err := runtimeinit.Initialize(context.Background(), runtimeinit.Config{
+				ProjectRoot: root, Owner: "owner", Mode: "personal",
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Reconcile(context.Background(), Options{
+				Root: root, Version: "99.0.0", BuildID: "newer-build", Apply: true, Approved: true, StopDaemon: false,
+			}); err != nil {
+				t.Fatalf("fresh v2 project with an unrelated %s failed to reconcile: %v", store.LegacyBootstrap, err)
+			}
+			if _, err := os.Stat(legacyPath); err != nil {
+				t.Fatalf("unrelated third-party %s was removed: %v", store.LegacyBootstrap, err)
+			}
+		})
+	}
+}
+
 func TestLifecycleLockSerializesClients(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "upgrade.lock")
 	first, err := lockFile(path, time.Second)
@@ -318,7 +473,8 @@ func driveJournalToStage(t *testing.T, root string, plan Plan, config store.Conf
 		}
 		return state
 	}
-	state.BackupPath, err = backupProject(root, config, state.ID)
+	legacyBootstrapMigration := config.ManagedFilesVersion < store.LegacyBootstrapManagedFilesVersion
+	state.BackupPath, err = backupProject(root, config, state.ID, legacyBootstrapMigration)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -346,7 +502,7 @@ func driveJournalToStage(t *testing.T, root string, plan Plan, config store.Conf
 	config.MinimumToolkit = options.Version
 	config.SchemaVersion = model.SchemaVersion
 	config.ManagedFileHashes = store.ManagedHashes(config)
-	if err = publishManagedFiles(root, config); err != nil {
+	if err = publishManagedFiles(root, config, legacyBootstrapMigration); err != nil {
 		t.Fatal(err)
 	}
 	state.Stage = "files_published"
@@ -621,7 +777,7 @@ func TestBackupProjectResumesOverAPartialBackupDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	destination, err := backupProject(root, config, id)
+	destination, err := backupProject(root, config, id, false)
 	if err != nil {
 		t.Fatalf("backupProject did not resume cleanly over a partial backup directory: %v", err)
 	}

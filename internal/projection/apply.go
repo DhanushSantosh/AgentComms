@@ -11,6 +11,15 @@ import (
 )
 
 func ApplyEvent(s *model.State, e model.Event) error {
+	// An event type this build does not recognize -- one removed in a
+	// later schema (session.*, RFC 0028) or one written by a newer
+	// version -- projects to nothing. The event stays in the immutable,
+	// hash-verified log; it simply has no effect on derived state here.
+	// Only ApplyEvent is lenient this way; DecodePayload itself stays
+	// strict for callers that decode a type they expect to know.
+	if !model.KnownEventType(e.Type) {
+		return nil
+	}
 	if s.Invocations == nil {
 		s.Invocations = map[string]model.Invocation{}
 	}
@@ -399,17 +408,18 @@ func ApplyEvent(s *model.State, e model.Event) error {
 		a.Approver = e.Actor
 		s.Approvals[e.EntityID] = a
 	case *model.DecisionPayload:
-		s.Decisions[e.EntityID] = model.Decision{ID: e.EntityID, Title: p.Title, Statement: p.Statement, Supersedes: p.Supersedes, To: p.To, Status: "ACTIVE"}
-		if p.Supersedes != "" {
-			d := s.Decisions[p.Supersedes]
-			d.Status = "SUPERSEDED"
-			s.Decisions[p.Supersedes] = d
+		// RFC 0029: `decision` is no longer its own type. Historical
+		// decision.create / decision.supersede events in the immutable log
+		// still project -- into a `decision`-tagged Document, the same
+		// place `document create --decision` writes now.
+		s.Documents[e.EntityID] = model.Document{
+			ID: e.EntityID, Title: p.Title, Body: p.Statement, Tags: []string{"decision"},
+			Status: "ACTIVE", Version: 1, Author: e.Actor, Supersedes: p.Supersedes,
 		}
-	case *model.SessionPayload:
-		if e.Type == "session.start" {
-			s.Sessions[e.EntityID] = *p
-		} else {
-			delete(s.Sessions, e.EntityID)
+		if p.Supersedes != "" {
+			d := s.Documents[p.Supersedes]
+			d.Status = "SUPERSEDED"
+			s.Documents[p.Supersedes] = d
 		}
 	case *model.ArtifactAdded:
 		s.Artifacts[p.SHA256] = model.Artifact{SHA256: p.SHA256, Size: p.Size, Name: p.Name, MediaType: p.MediaType, Storage: p.Storage}

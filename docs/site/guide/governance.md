@@ -4,7 +4,7 @@ description: Record durable decisions and require the right level of authority b
 section: User guide
 order: 5
 audience: Human operators
-lastVerified: 2026-08-01
+lastVerified: 2026-09-02
 related: [security/identity, security/integrity]
 ---
 
@@ -12,23 +12,31 @@ Decisions explain what the project chose. Approvals authorize a proposed action.
 
 ## Record a decision
 
+A decision is a governed document tagged `decision`. `--notify` posts a
+`DECISION` message to each principal expected to acknowledge it.
+
 ```sh
-agent-comms decision create \
+agent-comms document create \
   --id decision-auth-format \
+  --decision \
   --title "Use rotating refresh tokens" \
-  --statement "Access tokens remain short-lived; refresh tokens rotate on use." \
-  --to <agent-a> \
-  --to <agent-b>
+  --body "Access tokens remain short-lived; refresh tokens rotate on use." \
+  --notify <agent-a> \
+  --notify <agent-b>
 ```
 
-When a decision changes, supersede it rather than editing history:
+When a decision changes, publish a new one and supersede the old
+document rather than editing history:
 
 ```sh
-agent-comms decision supersede \
+agent-comms document create \
   --id decision-auth-format-v2 \
+  --decision \
   --title "Bind refresh tokens to device keys" \
-  --statement "Refresh rotation also verifies the registered device key." \
-  --supersedes decision-auth-format
+  --body "Refresh rotation also verifies the registered device key."
+agent-comms document supersede \
+  --id decision-auth-format \
+  --replacement decision-auth-format-v2
 ```
 
 ## Request approval

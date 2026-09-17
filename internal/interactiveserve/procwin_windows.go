@@ -29,7 +29,6 @@ func processAlive(pid int) bool {
 	return exitCode == 259 // STILL_ACTIVE
 }
 
-
 // maxAncestorWalkDepth bounds currentProcessIsDescendantOf's walk up the
 // parent chain -- generous for any real process tree, but finite so a
 // pathological or misread process chain can never spin forever. Same

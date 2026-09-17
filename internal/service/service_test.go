@@ -175,7 +175,7 @@ func TestConcurrentWritersAndIntegrity(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			_, e := s.Execute("owner", "decision.create", string(rune('a'+i)), model.DecisionPayload{Title: "Decision", Statement: "Synthetic"})
+			_, e := s.Execute("owner", "document.create", string(rune('a'+i)), model.DocumentPayload{Title: "Decision", Body: "Synthetic", Tags: []string{"decision"}})
 			errs <- e
 		}(i)
 	}

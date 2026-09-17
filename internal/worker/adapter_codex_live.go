@@ -64,7 +64,7 @@ func (codexLiveAdapter) Execute(ctx context.Context, config Config, invocation m
 			return "", fmt.Errorf("codex-live: persist thread id: %w", err)
 		}
 	}
-	config.Status("watch this runtime's Codex activity live in a terminal: agent-comms codex attach --runtime " + config.RuntimeID + " --server " + baseURL)
+	config.Status("watch this runtime's Codex activity live in a terminal: agent-comms live attach --provider codex --runtime " + config.RuntimeID + " --server " + baseURL)
 
 	output, err := client.Prompt(ctx, config.RuntimeID, codexPrompt(config.Actor, invocation))
 	if err != nil {

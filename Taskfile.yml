@@ -40,3 +40,4 @@ tasks:
           -X github.com/DhanushSantosh/AgentComms/internal/buildinfo.Version=$$VERSION \
           -X github.com/DhanushSantosh/AgentComms/internal/buildinfo.BuildID=$$BUILD" \
           -o ~/.local/bin/agent-comms ./cmd/agent-comms
+        ln -sf agent-comms ~/.local/bin/agc

@@ -70,7 +70,7 @@ func TestDeleteProjectWrongPassphraseFails(t *testing.T) {
 
 // TestDeleteProjectPersonalModeSuccess is the full happy-path end to end:
 // owner, correct directory-name confirmation, correct passphrase -- the
-// runtime directory and .agents bootstrap file are actually gone from disk
+// runtime directory and the bootstrap file are actually gone from disk
 // afterward, and the result correctly reports no remote deletion happened
 // (personal mode has no authority to delete from).
 func TestDeleteProjectPersonalModeSuccess(t *testing.T) {
@@ -94,8 +94,32 @@ func TestDeleteProjectPersonalModeSuccess(t *testing.T) {
 	if _, statErr := os.Stat(filepath.Join(root, store.Runtime)); !os.IsNotExist(statErr) {
 		t.Fatalf("expected the runtime directory to be gone, stat returned: %v", statErr)
 	}
-	if _, statErr := os.Stat(filepath.Join(root, ".agents")); !os.IsNotExist(statErr) {
-		t.Fatalf("expected .agents to be gone, stat returned: %v", statErr)
+	if _, statErr := os.Stat(filepath.Join(root, store.Bootstrap)); !os.IsNotExist(statErr) {
+		t.Fatalf("expected the bootstrap file to be gone, stat returned: %v", statErr)
+	}
+}
+
+// TestDeleteProjectPreservesUnrelatedThirdPartyAgentsFile is the
+// regression test for a bug an independent review caught before release:
+// DeleteProject's best-effort LegacyBootstrap (.agents) cleanup used to run
+// unconditionally for every project, regardless of whether that project's
+// own ManagedFilesVersion ever actually used that name. A project already
+// on the current scheme with an unrelated third-party .agents file left by
+// some other tool would have had it silently deleted here.
+func TestDeleteProjectPreservesUnrelatedThirdPartyAgentsFile(t *testing.T) {
+	s, root := testsupport.StartPersonalProject(t)
+	legacyPath := filepath.Join(root, store.LegacyBootstrap)
+	if err := os.WriteFile(legacyPath, []byte("unrelated tool data"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ElevateKey("owner", "correct passphrase"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DeleteProject("owner", "correct passphrase", filepath.Base(root)); err != nil {
+		t.Fatalf("expected deletion to succeed, got %v", err)
+	}
+	if _, statErr := os.Stat(legacyPath); statErr != nil {
+		t.Fatalf("unrelated third-party %s was removed: %v", store.LegacyBootstrap, statErr)
 	}
 }
 
@@ -104,7 +128,7 @@ func requireRuntimeSurvives(t *testing.T, root string) {
 	if _, statErr := os.Stat(filepath.Join(root, store.Runtime)); statErr != nil {
 		t.Fatalf("expected the runtime directory to survive a refused delete: %v", statErr)
 	}
-	if _, statErr := os.Stat(filepath.Join(root, ".agents")); statErr != nil {
-		t.Fatalf("expected .agents to survive a refused delete: %v", statErr)
+	if _, statErr := os.Stat(filepath.Join(root, store.Bootstrap)); statErr != nil {
+		t.Fatalf("expected the bootstrap file to survive a refused delete: %v", statErr)
 	}
 }

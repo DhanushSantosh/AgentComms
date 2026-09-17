@@ -5,6 +5,270 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-09-17 — “Read Receipt”
+
+*A coherence pass across the whole CLI: `live tail`'s ad-hoc file-watching
+is gone in favor of the one supported way to watch a live session, message
+and document acknowledgment gain a proper retry and read path, and a broad
+UX audit closes gaps in how the CLI explains its own state -- registration,
+approvals, inbox, and installation all say more than they used to.*
+
+**Added**
+- `document notify --id <id> --notify <principal>` retries a stuck document
+  acknowledgement without duplicating one already sent.
+- `message show --id <id>` reads a message's subject and body directly.
+- `agc`, a short alias for `agent-comms`, installed alongside the main
+  binary.
+
+**Breaking**
+- **Breaking:** Removed `agent-comms live tail`; `live attach --provider
+  claude|codex` (backed by `live serve`) is the one supported way to watch
+  a live session now.
+- **Breaking:** The managed bootstrap marker file renamed `.agents` ->
+  `.agentcomms`; existing projects migrate automatically.
+- **Breaking:** Removed the `session` and `decision` command groups
+  (decisions are now `decision`-tagged documents); CLI surface consolidated
+  per RFC 0027 (full removed/renamed table below). State schema 2.1.0 ->
+  2.2.0; authority schema 4 -> 6, both auto-migrating.
+
+**Changed**
+- Every CLI command now documents itself under `--help`, with examples for
+  the non-obvious lifecycle/approval commands.
+- Uniform `show` commands for `task`/`agent`/`approval`/`decision`;
+  `history --grep`/`--all`; auto-generated `--id` on create commands.
+
+**Fixed**
+- `approval show`, `message inbox`, `agent register`/`status` all surface
+  state and context by default that used to be hidden behind `--details`
+  or missing entirely.
+- `install.sh`'s checksum fallback (`sha256sum` -> `shasum`) now actually
+  runs instead of silently succeeding.
+- Empty `task list`/`message inbox`/`invocation list` now distinguish
+  "nothing exists yet" from "your filter matched nothing."
+- TUI: document-update edits no longer silently corrupt untouched fields
+  (whitespace stripped, body blanked) or misapply keyboard input in the
+  command palette.
+
+Full technical detail is below and in [CHANGELOG.md](https://github.com/DhanushSantosh/AgentComms/blob/main/CHANGELOG.md).
+
+### Added
+- `document notify --id <id> --notify <principal>` — retry a document
+  acknowledgement notification without re-creating the document or
+  duplicating a notification that already went out. See
+  [RFC 0033](docs/rfcs/0033-document-notify-partial-outcome.md).
+- `message show --id <id>` — read one message's subject and body directly,
+  matching the uniform `show` RFC 0027 already gave `task`/`agent`/
+  `approval`/`decision`. See [RFC 0032](docs/rfcs/0032-message-show.md).
+- `agc`, a short alias for `agent-comms` — the installers place it beside
+  the main binary (a symlink on Linux/macOS, an `agc.cmd` shim on
+  Windows). `agent-comms` stays the canonical name in all docs and help.
+  See [RFC 0030](docs/rfcs/0030-agc-cli-alias.md).
+
+### Breaking
+- **Removed `agent-comms live tail`.** It read a Claude Code session's
+  transcript directly off disk (an undocumented, internal file format)
+  and was Claude-only; `live attach --provider claude|codex` (backed by
+  `live serve`) is the one supported way to watch a live agent session
+  for both providers now. `claudetail.Format` (used by `live attach` to
+  render Claude transcript lines) is unaffected; only the file-watching
+  path (`claudetail.Tail`/`SessionPath`) is gone. See
+  [RFC 0034](docs/rfcs/0034-remove-live-tail.md).
+
+### Fixed
+- Docs site: code-block copy buttons (`PlatformTabs`, the `.prose pre`
+  copy button) awaited `navigator.clipboard.writeText` with no failure
+  path -- a denied permission, non-secure context, or unavailable API
+  left the button silently unchanged, no feedback at all. New shared
+  `src/lib/clipboard.ts` falls back to the legacy `execCommand("copy")`
+  technique, and if that also fails, selects the code text and says
+  "Copy failed -- code selected, use Ctrl/Cmd+C" so the person can
+  still get it. (UX-16; scoped to this one reproduced gap -- terminal
+  accessibility testing on core journeys, a linear CLI alternative for
+  every critical TUI workflow, and explaining the web demo's simulated
+  state are unaddressed follow-up work, each needing practical
+  keyboard/assistive-tech verification the audit itself notes a
+  screenshot or Lighthouse run cannot establish)
+- `task list`, `message inbox`, and `invocation list` no longer print
+  the generic `(no rows)` for every empty result -- "nothing exists
+  yet" and "your filter matched nothing" now read differently, and
+  both name a next step (`task create`, clearing `--unread`/`--from`
+  or `--status`/`--to`). New `cliui.Table.Empty` field and
+  `emitTableWithEmpty` helper make this available to any other list
+  command. (UX-15; scoped to these three lists named in the audit's own
+  evidence -- a consistent filter/pagination system across every
+  entity, search on title/subject instead of only ID, and a "my work"
+  summary view are unaddressed follow-up work, and scale/pagination
+  changes need a 100/1,000/10,000-record benchmark first per the
+  audit's own acceptance note, not attempted here)
+- `update apply` failing after the binary was already replaced but
+  before project reconciliation completed used to leave "did the
+  binary actually change?" answerable only by parsing the error
+  message's prose. Errors can now carry a machine-readable `details`
+  field (`ErrorBody.Details` for the CLI, `error.data.details` for
+  MCP) -- `update apply` sets `{"binary_updated": true,
+  "installed_version": ..., "previous_version": ...}` on this specific
+  failure. Additive and empty (omitted) for every other error. (UX-14;
+  scoped to this one reproduced ambiguity -- a guided upgrade-plan
+  view, resumable repair guidance, and any change to upgrade
+  scope/confirmation policy are unaddressed follow-up work explicitly
+  requiring their own RFC per the audit's own acceptance note)
+- Docs: the install guide no longer claims the stable v0.6.0 installer
+  places `agc` (that alias ships in the next release, confirmed against
+  v0.6.0's actual `install.sh`) or that a source build lacks
+  `agent-comms update` (confirmed against a real built binary: it's
+  present and functional there too, verifying against a real release
+  the same way the installer does). `agent-invocations.md` and
+  `agent-onboarding.md` no longer reference the CLI command
+  `invocation wait`, renamed to `invocation defer` by RFC 0027 (the MCP
+  tool and underlying event type intentionally kept the name `wait`,
+  now noted explicitly instead of read as a stale CLI example). (UX-13;
+  semantic example-checking in release automation, beyond link
+  checking, is unaddressed follow-up work)
+- TUI: a title-only document-update edit no longer strips the untouched
+  body's leading indentation or trailing newline (`strings.TrimSpace`
+  was applied unconditionally, even to a field just restored to its raw
+  original content) -- could silently change Markdown code-block
+  formatting nobody asked to change.
+- TUI: a missing required field on any create/edit form now names the
+  exact field ("Body is required.") and moves focus to it, instead of
+  one generic "Complete every required field." `document update`'s
+  form now prefills Title/Body/Tags from the document being edited
+  instead of starting every field blank, so editing one field no
+  longer risks silently publishing a blanked-out body for anything the
+  operator didn't retype from memory. (UX-12; scoped to these two
+  reproduced issues -- ID auto-generation parity, multiline editing,
+  dirty-state-aware navigation discard, and progressive disclosure for
+  the 15-field invocation form are unaddressed follow-up work, not
+  attempted here)
+- TUI command palette: Up/Down now move a real selection cursor, and
+  Enter applies whichever match is actually highlighted instead of
+  always `matches[0]` regardless of what Down had moved to. The query
+  input now accepts any single Unicode character (accented letters,
+  CJK, emoji), not only single-byte ASCII, and backspace removes one
+  whole character instead of truncating a multi-byte one. (UX-11)
+- `task claim`'s receipt now reports "scope lease acquired" and
+  "Worktree lock: not requested (scope lease only)" as two distinct
+  outcomes instead of a blank Worktree field for a scope-only claim --
+  `claim`'s own help text implied a working-directory lock was always
+  acquired, even though `--worktree` is optional. `task show`'s default
+  view now includes lease expiry and protected resources, previously
+  visible only under `--details`. (UX-10)
+- `task create` now marks `--title`, `--branch`, and `--resource` as
+  required flags, so an omission fails fast with cobra's own message
+  naming the exact missing flag instead of reaching backend validation.
+  The backend's own error (reached directly by MCP or a script driving
+  `Execute`) now names exactly which of title/repository/branch/resources
+  is missing instead of one combined message listing all four regardless
+  of which was actually omitted. (UX-09)
+- `invocation request`'s receipt no longer shows blank Consumer/Runtime
+  fields for an ordinary queued invocation (no runtime online yet) --
+  Consumer now resolves the actual effective mode, and Runtime/the hint
+  name that specific case with a concrete next step
+  (`invocation next`/`invocation listen`). `invocation inspect` now shows
+  the instruction (and result/reason, once available) by default instead
+  of only under `--details`/`--json`. `attention` gained an "Awaiting a
+  consumer" category for invocations nobody has ever claimed
+  (Status `PENDING`), a lifecycle stage distinct from -- and previously
+  invisible next to -- "Waiting invocations" (Status `WAITING`); a grace
+  period keeps a just-requested invocation from reading as an alarm.
+  (UX-08)
+- `document create --notify <principal>` now reports each recipient's
+  outcome (`sent`/`failed`/`already-sent`) in the JSON response's new
+  `notify` field, unaffected by `--quiet`; a failed notification used to be
+  visible only as a stderr line, so a script relying on `--json`/`--quiet`
+  had no way to detect a partial failure. See
+  [RFC 0033](docs/rfcs/0033-document-notify-partial-outcome.md).
+
+### Changed
+- **Breaking:** the managed bootstrap marker file renamed from `.agents`
+  to `.agentcomms` — `.agents` is a name several unrelated agent-tooling
+  projects also use for their own directory, so `init` refusing to run
+  against anything at all at that path was a false-positive collision,
+  not a real one. Already-initialized projects migrate automatically on
+  the next reconcile (the existing managed-files upgrade path backs up
+  the old file before removing it); a fresh `init` no longer looks at
+  `.agents` at all. See [RFC 0031](docs/rfcs/0031-rename-bootstrap-file-to-agentcomms.md).
+
+### Changed
+- Every CLI command now has a one-line description under `--help`; the
+  non-obvious lifecycle and approval commands also gained examples. See
+  [RFC 0027](docs/rfcs/0027-cli-surface-consolidation.md).
+- `agent-comms update check` / `update apply`, `config`, and `profile
+  current` now run from any directory instead of requiring an initialized
+  project; `doctor` and `agent-instructions` degrade gracefully outside a
+  project.
+- Uniform `show` commands added for `task`, `agent`, `approval`, and
+  `decision`; `history` gained `--grep` and `--all`; `task create`,
+  `approval request`, and `decision create` auto-generate `--id` when it
+  is omitted.
+
+### Breaking
+- **Removed the `session` command group.** `session start` / `session end`
+  emitted signed events into a `sessions` state collection that no code
+  ever read. `session heartbeat` was already a no-op (RFC 0027). See
+  [RFC 0028](docs/rfcs/0028-remove-session-lifecycle.md).
+- **Removed the `decision` command group; decisions are now
+  `decision`-tagged documents.** `decision create X` → `document create X
+  --decision` (add `--notify <principal>` to post a DECISION message);
+  `decision supersede` → `document create --decision` + `document
+  supersede --replacement`. Existing decisions migrate to tagged
+  documents through `agent-comms project upgrade`. See
+  [RFC 0029](docs/rfcs/0029-consolidate-decisions-into-documents.md).
+- State schema `2.1.0` → `2.2.0`; authority (Postgres) schema `4` → `6`.
+  Both migrate automatically on `project upgrade` / authority startup.
+- CLI command surface consolidated (RFC 0027, clean break — pre-1.0, no
+  deprecation aliases):
+
+  | Removed / renamed | Replacement |
+  | --- | --- |
+  | `control overview` | `status --details` |
+  | `control settings` | `config --details` |
+  | `control attention` | `attention` |
+  | `search <q>` | `history --grep <q> [--all]` |
+  | `invocation wait` | `invocation defer` (event type unchanged) |
+  | `session heartbeat` | removed (was a no-op) |
+  | `claude serve\|attach\|tail` | `live serve\|attach\|tail --provider claude` |
+  | `codex serve\|attach` | `live serve\|attach --provider codex` |
+  | `theme set --name X` | `config theme X` |
+  | `task claim --repo` | `task claim --worktree` (`--repo` hidden alias, one release) |
+
+### Fixed
+- `approval show`'s default view omitted the reviewed operation's
+  subject, expiry, and affected principals — present, but only under
+  `--details`, even though a reviewer following the natural "show then
+  approve" workflow is exactly who needs to see them without an extra
+  flag. Applies uniformly to every approval kind (contract, invocation,
+  invocation-sensitive, takeover, orchestrator-grant).
+- `message inbox`'s `SUBJECT` column — the one thing a person actually
+  reads this list for — was the last column and so the first one dropped
+  at a narrow terminal width, with the long machine ID protected instead;
+  it and `FROM` are now the most protected columns. Redirected/piped
+  output (including `--output plain`) no longer gets column-truncated at
+  a guessed 80-column width at all — there is no terminal to wrap against
+  once output isn't going to one.
+- `message inbox --unread` checked a message's aggregate status, not the
+  current recipient's own obligation, so a two-recipient `ACTION` a
+  recipient had already acknowledged still showed as unread purely
+  because the other recipient hadn't acted yet. `--limit` trimmed a Go
+  map before sorting, so an unchanged inbox could return a different page
+  across repeated calls; results are now sorted first, then limited.
+- `agent register` now states the new agent's `PENDING` status, that the
+  session's own active profile did not switch to it, who can activate it,
+  and the exact `agent activate` command to run. `status` now shows a
+  leading "Acting as `<actor>` · `<role>` · `<status>`" line and the
+  project root, instead of only project-wide counts with no indication of
+  which identity is making the request or whether it can act yet.
+- `install.sh`'s checksum fallback (`sha256sum` unavailable, fall back to
+  `shasum`) never actually ran: a shell pipeline's exit status is its
+  *last* command's, not `sha256sum`'s, so a missing `sha256sum` still left
+  the pipeline exiting 0 on empty output. Systems without `sha256sum` but
+  with `shasum` (some macOS/BSD setups) failed installation with a
+  confusing "verification failed" instead of installing normally.
+  `checksum_of` now checks tool availability explicitly, fails with an
+  actionable prerequisite error if neither tool exists, and validates the
+  digest shape. `python3` (already required, used unconditionally) is now
+  preflighted alongside `curl` instead of failing with a raw shell error.
+
 ## [0.6.0] - 2026-09-02 — “Chain of Trust”
 
 *A governance and transport-security pass: approvals now bind to the exact
@@ -428,8 +692,8 @@ new CLI providers without touching Go, and a public marketing/docs site.*
 - `runtime.delete` (protocol, CLI, TUI), `task lock` (create+claim a task
   in one step), and human-readable table output by default for
   agent/runtime/invocation list commands.
-- A public marketing site and docs site, a nightly beta build channel, and
-  one-keypress Orchestrator-approval requests from the TUI.
+- A public marketing site and docs site, and one-keypress
+  Orchestrator-approval requests from the TUI.
 
 **Fixed**
 - Dozens of TUI layout and rendering bugs, most surfaced by making the TUI
@@ -498,10 +762,7 @@ Full technical detail is below and in [CHANGELOG.md](https://github.com/DhanushS
 - A public Next.js marketing site and Astro docs site (landing page,
   install/download page, releases and changelog pages, full CLI/MCP
   reference generated from the binary's own `--help` output), deployed to
-  production on every `dev` push. A nightly, unstable build channel
-  (`agentcomms-nightly` on GHCR, versioned `0.0.0-nightly`) for developers
-  sanity-checking `dev`'s current state, separate from tagged Beta
-  releases.
+  production on every `dev` push.
 
 ### Fixed
 

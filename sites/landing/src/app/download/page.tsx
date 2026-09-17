@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { PageBreadcrumb } from "@/components/PageBreadcrumb";
 import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
-import { downloadRelease, installerMethods, nightlyBuild } from "@/lib/downloads";
+import { buildFromSourceMethod, downloadRelease, installerMethods } from "@/lib/downloads";
 import { documentationPage, site } from "@/lib/site";
 import { softwareApplicationJsonLd } from "@/lib/structuredData";
 import styles from "./download.module.css";
@@ -25,9 +25,16 @@ export const metadata: Metadata = {
 
 const downloadNavItems = [
   { label: "Installers", href: "#installer" },
-  { label: "Nightly", href: "#nightly" },
   { label: "Releases", href: "/releases" }
 ];
+
+// buildFromSourceMethod is deliberately not in `desk` -- it's a
+// contributor path, not a third installer for the general audience the
+// numbered INSTALL INDEX and platform cards are built for. It gets its
+// own, visually distinct treatment lower on the page instead of sitting
+// as an equal-weight "03" alongside Linux/macOS and Windows.
+const desk = installerMethods;
+const sourceCommandID = "install-command-source";
 
 export default function DownloadPage() {
   return (
@@ -61,14 +68,11 @@ export default function DownloadPage() {
             <aside className={styles.buildIndex}>
               <p>INSTALL INDEX</p>
               <ol>
-                {installerMethods.map((method, index) => (
+                {desk.map((method, index) => (
                   <li key={method.id}>
                     <a href={`#${method.id}`}><span>{String(index + 1).padStart(2, "0")}</span>{method.name}</a>
                   </li>
                 ))}
-                <li>
-                  <a href="#nightly"><span>{String(installerMethods.length + 1).padStart(2, "0")}</span>Nightly (dev)</a>
-                </li>
               </ol>
               <div className={styles.releaseStatus}>
                 <span aria-hidden="true">!</span>
@@ -77,7 +81,7 @@ export default function DownloadPage() {
             </aside>
 
             <div className={styles.platformShelf}>
-              {installerMethods.map((method, index) => {
+              {desk.map((method, index) => {
                 const commandID = `install-command-${method.id}`;
                 return (
                   <article className={styles.platform} id={method.id} key={method.id} data-reveal={`download-${method.id}`}>
@@ -101,22 +105,33 @@ export default function DownloadPage() {
               })}
             </div>
           </section>
-          <aside className={styles.nightly} id="nightly" aria-label="Nightly build" data-reveal="download-nightly">
-            <div>
-              <p>FOR DEVELOPERS · NOT BETA · NOT FOR REGULAR USE</p>
-              <h2>Want dev's current state?</h2>
-              <p>An unstable snapshot builds from <code>dev</code> daily. Signed and verifiable the same way, no version, no login required to pull it.</p>
+
+          {/* Build from source: a contributor path, not a third installer
+              for the general audience the section above is built for --
+              given its own small, clearly-labeled aside instead of an
+              equal-weight numbered card, so it reads as "also available,
+              for developers" rather than "pick one of three." */}
+          <aside className={styles.sourceBuild} id={buildFromSourceMethod.id} aria-label="Build from source" data-reveal="download-source">
+            <p className={styles.sourceBuildTag}>FOR CONTRIBUTORS</p>
+            <div className={styles.sourceBuildHead}>
+              <h2>Building from source?</h2>
+              <p>{buildFromSourceMethod.requirements}</p>
             </div>
             <div className={styles.installCommand}>
-              <pre><code id="nightly-command">{nightlyBuild.command}</code></pre>
+              <pre><code id={sourceCommandID}>{buildFromSourceMethod.command}</code></pre>
               <button
                 type="button"
                 aria-live="polite"
-                aria-label="Copy nightly build command"
-                data-command-source="nightly-command"
+                aria-label={`Copy ${buildFromSourceMethod.name} command`}
+                data-command-source={sourceCommandID}
                 data-copy-command
               ><span data-copy-label>Copy</span><b aria-hidden="true" /></button>
             </div>
+            <p className={styles.sourceNote}>
+              Unsigned, no <code>agent-comms update</code>, no verified provenance — for trying{" "}
+              <code>dev</code> or running your own build.{" "}
+              <a href={buildFromSourceMethod.detailUrl}>Other shipped binaries & contributing ↗</a>
+            </p>
           </aside>
         </section>
 

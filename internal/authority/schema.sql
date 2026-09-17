@@ -196,14 +196,6 @@ CREATE TABLE IF NOT EXISTS approvals (
 
 CREATE INDEX IF NOT EXISTS approvals_action_idx ON approvals (project_id, action, status);
 
-CREATE TABLE IF NOT EXISTS decisions (
-    project_id TEXT NOT NULL REFERENCES projects(project_id) ON DELETE CASCADE,
-    decision_id TEXT NOT NULL,
-    state JSONB NOT NULL,
-    updated_sequence BIGINT NOT NULL,
-    PRIMARY KEY (project_id, decision_id)
-);
-
 CREATE TABLE IF NOT EXISTS documents (
     project_id TEXT NOT NULL REFERENCES projects(project_id) ON DELETE CASCADE,
     document_id TEXT NOT NULL,
@@ -227,14 +219,6 @@ CREATE TABLE IF NOT EXISTS environment_entries (
     state JSONB NOT NULL,
     updated_sequence BIGINT NOT NULL,
     PRIMARY KEY (project_id, entry_key)
-);
-
-CREATE TABLE IF NOT EXISTS sessions (
-    project_id TEXT NOT NULL REFERENCES projects(project_id) ON DELETE CASCADE,
-    session_id TEXT NOT NULL,
-    state JSONB NOT NULL,
-    updated_sequence BIGINT NOT NULL,
-    PRIMARY KEY (project_id, session_id)
 );
 
 CREATE TABLE IF NOT EXISTS outbox (

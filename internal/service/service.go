@@ -479,10 +479,6 @@ func (s *Service) Drafts(limit int) ([]controlplane.Draft, error) {
 	return s.remote.Drafts(ctx, cfg.ProjectID, limit)
 }
 
-func ValidateTransition(st model.State, actor, typ, id string, payload any, now time.Time) (any, error) {
-	return protocol.ValidateTransition(st, actor, typ, id, payload, now)
-}
-
 func RefreshRuntimePresence(state *model.State, now time.Time) {
 	protocol.RefreshRuntimePresence(state, now)
 }
@@ -952,10 +948,26 @@ func (s *Service) DeleteProject(actor, passphrase, confirmDirectoryName string) 
 	} else {
 		result.RuntimeRemoved = true
 	}
-	if removeErr := os.Remove(filepath.Join(s.Store.Root, ".agents")); removeErr != nil && !os.IsNotExist(removeErr) {
-		result.Warnings = append(result.Warnings, "remove .agents: "+removeErr.Error())
+	if removeErr := os.Remove(filepath.Join(s.Store.Root, store.Bootstrap)); removeErr != nil && !os.IsNotExist(removeErr) {
+		result.Warnings = append(result.Warnings, "remove "+store.Bootstrap+": "+removeErr.Error())
 	} else {
 		result.BootstrapRemoved = true
+	}
+	// Best-effort: a project deleted before ever reconciling past the
+	// ManagedFilesVersion 1->2 migration (RFC 0031) can still be carrying
+	// the pre-rename bootstrap file. Deletion must not require every prior
+	// migration to have already run, so this tolerates it being absent
+	// without affecting result.BootstrapRemoved either way.
+	//
+	// Codex review, 2026-09-05: this used to run unconditionally for
+	// every project regardless of whether it ever actually used
+	// LegacyBootstrap -- a project already at the current
+	// ManagedFilesVersion that happens to have an unrelated third-party
+	// .agents file left by other tooling would have had it silently
+	// deleted here. Only remove it when cfg confirms this project's own
+	// managed files genuinely predate the rename.
+	if cfg.ManagedFilesVersion < store.LegacyBootstrapManagedFilesVersion {
+		_ = os.Remove(filepath.Join(s.Store.Root, store.LegacyBootstrap))
 	}
 	return result, nil
 }
@@ -1072,9 +1084,17 @@ func (s *Service) ExportMarkdown(w io.Writer) error {
 		fmt.Fprintf(w, "- **%s** — %s · owner: %s · resources: %s\n", id, t.Status, t.Owner, strings.Join(t.Resources, ", "))
 	}
 	fmt.Fprint(w, "\n## Decisions\n\n")
-	for _, id := range SortedKeys(st.Decisions) {
-		d := st.Decisions[id]
-		fmt.Fprintf(w, "- **%s** — %s: %s\n", id, d.Title, d.Statement)
+	for _, id := range SortedKeys(st.Documents) {
+		d := st.Documents[id]
+		isDecision := false
+		for _, tag := range d.Tags {
+			if tag == "decision" {
+				isDecision = true
+			}
+		}
+		if isDecision {
+			fmt.Fprintf(w, "- **%s** — %s: %s\n", id, d.Title, d.Body)
+		}
 	}
 	return nil
 }

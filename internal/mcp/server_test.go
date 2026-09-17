@@ -3,6 +3,7 @@ package mcp
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/DhanushSantosh/AgentComms/internal/identity"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
+	"github.com/DhanushSantosh/AgentComms/internal/projectlifecycle"
 	"github.com/DhanushSantosh/AgentComms/internal/protocol"
 	"github.com/DhanushSantosh/AgentComms/internal/service"
 	"github.com/DhanushSantosh/AgentComms/internal/store"
@@ -664,5 +666,39 @@ func TestAgentRevokeToolRejectsOwnerTarget(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), `"error"`) {
 		t.Fatalf("expected revoking the owner to be rejected, got: %s", out.String())
+	}
+}
+
+// TestRpcFailIncludesDetailsWhenPresent is the MCP-side half of UX-14: the
+// CLI's ErrorBody.Details and MCP's rpcFail Data are meant to carry the
+// same machine-readable partial-outcome facts (see internal/failure's own
+// comment on why Code is a single shared classifier, not one per
+// transport) -- confirming Data also picks up Details, not just Code.
+func TestRpcFailIncludesDetailsWhenPresent(t *testing.T) {
+	err := &projectlifecycle.Error{
+		Code: projectlifecycle.CodeUpgradeFailed, Message: "binary updated successfully but project reconciliation failed: x",
+		Details: map[string]any{"binary_updated": true},
+	}
+	r := rpcFail(response{}, -32000, err)
+	if r.Error == nil {
+		t.Fatal("expected an error to be set")
+	}
+	data, ok := r.Error.Data.(map[string]any)
+	if !ok {
+		t.Fatalf("Data = %#v, want a map", r.Error.Data)
+	}
+	details, ok := data["details"].(map[string]any)
+	if !ok || details["binary_updated"] != true {
+		t.Fatalf("Data[\"details\"] = %#v, want binary_updated: true", data["details"])
+	}
+
+	// A plain error must not fabricate a details entry.
+	r = rpcFail(response{}, -32000, errors.New("plain error"))
+	data, ok = r.Error.Data.(map[string]any)
+	if !ok {
+		t.Fatalf("Data = %#v, want a map", r.Error.Data)
+	}
+	if _, present := data["details"]; present {
+		t.Fatalf("expected no details entry for a plain error, got: %+v", data)
 	}
 }

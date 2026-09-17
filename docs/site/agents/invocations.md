@@ -4,7 +4,7 @@ description: Request bounded agent work and move it through acknowledgement, exe
 section: Agent integration
 order: 6
 audience: Everyone
-lastVerified: 2026-08-01
+lastVerified: 2026-09-02
 related: [agents/delivery, guide/communication]
 ---
 
@@ -39,7 +39,7 @@ Claim validation is transactional. The runtime must exist, belong to the target,
 ## Wait, resume, and finish
 
 ```sh
-agent-comms --actor <agent-id> invocation wait --id <invocation> --reason "need expected fixture format"
+agent-comms --actor <agent-id> invocation defer --id <invocation> --reason "need expected fixture format"
 agent-comms --actor <agent-id> invocation resume --id <invocation> --summary "fixture format received"
 agent-comms --actor <agent-id> invocation complete --id <invocation> --summary "all auth tests pass"
 ```

@@ -196,3 +196,80 @@ func TestPaletteClickElsewhereClosesItAndNavigates(t *testing.T) {
 		t.Fatalf("expected the abandoned query to be cleared, got %q", m.query)
 	}
 }
+
+// TestPaletteDownThenEnterSelectsTheSecondMatch is the regression test for
+// UX-11's own reproduction: typing "/new" showed six matches, but Down
+// then Enter still opened the first ("new task") -- the palette had no
+// selection cursor at all, and Enter always applied matches[0] regardless
+// of what was highlighted (there was nothing highlighted differently in
+// the first place).
+func TestPaletteDownThenEnterSelectsTheSecondMatch(t *testing.T) {
+	s := newTestService(t)
+	m, err := New(s, "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.palette = true
+	m.query = "new"
+	matches := m.paletteMatches()
+	if len(matches) < 2 {
+		t.Fatalf("expected at least two matches for \"new\", got %+v", matches)
+	}
+	second := matches[1].label
+
+	m = pressKey(t, m, tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
+	if m.paletteSelectedIndex() != 1 {
+		t.Fatalf("expected Down to move the selection to index 1, got %d", m.paletteSelectedIndex())
+	}
+	m = pressKey(t, m, keyEnter())
+	if m.palette {
+		t.Fatal("expected applying a match to close the palette")
+	}
+	if matches[0].label == "new task" && second != "new task" && m.form == "task.create" {
+		t.Fatal("expected Down to move off \"new task\" before Enter, but the first match's form still opened")
+	}
+}
+
+// TestPaletteUpDoesNotGoBelowZero confirms Up is a no-op at the top of the
+// list rather than wrapping or going negative (which would make
+// paletteSelectedIndex's clamp mask a real bug).
+func TestPaletteUpDoesNotGoBelowZero(t *testing.T) {
+	s := newTestService(t)
+	m, err := New(s, "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.palette = true
+	m.query = "new"
+	m = pressKey(t, m, tea.KeyPressMsg(tea.Key{Code: tea.KeyUp}))
+	if m.paletteSelected != 0 {
+		t.Fatalf("expected Up at the top to stay at 0, got %d", m.paletteSelected)
+	}
+}
+
+// TestPaletteAcceptsUnicodeInput is the regression test for UX-11's
+// Unicode concern: the query-append branch matched on len(k) == 1, a byte
+// length, so any multi-byte UTF-8 rune (accented letters, CJK, emoji) was
+// silently dropped -- never appended to the query at all.
+func TestPaletteAcceptsUnicodeInput(t *testing.T) {
+	s := newTestService(t)
+	m, err := New(s, "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.palette = true
+	m = pressKey(t, m, keyText("é"))
+	if m.query != "é" {
+		t.Fatalf("expected a single accented character to be accepted, got query=%q", m.query)
+	}
+	m = pressKey(t, m, keyText("新"))
+	if m.query != "é新" {
+		t.Fatalf("expected a CJK character to be accepted, got query=%q", m.query)
+	}
+	// Backspace must remove one whole rune, not corrupt the string by
+	// truncating a multi-byte character's trailing bytes.
+	m = pressKey(t, m, tea.KeyPressMsg(tea.Key{Code: tea.KeyBackspace}))
+	if m.query != "é" {
+		t.Fatalf("expected backspace to remove exactly one rune, got query=%q", m.query)
+	}
+}

@@ -66,3 +66,33 @@ func TestCodeClassifiesBoundaryErrors(t *testing.T) {
 		}
 	}
 }
+
+// TestDetailsSurfacesProjectlifecycleErrorDetails is the regression test
+// for UX-14: a *projectlifecycle.Error's Details field (used by `update
+// apply` to report "binary_updated": true when it fails after the binary
+// was already replaced but before project reconciliation completed) used
+// to have no way to reach a --json caller at all -- only the prose Message
+// string carried that fact. Details(err) is the shared extraction point
+// app.go's ErrorBody.Details and mcp's rpcFail Data both read from.
+func TestDetailsSurfacesProjectlifecycleErrorDetails(t *testing.T) {
+	withDetails := &projectlifecycle.Error{
+		Code: projectlifecycle.CodeUpgradeFailed, Message: "binary updated successfully but project reconciliation failed: x",
+		Details: map[string]any{"binary_updated": true, "installed_version": "v0.7.0"},
+	}
+	got, ok := Details(withDetails).(map[string]any)
+	if !ok {
+		t.Fatalf("Details(withDetails) = %#v, want a map", Details(withDetails))
+	}
+	if got["binary_updated"] != true || got["installed_version"] != "v0.7.0" {
+		t.Fatalf("Details = %+v, want binary_updated/installed_version preserved", got)
+	}
+
+	withoutDetails := &projectlifecycle.Error{Code: projectlifecycle.CodeUpgradeRequired, Message: "y"}
+	if Details(withoutDetails) != nil {
+		t.Fatalf("Details(withoutDetails) = %#v, want nil", Details(withoutDetails))
+	}
+
+	if Details(errors.New("plain error")) != nil {
+		t.Fatal("Details of a plain error should be nil, not panic or fabricate data")
+	}
+}

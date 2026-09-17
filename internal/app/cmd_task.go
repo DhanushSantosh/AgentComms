@@ -3,12 +3,12 @@ package app
 import (
 	"errors"
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
 	"github.com/DhanushSantosh/AgentComms/internal/cliui"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
+	"github.com/DhanushSantosh/AgentComms/internal/service"
 	"github.com/spf13/cobra"
 )
 
@@ -16,27 +16,32 @@ func (c *cli) taskCmd() *cobra.Command {
 	root := &cobra.Command{Use: "task"}
 	var title, summary, repo, branch, worktree, external, risk string
 	var resources []string
-	create := &cobra.Command{Use: "create", RunE: func(cmd *cobra.Command, args []string) error {
+	create := &cobra.Command{Use: "create", Short: "Create a tracked task", RunE: func(cmd *cobra.Command, args []string) error {
 		id, _ := cmd.Flags().GetString("id")
+		if strings.TrimSpace(id) == "" {
+			id = fmt.Sprintf("task-%d", time.Now().UnixNano())
+		}
 		v, e := c.svc.Execute(c.actor, "task.create", id, model.TaskCreated{Title: title, Summary: summary, Repository: repo, Branch: branch, Worktree: worktree, Resources: resources, ExternalRef: external, Risk: risk})
 		if e != nil {
 			return e
 		}
 		return c.emit("task.create", v)
 	}}
-	create.Flags().String("id", "", "task ID")
-	_ = create.MarkFlagRequired("id")
+	create.Flags().String("id", "", "task ID (auto-generated if omitted)")
 	create.Flags().StringVar(&title, "title", "", "title")
+	_ = create.MarkFlagRequired("title")
 	create.Flags().StringVar(&summary, "summary", "", "summary")
 	create.Flags().StringVar(&repo, "repository", "local", "repository")
 	create.Flags().StringVar(&branch, "branch", "", "branch")
+	_ = create.MarkFlagRequired("branch")
 	create.Flags().StringVar(&worktree, "worktree", "", "worktree path")
-	create.Flags().StringSliceVar(&resources, "resource", nil, "write resource")
+	create.Flags().StringSliceVar(&resources, "resource", nil, "write resource (repeatable; at least one required)")
+	_ = create.MarkFlagRequired("resource")
 	create.Flags().StringVar(&external, "external-ref", "", "external reference")
 	create.Flags().StringVar(&risk, "risk", "ROUTINE", "risk tier")
 	var to string
 	var offerTTL time.Duration
-	offer := &cobra.Command{Use: "offer", RunE: func(cmd *cobra.Command, args []string) error {
+	offer := &cobra.Command{Use: "offer", Short: "Offer a task to another principal", RunE: func(cmd *cobra.Command, args []string) error {
 		id, _ := cmd.Flags().GetString("id")
 		v, e := c.svc.Execute(c.actor, "task.offer", id, model.TaskOffered{To: to, ExpiresAt: time.Now().UTC().Add(offerTTL)})
 		if e != nil {
@@ -69,23 +74,38 @@ func (c *cli) taskCmd() *cobra.Command {
 		if e != nil {
 			return e
 		}
+		// UX-10: claim's own --help said it "acquires a working-directory
+		// lock," but --worktree is optional, so a scope-only claim (no
+		// --worktree) succeeded with a blank Worktree field -- easy to
+		// misread as "the lock was acquired but is empty" rather than
+		// "no worktree lock was requested at all." Report the two kinds of
+		// protection this command can grant separately and by name, per
+		// the audit's own proposed phrasing.
+		worktreeStatus := "not requested (scope lease only)"
+		if worktree != "" {
+			worktreeStatus = worktree
+		}
 		return c.emitDocument("task.claim", v, cliui.Document{
-			Title:  "Task claimed",
+			Title:  "Task claimed: scope lease acquired",
 			Status: cliui.StatusSuccess,
 			Fields: []cliui.Field{
 				{Label: "Task", Value: id},
 				{Label: "Actor", Value: c.actor},
 				{Label: "Lease until", Value: lease.Format(time.RFC3339)},
-				{Label: "Worktree", Value: worktree},
+				{Label: "Worktree lock", Value: worktreeStatus},
 			},
 			Hint: "Start the task when work begins, then renew the lease with progress before it expires.",
 		})
 	}}
+	claim.Short = "Claim a task's scope lease, and its working-directory lock if --worktree is given"
 	claim.Flags().String("id", "", "task ID")
 	_ = claim.MarkFlagRequired("id")
 	claim.Flags().DurationVar(&leaseDuration, "duration", 4*time.Hour, "lease duration")
-	claim.Flags().StringVar(&claimRepo, "repo", "", "repository path (acquires working-directory lock; alias for --worktree)")
-	claim.Flags().StringVar(&claimWorktree, "worktree", "", "worktree path (acquires working-directory lock)")
+	claim.Flags().StringVar(&claimWorktree, "worktree", "", "worktree path (acquires the working-directory lock)")
+	// RFC 0027 section 11: --worktree is canonical; --repo is a hidden
+	// deprecated alias kept one release for shell history.
+	claim.Flags().StringVar(&claimRepo, "repo", "", "deprecated alias for --worktree")
+	_ = claim.Flags().MarkHidden("repo")
 	start := simpleStatus(c, "task", "start")
 	var progress string
 	renew := payloadStatus(c, "task", "renew", func(string) any { return model.TaskRenewed{Progress: progress} })
@@ -95,7 +115,7 @@ func (c *cli) taskCmd() *cobra.Command {
 	complete := statusWithSummary(c, "task", "complete")
 	cancel := statusWithSummary(c, "task", "cancel")
 	var handTo, handSummary string
-	handoff := &cobra.Command{Use: "handoff", RunE: func(cmd *cobra.Command, args []string) error {
+	handoff := &cobra.Command{Use: "handoff", Short: "Hand off or accept a task", RunE: func(cmd *cobra.Command, args []string) error {
 		id, _ := cmd.Flags().GetString("id")
 		accept, _ := cmd.Flags().GetBool("accept")
 		typ := "task.handoff"
@@ -116,22 +136,22 @@ func (c *cli) taskCmd() *cobra.Command {
 	handoff.Flags().StringVar(&handSummary, "summary", "", "handoff summary")
 	handoff.Flags().Bool("accept", false, "accept pending handoff")
 	takeover := statusWithSummary(c, "task", "takeover")
-	list := &cobra.Command{Use: "list", RunE: func(cmd *cobra.Command, args []string) error {
+	list := &cobra.Command{Use: "list", Short: "List tasks", RunE: func(cmd *cobra.Command, args []string) error {
 		st, e := c.svc.State()
 		if e != nil {
 			return e
 		}
-		ids := make([]string, 0, len(st.Tasks))
-		for id := range st.Tasks {
-			ids = append(ids, id)
-		}
-		sort.Strings(ids)
+		ids := service.SortedKeys(st.Tasks)
 		rows := make([][]string, 0, len(ids))
 		for _, id := range ids {
 			task := st.Tasks[id]
 			rows = append(rows, []string{id, task.Title, task.Status, task.Owner, task.Branch})
 		}
-		return c.emitTable("task.list", st.Tasks, []string{"ID", "TITLE", "STATUS", "OWNER", "BRANCH"}, rows)
+		// UX-15: `task list` has no filters (unlike invocation list/message
+		// inbox), so an empty result always means the same thing -- name
+		// the next step instead of a bare "(no rows)".
+		return c.emitTableWithEmpty("task.list", st.Tasks, []string{"ID", "TITLE", "STATUS", "OWNER", "BRANCH"},
+			"No tasks yet. Use `agent-comms task create` to add one.", rows)
 	}}
 	var lockWorktree, lockNote string
 	var lockDuration time.Duration
@@ -219,6 +239,31 @@ func (c *cli) taskCmd() *cobra.Command {
 	lock.Flags().StringVar(&lockWorktree, "worktree", "", "worktree path to lock (required)")
 	lock.Flags().StringVar(&lockNote, "note", "", "what you're about to do -- used as the ad hoc task's title/summary")
 	lock.Flags().DurationVar(&lockDuration, "duration", 4*time.Hour, "lease duration")
-	root.AddCommand(create, offer, claim, start, renew, block, review, complete, cancel, handoff, takeover, list, lock)
+	show := c.entityShow("task", func(st model.State, id string) (any, []cliui.Field, bool) {
+		t, ok := st.Tasks[id]
+		if !ok {
+			return nil, nil, false
+		}
+		// UX-10: lease expiry and protected resources -- exactly what a
+		// reviewer needs to tell "still safely held" from "about to lapse"
+		// and to know what a claim actually protects -- were only visible
+		// under --details, and Worktree's blank string for a scope-only
+		// claim was as ambiguous here as it was in claim's own receipt.
+		worktreeStatus := "not requested (scope lease only)"
+		if t.Worktree != "" {
+			worktreeStatus = t.Worktree
+		}
+		fields := []cliui.Field{
+			{Label: "Title", Value: t.Title}, {Label: "Status", Value: t.Status},
+			{Label: "Owner", Value: t.Owner}, {Label: "Branch", Value: t.Branch},
+			{Label: "Worktree lock", Value: worktreeStatus},
+			{Label: "Protected resources", Value: strings.Join(t.Resources, ", ")},
+		}
+		if !t.LeaseUntil.IsZero() {
+			fields = append(fields, cliui.Field{Label: "Lease expires", Value: t.LeaseUntil.Local().Format(time.RFC3339)})
+		}
+		return t, fields, true
+	})
+	root.AddCommand(create, offer, claim, start, renew, block, review, complete, cancel, handoff, takeover, list, lock, show)
 	return root
 }

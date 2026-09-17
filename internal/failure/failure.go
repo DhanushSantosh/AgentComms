@@ -44,6 +44,19 @@ func Code(err error) string {
 	}
 }
 
+// Details returns err's machine-readable partial-outcome facts, if any --
+// currently only *projectlifecycle.Error carries them (see its own Details
+// field comment). nil means there is nothing beyond Code/Message to report,
+// which callers should treat as "omit," not "the operation had no partial
+// state."
+func Details(err error) any {
+	var lifecycleError *projectlifecycle.Error
+	if errors.As(err, &lifecycleError) {
+		return lifecycleError.Details
+	}
+	return nil
+}
+
 func ExitStatus(err error) int {
 	switch Code(err) {
 	case string(controlplane.CodeValidation):

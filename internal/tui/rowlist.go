@@ -51,6 +51,14 @@ type ActionForm struct {
 	// untrimmed input on submit, since a passphrase's whitespace is
 	// significant unlike every other field's.
 	CollectsPassphrase bool
+	// Prefill, when set, returns the initial text for each non-Mask field
+	// (same length and order as Fields) given the entity id an edit-style
+	// form was opened for. UX-12: an update/edit form used to always start
+	// every field blank -- even Title and Body on `document update`, which
+	// meant editing one field of an existing document required manually
+	// retyping every other field's current value from memory, or the whole
+	// document was silently replaced with blanks for anything not retyped.
+	Prefill func(m Model, id string) []string
 }
 type RowAction struct {
 	Key       string
@@ -418,7 +426,7 @@ func (m Model) openCreateForm() (tea.Model, tea.Cmd) {
 	case "Documents":
 		return m.openActionForm(documentCreateForm, "document.create", "")
 	case "Contracts & decisions":
-		return m.openActionForm(decisionCreateForm, "decision.create", "")
+		return m.openActionForm(decisionCreateForm, "document.create", "")
 	case "Artifacts":
 		return m.openActionForm(artifactAddForm, "artifact.add", "")
 	case "Drafts":
@@ -500,6 +508,7 @@ func (m Model) updateRowList(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case "/", "ctrl+p":
 		m.palette = true
+		m.paletteSelected = 0
 		return m, nil
 	case "r":
 		m.refresh()
@@ -713,7 +722,13 @@ func (m Model) dispatchRowAction(act RowAction, id string) (tea.Model, tea.Cmd) 
 	return mm, cmd
 }
 func (m Model) openActionForm(spec *ActionForm, typ, id string) (tea.Model, tea.Cmd) {
+	var prefill []string
+	if spec.Prefill != nil && id != "" {
+		prefill = spec.Prefill(m, id)
+	}
 	m.inputs = make([]textinput.Model, len(spec.Fields))
+	m.formPrefill = make([]string, len(spec.Fields))
+	m.formInitialValue = make([]string, len(spec.Fields))
 	for i, f := range spec.Fields {
 		input := textinput.New()
 		input.Prompt = f.Label + ": "
@@ -722,9 +737,35 @@ func (m Model) openActionForm(spec *ActionForm, typ, id string) (tea.Model, tea.
 			input.EchoMode = textinput.EchoPassword
 			input.EchoCharacter = '•'
 		}
-		if len(f.Options) > 0 {
+		switch {
+		case i < len(prefill) && prefill[i] != "" && !f.Mask:
+			// Codex review, 2026-09-05: SetValue truncates silently to
+			// CharLimit (bubbles/textinput's own behavior) -- prefilling an
+			// existing document whose body already exceeds 1200 characters
+			// clipped it at load time, before the operator ever touched
+			// anything, so a title-only edit and save republished the
+			// truncated body as if it were the whole document. Raise the
+			// limit to at least the prefilled content's own length so
+			// loading existing content can never itself be lossy; a
+			// shorter new value typed in afterward is unaffected.
+			if runeLen := len([]rune(prefill[i])); runeLen > input.CharLimit {
+				input.CharLimit = runeLen
+			}
+			input.SetValue(prefill[i])
+			// Codex review, 2026-09-05 (round 2): SetValue also collapses
+			// newlines/tabs to spaces (bubbles' own single-line sanitizer)
+			// -- fixing the truncation above still left a multiline body
+			// flattened to one line the moment it was prefilled, so even a
+			// title-only edit that never touched Body corrupted it. Keep
+			// the raw, unsanitized value and what the widget actually
+			// stored right after SetValue, so submit-time can tell "never
+			// edited" from "edited" and use the raw original for the
+			// former. See updateForm's Enter handling.
+			m.formPrefill[i] = prefill[i]
+			m.formInitialValue[i] = input.Value()
+		case len(f.Options) > 0:
 			input.SetValue(f.Options[0])
-		} else {
+		default:
 			input.Placeholder = f.Placeholder
 		}
 		m.inputs[i] = input

@@ -672,3 +672,31 @@ func TestAgentActivateNeverChangesAnExistingOwnersRole(t *testing.T) {
 		t.Fatal("expected an orchestrator to be rejected changing the owner's role via agent.activate")
 	}
 }
+
+// TestTaskCreateReportsExactlyTheMissingFields is the regression test for
+// UX-09's reproduced bug: a task.create payload missing only --branch used
+// to get one combined "title, repository, branch, and resources are
+// required" error naming all four fields regardless of which was actually
+// missing, so a fixture omitting only branch couldn't tell that from the
+// message alone.
+func TestTaskCreateReportsExactlyTheMissingFields(t *testing.T) {
+	st := model.State{Agents: map[string]model.Agent{"owner": humanAgent("owner")}}
+	_, err := ValidateTransition(st, "owner", "task.create", "task-1", model.TaskCreated{
+		Title: "A title", Repository: "local", Resources: []string{"src/x"},
+		// Branch deliberately omitted -- the audit's own fixture.
+	}, time.Now())
+	if err == nil {
+		t.Fatal("expected an error for a missing branch")
+	}
+	if err.Error() != "branch required" {
+		t.Fatalf("error = %q, want it to name exactly the missing field (branch required)", err.Error())
+	}
+
+	_, err = ValidateTransition(st, "owner", "task.create", "task-2", model.TaskCreated{}, time.Now())
+	if err == nil {
+		t.Fatal("expected an error when every field is missing")
+	}
+	if err.Error() != "title, repository, branch, resources required" {
+		t.Fatalf("error = %q, want every missing field named", err.Error())
+	}
+}

@@ -50,7 +50,7 @@ go vet ./...
 
 Behavior changes require focused tests. Bug fixes include regression coverage when practical. Governance and state-machine changes cover allowed and denied transitions. Documentation-only work does not require artificial tests.
 
-CI uses fast pull-request checks, a complete platform matrix after integration, nightly deep tests, and full release gates. Coverage is reviewed by risk and regression rather than an arbitrary global percentage.
+CI uses fast pull-request checks, a complete platform matrix after integration, and full release gates. Coverage is reviewed by risk and regression rather than an arbitrary global percentage.
 
 ## Ownership and review
 

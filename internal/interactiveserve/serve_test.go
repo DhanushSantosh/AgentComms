@@ -133,8 +133,8 @@ func TestServeEndToEnd(t *testing.T) {
 
 	deliverCtx, deliverCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer deliverCancel()
-	if err := Deliver(deliverCtx, dir, "test-runtime", "hello from another runtime"); err != nil {
-		t.Fatalf("Deliver failed: %v", err)
+	if _, err := TryDeliverWithEvidence(deliverCtx, dir, "test-runtime", "hello from another runtime"); err != nil {
+		t.Fatalf("TryDeliverWithEvidence failed: %v", err)
 	}
 
 	waitForCondition(t, 5*time.Second, func() bool {
@@ -511,4 +511,3 @@ func TestDeliverToPtyFailsClosedWhenTargetStaysBusy(t *testing.T) {
 		t.Fatal("deliverToPty must not have written anything while the target stayed busy")
 	}
 }
-

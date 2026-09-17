@@ -6,7 +6,11 @@
   ],
   "overrides": {
     "postcss": "^8.5.25",
-    "sharp": "^0.35.3"
+    "sharp": "^0.35.4",
+    "svgo": "^4.1.0",
+    "astro": {
+      "svgo": "4.1.0"
+    }
   },
   "scripts": {
     "docs:dev": "npm run dev --workspace @agent-comms/docs",
@@ -26,7 +30,9 @@
     "sites:generate-icons": "node scripts/generate-icons.mjs landing && node scripts/generate-icons.mjs docs"
   },
   "devDependencies": {
+    "fflate": "^0.7.5",
     "png-to-ico": "^3.0.2",
-    "sharp": "^0.35.3"
+    "sharp": "^0.35.4",
+    "svgo": "^4.1.0"
   }
 }

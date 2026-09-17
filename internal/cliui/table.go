@@ -12,6 +12,12 @@ type Table struct {
 	Headers    []string
 	Priorities []int
 	Rows       [][]string
+	// Empty, when set, replaces the generic "(no rows)" text for a
+	// zero-row table. UX-15: "(no rows)" reads identically whether nothing
+	// has ever been created here or a filter just happens to match
+	// nothing -- callers that know which case this is (and what a useful
+	// next step looks like) should say so.
+	Empty string
 }
 
 // RenderTable writes an aligned table without borders so it remains useful
@@ -24,7 +30,11 @@ func (p Presenter) RenderTable(table Table) error {
 		return fmt.Errorf("CLI presenter cannot render mode %q", p.Mode)
 	}
 	if len(table.Rows) == 0 {
-		_, err := fmt.Fprintln(p.Out, "(no rows)")
+		text := "(no rows)"
+		if table.Empty != "" {
+			text = table.Empty
+		}
+		_, err := fmt.Fprintln(p.Out, text)
 		return err
 	}
 	headers := sanitizeCells(table.Headers)

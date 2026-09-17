@@ -17,8 +17,8 @@
 // lock required.
 //
 // Delivery is intentionally narrow: the injected text is always this
-// package's own fixed notification template (see NotifyInvocation), never
-// raw instruction content. The target runtime is expected to read the
+// package's own fixed notification template (see NotifyInvocationWithEvidence),
+// never raw instruction content. The target runtime is expected to read the
 // instruction back through the normal, audited agent-comms CLI
 // (list/claim/start/complete), the same as every other adapter — this keeps
 // terminal injection limited to "wake up and look," never a second,
@@ -156,21 +156,6 @@ func Snapshot(ctx context.Context, projectRoot, runtimeID string) (string, error
 	return resp.OutputSnapshot, nil
 }
 
-// Deliver asks runtimeID's owning interactive-serve process to inject
-// message as terminal input, waiting for its busy/echo-gated delivery to
-// finish or fail (see serve.go's deliver for that sequencing). message must
-// be a single line: Serve sends exactly one line of input followed by one
-// Enter keystroke, not a multi-line paste.
-func Deliver(ctx context.Context, projectRoot, runtimeID, message string) error {
-	return deliver(ctx, projectRoot, runtimeID, "deliver", message)
-}
-
-// TryDeliver makes one short delivery attempt and refuses quickly when the
-// target is busy or another delivery is already in progress.
-func TryDeliver(ctx context.Context, projectRoot, runtimeID, message string) error {
-	return deliver(ctx, projectRoot, runtimeID, "try-deliver", message)
-}
-
 type DeliveryReceipt struct {
 	TextEchoedAt time.Time
 	EnterSentAt  time.Time
@@ -194,32 +179,13 @@ func TryDeliverWithEvidence(ctx context.Context, projectRoot, runtimeID, message
 	return DeliveryReceipt{TextEchoedAt: *resp.TextEchoedAt, EnterSentAt: *resp.EnterSentAt}, nil
 }
 
-func deliver(ctx context.Context, projectRoot, runtimeID, kind, message string) error {
-	if strings.ContainsAny(message, "\n\r") {
-		return errors.New("interactiveserve: message must be a single line; Deliver sends one line of terminal input followed by one Enter, not a multi-line paste")
-	}
-	resp, err := call(ctx, SocketPath(projectRoot, runtimeID), Request{Kind: kind, Message: message})
-	if err != nil {
-		return fmt.Errorf("interactiveserve: deliver to %q: %w", runtimeID, err)
-	}
-	if !resp.OK {
-		return fmt.Errorf("interactiveserve: %q refused delivery: %s", runtimeID, resp.Error)
-	}
-	return nil
-}
-
-// NotifyInvocation delivers a standard, bounded notification for a newly
-// requested invocation — not the invocation's instruction itself, since the
-// runtime is expected to read that back through the normal, auditable
-// agent-comms CLI (list/claim/start/complete), the same as every other
-// adapter's invocation handling. This keeps the terminal-injection channel
-// limited to "wake up and look," never a second, unaudited path for
+// NotifyInvocationWithEvidence delivers a standard, bounded notification for
+// a newly requested invocation — not the invocation's instruction itself,
+// since the runtime is expected to read that back through the normal,
+// auditable agent-comms CLI (list/claim/start/complete), the same as every
+// other adapter's invocation handling. This keeps the terminal-injection
+// channel limited to "wake up and look," never a second, unaudited path for
 // instruction content to reach the runtime.
-func NotifyInvocation(ctx context.Context, projectRoot, targetRuntimeID, targetAgentID, invocationID, requestedBy string) error {
-	_, err := NotifyInvocationWithEvidence(ctx, projectRoot, targetRuntimeID, targetAgentID, invocationID, requestedBy)
-	return err
-}
-
 func NotifyInvocationWithEvidence(ctx context.Context, projectRoot, targetRuntimeID, targetAgentID, invocationID, requestedBy string) (DeliveryReceipt, error) {
 	message := fmt.Sprintf(
 		"Agent Comms: new invocation %q is pending for you (requested by %s). Run agent-comms invocation list --status PENDING --to %s --json to see it, then handle it per your existing protocol.",

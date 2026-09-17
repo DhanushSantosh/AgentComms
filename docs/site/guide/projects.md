@@ -4,7 +4,7 @@ description: Inspect project identity, change governed policy, and understand wh
 section: User guide
 order: 1
 audience: Human operators
-lastVerified: 2026-08-01
+lastVerified: 2026-09-02
 related: [start/quickstart, guide/maintenance]
 ---
 
@@ -13,13 +13,12 @@ An initialized project has one project ID, owner, runtime mode, signed history, 
 ## Inspect the control plane
 
 ```sh
-agent-comms control overview
-agent-comms control attention
-agent-comms control settings
-agent-comms config
+agent-comms status --details
+agent-comms attention
+agent-comms config --details
 ```
 
-The overview combines workforce, active work, attention items, and recent activity. The attention view is the shortest path to blocks, approvals, stale work, and failed delivery. `config` reports local runtime configuration rather than governed project policy.
+`status` combines workforce, active work, and recent activity, with the per-status breakdown behind `--details`. `attention` is the shortest path to blocks, approvals, stale work, and failed delivery. `config --details` reports local runtime configuration and the control-plane limits rather than governed project policy.
 
 ## Governed project settings
 

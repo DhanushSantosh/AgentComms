@@ -13,7 +13,7 @@ import (
 func (c *cli) agentCmd() *cobra.Command {
 	root := &cobra.Command{Use: "agent"}
 	var display, ptype string
-	reg := &cobra.Command{Use: "register", RunE: func(cmd *cobra.Command, args []string) error {
+	reg := &cobra.Command{Use: "register", Short: "Register a governed identity", RunE: func(cmd *cobra.Command, args []string) error {
 		id, _ := cmd.Flags().GetString("id")
 		if id != c.actor {
 			can, e := c.svc.CanSponsorRegistration(c.actor)
@@ -32,9 +32,10 @@ func (c *cli) agentCmd() *cobra.Command {
 		// where their identity was persisted.
 		type registerResult struct {
 			model.Event
-			ProfileName string `json:"profile_name"`
-			ProjectRoot string `json:"project_root"`
-			ActorSource string `json:"actor_source"`
+			ProfileName   string `json:"profile_name"`
+			ProjectRoot   string `json:"project_root"`
+			ActorSource   string `json:"actor_source"`
+			ActiveProfile string `json:"active_profile"`
 		}
 		actorSource := "self-registration"
 		if id != c.actor {
@@ -49,17 +50,31 @@ func (c *cli) agentCmd() *cobra.Command {
 			ProfileName: cfg.ProjectID + ":" + id,
 			ProjectRoot: c.svc.Store.Root,
 			ActorSource: actorSource,
+			// UX-03: registering a different id never switches the
+			// session's own active profile -- the CLI keeps writing as
+			// whoever ran this command (c.actor). Reported explicitly
+			// instead of leaving it to be inferred, because acting on that
+			// wrong assumption is exactly what produced the "active
+			// principal required" surprise the audit reproduced: a script
+			// that registers an agent and immediately tries to act as it
+			// (still unactivated, and the session is still signed as the
+			// sponsor either way) fails for two independent reasons at
+			// once, easy to conflate into one.
+			ActiveProfile: c.actor,
 		}
 		return c.emitDocument("agent.register", result, cliui.Document{
-			Title:  "Agent registered",
+			Title:  "Agent registered · PENDING, awaiting activation",
 			Status: cliui.StatusSuccess,
 			Fields: []cliui.Field{
 				{Label: "Agent", Value: id},
+				{Label: "Status", Value: "PENDING"},
 				{Label: "Registered by", Value: c.actor},
+				{Label: "Active profile", Value: c.actor + " (unchanged -- registering never switches it)"},
 				{Label: "Profile", Value: result.ProfileName},
 				{Label: "Project", Value: result.ProjectRoot},
 				{Label: "Sequence", Value: fmt.Sprint(v.Sequence)},
 			},
+			Hint: fmt.Sprintf("An active orchestrator or human principal must run `agent-comms agent activate --id %s --role <role> --scope <scope>` before %s can act.", id, id),
 		})
 	}}
 	reg.Flags().String("id", "", "principal ID")
@@ -68,7 +83,7 @@ func (c *cli) agentCmd() *cobra.Command {
 	reg.Flags().StringVar(&ptype, "principal-type", "AGENT", "HUMAN or AGENT")
 	var role string
 	var caps, scopes []string
-	act := &cobra.Command{Use: "activate", RunE: func(cmd *cobra.Command, args []string) error {
+	act := &cobra.Command{Use: "activate", Short: "Activate an identity with a role and scopes", RunE: func(cmd *cobra.Command, args []string) error {
 		id, _ := cmd.Flags().GetString("id")
 		v, e := c.svc.Execute(c.actor, "agent.activate", id, model.AgentActivated{Role: model.Role(role), Capabilities: caps, Scopes: scopes})
 		if e != nil {
@@ -108,7 +123,7 @@ func (c *cli) agentCmd() *cobra.Command {
 	})
 	deleteAgent.Flags().StringVar(&deleteReason, "reason", "", "auditable deletion reason")
 	_ = deleteAgent.MarkFlagRequired("reason")
-	rotate := &cobra.Command{Use: "rotate-key", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+	rotate := &cobra.Command{Use: "rotate-key", Short: "Rotate this identity's signing key", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		v, e := c.svc.RotateKey(c.actor)
 		if e != nil {
 			return e
@@ -133,7 +148,7 @@ func (c *cli) agentCmd() *cobra.Command {
 		return c.emit("agent.elevate-key", v)
 	}}
 	var newDisplayName string
-	rename := &cobra.Command{Use: "rename", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+	rename := &cobra.Command{Use: "rename", Short: "Rename an identity's display name", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		id, _ := cmd.Flags().GetString("id")
 		v, e := c.svc.Execute(c.actor, "agent.rename", id, model.AgentRenamed{DisplayName: newDisplayName})
 		if e != nil {
@@ -145,7 +160,7 @@ func (c *cli) agentCmd() *cobra.Command {
 	_ = rename.MarkFlagRequired("id")
 	rename.Flags().StringVar(&newDisplayName, "display-name", "", "new display name")
 	_ = rename.MarkFlagRequired("display-name")
-	list := &cobra.Command{Use: "list", RunE: func(cmd *cobra.Command, args []string) error {
+	list := &cobra.Command{Use: "list", Short: "List governed identities", RunE: func(cmd *cobra.Command, args []string) error {
 		st, e := c.svc.State()
 		if e != nil {
 			return e
@@ -158,6 +173,16 @@ func (c *cli) agentCmd() *cobra.Command {
 		}
 		return c.emitTable("agent.list", st.Agents, headers, rows)
 	}}
-	root.AddCommand(reg, act, switchRoleCmd, suspend, rotate, elevate, rename, revoke, deleteAgent, list)
+	show := c.entityShow("agent", func(st model.State, id string) (any, []cliui.Field, bool) {
+		a, ok := st.Agents[id]
+		if !ok {
+			return nil, nil, false
+		}
+		return a, []cliui.Field{
+			{Label: "Status", Value: a.Status}, {Label: "Role", Value: string(a.Role)},
+			{Label: "Type", Value: string(a.PrincipalType)}, {Label: "Scopes", Value: strings.Join(a.Scopes, ",")},
+		}, true
+	})
+	root.AddCommand(reg, act, switchRoleCmd, suspend, rotate, elevate, rename, revoke, deleteAgent, list, show)
 	return root
 }

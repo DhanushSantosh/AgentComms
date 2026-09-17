@@ -63,7 +63,7 @@ func TestInitializeRefusesExistingBootstrap(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(root, "user"))
 	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(root, "credentials"))
-	if err := os.WriteFile(filepath.Join(root, ".agents"), []byte("occupied"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, store.Bootstrap), []byte("occupied"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Initialize(context.Background(), Config{
@@ -73,6 +73,48 @@ func TestInitializeRefusesExistingBootstrap(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, store.Runtime)); !os.IsNotExist(err) {
 		t.Fatalf("failed initialization published runtime data: %v", err)
+	}
+}
+
+// TestInitializeIgnoresLegacyBootstrapName is the regression test for RFC
+// 0031 / UX-01: ".agents" is a name several unrelated agent-tooling
+// projects also use for their own directory, so init used to refuse to run
+// against anything at that path at all -- a file, an empty directory, or a
+// populated one. Init no longer looks at that path; only store.Bootstrap
+// (".agentcomms") is checked.
+func TestInitializeIgnoresLegacyBootstrapName(t *testing.T) {
+	for _, name := range []string{"file", "empty dir", "populated dir"} {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(root, "user"))
+			t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(root, "credentials"))
+			legacy := filepath.Join(root, store.LegacyBootstrap)
+			switch name {
+			case "file":
+				if err := os.WriteFile(legacy, []byte("some other tool's own file"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			case "empty dir":
+				if err := os.Mkdir(legacy, 0o755); err != nil {
+					t.Fatal(err)
+				}
+			case "populated dir":
+				if err := os.MkdirAll(filepath.Join(legacy, "persona.json"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := Initialize(context.Background(), Config{
+				ProjectRoot: root, Owner: "owner", Mode: "personal",
+			}); err != nil {
+				t.Fatalf("expected init to ignore a pre-existing %s at the legacy bootstrap path, got: %v", name, err)
+			}
+			if _, err := os.Stat(legacy); err != nil {
+				t.Fatalf("expected the pre-existing %s to survive untouched: %v", name, err)
+			}
+			if _, err := os.Stat(filepath.Join(root, store.Bootstrap)); err != nil {
+				t.Fatalf("expected the current bootstrap to be created: %v", err)
+			}
+		})
 	}
 }
 
@@ -91,7 +133,7 @@ func TestInitializeRollsBackRuntimeAndCredentialsWhenProfilePublishFails(t *test
 	}); err == nil {
 		t.Fatal("expected profile publication to fail")
 	}
-	for _, path := range []string{filepath.Join(root, store.Runtime), filepath.Join(root, ".agents")} {
+	for _, path := range []string{filepath.Join(root, store.Runtime), filepath.Join(root, store.Bootstrap)} {
 		if _, err := os.Stat(path); !os.IsNotExist(err) {
 			t.Fatalf("failed initialization retained %s: %v", path, err)
 		}
