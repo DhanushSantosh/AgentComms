@@ -5,7 +5,53 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-09-17 — “Read Receipt”
+
+*A coherence pass across the whole CLI: `live tail`'s ad-hoc file-watching
+is gone in favor of the one supported way to watch a live session, message
+and document acknowledgment gain a proper retry and read path, and a broad
+UX audit closes gaps in how the CLI explains its own state -- registration,
+approvals, inbox, and installation all say more than they used to.*
+
 **Added**
+- `document notify --id <id> --notify <principal>` retries a stuck document
+  acknowledgement without duplicating one already sent.
+- `message show --id <id>` reads a message's subject and body directly.
+- `agc`, a short alias for `agent-comms`, installed alongside the main
+  binary.
+
+**Breaking**
+- **Breaking:** Removed `agent-comms live tail`; `live attach --provider
+  claude|codex` (backed by `live serve`) is the one supported way to watch
+  a live session now.
+- **Breaking:** The managed bootstrap marker file renamed `.agents` ->
+  `.agentcomms`; existing projects migrate automatically.
+- **Breaking:** Removed the `session` and `decision` command groups
+  (decisions are now `decision`-tagged documents); CLI surface consolidated
+  per RFC 0027 (full removed/renamed table below). State schema 2.1.0 ->
+  2.2.0; authority schema 4 -> 6, both auto-migrating.
+
+**Changed**
+- Every CLI command now documents itself under `--help`, with examples for
+  the non-obvious lifecycle/approval commands.
+- Uniform `show` commands for `task`/`agent`/`approval`/`decision`;
+  `history --grep`/`--all`; auto-generated `--id` on create commands.
+
+**Fixed**
+- `approval show`, `message inbox`, `agent register`/`status` all surface
+  state and context by default that used to be hidden behind `--details`
+  or missing entirely.
+- `install.sh`'s checksum fallback (`sha256sum` -> `shasum`) now actually
+  runs instead of silently succeeding.
+- Empty `task list`/`message inbox`/`invocation list` now distinguish
+  "nothing exists yet" from "your filter matched nothing."
+- TUI: document-update edits no longer silently corrupt untouched fields
+  (whitespace stripped, body blanked) or misapply keyboard input in the
+  command palette.
+
+Full technical detail is below and in [CHANGELOG.md](https://github.com/DhanushSantosh/AgentComms/blob/main/CHANGELOG.md).
+
+### Added
 - `document notify --id <id> --notify <principal>` — retry a document
   acknowledgement notification without re-creating the document or
   duplicating a notification that already went out. See
@@ -18,7 +64,7 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
   Windows). `agent-comms` stays the canonical name in all docs and help.
   See [RFC 0030](docs/rfcs/0030-agc-cli-alias.md).
 
-**Breaking**
+### Breaking
 - **Removed `agent-comms live tail`.** It read a Claude Code session's
   transcript directly off disk (an undocumented, internal file format)
   and was Claude-only; `live attach --provider claude|codex` (backed by
@@ -28,7 +74,7 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
   path (`claudetail.Tail`/`SessionPath`) is gone. See
   [RFC 0034](docs/rfcs/0034-remove-live-tail.md).
 
-**Fixed**
+### Fixed
 - Docs site: code-block copy buttons (`PlatformTabs`, the `.prose pre`
   copy button) awaited `navigator.clipboard.writeText` with no failure
   path -- a denied permission, non-secure context, or unavailable API
@@ -133,7 +179,7 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
   had no way to detect a partial failure. See
   [RFC 0033](docs/rfcs/0033-document-notify-partial-outcome.md).
 
-**Changed**
+### Changed
 - **Breaking:** the managed bootstrap marker file renamed from `.agents`
   to `.agentcomms` — `.agents` is a name several unrelated agent-tooling
   projects also use for their own directory, so `init` refusing to run
@@ -143,7 +189,7 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
   the old file before removing it); a fresh `init` no longer looks at
   `.agents` at all. See [RFC 0031](docs/rfcs/0031-rename-bootstrap-file-to-agentcomms.md).
 
-**Changed**
+### Changed
 - Every CLI command now has a one-line description under `--help`; the
   non-obvious lifecycle and approval commands also gained examples. See
   [RFC 0027](docs/rfcs/0027-cli-surface-consolidation.md).
@@ -156,7 +202,7 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
   `approval request`, and `decision create` auto-generate `--id` when it
   is omitted.
 
-**Breaking**
+### Breaking
 - **Removed the `session` command group.** `session start` / `session end`
   emitted signed events into a `sessions` state collection that no code
   ever read. `session heartbeat` was already a no-op (RFC 0027). See
@@ -186,7 +232,7 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
   | `theme set --name X` | `config theme X` |
   | `task claim --repo` | `task claim --worktree` (`--repo` hidden alias, one release) |
 
-**Fixed**
+### Fixed
 - `approval show`'s default view omitted the reviewed operation's
   subject, expiry, and affected principals — present, but only under
   `--details`, even though a reviewer following the natural "show then
