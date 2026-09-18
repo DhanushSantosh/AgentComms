@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -257,6 +258,8 @@ func errorHint(code string) string {
 		return "Refresh the current project state, then retry against the latest sequence."
 	case "OFFLINE", "UNAVAILABLE":
 		return "Check runtime connectivity and retry."
+	case "NOT_A_PROJECT":
+		return "Run `agent-comms init` here to start a new project, or run this command from an existing one."
 	default:
 		return "Run the command with --help or use --verbose for more operational context."
 	}
@@ -339,6 +342,17 @@ func (c *cli) root() *cobra.Command {
 				root, e = os.Getwd()
 				if e != nil {
 					return e
+				}
+			}
+			if scope == projectRequired {
+				if absoluteRoot, absErr := filepath.Abs(root); absErr == nil {
+					root = absoluteRoot
+				}
+				if !initializedProject(root) {
+					return &projectlifecycle.Error{
+						Code:    projectlifecycle.CodeNotAProject,
+						Message: fmt.Sprintf("%s is not an Agent Comms project", root),
+					}
 				}
 			}
 			// projectOptional commands run project-less when the current

@@ -20,7 +20,6 @@ import (
 	"github.com/DhanushSantosh/AgentComms/internal/durablefs"
 	"github.com/DhanushSantosh/AgentComms/internal/projectlifecycle"
 	"github.com/DhanushSantosh/AgentComms/internal/releaseverify"
-	"github.com/DhanushSantosh/AgentComms/internal/store"
 	"github.com/spf13/cobra"
 )
 
@@ -146,6 +145,12 @@ func (c *cli) emitUpdateApply(result map[string]any) error {
 	})
 }
 
+// currentInitializedProject resolves explicit (or the current working
+// directory, when empty) to an absolute path and reports whether it is a
+// genuinely initialized project -- delegating entirely to
+// initializedProject (internal/app/user_upgrade.go) so the two never drift
+// out of sync the way they did before RFC 0035 (that duplicate, looser
+// check was itself a second copy of the exact bug commit 13d8cf0 fixed).
 func currentInitializedProject(explicit string) (string, bool) {
 	root := explicit
 	if root == "" {
@@ -158,8 +163,7 @@ func currentInitializedProject(explicit string) (string, bool) {
 	if err != nil {
 		return "", false
 	}
-	info, err := os.Lstat(filepath.Join(absolute, store.Runtime))
-	return absolute, err == nil && info.IsDir() && info.Mode()&os.ModeSymlink == 0
+	return absolute, initializedProject(absolute)
 }
 
 func (c *cli) handoffProjectUpgrade(ctx context.Context, executable, projectRoot string, yes, allKnown bool) (any, error) {

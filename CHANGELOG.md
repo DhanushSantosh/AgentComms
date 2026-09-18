@@ -5,6 +5,19 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 
 ## [Unreleased]
 
+**Fixed**
+- A `projectRequired` command (e.g. `task list`, `message post`) run
+  outside any Agent Comms project used to leak a raw filesystem error
+  ("open .../.agent-comms/config.json: no such file or directory") with a
+  misleading "--help" hint. It now fails immediately with `NOT_A_PROJECT`
+  and a clear next step: run `agent-comms init` here, or run the command
+  from an existing project. `currentInitializedProject` (used by `update`
+  and by `projectOptional` commands) was a second, separately-drifted copy
+  of the same "does a stray .agent-comms directory count as a project"
+  check fixed in the underlying helper on 2026-09-18 -- it now delegates
+  to that one fixed implementation instead of re-checking loosely on its
+  own.
+
 ## [0.7.0] - 2026-09-17 — “Read Receipt”
 
 *A coherence pass across the whole CLI: `live tail`'s ad-hoc file-watching

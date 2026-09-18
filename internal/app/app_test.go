@@ -2165,3 +2165,36 @@ func TestErrorDetailsSurfacesProjectlifecycleDetails(t *testing.T) {
 		t.Fatalf("expected no details field for a plain error, got: %s", encoded)
 	}
 }
+
+func TestProjectRequiredCommandOutsideProjectGetsGuidedError(t *testing.T) {
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(t.TempDir(), "config"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(t.TempDir(), "credentials"))
+	dir := t.TempDir()
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(wd) })
+
+	var stdout, stderr bytes.Buffer
+	err = Run([]string{"task", "list", "--json"}, &stdout, &stderr)
+	if err == nil {
+		t.Fatal("expected an error running a projectRequired command outside any project")
+	}
+	var envelope Envelope
+	if decodeErr := json.Unmarshal(stderr.Bytes(), &envelope); decodeErr != nil {
+		t.Fatalf("decode error envelope: %v\nstderr: %s", decodeErr, stderr.String())
+	}
+	if envelope.Error == nil {
+		t.Fatal("expected an error envelope")
+	}
+	if envelope.Error.Code != "NOT_A_PROJECT" {
+		t.Fatalf("error code = %q, want NOT_A_PROJECT", envelope.Error.Code)
+	}
+	if !strings.Contains(envelope.Error.Message, dir) {
+		t.Fatalf("expected the error message to name the directory %q, got: %s", dir, envelope.Error.Message)
+	}
+}
