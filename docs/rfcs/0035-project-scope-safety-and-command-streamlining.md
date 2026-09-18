@@ -2,7 +2,7 @@
 
 ## Status
 
-**Accepted, 2026-09-19.** The project owner requested this directly after a
+**Implemented, 2026-09-19.** The project owner requested this directly after a
 v0.7.0 patch bug (`agc update apply` crashing on a stray, non-project
 `.agent-comms` directory — see RFC-less fix commit `13d8cf0`) exposed both
 a confusing error-message gap and a command surface with real redundancy.
