@@ -5,7 +5,36 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-09-19 — “Wrong Door”
+
+*A follow-up patch to a real bug found the day after 0.7.0 shipped: a
+stray, non-project directory got mistaken for a real one and crashed
+`update apply`. This closes the whole class of it -- every session cache
+now knows to stay out of directories it doesn't own, and a command run
+in the wrong place says so plainly instead of leaking a filesystem
+error -- plus two more redundant command names found along the way.*
+
 **Breaking**
+- **Breaking:** Live-serve session tracking (Claude, Codex, OpenCode) and
+  runtime session bindings no longer write into a project directory at
+  all; all four now share one hashed cache location under
+  `identity.ConfigDir()/sessions/`. A stray file left at the old location
+  is simply inert now.
+- **Breaking:** `update check` and `update apply` are now one command,
+  `update`, which checks first and then prompts to install (or installs
+  immediately under `--yes`/`--non-interactive`).
+- **Breaking:** `project upgrade status` is removed; it was byte-for-byte
+  the same code as `project upgrade plan` under a second name.
+
+**Fixed**
+- A command run outside any Agent Comms project (e.g. `task list` in an
+  empty directory) now fails immediately with a clear `NOT_A_PROJECT`
+  error and a next step, instead of a raw filesystem error with a
+  misleading hint.
+
+Full technical detail is below and in [CHANGELOG.md](https://github.com/DhanushSantosh/AgentComms/blob/main/CHANGELOG.md).
+
+### Breaking
 - **Breaking:** `update check` and `update apply` are now one command,
   `update`: it always checks first, then prompts to install when a newer
   release exists (`Update available: vX -> vY. Install? [y/N]`), or
@@ -25,7 +54,7 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
   simply inert now -- nothing reads it. See
   [RFC 0035](docs/rfcs/0035-project-scope-safety-and-command-streamlining.md).
 
-**Fixed**
+### Fixed
 - A `projectRequired` command (e.g. `task list`, `message post`) run
   outside any Agent Comms project used to leak a raw filesystem error
   ("open .../.agent-comms/config.json: no such file or directory") with a

@@ -1,7 +1,7 @@
-# Generated verifier pins for v0.7.0. Commit before creating the tag.
-v0.7.0 agent-comms-verify-windows-amd64.exe dfd27f2fce341c9bb312aa3ec59becd72922814be76b1e6fd9650f4711903066
-v0.7.0 agent-comms-verify-windows-arm64.exe 924570dccd205d7cd23158a216fd635cebb6d2c7d26cb9d17fccc937e6f6ab51
-v0.7.0 agent-comms-verify-linux-amd64 80e77e77db616007dbc52f83535b5590b5bac5e14d60a5d2697a4ecee47ac0c4
-v0.7.0 agent-comms-verify-linux-arm64 92bcd27e44d4a64c988c362444e2a073ad438144042ee152d417af2f93a0b94c
-v0.7.0 agent-comms-verify-darwin-amd64 0cc6bfdc93e4702b1c86c9c2a2cd6f1cdbc5f367d39dfec1471312679676763d
-v0.7.0 agent-comms-verify-darwin-arm64 33c9254bcde99333adee13cbd15c0439bf0a4a054e1e439694b680ba876c9c09
+# Generated verifier pins for v0.7.1. Commit before creating the tag.
+v0.7.1 agent-comms-verify-windows-amd64.exe 3e860149ededf6f5f233141e232283caeb21f08913ddea5311df933b19cd0bde
+v0.7.1 agent-comms-verify-windows-arm64.exe ae8ec5b561cccc0aaa568b36e149bc9b802d6f08dc747a6aff50a80b7f7f68f6
+v0.7.1 agent-comms-verify-linux-amd64 517a5faa596c63fc4348e50f07de92e2f119ccc98364736c03d3d76caadb28b6
+v0.7.1 agent-comms-verify-linux-arm64 9f4ec34aaf857d2abbc087ec05e972a363ac6df45051ba6260d040045aa4208b
+v0.7.1 agent-comms-verify-darwin-amd64 9e591bdc76e58081f62bd7e1b168927fbb5211c33486dac514d9cdb42fcf1fda
+v0.7.1 agent-comms-verify-darwin-arm64 efdc60636e847cd5a4260e9b376ba1b4b1d7b45164aa6f3f8d72fa509011e778
