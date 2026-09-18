@@ -1988,6 +1988,7 @@ func TestInvocationRedeliverReachesSessionMissedByRequest(t *testing.T) {
 }
 
 func TestPinInteractiveServeArgsAppliesAnExistingBinding(t *testing.T) {
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", t.TempDir())
 	root := t.TempDir()
 	if err := sessionbind.Save(root, "HENRY", "pinned-session-id", "claude"); err != nil {
 		t.Fatal(err)
@@ -2019,6 +2020,7 @@ func TestPinInteractiveServeArgsNoOpWithoutAnyBinding(t *testing.T) {
 }
 
 func TestPinInteractiveServeArgsOnlyAppliesTheMatchingRuntimesBinding(t *testing.T) {
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", t.TempDir())
 	root := t.TempDir()
 	if err := sessionbind.Save(root, "HULK", "hulks-session-id", "agy"); err != nil {
 		t.Fatal(err)

@@ -5,6 +5,26 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 
 ## [Unreleased]
 
+**Breaking**
+- **Breaking:** `update check` and `update apply` are now one command,
+  `update`: it always checks first, then prompts to install when a newer
+  release exists (`Update available: vX -> vY. Install? [y/N]`), or
+  installs immediately under `--yes`/`--non-interactive` for scripts. See
+  [RFC 0035](docs/rfcs/0035-project-scope-safety-and-command-streamlining.md).
+- **Breaking:** `project upgrade status` is removed; it was byte-for-byte
+  the same code as `project upgrade plan` under a second name. Use
+  `project upgrade plan`.
+- **Breaking:** Live-serve session tracking for Claude, Codex, and
+  OpenCode (`claudeserve`, `codexserve`, `opencodeclient`) and runtime
+  session bindings (`sessionbind`) no longer write
+  `<projectRoot>/.agent-comms/cache/*.json`. All four now share a single
+  hashed cache location under `identity.ConfigDir()/sessions/` (e.g.
+  `~/.config/agent-comms/sessions/` on Linux), keyed off the project
+  root's path so a directory that was never an initialized project is
+  never written into. A stray file left behind at the old location is
+  simply inert now -- nothing reads it. See
+  [RFC 0035](docs/rfcs/0035-project-scope-safety-and-command-streamlining.md).
+
 **Fixed**
 - A `projectRequired` command (e.g. `task list`, `message post`) run
   outside any Agent Comms project used to leak a raw filesystem error
@@ -17,14 +37,6 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
   check fixed in the underlying helper on 2026-09-18 -- it now delegates
   to that one fixed implementation instead of re-checking loosely on its
   own.
-- **Breaking:** `update check` and `update apply` are now one command,
-  `update`: it always checks first, then prompts to install when a newer
-  release exists (`Update available: vX -> vY. Install? [y/N]`), or
-  installs immediately under `--yes`/`--non-interactive` for scripts. See
-  [RFC 0035](docs/rfcs/0035-project-scope-safety-and-command-streamlining.md).
-- **Breaking:** `project upgrade status` is removed; it was byte-for-byte
-  the same code as `project upgrade plan` under a second name. Use
-  `project upgrade plan`.
 
 ## [0.7.0] - 2026-09-17 — “Read Receipt”
 

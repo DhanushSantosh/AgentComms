@@ -419,7 +419,7 @@ func (c *cli) doctorCmd() *cobra.Command {
 		}
 		lifecycle, _, lifecycleErr := projectlifecycle.Inspect(c.svc.Store.Root, Version, buildinfo.ResolvedBuildID())
 		if lifecycleErr != nil {
-			add("ERROR", "PROJECT_LIFECYCLE_INVALID", lifecycleErr.Error(), "Run `agent-comms project upgrade status` and repair the reported compatibility problem.")
+			add("ERROR", "PROJECT_LIFECYCLE_INVALID", lifecycleErr.Error(), "Run `agent-comms project upgrade plan` and repair the reported compatibility problem.")
 		} else if len(lifecycle.Actions) > 0 || lifecycle.Interrupted {
 			add("WARNING", "PROJECT_UPGRADE_AVAILABLE",
 				fmt.Sprintf("project has %d lifecycle action(s); interrupted=%t", len(lifecycle.Actions), lifecycle.Interrupted),

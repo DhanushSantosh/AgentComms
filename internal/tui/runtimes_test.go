@@ -9,6 +9,7 @@ import (
 )
 
 func TestRuntimeSessionBindingReflectsCapturedProviderAndID(t *testing.T) {
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", t.TempDir())
 	source := runtimeRowSource{root: t.TempDir()}
 	provider, session := source.sessionBinding("axiom-runtime-1")
 	if provider != "—" || session != "unbound" {
@@ -61,6 +62,7 @@ func TestRuntimeSessionBindingReflectsCapturedProviderAndID(t *testing.T) {
 // row's full picture -- the actual UX outcome of the master-detail
 // redesign, not just the underlying data functions in isolation.
 func TestRuntimesViewRendersDetailPaneForSelectedRow(t *testing.T) {
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", t.TempDir())
 	instance := newTestService(t)
 	registerAgent(t, instance, "AXIOM", model.Role("MEMBER"), "src")
 	if _, err := instance.Execute("AXIOM", "runtime.register", "axiom-runtime-1",
@@ -92,6 +94,7 @@ func TestRuntimesViewRendersDetailPaneForSelectedRow(t *testing.T) {
 // computed by detailFor, so this now asserts against detailFor's result
 // instead of a table row.
 func TestRuntimeDetailIncludesProviderAndSession(t *testing.T) {
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", t.TempDir())
 	instance := newTestService(t)
 	registerAgent(t, instance, "AXIOM", model.Role("MEMBER"), "src")
 	if _, err := instance.Execute("AXIOM", "runtime.register", "axiom-runtime-1",
