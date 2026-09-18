@@ -133,6 +133,9 @@ type cli struct {
 	pendingWarnings                             []string
 	processExitCode                             int
 	handoffRunner                               commandRunner
+	in                                          io.Reader
+	fetchReleaseFn                              func(ctx context.Context, channel, version string) (githubRelease, error)
+	installReleaseFn                            func(ctx context.Context, r githubRelease) (map[string]any, error)
 }
 
 type commandRunner func(
@@ -281,13 +284,12 @@ func classifyProjectScope(cmd *cobra.Command) projectScope {
 	path := cmd.CommandPath()
 	switch {
 	case name == "version", name == "init", name == "completion",
-		name == "update" && cmd.Parent() == cmd.Root(),
 		strings.HasPrefix(path, "agent-comms project upgrade"),
 		path == "agent-comms daemon serve",
 		path == "agent-comms live serve", path == "agent-comms live attach",
 		path == "agent-comms runtime verify-adapter":
 		return projectExempt
-	case path == "agent-comms update check", path == "agent-comms update apply",
+	case path == "agent-comms update",
 		path == "agent-comms profile list", path == "agent-comms profile use",
 		path == "agent-comms config theme":
 		return projectUserOnly

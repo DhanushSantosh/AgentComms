@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -24,112 +25,118 @@ import (
 )
 
 func (c *cli) updateCmd() *cobra.Command {
-	root := &cobra.Command{Use: "update"}
-	var channel string
-	check := &cobra.Command{Use: "check", Short: "Check for a newer verified release", RunE: func(cmd *cobra.Command, args []string) error {
-		ctx, cancel := context.WithTimeout(cmd.Context(), 15*time.Second)
-		defer cancel()
-		release, err := fetchRelease(ctx, channel, "")
-		if err != nil {
-			return err
-		}
-		available := strings.TrimPrefix(release.Tag, "v") != Version
-		result := map[string]any{"current": Version, "latest": release.Tag, "channel": channel, "update_available": available, "telemetry": false}
-		status, title := cliui.StatusSuccess, "Agent Comms is up to date"
-		if available {
-			status, title = cliui.StatusInfo, "Update available"
-		}
-		return c.emitDocument("update.check", result, cliui.Document{
-			Title: title, Status: status,
-			Fields: []cliui.Field{{Label: "Current", Value: Version}, {Label: "Latest", Value: release.Tag}, {Label: "Channel", Value: channel}},
-			Hint:   "Run agent-comms update apply to install a verified available release.",
-		})
-	}}
-	check.Flags().StringVar(&channel, "channel", "stable", "stable or preview")
-	var version string
+	var channel, version string
 	var yes, currentProjectOnly, skipProjectUpgrade bool
 	allKnown := true
-	apply := &cobra.Command{Use: "apply", Short: "Install a verified release and upgrade projects", RunE: func(cmd *cobra.Command, args []string) error {
-		progress := c.progress()
-		_ = progress.Start("Applying Agent Comms update")
-		completed := false
-		defer func() {
-			if !completed {
-				_ = progress.Stop(false, "Update did not complete")
+	update := &cobra.Command{
+		Use:   "update",
+		Short: "Check for and install a verified Agent Comms release",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx, cancel := context.WithTimeout(cmd.Context(), 15*time.Second)
+			defer cancel()
+			fetch := c.fetchReleaseFn
+			if fetch == nil {
+				fetch = fetchRelease
 			}
-		}()
-		ctx, cancel := context.WithTimeout(cmd.Context(), 2*time.Minute)
-		defer cancel()
-		release, err := fetchRelease(ctx, channel, version)
-		if err != nil {
-			return err
-		}
-		result, err := installRelease(ctx, release)
-		if err != nil {
-			return err
-		}
-		result["binary_updated"] = true
-		if skipProjectUpgrade {
-			result["project_upgrade"] = map[string]any{"skipped": true, "reason": "requested by --skip-project-upgrade"}
+			release, err := fetch(ctx, channel, version)
+			if err != nil {
+				return err
+			}
+			latest := strings.TrimPrefix(release.Tag, "v")
+			if latest == Version {
+				return c.emitDocument("update.check", map[string]any{
+					"current": Version, "latest": release.Tag, "channel": channel, "update_available": false,
+				}, cliui.Document{
+					Title: "Agent Comms is up to date", Status: cliui.StatusSuccess,
+					Fields: []cliui.Field{{Label: "Version", Value: Version}, {Label: "Channel", Value: channel}},
+				})
+			}
+			if !yes && !c.nonInteractive && !c.json {
+				in := c.in
+				if in == nil {
+					in = os.Stdin
+				}
+				fmt.Fprintf(c.out, "Update available: v%s -> %s. Install? [y/N] ", Version, release.Tag)
+				scanner := bufio.NewScanner(in)
+				if !scanner.Scan() || !strings.EqualFold(strings.TrimSpace(scanner.Text()), "y") {
+					return c.emitDocument("update.check", map[string]any{
+						"current": Version, "latest": release.Tag, "channel": channel, "update_available": true, "installed": false,
+					}, cliui.Document{
+						Title: "Update available", Status: cliui.StatusInfo,
+						Fields: []cliui.Field{{Label: "Current", Value: Version}, {Label: "Latest", Value: release.Tag}},
+						Hint:   "Run agent-comms update again and answer y, or pass --yes, to install.",
+					})
+				}
+			}
+			progress := c.progress()
+			_ = progress.Start("Applying Agent Comms update")
+			completed := false
+			defer func() {
+				if !completed {
+					_ = progress.Stop(false, "Update did not complete")
+				}
+			}()
+			install := c.installReleaseFn
+			if install == nil {
+				install = installRelease
+			}
+			result, err := install(ctx, release)
+			if err != nil {
+				return err
+			}
+			result["binary_updated"] = true
+			if skipProjectUpgrade {
+				result["project_upgrade"] = map[string]any{"skipped": true, "reason": "requested by --skip-project-upgrade"}
+				completed = true
+				_ = progress.Stop(true, "Update installed")
+				return c.emitUpdateApply(result)
+			}
+			projectRoot, projectFound := currentInitializedProject(c.project)
+			effectiveAllKnown := allKnown
+			if currentProjectOnly {
+				effectiveAllKnown = false
+			}
+			knownRoots, rootsErr := c.knownProjectRoots(projectRoot)
+			if rootsErr != nil {
+				return rootsErr
+			}
+			if effectiveAllKnown && len(knownRoots) == 0 {
+				result["project_upgrade"] = map[string]any{"skipped": true, "reason": "no initialized projects are registered"}
+			} else if effectiveAllKnown || projectFound {
+				upgradeResult, upgradeErr := c.handoffProjectUpgrade(ctx, result["installed"].(string), projectRoot, yes, effectiveAllKnown)
+				if upgradeErr != nil {
+					details := map[string]any{
+						"binary_updated":    true,
+						"installed_version": result["version"],
+						"previous_version":  result["previous"],
+					}
+					var lifecycleErr *projectlifecycle.Error
+					if errors.As(upgradeErr, &lifecycleErr) {
+						lifecycleErr.Details = details
+						return lifecycleErr
+					}
+					return &projectlifecycle.Error{
+						Code:    projectlifecycle.CodeUpgradeFailed,
+						Message: "binary updated successfully but project reconciliation failed: " + upgradeErr.Error(),
+						Details: details,
+					}
+				}
+				result["project_upgrade"] = upgradeResult
+			} else {
+				result["project_upgrade"] = map[string]any{"skipped": true, "reason": "current directory is not an initialized project"}
+			}
 			completed = true
-			_ = progress.Stop(true, "Update installed")
+			_ = progress.Stop(true, "Update and project reconciliation completed")
 			return c.emitUpdateApply(result)
-		}
-		projectRoot, projectFound := currentInitializedProject(c.project)
-		if currentProjectOnly {
-			allKnown = false
-		}
-		knownRoots, rootsErr := c.knownProjectRoots(projectRoot)
-		if rootsErr != nil {
-			return rootsErr
-		}
-		if allKnown && len(knownRoots) == 0 {
-			result["project_upgrade"] = map[string]any{"skipped": true, "reason": "no initialized projects are registered"}
-		} else if allKnown || projectFound {
-			upgradeResult, upgradeErr := c.handoffProjectUpgrade(ctx, result["installed"].(string), projectRoot, yes, allKnown)
-			if upgradeErr != nil {
-				// Preserve the handed-off binary's own classified error
-				// (e.g. UPGRADE_REQUIRED is a normal, expected outcome, not
-				// a failure) rather than collapsing every kind of error
-				// into a generic UPGRADE_FAILED.
-				// UX-14: attach Details{"binary_updated": true, ...} to
-				// whichever error is actually returned here so a --json
-				// caller can check a real field for "did the binary
-				// change" instead of only inferring it from the message
-				// string -- true either way execution reaches this branch,
-				// since installRelease already succeeded above.
-				details := map[string]any{
-					"binary_updated":    true,
-					"installed_version": result["version"],
-					"previous_version":  result["previous"],
-				}
-				var lifecycleErr *projectlifecycle.Error
-				if errors.As(upgradeErr, &lifecycleErr) {
-					lifecycleErr.Details = details
-					return lifecycleErr
-				}
-				return &projectlifecycle.Error{
-					Code:    projectlifecycle.CodeUpgradeFailed,
-					Message: "binary updated successfully but project reconciliation failed: " + upgradeErr.Error(),
-					Details: details,
-				}
-			}
-			result["project_upgrade"] = upgradeResult
-		} else {
-			result["project_upgrade"] = map[string]any{"skipped": true, "reason": "current directory is not an initialized project"}
-		}
-		completed = true
-		_ = progress.Stop(true, "Update and project reconciliation completed")
-		return c.emitUpdateApply(result)
-	}}
-	apply.Flags().StringVar(&channel, "channel", "stable", "stable or preview")
-	apply.Flags().StringVar(&version, "version", "", "exact release tag")
-	apply.Flags().BoolVarP(&yes, "yes", "y", false, "approve confirmation-required project migrations")
-	apply.Flags().BoolVar(&allKnown, "all-known", true, "reconcile projects recorded in identity profiles")
-	apply.Flags().BoolVar(&currentProjectOnly, "current-project-only", false, "reconcile only the current initialized project")
-	apply.Flags().BoolVar(&skipProjectUpgrade, "skip-project-upgrade", false, "install the binary without reconciling projects")
-	root.AddCommand(check, apply)
-	return root
+		},
+	}
+	update.Flags().StringVar(&channel, "channel", "stable", "stable or preview")
+	update.Flags().StringVar(&version, "version", "", "exact release tag")
+	update.Flags().BoolVarP(&yes, "yes", "y", false, "skip the confirmation prompt and approve confirmation-required project migrations")
+	update.Flags().BoolVar(&allKnown, "all-known", true, "reconcile projects recorded in identity profiles")
+	update.Flags().BoolVar(&currentProjectOnly, "current-project-only", false, "reconcile only the current initialized project")
+	update.Flags().BoolVar(&skipProjectUpgrade, "skip-project-upgrade", false, "install the binary without reconciling projects")
+	return update
 }
 
 func (c *cli) emitUpdateApply(result map[string]any) error {

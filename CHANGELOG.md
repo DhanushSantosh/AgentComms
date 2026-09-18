@@ -17,6 +17,11 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
   check fixed in the underlying helper on 2026-09-18 -- it now delegates
   to that one fixed implementation instead of re-checking loosely on its
   own.
+- **Breaking:** `update check` and `update apply` are now one command,
+  `update`: it always checks first, then prompts to install when a newer
+  release exists (`Update available: vX -> vY. Install? [y/N]`), or
+  installs immediately under `--yes`/`--non-interactive` for scripts. See
+  [RFC 0035](docs/rfcs/0035-project-scope-safety-and-command-streamlining.md).
 
 ## [0.7.0] - 2026-09-17 — “Read Receipt”
 
