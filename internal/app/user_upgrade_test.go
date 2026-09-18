@@ -14,6 +14,85 @@ import (
 	"github.com/DhanushSantosh/AgentComms/internal/store"
 )
 
+// TestInitializedProjectRequiresConfigJSONNotJustTheDirectory is the
+// regression test for a v0.7.0 bug report: `agc update apply` run from an
+// uninitialized directory failed with "open <dir>/.agent-comms/config.json:
+// no such file or directory" instead of cleanly reporting "no initialized
+// projects". Root cause: several unrelated code paths (sessionbind's
+// runtime-session cache, the claude/codex/opencode live-serve caches,
+// worker adapter state) write into <root>/.agent-comms/cache eagerly,
+// independent of whether `agent-comms init` ever ran there -- and
+// initializedProject only checked that the .agent-comms directory existed,
+// not that it actually held a config.json. A stray cache-only directory
+// (reproduced live: the user's own $HOME had exactly this, presumably left
+// by an earlier interactive-serve session) was therefore treated as a real
+// project and handed to projectlifecycle.Inspect, which crashed trying to
+// read a config.json that was never created.
+func TestInitializedProjectRequiresConfigJSONNotJustTheDirectory(t *testing.T) {
+	strayRoot := t.TempDir()
+	strayCache := filepath.Join(strayRoot, store.Runtime, "cache")
+	if err := os.MkdirAll(strayCache, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(strayCache, "runtime-sessions.json"), []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if initializedProject(strayRoot) {
+		t.Fatal("a stray .agent-comms/cache directory with no config.json must not count as an initialized project")
+	}
+
+	// A genuinely initialized project -- config.json actually present --
+	// must still be recognized; the fix must not be over-broad. A separate
+	// root, since runtimeinit.Initialize itself refuses to run against a
+	// directory that already has a .agent-comms directory.
+	realRoot := t.TempDir()
+	if _, err := runtimeinit.Initialize(context.Background(), runtimeinit.Config{
+		ProjectRoot: realRoot, Owner: "owner", Mode: "personal",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !initializedProject(realRoot) {
+		t.Fatal("a genuinely initialized project (config.json present) must still be recognized")
+	}
+}
+
+// TestUpdateApplyPreCheckSkipsStrayNonProjectDirectory is the end-to-end
+// regression test for the actual reported flow: `agc update apply`,
+// standing in a directory with no real project, with only a stray
+// .agent-comms/cache-holding directory registered as a profile. Before the
+// fix, knownProjectRoots (what update apply's own pre-handoff check calls
+// to decide whether there's anything to reconcile) counted the stray
+// directory as a real project, so `update apply` proceeded to hand off to
+// `project upgrade --all-known`, which then crashed trying to read a
+// config.json that was never created. After the fix, knownProjectRoots
+// correctly excludes it, so update apply's pre-check sees zero known
+// projects and takes its existing graceful "nothing to upgrade" path
+// (cmd_update.go) instead of ever spawning the handoff subprocess.
+func TestUpdateApplyPreCheckSkipsStrayNonProjectDirectory(t *testing.T) {
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(t.TempDir(), "config"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(t.TempDir(), "credentials"))
+
+	strayRoot := t.TempDir()
+	strayCache := filepath.Join(strayRoot, store.Runtime, "cache")
+	if err := os.MkdirAll(strayCache, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(strayCache, "runtime-sessions.json"), []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	registerProjectProfile(t, strayRoot)
+
+	nonProjectDir := t.TempDir()
+	client := &cli{timeout: time.Second}
+	roots, err := client.knownProjectRoots(nonProjectDir)
+	if err != nil {
+		t.Fatalf("knownProjectRoots crashed on a stray non-project directory: %v", err)
+	}
+	if len(roots) != 0 {
+		t.Fatalf("expected the stray directory to be excluded, got roots=%v", roots)
+	}
+}
+
 func TestUserReconciliationUpgradesEveryRegisteredProjectOncePerBuild(t *testing.T) {
 	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(t.TempDir(), "config"))
 	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(t.TempDir(), "credentials"))
