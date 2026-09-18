@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"context"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +14,8 @@ func fakeRelease(tag string) githubRelease {
 }
 
 func TestUpdatePromptsAndInstallsOnYes(t *testing.T) {
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(t.TempDir(), "config"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(t.TempDir(), "credentials"))
 	Version = "0.7.0"
 	t.Cleanup(func() { Version = "0.7.0" })
 
@@ -52,6 +55,8 @@ func TestUpdatePromptsAndInstallsOnYes(t *testing.T) {
 }
 
 func TestUpdatePromptsAndSkipsInstallOnNo(t *testing.T) {
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(t.TempDir(), "config"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(t.TempDir(), "credentials"))
 	Version = "0.7.0"
 	t.Cleanup(func() { Version = "0.7.0" })
 
@@ -81,6 +86,8 @@ func TestUpdatePromptsAndSkipsInstallOnNo(t *testing.T) {
 }
 
 func TestUpdateNonInteractiveInstallsWithoutPrompting(t *testing.T) {
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(t.TempDir(), "config"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(t.TempDir(), "credentials"))
 	Version = "0.7.0"
 	t.Cleanup(func() { Version = "0.7.0" })
 
@@ -117,6 +124,8 @@ func TestUpdateNonInteractiveInstallsWithoutPrompting(t *testing.T) {
 }
 
 func TestUpdateReportsAlreadyCurrentWithoutPrompting(t *testing.T) {
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(t.TempDir(), "config"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(t.TempDir(), "credentials"))
 	Version = "0.7.1"
 	t.Cleanup(func() { Version = "0.7.0" })
 

@@ -32,13 +32,13 @@ func (c *cli) updateCmd() *cobra.Command {
 		Use:   "update",
 		Short: "Check for and install a verified Agent Comms release",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ctx, cancel := context.WithTimeout(cmd.Context(), 15*time.Second)
-			defer cancel()
+			fetchCtx, fetchCancel := context.WithTimeout(cmd.Context(), 15*time.Second)
+			defer fetchCancel()
 			fetch := c.fetchReleaseFn
 			if fetch == nil {
 				fetch = fetchRelease
 			}
-			release, err := fetch(ctx, channel, version)
+			release, err := fetch(fetchCtx, channel, version)
 			if err != nil {
 				return err
 			}
@@ -68,6 +68,8 @@ func (c *cli) updateCmd() *cobra.Command {
 					})
 				}
 			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), 2*time.Minute)
+			defer cancel()
 			progress := c.progress()
 			_ = progress.Start("Applying Agent Comms update")
 			completed := false
