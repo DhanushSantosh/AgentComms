@@ -186,7 +186,7 @@ func (c *cli) projectUpgradeCmd() *cobra.Command {
 	upgrade.Flags().BoolVarP(&yes, "yes", "y", false, "approve confirmation-required migrations")
 	upgrade.Flags().BoolVar(&allKnown, "all-known", false, "upgrade distinct projects recorded in identity profiles")
 
-	for _, operation := range []string{"status", "plan"} {
+	for _, operation := range []string{"plan"} {
 		operation := operation
 		var operationAllKnown bool
 		command := &cobra.Command{Use: operation, Short: "Show the pending project upgrade plan (" + operation + ")", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {

@@ -22,6 +22,9 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
   release exists (`Update available: vX -> vY. Install? [y/N]`), or
   installs immediately under `--yes`/`--non-interactive` for scripts. See
   [RFC 0035](docs/rfcs/0035-project-scope-safety-and-command-streamlining.md).
+- **Breaking:** `project upgrade status` is removed; it was byte-for-byte
+  the same code as `project upgrade plan` under a second name. Use
+  `project upgrade plan`.
 
 ## [0.7.0] - 2026-09-17 — “Read Receipt”
 
