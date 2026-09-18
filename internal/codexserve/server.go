@@ -15,6 +15,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/DhanushSantosh/AgentComms/internal/sessioncache"
 )
 
 const (
@@ -36,8 +38,11 @@ type ServerInfo struct {
 	BaseURL string `json:"base_url"`
 }
 
-func ServerInfoPath(projectRoot string) string {
-	return filepath.Join(projectRoot, ".agent-comms", "cache", "codex-serve.json")
+// ServerInfoPath returns the local tracking file path for a project root.
+// See internal/sessioncache's own doc comment for why this is never
+// inside projectRoot itself.
+func ServerInfoPath(projectRoot string) (string, error) {
+	return sessioncache.Path(projectRoot, "codex-serve")
 }
 
 func DefaultServeBaseURL() string { return "http://" + DefaultServeAddress }
@@ -231,7 +236,10 @@ func Serve(ctx context.Context, address string) error {
 // EnsureServer reuses a healthy cached broker, probes the well-known port
 // when the cache is absent or stale, and only then spawns a detached broker.
 func EnsureServer(ctx context.Context, projectRoot, workDir string) (string, error) {
-	path := ServerInfoPath(projectRoot)
+	path, err := ServerInfoPath(projectRoot)
+	if err != nil {
+		return "", err
+	}
 	if baseURL, ok := resolveRunningServer(ctx, path, DefaultServeBaseURL()); ok {
 		if err := saveServerInfo(path, ServerInfo{BaseURL: baseURL}); err != nil {
 			return "", err
