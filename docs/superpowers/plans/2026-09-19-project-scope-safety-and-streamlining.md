@@ -1186,7 +1186,34 @@ Notes for this step:
 - The `--json` case (`update --json`) reuses `emitDocument`/`emitUpdateApply` exactly as `check`/`apply` did before — no separate JSON branch needed, since a non-interactive, non-TTY invocation with `--json` should also pass `c.nonInteractive` in practice (confirm this is really true by checking how `--json` and `--non-interactive` interact elsewhere in this file before relying on it silently; if `--json` alone does not already imply non-interactive today, add `|| c.json` to the prompt-skip condition: `if !yes && !c.nonInteractive && !c.json {`).
 - This removes the standalone `check` and `apply` `*cobra.Command` variables entirely — search the rest of the file (and the whole `internal/app` package) for `"check"` and `"apply"` string literals or any other reference to the old two-subcommand shape before deleting, to make sure nothing else (help text, docs generation, another test) still expects them.
 
-- [ ] **Step 5: Run the new tests**
+- [ ] **Step 5: Fix `classifyProjectScope`'s now-stale "update" exemption**
+
+`internal/app/app.go`'s `classifyProjectScope` has a case that predates this task:
+
+```go
+	case name == "version", name == "init", name == "completion",
+		name == "update" && cmd.Parent() == cmd.Root(),
+		strings.HasPrefix(path, "agent-comms project upgrade"),
+```
+
+That `name == "update" && cmd.Parent() == cmd.Root()` clause exists only because, before this task, "update" was a bare parent command with no `RunE` of its own (just the "check"/"apply" children) — it made a no-subcommand invocation inert. This task turns "update" into a real leaf command with its own `RunE`, still named "update", still a direct child of root, so it still matches that clause unchanged — which would silently classify it `projectExempt` instead of `projectUserOnly` (what `update check` and `update apply` both correctly had), silently dropping the `reconcileUserInstallation` call `PersistentPreRunE` makes for `projectUserOnly` commands. Fix both cases:
+
+```go
+	case name == "version", name == "init", name == "completion",
+		strings.HasPrefix(path, "agent-comms project upgrade"),
+		path == "agent-comms daemon serve",
+		path == "agent-comms live serve", path == "agent-comms live attach",
+		path == "agent-comms runtime verify-adapter":
+		return projectExempt
+	case path == "agent-comms update",
+		path == "agent-comms profile list", path == "agent-comms profile use",
+		path == "agent-comms config theme":
+		return projectUserOnly
+```
+
+(This replaces both the `projectExempt` case's `name == "update" && cmd.Parent() == cmd.Root(),` line, removing it, and the `projectUserOnly` case's `path == "agent-comms update check", path == "agent-comms update apply",` line, replacing it with `path == "agent-comms update",` — the rest of both cases is unchanged.)
+
+- [ ] **Step 6: Run the new tests**
 
 ```bash
 go test ./internal/app/ -run TestUpdate -v
@@ -1194,7 +1221,7 @@ go test ./internal/app/ -run TestUpdate -v
 
 Expected: PASS
 
-- [ ] **Step 6: Run the full app package test suite**
+- [ ] **Step 7: Run the full app package test suite**
 
 ```bash
 go build $(go list ./... | grep -v cmd/agent-comms-tui-wasm | grep -v internal/contamination) && go vet ./... && go test ./internal/app/... -count=1
@@ -1202,7 +1229,7 @@ go build $(go list ./... | grep -v cmd/agent-comms-tui-wasm | grep -v internal/c
 
 Expected: all pass. Pay particular attention to any pre-existing test that referenced `update check`/`update apply` by name (search `grep -rn '"check"\|"apply"' internal/app/*_test.go` before this step to know what to expect) — fix any that broke by updating them to invoke `update` instead, preserving their original assertions about the underlying behavior.
 
-- [ ] **Step 7: Add a CHANGELOG entry**
+- [ ] **Step 8: Add a CHANGELOG entry**
 
 Under `CHANGELOG.md`'s `## [Unreleased]`, in the `**Fixed**` section added by Task 1 (append to the same section rather than creating a new one), add:
 
@@ -1214,7 +1241,7 @@ Under `CHANGELOG.md`'s `## [Unreleased]`, in the `**Fixed**` section added by Ta
   [RFC 0035](docs/rfcs/0035-project-scope-safety-and-command-streamlining.md).
 ```
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
 git add internal/app/app.go internal/app/cmd_update.go internal/app/cmd_update_test.go CHANGELOG.md
