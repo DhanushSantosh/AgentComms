@@ -29,6 +29,7 @@ import (
 // project and handed to projectlifecycle.Inspect, which crashed trying to
 // read a config.json that was never created.
 func TestInitializedProjectRequiresConfigJSONNotJustTheDirectory(t *testing.T) {
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(t.TempDir(), "credentials"))
 	strayRoot := t.TempDir()
 	strayCache := filepath.Join(strayRoot, store.Runtime, "cache")
 	if err := os.MkdirAll(strayCache, 0o755); err != nil {
