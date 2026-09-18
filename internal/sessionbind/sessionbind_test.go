@@ -1,10 +1,12 @@
 package sessionbind
 
 import (
+	"os"
 	"testing"
 )
 
 func TestSaveAndLoadRoundTrips(t *testing.T) {
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", t.TempDir())
 	root := t.TempDir()
 	if err := Save(root, "axiom-runtime-1", "e22cbdad-7233-4d6d-8ecc-0c4bffd8c475", "claude"); err != nil {
 		t.Fatal(err)
@@ -25,6 +27,7 @@ func TestSaveAndLoadRoundTrips(t *testing.T) {
 }
 
 func TestLoadMissingBindingReportsNotFound(t *testing.T) {
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", t.TempDir())
 	root := t.TempDir()
 	_, ok, err := Load(root, "unknown-runtime")
 	if err != nil {
@@ -36,6 +39,7 @@ func TestLoadMissingBindingReportsNotFound(t *testing.T) {
 }
 
 func TestSavePreservesOtherRuntimeBindings(t *testing.T) {
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", t.TempDir())
 	root := t.TempDir()
 	if err := Save(root, "axiom-runtime-1", "session-a", "claude"); err != nil {
 		t.Fatal(err)
@@ -100,5 +104,20 @@ func clearProviderEnv(t *testing.T) {
 		"CLAUDE_CODE_SESSION_ID", "CODEX_THREAD_ID",
 	} {
 		t.Setenv(name, "")
+	}
+}
+
+func TestSaveNeverWritesInsideProjectRoot(t *testing.T) {
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", t.TempDir())
+	root := t.TempDir()
+	if err := Save(root, "some-runtime", "session-id", "claude"); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("expected Save to leave root untouched, found: %v", entries)
 	}
 }

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/DhanushSantosh/AgentComms/internal/identity"
+	"github.com/DhanushSantosh/AgentComms/internal/sessioncache"
 	"github.com/DhanushSantosh/AgentComms/internal/worker"
 )
 
@@ -24,9 +25,11 @@ type Binding struct {
 	CapturedAt time.Time `json:"captured_at"`
 }
 
-// Path returns the local binding file path for a project root.
-func Path(projectRoot string) string {
-	return filepath.Join(projectRoot, ".agent-comms", "cache", "runtime-sessions.json")
+// Path returns the local binding file path for a project root. See
+// internal/sessioncache's own doc comment for why this is never inside
+// projectRoot itself.
+func Path(projectRoot string) (string, error) {
+	return sessioncache.Path(projectRoot, "runtime-sessions")
 }
 
 // Capture inspects the current process environment for a provider-native
@@ -83,7 +86,10 @@ func load(path string) (map[string]Binding, error) {
 
 // Save records the binding for runtimeID, overwriting any prior entry.
 func Save(projectRoot, runtimeID, sessionID, adapter string) error {
-	path := Path(projectRoot)
+	path, err := Path(projectRoot)
+	if err != nil {
+		return err
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
@@ -101,7 +107,11 @@ func Save(projectRoot, runtimeID, sessionID, adapter string) error {
 
 // Load returns the binding recorded for runtimeID, if any.
 func Load(projectRoot, runtimeID string) (Binding, bool, error) {
-	bindings, err := load(Path(projectRoot))
+	path, err := Path(projectRoot)
+	if err != nil {
+		return Binding{}, false, err
+	}
+	bindings, err := load(path)
 	if err != nil {
 		return Binding{}, false, err
 	}
