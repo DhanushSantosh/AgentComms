@@ -186,7 +186,7 @@ func (c *cli) projectUpgradeCmd() *cobra.Command {
 	upgrade.Flags().BoolVarP(&yes, "yes", "y", false, "approve confirmation-required migrations")
 	upgrade.Flags().BoolVar(&allKnown, "all-known", false, "upgrade distinct projects recorded in identity profiles")
 
-	for _, operation := range []string{"status", "plan"} {
+	for _, operation := range []string{"plan"} {
 		operation := operation
 		var operationAllKnown bool
 		command := &cobra.Command{Use: operation, Short: "Show the pending project upgrade plan (" + operation + ")", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
@@ -419,7 +419,7 @@ func (c *cli) doctorCmd() *cobra.Command {
 		}
 		lifecycle, _, lifecycleErr := projectlifecycle.Inspect(c.svc.Store.Root, Version, buildinfo.ResolvedBuildID())
 		if lifecycleErr != nil {
-			add("ERROR", "PROJECT_LIFECYCLE_INVALID", lifecycleErr.Error(), "Run `agent-comms project upgrade status` and repair the reported compatibility problem.")
+			add("ERROR", "PROJECT_LIFECYCLE_INVALID", lifecycleErr.Error(), "Run `agent-comms project upgrade plan` and repair the reported compatibility problem.")
 		} else if len(lifecycle.Actions) > 0 || lifecycle.Interrupted {
 			add("WARNING", "PROJECT_UPGRADE_AVAILABLE",
 				fmt.Sprintf("project has %d lifecycle action(s); interrupted=%t", len(lifecycle.Actions), lifecycle.Interrupted),

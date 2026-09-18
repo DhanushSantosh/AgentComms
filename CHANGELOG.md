@@ -5,6 +5,68 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-09-19 — “Wrong Door”
+
+*A follow-up patch to a real bug found the day after 0.7.0 shipped: a
+stray, non-project directory got mistaken for a real one and crashed
+`update apply`. This closes the whole class of it -- every session cache
+now knows to stay out of directories it doesn't own, and a command run
+in the wrong place says so plainly instead of leaking a filesystem
+error -- plus two more redundant command names found along the way.*
+
+**Breaking**
+- **Breaking:** Live-serve session tracking (Claude, Codex, OpenCode) and
+  runtime session bindings no longer write into a project directory at
+  all; all four now share one hashed cache location under
+  `identity.ConfigDir()/sessions/`. A stray file left at the old location
+  is simply inert now.
+- **Breaking:** `update check` and `update apply` are now one command,
+  `update`, which checks first and then prompts to install (or installs
+  immediately under `--yes`/`--non-interactive`).
+- **Breaking:** `project upgrade status` is removed; it was byte-for-byte
+  the same code as `project upgrade plan` under a second name.
+
+**Fixed**
+- A command run outside any Agent Comms project (e.g. `task list` in an
+  empty directory) now fails immediately with a clear `NOT_A_PROJECT`
+  error and a next step, instead of a raw filesystem error with a
+  misleading hint.
+
+Full technical detail is below and in [CHANGELOG.md](https://github.com/DhanushSantosh/AgentComms/blob/main/CHANGELOG.md).
+
+### Breaking
+- **Breaking:** `update check` and `update apply` are now one command,
+  `update`: it always checks first, then prompts to install when a newer
+  release exists (`Update available: vX -> vY. Install? [y/N]`), or
+  installs immediately under `--yes`/`--non-interactive` for scripts. See
+  [RFC 0035](docs/rfcs/0035-project-scope-safety-and-command-streamlining.md).
+- **Breaking:** `project upgrade status` is removed; it was byte-for-byte
+  the same code as `project upgrade plan` under a second name. Use
+  `project upgrade plan`.
+- **Breaking:** Live-serve session tracking for Claude, Codex, and
+  OpenCode (`claudeserve`, `codexserve`, `opencodeclient`) and runtime
+  session bindings (`sessionbind`) no longer write
+  `<projectRoot>/.agent-comms/cache/*.json`. All four now share a single
+  hashed cache location under `identity.ConfigDir()/sessions/` (e.g.
+  `~/.config/agent-comms/sessions/` on Linux), keyed off the project
+  root's path so a directory that was never an initialized project is
+  never written into. A stray file left behind at the old location is
+  simply inert now -- nothing reads it. See
+  [RFC 0035](docs/rfcs/0035-project-scope-safety-and-command-streamlining.md).
+
+### Fixed
+- A `projectRequired` command (e.g. `task list`, `message post`) run
+  outside any Agent Comms project used to leak a raw filesystem error
+  ("open .../.agent-comms/config.json: no such file or directory") with a
+  misleading "--help" hint. It now fails immediately with `NOT_A_PROJECT`
+  and a clear next step: run `agent-comms init` here, or run the command
+  from an existing project. `currentInitializedProject` (used by `update`
+  and by `projectOptional` commands) was a second, separately-drifted copy
+  of the same "does a stray .agent-comms directory count as a project"
+  check fixed in the underlying helper on 2026-09-18 -- it now delegates
+  to that one fixed implementation instead of re-checking loosely on its
+  own.
+
 ## [0.7.0] - 2026-09-17 — “Read Receipt”
 
 *A coherence pass across the whole CLI: `live tail`'s ad-hoc file-watching

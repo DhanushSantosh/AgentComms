@@ -59,7 +59,7 @@ func Details(err error) any {
 
 func ExitStatus(err error) int {
 	switch Code(err) {
-	case string(controlplane.CodeValidation):
+	case string(controlplane.CodeValidation), string(projectlifecycle.CodeNotAProject):
 		return 2
 	case string(controlplane.CodeAuthorization):
 		return 3

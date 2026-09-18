@@ -116,6 +116,16 @@ func (c *cli) reconcileUserInstallation(ctx context.Context, currentRoot string)
 	})
 }
 
+// knownProjectRoots returns every project root worth reconciling: every
+// identity profile's registered ProjectRoot, plus currentRoot. A registered
+// profile's root is trusted at registration time, but the project it points
+// at can drift out from under it later -- deleted, moved, or left with only
+// a stray .agent-comms/cache directory from some unrelated command that
+// never actually ran `init` there (see initializedProject's own doc
+// comment). Every candidate, not just currentRoot, is filtered through
+// initializedProject before being returned, so a caller like update apply's
+// pre-handoff check ("is there anything registered to reconcile") never
+// mistakes a drifted or stray root for a real one.
 func (c *cli) knownProjectRoots(currentRoot string) ([]string, error) {
 	config, err := identity.LoadUserConfig()
 	if err != nil {
@@ -132,7 +142,7 @@ func (c *cli) knownProjectRoots(currentRoot string) ([]string, error) {
 		}
 		unique[filepath.Clean(absolute)] = struct{}{}
 	}
-	if currentRoot != "" && initializedProject(currentRoot) {
+	if currentRoot != "" {
 		absolute, absoluteErr := filepath.Abs(currentRoot)
 		if absoluteErr != nil {
 			return nil, absoluteErr
@@ -141,15 +151,36 @@ func (c *cli) knownProjectRoots(currentRoot string) ([]string, error) {
 	}
 	roots := make([]string, 0, len(unique))
 	for root := range unique {
-		roots = append(roots, root)
+		if initializedProject(root) {
+			roots = append(roots, root)
+		}
 	}
 	sort.Strings(roots)
 	return roots, nil
 }
 
+// initializedProject reports whether root is a genuinely initialized
+// project -- not just a directory that happens to have a .agent-comms
+// subdirectory. Several unrelated code paths (sessionbind's runtime-session
+// cache, the claude/codex/opencode live-serve caches, worker adapter state)
+// write into <root>/.agent-comms/cache eagerly, independent of whether
+// `agent-comms init` was ever run there; a stray directory left behind that
+// way must never be mistaken for a real project by knownProjectRoots/
+// upgradeRoots, or `update apply`/`project upgrade --all-known` crashes
+// trying to read a config.json that was never created (confirmed live: a
+// stray .agent-comms/cache/runtime-sessions.json with no config.json next
+// to it, in a directory nobody ever `init`-ed, reproduced the exact
+// "open <root>/.agent-comms/config.json: no such file or directory"
+// failure). config.json is what store.Store.Config() and
+// projectlifecycle.Inspect() actually require, so its presence is the real
+// test, not just the parent directory's.
 func initializedProject(root string) bool {
 	info, err := os.Lstat(filepath.Join(root, store.Runtime))
-	return err == nil && info.IsDir() && info.Mode()&os.ModeSymlink == 0
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return false
+	}
+	_, err = os.Lstat(filepath.Join(root, store.Runtime, "config.json"))
+	return err == nil
 }
 
 func projectRegistryHash(roots []string) string {

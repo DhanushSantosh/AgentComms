@@ -24,6 +24,7 @@ const (
 	CodeUpgradeUnsupported ErrorCode = "UPGRADE_UNSUPPORTED"
 	CodeUpgradeFailed      ErrorCode = "UPGRADE_FAILED"
 	CodeConflict           ErrorCode = "CONFLICT"
+	CodeNotAProject        ErrorCode = "NOT_A_PROJECT"
 )
 
 type Error struct {

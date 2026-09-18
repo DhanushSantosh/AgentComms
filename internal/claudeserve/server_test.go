@@ -25,7 +25,11 @@ func fakeBrokerServer(t *testing.T) *httptest.Server {
 }
 
 func TestServerInfoRoundTrips(t *testing.T) {
-	path := ServerInfoPath(t.TempDir())
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", t.TempDir())
+	path, err := ServerInfoPath(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	want := ServerInfo{BaseURL: "http://127.0.0.1:4097"}
 	if err := saveServerInfo(path, want); err != nil {
 		t.Fatal(err)
@@ -37,9 +41,13 @@ func TestServerInfoRoundTrips(t *testing.T) {
 }
 
 func TestResolveRunningServerPrefersCache(t *testing.T) {
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", t.TempDir())
 	cached := fakeBrokerServer(t)
 	fallback := fakeBrokerServer(t)
-	path := ServerInfoPath(t.TempDir())
+	path, err := ServerInfoPath(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := saveServerInfo(path, ServerInfo{BaseURL: cached.URL}); err != nil {
 		t.Fatal(err)
 	}
@@ -50,15 +58,25 @@ func TestResolveRunningServerPrefersCache(t *testing.T) {
 }
 
 func TestResolveRunningServerFallsBackToFixedPort(t *testing.T) {
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", t.TempDir())
 	fallback := fakeBrokerServer(t)
-	baseURL, ok := resolveRunningServer(context.Background(), ServerInfoPath(t.TempDir()), fallback.URL)
+	path, err := ServerInfoPath(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseURL, ok := resolveRunningServer(context.Background(), path, fallback.URL)
 	if !ok || baseURL != fallback.URL {
 		t.Fatalf("resolveRunningServer() = (%q, %v), want fallback %q", baseURL, ok, fallback.URL)
 	}
 }
 
 func TestResolveRunningServerReportsNone(t *testing.T) {
-	if _, ok := resolveRunningServer(context.Background(), ServerInfoPath(t.TempDir()), "http://127.0.0.1:1"); ok {
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", t.TempDir())
+	path, err := ServerInfoPath(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := resolveRunningServer(context.Background(), path, "http://127.0.0.1:1"); ok {
 		t.Fatal("expected no running broker")
 	}
 }
@@ -124,5 +142,17 @@ func TestBrokerPromptAndLiveSubscription(t *testing.T) {
 		case <-time.After(2 * time.Second):
 			t.Fatal("live subscriber did not receive the assistant turn")
 		}
+	}
+}
+
+func TestServerInfoPathNeverPointsInsideProjectRoot(t *testing.T) {
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", t.TempDir())
+	root := t.TempDir()
+	path, err := ServerInfoPath(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.HasPrefix(path, root) {
+		t.Fatalf("ServerInfoPath returned a path inside root: %s", path)
 	}
 }

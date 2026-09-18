@@ -10,14 +10,13 @@ related: [start/install, operations/recovery]
 
 Agent Comms separates updating the user-level binary from reconciling a project's managed runtime. Ordinary commands perform safe reconciliation automatically.
 
-## Check and apply updates
+## Update the CLI
 
 ```sh
-agent-comms update check
-agent-comms update apply
+agent-comms update
 ```
 
-The installer replaces the user-level binary once. It does not copy executables into every project. The next eligible command in a managed project checks product version, build ID, project format, cache schema, draft schema, and managed files.
+It checks for a newer release first, then prompts to install it (`Update available: vX -> vY. Install? [y/N]`); pass `--yes` or `--non-interactive` to install without prompting, which scripts should use. The installer replaces the user-level binary once. It does not copy executables into every project. The next eligible command in a managed project checks product version, build ID, project format, cache schema, draft schema, and managed files.
 
 ## Inspect an explicit project upgrade
 
