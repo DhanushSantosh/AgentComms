@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/DhanushSantosh/AgentComms/internal/sessioncache"
 )
 
 // ServerInfo is the locally-cached record of the persistent opencode serve
@@ -24,8 +26,10 @@ type ServerInfo struct {
 }
 
 // ServerInfoPath returns the local tracking file path for a project root.
-func ServerInfoPath(projectRoot string) string {
-	return filepath.Join(projectRoot, ".agent-comms", "cache", "opencode-server.json")
+// See internal/sessioncache's own doc comment for why this is never
+// inside projectRoot itself.
+func ServerInfoPath(projectRoot string) (string, error) {
+	return sessioncache.Path(projectRoot, "opencode-server")
 }
 
 // defaultServePort is the well-known port spawnServer always binds to.
@@ -47,7 +51,10 @@ func defaultServeBaseURL() string { return "http://127.0.0.1:" + defaultServePor
 // new spawn per call, matching the existing per-project daemon's own
 // auto-spawn convention.
 func EnsureServer(ctx context.Context, projectRoot, workDir string) (string, error) {
-	path := ServerInfoPath(projectRoot)
+	path, err := ServerInfoPath(projectRoot)
+	if err != nil {
+		return "", err
+	}
 	if baseURL, ok := resolveRunningServer(ctx, path, defaultServeBaseURL()); ok {
 		if err := saveServerInfo(path, ServerInfo{BaseURL: baseURL}); err != nil {
 			return "", err

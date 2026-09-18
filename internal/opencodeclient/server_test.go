@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -32,7 +33,11 @@ func TestLoadServerInfoMissingFileReturnsError(t *testing.T) {
 }
 
 func TestSaveAndLoadServerInfoRoundTrips(t *testing.T) {
-	path := ServerInfoPath(t.TempDir())
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", t.TempDir())
+	path, err := ServerInfoPath(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := saveServerInfo(path, ServerInfo{BaseURL: "http://127.0.0.1:4096"}); err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +51,11 @@ func TestSaveAndLoadServerInfoRoundTrips(t *testing.T) {
 }
 
 func TestLoadServerInfoRejectsEmptyBaseURL(t *testing.T) {
-	path := ServerInfoPath(t.TempDir())
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", t.TempDir())
+	path, err := ServerInfoPath(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := saveServerInfo(path, ServerInfo{BaseURL: ""}); err != nil {
 		t.Fatal(err)
 	}
@@ -65,9 +74,13 @@ func fakeOpenCodeServer(t *testing.T) *httptest.Server {
 }
 
 func TestResolveRunningServerPrefersCache(t *testing.T) {
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", t.TempDir())
 	cached := fakeOpenCodeServer(t)
 	fallback := fakeOpenCodeServer(t)
-	path := ServerInfoPath(t.TempDir())
+	path, err := ServerInfoPath(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := saveServerInfo(path, ServerInfo{BaseURL: cached.URL}); err != nil {
 		t.Fatal(err)
 	}
@@ -83,8 +96,12 @@ func TestResolveRunningServerPrefersCache(t *testing.T) {
 // the well-known default-port address must still be found and reused
 // instead of triggering a duplicate spawn.
 func TestResolveRunningServerFallsBackToDefaultPort(t *testing.T) {
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", t.TempDir())
 	fallback := fakeOpenCodeServer(t)
-	path := ServerInfoPath(t.TempDir())
+	path, err := ServerInfoPath(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	baseURL, ok := resolveRunningServer(context.Background(), path, fallback.URL)
 	if !ok || baseURL != fallback.URL {
 		t.Fatalf("expected the fallback server %q, got (%q, %v)", fallback.URL, baseURL, ok)
@@ -92,8 +109,24 @@ func TestResolveRunningServerFallsBackToDefaultPort(t *testing.T) {
 }
 
 func TestResolveRunningServerReportsNoneWhenNeitherResponds(t *testing.T) {
-	path := ServerInfoPath(t.TempDir())
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", t.TempDir())
+	path, err := ServerInfoPath(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, ok := resolveRunningServer(context.Background(), path, "http://127.0.0.1:1"); ok {
 		t.Fatal("expected no running server to be found")
+	}
+}
+
+func TestServerInfoPathNeverPointsInsideProjectRoot(t *testing.T) {
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", t.TempDir())
+	root := t.TempDir()
+	path, err := ServerInfoPath(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.HasPrefix(path, root) {
+		t.Fatalf("ServerInfoPath returned a path inside root: %s", path)
 	}
 }
