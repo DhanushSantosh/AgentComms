@@ -9,6 +9,33 @@ export type Release = {
 
 export const releases: readonly Release[] = [
   {
+    version: "v0.7.1",
+    channel: "BETA",
+    name: "Wrong Door",
+    date: "2026-09-19",
+    dateLabel: "19 Sep 2026",
+    highlights: [
+      "Every per-project session cache (live-serve tracking, runtime session bindings) now lives outside the project directory entirely, so a stray non-project folder can no longer be corrupted by it.",
+      "A command run outside any Agent Comms project now fails immediately with a clear NOT_A_PROJECT error and a next step, instead of a raw filesystem error.",
+      "update check and update apply are merged into one interactive update command that checks first, then prompts to install.",
+      "Removes the duplicate project upgrade status command."
+    ]
+  },
+  {
+    version: "v0.7.0",
+    channel: "BETA",
+    name: "Read Receipt",
+    date: "2026-09-17",
+    dateLabel: "17 Sep 2026",
+    highlights: [
+      "Removes agent-comms live tail in favor of live attach, the one supported way to watch a live agent session for both Claude and Codex.",
+      "Every CLI command now documents itself under --help, with examples for the non-obvious lifecycle and approval commands.",
+      "document notify retries a stuck document acknowledgement without duplicating one already sent; message show reads a message directly.",
+      "agc, a short alias for agent-comms, installed alongside the main binary.",
+      "TUI document-update edits no longer silently corrupt untouched fields — a real, confirmed bug now fixed end to end."
+    ]
+  },
+  {
     version: "v0.6.0",
     channel: "BETA",
     name: "Chain of Trust",

@@ -4,13 +4,48 @@ description: What changed in each tagged release, why it matters, and where to f
 section: Releases
 order: 1
 audience: Everyone
-lastVerified: 2026-09-03
+lastVerified: 2026-09-19
 related: [guide/maintenance, security/releases]
 ---
 
 Every tagged release is signed and dated. This page summarizes what changed and why; the repository's [CHANGELOG.md](https://github.com/DhanushSantosh/AgentComms/blob/main/CHANGELOG.md) carries the exhaustive per-change detail this page intentionally leaves out.
 
 Every release below is **Beta** — before v1.0.0, SemVer's own 0.x.y convention means anything may still change without notice. There is no Stable channel yet; that label only becomes accurate once a 1.x release ships.
+
+## v0.7.1 — "Wrong Door" — Beta — 2026-09-19
+
+A follow-up patch to a real bug found the day after 0.7.0 shipped: a stray, non-project directory got mistaken for a real one and crashed `update apply`. This closes the whole class of it — every session cache now knows to stay out of directories it doesn't own, and a command run in the wrong place says so plainly instead of leaking a filesystem error — plus two more redundant command names found along the way.
+
+**Breaking**
+
+- Live-serve session tracking (Claude, Codex, OpenCode) and runtime session bindings no longer write into a project directory at all; all four now share one hashed cache location under the shared config directory.
+- `update check` and `update apply` are now one command, `update`, which checks first and then prompts to install.
+- `project upgrade status` is removed; it was byte-for-byte the same code as `project upgrade plan`.
+
+**Fixed**
+
+- A command run outside any Agent Comms project (e.g. `task list` in an empty directory) now fails immediately with a clear `NOT_A_PROJECT` error and a next step, instead of a raw filesystem error with a misleading hint.
+
+## v0.7.0 — "Read Receipt" — Beta — 2026-09-17
+
+A coherence pass across the whole CLI: `live tail`'s ad-hoc file-watching is gone in favor of the one supported way to watch a live session, message and document acknowledgment gain a proper retry and read path, and a broad UX audit closes gaps in how the CLI explains its own state — registration, approvals, inbox, and installation all say more than they used to.
+
+**Added**
+
+- `document notify` retries a stuck document acknowledgement without duplicating one already sent; `message show` reads a message's subject and body directly.
+- `agc`, a short alias for `agent-comms`, installed alongside the main binary.
+
+**Breaking**
+
+- Removed `agent-comms live tail`; `live attach --provider claude|codex` is the one supported way to watch a live agent session now.
+- The managed bootstrap marker file renamed `.agents` -> `.agentcomms`; existing projects migrate automatically.
+- Removed the `session` and `decision` command groups; CLI surface consolidated per RFC 0027.
+
+**Fixed**
+
+- `approval show`, `message inbox`, `agent register`/`status` all surface state and context by default that used to be hidden behind `--details` or missing entirely.
+- Empty `task list`/`message inbox`/`invocation list` now distinguish "nothing exists yet" from "your filter matched nothing."
+- TUI document-update edits no longer silently corrupt untouched fields, or misapply keyboard input in the command palette.
 
 ## v0.6.0 — "Chain of Trust" — Beta — 2026-09-03
 
