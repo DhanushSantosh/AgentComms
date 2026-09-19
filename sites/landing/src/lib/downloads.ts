@@ -31,6 +31,13 @@ export async function getDownloadData(): Promise<{
   const repositoryRawUrl = `https://raw.githubusercontent.com/DhanushSantosh/AgentComms/${releaseTag}`;
   const releaseBaseUrl = `${repositoryUrl}/releases/download/${releaseTag}`;
 
+  // AGENT_COMMS_VERSION / -Version are redundant with the script's own
+  // default as of the release that bumps it (see docs/releasing.md), but
+  // stay explicit here regardless of which release is latest: dropping them
+  // would break this exact command against any already-published release
+  // whose install.sh/install.ps1 predates that default (v0.7.1 and earlier
+  // still require it). Never conditioned on `version` -- the tag is the
+  // source of truth and old releases are never edited after publishing.
   const installerMethods: readonly InstallerMethod[] = [
     {
       id: "unix",
