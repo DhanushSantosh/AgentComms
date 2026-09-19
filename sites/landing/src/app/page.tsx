@@ -71,6 +71,27 @@ export default function HomePage() {
               <span>3. RESOLVES TO RECORD</span>
             </div>
           </header>
+          <div className="control-signal" aria-hidden="true">
+            <div className="control-signal-head"><span>LIVE STREAM</span><span>SEQ 142–147</span></div>
+            <div className="control-stream">
+              <div className="control-stream-row"><i>0142</i><b>agent.switch-role</b><span>developer · OWNER</span></div>
+              <div className="control-stream-row"><i>0143</i><b>task.claim</b><span>reviewer · auth/session</span></div>
+              <div className="control-stream-row"><i>0144</i><b>invocation.request</b><span>OWNER → reviewer</span></div>
+              <div className="control-stream-row control-stream-row--flag"><i>0146</i><b>approval.request</b><span>reviewer · HUMAN tier</span></div>
+              <div className="control-stream-row"><i>0147</i><b>invocation.start</b><span>reviewer · lease renewed</span></div>
+            </div>
+            <p className="control-signal-arrow">1. Rises from the stream</p>
+            <div className="control-approval-card">
+              <span>APPROVAL REQUIRED · HUMAN TIER</span>
+              <dl>
+                <div><dt>WHO</dt><dd>reviewer</dd></div>
+                <div><dt>WHAT</dt><dd>agent.activate:reviewer</dd></div>
+                <div><dt>WHY</dt><dd>Coordinate the auth-session release</dd></div>
+              </dl>
+            </div>
+            <p className="control-signal-arrow">2. Shows who &amp; why → 3. Resolves to record</p>
+            <div className="control-record-stamp"><b>SIGNED</b><span>RECORD #0146 · approval.granted</span></div>
+          </div>
           <div className="control-capabilities">
             <article><span>ATTENTION</span><strong>Know what needs you now.</strong><p>Approvals, blocked work, ambiguous delivery, and runtime health come forward.</p></article>
             <article><span>AUTHORITY</span><strong>Control who can do what.</strong><p>Roles, scopes, identities, runtimes, suspensions, revocations, and elevated actions stay governed.</p></article>
