@@ -347,7 +347,6 @@ img { max-width: 100%; }
 .collision { background: var(--ink); border-top: 1px solid var(--line-dark); padding: clamp(6rem, 10vw, 10rem) var(--gutter); }
 .collision-reveal { display: grid; gap: clamp(3rem, 7vw, 8rem); grid-template-columns: minmax(30rem, 1.38fr) minmax(18rem, 0.62fr); }
 .collision-copy { order: 2; }
-.collision-lab { order: 1; }
 
 .demo-intro h2, .control-heading h2, .modes header h2 { font-family: var(--display); font-size: clamp(3rem, 5.8vw, 6rem); font-weight: 620; letter-spacing: -0.066em; line-height: 0.9; margin: 0; overflow-wrap: break-word; text-wrap: balance; }
 /* protocol-intro's headline is a two-sentence statement (like trust-lede's),
@@ -357,61 +356,6 @@ img { max-width: 100%; }
    scale trust-lede already uses for the same shape of headline. */
 .collision-copy h2, .relay-copy h2, .trust-lede h2, .protocol-intro h2 { font-family: var(--display); font-size: clamp(2.3rem, 4.2vw, 4.2rem); font-weight: 620; letter-spacing: -0.058em; line-height: 0.96; margin: 0; text-wrap: balance; }
 .collision-copy > p:last-child, .protocol-intro > p:last-child, .relay-copy > p, .control-heading > p:last-child { color: var(--steel-light); font-size: clamp(0.92rem, 1.25vw, 1.1rem); line-height: 1.7; margin: 1.8rem 0 0; max-width: 34rem; }
-.collision-lab { align-self: end; background: var(--panel); border: 1px solid var(--line-dark); color: var(--text); min-width: 0; position: relative; }
-.lab-toolbar { align-items: center; border-bottom: 1px solid var(--line-dark); display: flex; flex-wrap: wrap; font-family: var(--mono); gap: 0.8rem; justify-content: space-between; padding: 0.75rem 1rem; }
-.lab-toolbar-left { align-items: center; display: flex; gap: 0.6rem; }
-.lab-toolbar-left span { color: var(--steel); font-size: 0.52rem; }
-.lab-toolbar-left b { color: var(--cyan); font-size: 0.58rem; letter-spacing: 0.05em; }
-.lab-toolbar-left small { color: var(--steel-light); font-size: 0.52rem; }
-.lab-toolbar-modes { display: flex; gap: 0.4rem; }
-.lab-toolbar-modes button { background: var(--panel-raised); border: 1px solid var(--line-dark); color: var(--steel-light); cursor: pointer; display: flex; flex-direction: column; gap: 0.15rem; padding: 0.45rem 0.75rem; text-align: left; transition: background-color 160ms ease, color 160ms ease, border-color 160ms ease; }
-.lab-toolbar-modes button span { font-family: var(--mono); font-size: 0.52rem; font-weight: 700; letter-spacing: 0.04em; }
-.lab-toolbar-modes button small { font-family: var(--mono); font-size: 0.44rem; opacity: 0.75; }
-.lab-toolbar-modes button[aria-pressed="true"] { background: var(--cyan); border-color: var(--cyan); color: var(--ink); }
-.lab-toolbar-modes button[aria-pressed="true"] small { color: var(--ink); opacity: 0.9; }
-
-.lab-canvas { height: 23rem; overflow: hidden; position: relative; }
-.lab-canvas::before { background-image: linear-gradient(var(--line-dark) 1px, transparent 1px), linear-gradient(90deg, var(--line-dark) 1px, transparent 1px); background-size: 3.2rem 3.2rem; content: ""; inset: 0; opacity: 0.38; position: absolute; }
-.lab-time-axis { color: var(--steel); display: flex; font-family: var(--mono); font-size: 0.48rem; justify-content: space-between; left: 7%; pointer-events: none; position: absolute; right: 7%; top: 0.7rem; }
-.code-track { align-items: center; display: grid; gap: 0.75rem; grid-template-columns: 4.8rem 1fr; left: 7%; position: absolute; right: 7%; transition: transform 500ms cubic-bezier(.2, .8, .2, 1); }
-.code-track span, .code-track b { font-family: var(--mono); font-size: 0.53rem; }
-.code-track span { color: var(--track-color); }
-.code-track b { font-weight: 400; }
-.code-track i { background: var(--line-dark); grid-column: 1 / -1; height: 1px; position: relative; }
-.code-track i::after { background: var(--track-color); border-radius: 50%; box-shadow: 0 0 0 0.35rem color-mix(in srgb, var(--track-color) 16%, transparent); content: ""; height: 0.42rem; left: 64%; position: absolute; top: -0.2rem; width: 0.42rem; }
-.code-track--developer { --track-color: var(--cyan); top: 23%; }
-.code-track--reviewer { --track-color: var(--lilac); bottom: 23%; }
-.agent-badge { border-radius: 2px; display: inline-block; font-weight: 700; padding: 0.1rem 0.35rem; }
-.agent-badge--developer { background: color-mix(in srgb, var(--cyan) 18%, var(--ink)); }
-.agent-badge--reviewer { background: color-mix(in srgb, var(--lilac) 18%, var(--ink)); }
-
-.collision-zone { align-items: center; background: color-mix(in srgb, var(--coral) 18%, var(--ink)); border: 1px solid var(--coral); display: flex; height: 5.8rem; justify-content: center; left: 50%; position: absolute; top: 50%; transform: translate(-50%, -50%); transition: background-color 300ms ease, border-color 300ms ease; width: 9.5rem; }
-.collision-zone span { color: var(--coral); font-family: var(--mono); font-size: 0.57rem; font-weight: 700; }
-.collision-zone b { border: 1px solid var(--coral); inset: 0.45rem; position: absolute; }
-.governed-result { background: var(--cyan); color: var(--ink); display: grid; gap: 0.3rem; left: 50%; opacity: 0; padding: 0.85rem; position: absolute; top: 50%; transform: translate(-50%, -40%); transition: opacity 300ms ease, transform 300ms ease; width: 17rem; z-index: 3; }
-.governed-result span, .governed-result small { font-family: var(--mono); font-size: 0.48rem; }
-.governed-result strong { font-size: 0.7rem; }
-.ungoverned-result { background: var(--ink); border: 1px solid var(--coral); bottom: 7%; color: var(--text); display: grid; gap: 0.22rem; left: 50%; padding: 0.75rem; position: absolute; transform: translateX(-50%); transition: opacity 260ms ease, transform 360ms var(--ease-authority); width: 17rem; z-index: 3; }
-.ungoverned-result span, .ungoverned-result small { font-family: var(--mono); font-size: 0.44rem; }
-.ungoverned-result span, .ungoverned-result strong { color: var(--coral); }
-.ungoverned-result strong { font-size: 0.62rem; }
-
-.conflict-badge, .granted-badge, .reroute-badge { align-items: center; display: inline-flex; font-family: var(--mono); font-size: 0.48rem; gap: 0.4rem; letter-spacing: 0.03em; margin-bottom: 0.25rem; }
-.conflict-badge { color: var(--coral); }
-.granted-badge { color: var(--ink); }
-.reroute-badge { color: var(--cyan-deep); }
-.result-text { display: grid; gap: 0.15rem; }
-
-.collision-lab[data-mode="governed"] .collision-zone { background: color-mix(in srgb, var(--cyan) 15%, var(--ink)); border-color: var(--cyan); }
-.collision-lab[data-mode="governed"] .collision-zone span { color: var(--cyan); }
-.collision-lab[data-mode="governed"] .collision-zone b { animation: none; border-color: var(--cyan); }
-.collision-lab[data-mode="governed"] .code-track--reviewer { transform: translateX(26%); }
-.collision-lab[data-mode="governed"] .governed-result { opacity: 1; transform: translate(-50%, -50%); }
-.collision-lab[data-mode="governed"] .ungoverned-result { opacity: 0; transform: translate(-50%, 0.5rem); }
-.lab-proof { align-items: center; border-top: 1px solid var(--line-dark); color: var(--steel-light); display: flex; flex-wrap: wrap; font-family: var(--mono); font-size: 0.48rem; gap: 0.7rem; padding: 0.8rem; }
-.lab-proof i { color: var(--steel); font-style: normal; }
-.lab-proof strong { color: var(--coral); font-weight: 400; margin-left: auto; }
-.collision-lab[data-mode="governed"] .lab-proof strong { color: var(--cyan); }
 
 /* Stacked full-width, not the copy/panel split every other section uses --
    the instrument is dense enough to earn the whole row, and stacking
@@ -815,19 +759,6 @@ img { max-width: 100%; }
 .motion-ready [data-reveal].is-revealed :is(.demo-intro, .collision-copy, .protocol-intro, .relay-copy, .control-heading, .modes > header, .trust-lede) > :nth-child(3) { transition-delay: calc(var(--motion-stagger) * 2); }
 .motion-ready [data-reveal].is-revealed :is(.demo-intro, .collision-copy, .protocol-intro, .relay-copy, .control-heading, .modes > header, .trust-lede) > :nth-child(4) { transition-delay: calc(var(--motion-stagger) * 3); }
 
-.motion-ready .collision-lab { transition: clip-path var(--motion-slow) var(--ease-handoff), opacity var(--motion-medium) ease; }
-.motion-ready .collision:not(.is-revealed) .collision-lab { clip-path: inset(0 100% 0 0); opacity: 0.35; }
-.motion-ready .collision:not(.is-revealed) .code-track--developer { transform: translateX(-20%); }
-.motion-ready .collision:not(.is-revealed) .code-track--reviewer { transform: translateX(20%); }
-.motion-ready .collision:not(.is-revealed) .collision-zone { transform: translate(-50%, -50%) scale(0.55); }
-.motion-ready .collision.is-revealed .collision-lab { transition-delay: calc(var(--motion-stagger) * 2); }
-.code-track { transition-duration: var(--motion-medium); transition-timing-function: var(--ease-handoff); }
-.collision-zone { transition: background-color var(--motion-fast) ease, border-color var(--motion-fast) ease, transform var(--motion-medium) var(--ease-authority); }
-.motion-ready .collision.is-active .collision-zone b { animation: collision-pulse var(--motion-loop-brief) ease-out 0.8s infinite; }
-.motion-ready .collision.is-active .code-track--developer i::after { animation: collision-node-forward var(--motion-loop-medium) var(--ease-handoff) 0.8s infinite; }
-.motion-ready .collision.is-active .code-track--reviewer i::after { animation: collision-node-reverse var(--motion-loop-medium) var(--ease-handoff) 1.1s infinite; }
-.motion-ready .collision.is-active .collision-lab[data-mode="governed"] .collision-zone b { animation: none; }
-
 .motion-ready .relay-sequence::before,
 .motion-ready .relay-party,
 .motion-ready .relay-message,
@@ -897,27 +828,6 @@ img { max-width: 100%; }
 .motion-ready .modes.is-revealed .mode-bridge { transition-delay: var(--motion-stagger); }
 
 .mode-bridge { background: var(--ink-raised); border: 1px solid var(--line-dark); margin-bottom: clamp(2rem, 4vw, 3rem); padding: 1.4rem clamp(1.2rem, 3vw, 2.4rem); }
-.mode-bridge-row { align-items: center; display: flex; gap: 0.7rem; }
-.mode-bridge-machine { display: grid; gap: 0.3rem; }
-.mode-bridge-node { align-items: center; display: flex; font-family: var(--mono); font-size: 0.52rem; gap: 0.45rem; letter-spacing: 0.04em; text-transform: uppercase; white-space: nowrap; }
-.mode-bridge-node i { background: var(--cyan); border-radius: 50%; display: inline-block; height: 0.4rem; width: 0.4rem; }
-.mode-bridge-machine--a .mode-bridge-node { color: var(--text); }
-.mode-bridge-local { color: var(--steel); font-family: var(--mono); font-size: 0.46rem; letter-spacing: 0.03em; text-transform: uppercase; transition: opacity var(--motion-medium) ease; }
-.mode-bridge-node--authority { color: var(--lilac); opacity: 0; transform: scale(0.7); transition: opacity var(--motion-medium) ease, transform var(--motion-medium) var(--ease-authority); }
-.mode-bridge-node--authority i { background: var(--lilac); border-radius: 0; }
-.mode-bridge-node--b { color: var(--steel-light); opacity: 0; transition: opacity var(--motion-medium) ease, transform var(--motion-medium) var(--ease-authority); }
-.mode-bridge-node--b i { background: currentColor; }
-.mode-bridge-wire { background: color-mix(in srgb, var(--text) 18%, transparent); flex: 1; height: 1px; transform-origin: left; transform: scaleX(0); transition: background-color var(--motion-medium) ease, transform var(--motion-medium) var(--ease-handoff); }
-.mode-bridge-caption { display: grid; margin-top: 1rem; min-height: 1.3em; position: relative; }
-.mode-bridge-caption span { color: var(--steel-light); font-family: var(--mono); font-size: 0.58rem; grid-area: 1 / 1; letter-spacing: 0.01em; transition: opacity var(--motion-medium) ease; }
-.mode-bridge-caption--b { opacity: 0; }
-.motion-ready .modes.is-active .mode-bridge-wire--a { animation: mode-bridge-wire-a var(--motion-loop-long) var(--ease-handoff) infinite; }
-.motion-ready .modes.is-active .mode-bridge-node--authority { animation: mode-bridge-authority var(--motion-loop-long) var(--ease-authority) infinite; }
-.motion-ready .modes.is-active .mode-bridge-local { animation: mode-bridge-local-fade var(--motion-loop-long) ease infinite; }
-.motion-ready .modes.is-active .mode-bridge-wire--b { animation: mode-bridge-wire-b var(--motion-loop-long) var(--ease-handoff) infinite; }
-.motion-ready .modes.is-active .mode-bridge-node--b { animation: mode-bridge-machine-b var(--motion-loop-long) var(--ease-authority) infinite; }
-.motion-ready .modes.is-active .mode-bridge-caption--a { animation: mode-bridge-caption-a var(--motion-loop-long) ease infinite; }
-.motion-ready .modes.is-active .mode-bridge-caption--b { animation: mode-bridge-caption-b var(--motion-loop-long) ease infinite; }
 
 .motion-ready .trust-sequence > :not(.trust-stamp) { transition: clip-path var(--motion-medium) var(--ease-authority), opacity var(--motion-fast) ease, transform var(--motion-medium) var(--ease-authority); }
 .motion-ready .trust:not(.is-revealed) .trust-sequence > :not(.trust-stamp) { clip-path: inset(0 100% 0 0); opacity: 0; transform: translateX(-0.8rem); }
@@ -1000,15 +910,6 @@ img { max-width: 100%; }
   88% { opacity: 0; transform: scaleX(1); }
 }
 
-@keyframes collision-node-forward {
-  0%, 14%, 100% { transform: translateX(-6rem); }
-  48%, 66% { transform: translateX(5rem); }
-}
-
-@keyframes collision-node-reverse {
-  0%, 14%, 100% { transform: translateX(5rem); }
-  48%, 66% { transform: translateX(-6rem); }
-}
 
 @keyframes relay-message-in {
   0%, 6% { opacity: 0; transform: rotate(-7deg) scale(0.72) translateY(-0.4rem); }
@@ -1057,47 +958,6 @@ img { max-width: 100%; }
   64% { opacity: 1; transform: rotate(1deg) scale(0.94); }
   70%, 88% { opacity: 1; transform: rotate(2deg) scale(1); }
   97%, 100% { opacity: 0; transform: rotate(11deg) scale(1.5); }
-}
-
-@keyframes mode-bridge-wire-a {
-  0%, 8% { background: color-mix(in srgb, var(--text) 18%, transparent); transform: scaleX(0); }
-  20%, 88% { background: var(--cyan); transform: scaleX(1); }
-  97%, 100% { background: color-mix(in srgb, var(--text) 18%, transparent); transform: scaleX(0); }
-}
-
-@keyframes mode-bridge-local-fade {
-  0%, 22% { opacity: 1; }
-  32%, 88% { opacity: 0; }
-  97%, 100% { opacity: 1; }
-}
-
-@keyframes mode-bridge-authority {
-  0%, 22% { opacity: 0; transform: scale(0.7); }
-  32%, 88% { opacity: 1; transform: scale(1); }
-  97%, 100% { opacity: 0; transform: scale(0.7); }
-}
-
-@keyframes mode-bridge-wire-b {
-  0%, 34% { background: color-mix(in srgb, var(--text) 18%, transparent); transform: scaleX(0); }
-  46%, 88% { background: var(--lilac); transform: scaleX(1); }
-  97%, 100% { background: color-mix(in srgb, var(--text) 18%, transparent); transform: scaleX(0); }
-}
-
-@keyframes mode-bridge-machine-b {
-  0%, 48% { opacity: 0; transform: translateX(-0.4rem); }
-  58%, 88% { color: var(--lilac); opacity: 1; transform: translateX(0); }
-  97%, 100% { opacity: 0; transform: translateX(-0.4rem); }
-}
-
-@keyframes mode-bridge-caption-a {
-  0%, 28% { opacity: 1; }
-  36%, 100% { opacity: 0; }
-}
-
-@keyframes mode-bridge-caption-b {
-  0%, 34% { opacity: 0; }
-  42%, 92% { opacity: 1; }
-  98%, 100% { opacity: 0; }
 }
 
 @keyframes trust-fill {
@@ -1168,7 +1028,6 @@ img { max-width: 100%; }
   72%, 99% { opacity: 0; transform: translateX(105%); }
 }
 
-@keyframes collision-pulse { 0% { opacity: 1; transform: scale(0.7); } 70%, 100% { opacity: 0; transform: scale(1.2); } }
 
 /* DemoReel's four-cut cycle: each scene/caption pair owns one quarter of
    a shared 16s loop, with a short dissolve at its own edges. Applied to
@@ -1273,22 +1132,7 @@ img { max-width: 100%; }
 .tui-frame[data-control-state="approved"] .tui-panel--attention button { color: var(--cyan); }
 .tui-frame[data-control-state="approved"] .role-orchestrator { animation: none; color: var(--cyan); }
 
-.mode-bridge-interfaces { align-items: center; display: flex; gap: 0.45rem; margin-bottom: 1.2rem; }
-.mode-bridge-interfaces span { background: var(--ink); color: var(--ice); font-family: var(--mono); font-size: 0.5rem; padding: 0.4rem 0.55rem; }
-.mode-bridge-interfaces small { color: var(--steel-light); font-family: var(--mono); font-size: 0.46rem; margin-left: auto; }
-.mode-bridge-machine--b { display: grid; gap: 0.2rem; }
-.mode-bridge-machine--b small { color: var(--steel-light); font-family: var(--mono); font-size: 0.46rem; opacity: 0; }
-.motion-ready .modes.is-active .mode-bridge-machine--b small { animation: mode-bridge-caption-b var(--motion-loop-long) ease infinite; }
 
-/* The topology demonstration plays as a reveal and then holds its scalable
-   end state; it does not repeatedly erase the second host. */
-.motion-ready .modes.is-active :is(.mode-bridge-wire--a, .mode-bridge-node--authority, .mode-bridge-local, .mode-bridge-wire--b, .mode-bridge-node--b, .mode-bridge-caption--a, .mode-bridge-caption--b, .mode-bridge-machine--b small) { animation: none; }
-.motion-ready .modes.is-active .mode-bridge-wire { background: var(--cyan); transform: scaleX(1); transition-delay: 500ms; }
-.motion-ready .modes.is-active .mode-bridge-node--authority { opacity: 1; transform: scale(1); transition-delay: 850ms; }
-.motion-ready .modes.is-active .mode-bridge-node--b { color: var(--lilac); opacity: 1; transform: translateX(0); transition-delay: 1.25s; }
-.motion-ready .modes.is-active .mode-bridge-machine--b small { opacity: 1; transition: opacity var(--motion-medium) ease 1.45s; }
-.motion-ready .modes.is-active .mode-bridge-caption--a { opacity: 0; transition-delay: 900ms; }
-.motion-ready .modes.is-active .mode-bridge-caption--b { opacity: 1; transition-delay: 1.15s; }
 
 /* Trust is a closing proof, not a decorative loop. Reveal the signed chain
    once and leave the evidence available for reading. */
@@ -1312,8 +1156,6 @@ img { max-width: 100%; }
   .relay-outcome { bottom: -3rem; max-width: 78%; }
   .tui-approval-detail dl { grid-template-columns: 1fr; }
   .tui-approval-actions { flex-direction: column; }
-  .mode-bridge-interfaces { flex-wrap: wrap; }
-  .mode-bridge-interfaces small { margin-left: 0; width: 100%; }
 }
 
 .not-found-page { background: var(--ink); color: var(--text); }
@@ -1382,8 +1224,6 @@ img { max-width: 100%; }
   .header-action { display: none; }
   .mode-split { grid-template-columns: 1fr; }
   .mode + .mode { border-left: 1px solid color-mix(in srgb, var(--ice) 33%, transparent); border-top: 0; }
-  .mode-bridge-row { flex-wrap: wrap; row-gap: 0.6rem; }
-  .mode-bridge-wire { min-width: 1.4rem; }
   .control-capabilities { grid-template-columns: 1fr; }
   .control-capabilities article + article { border-left: 0; padding-left: 0; }
   .release { gap: 1rem; grid-template-columns: 1fr; }
@@ -1414,19 +1254,6 @@ img { max-width: 100%; }
   .statement p { font-size: clamp(3rem, 14vw, 5rem); }
   .statement p + p { margin-left: 0; margin-top: 0.45em; }
   .motion-ready [data-reveal]:not(.is-revealed) :is(.demo-intro, .collision-copy, .protocol-intro, .relay-copy, .control-heading, .modes > header, .trust-lede) > * { transform: translateY(0.8rem); }
-  .collision { grid-template-columns: minmax(0, 1fr); }
-  .lab-toolbar { align-items: stretch; flex-direction: column; gap: 0.7rem; }
-  .lab-toolbar div { display: grid; grid-template-columns: repeat(2, 1fr); }
-  .lab-toolbar button { padding-left: 0.4rem; padding-right: 0.4rem; }
-  .lab-canvas { height: 21rem; }
-  .code-track { grid-template-columns: 3.5rem 1fr; }
-  .code-track b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .collision-zone { height: 5rem; width: 7.7rem; }
-  .governed-result { width: 12rem; }
-  .lab-proof i { display: none; }
-  .lab-proof strong { margin-left: 0; width: 100%; }
-  .motion-ready .collision:not(.is-revealed) .collision-lab { clip-path: inset(0 0 100% 0); }
-  .motion-ready .collision:not(.is-revealed) :is(.code-track--developer, .code-track--reviewer) { transform: translateY(0.75rem); }
   .demo-intro h2, .control-heading h2, .modes header h2 { font-size: clamp(1.9rem, 10vw, 3rem); }
   .relay-sequence { min-height: 30rem; }
   .relay-party { width: 10.4rem; }
