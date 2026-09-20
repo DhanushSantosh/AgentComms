@@ -5,7 +5,9 @@ import "./CollisionLab.css";
 
 export function CollisionLab() {
   return (
-    <div className="collision-lab-container">
+    <div className="collision-lab">
+      <div className="collision-lab-head"><span>COLLISION CONTROL</span><span>LIVE · SIMULATED</span></div>
+      <div className="collision-lab-container">
       {/* Left Scenario: Without Coordination */}
       <div className="collision-scenario">
         <div className="scenario-header">
@@ -159,6 +161,7 @@ export function CollisionLab() {
         <div className="scenario-footer text-cyan">
           No collision. Continuous progress.
         </div>
+      </div>
       </div>
     </div>
   );

@@ -1,3 +1,21 @@
+.collision-lab {
+  background: var(--panel);
+  border: 1px solid var(--line-dark);
+  box-shadow: 1.2rem 1.2rem 0 var(--cyan);
+  padding: 1.5rem;
+  position: relative;
+}
+
+.collision-lab-head {
+  color: var(--steel-light);
+  display: flex;
+  font-family: var(--mono);
+  font-size: 0.46rem;
+  justify-content: space-between;
+  letter-spacing: 0.08em;
+  margin-bottom: 1.2rem;
+}
+
 .collision-lab-container {
   display: grid;
   grid-template-columns: 1fr;
@@ -27,13 +45,15 @@
   font-family: var(--mono);
 }
 .scenario-header strong {
-  font-size: 0.65rem;
+  font-size: 0.46rem;
   color: var(--steel-light);
+  letter-spacing: 0.08em;
   margin-bottom: 0.3rem;
 }
 .scenario-header small {
-  font-size: 0.55rem;
+  font-size: 0.46rem;
   color: var(--steel);
+  letter-spacing: 0.08em;
 }
 
 .scenario-canvas {

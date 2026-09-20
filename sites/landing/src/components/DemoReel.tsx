@@ -19,7 +19,7 @@ export function DemoReel() {
               <span className="evidence-film-art" aria-hidden="true"><i /><i /><i /></span>
               <span className="evidence-film-copy"><small>{scene.event}</small><strong>{scene.title}</strong><b>{scene.proof}</b></span>
             </button>
-            {index === 1 && <div className="evidence-film-gap"><span>WAITING FOR ACKNOWLEDGEMENT</span><strong>DELIVERED ≠ ACKNOWLEDGED</strong></div>}
+            {index === 1 && <div className="signal-gap"><div className="signal-gap-pill"><span>WAITING FOR ACKNOWLEDGEMENT</span><strong>DELIVERED ≠ ACKNOWLEDGED</strong></div></div>}
           </div>
         ))}
       </div>

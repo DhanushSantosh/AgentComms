@@ -5,7 +5,9 @@ import "./LifecycleOrbit.css";
 
 export function LifecycleOrbit() {
   return (
-    <div className="lifecycle-orbit">
+    <div className="lifecycle-orbit-panel">
+      <div className="lifecycle-orbit-head"><span>LIFECYCLE PROTOCOL</span><span>REQUESTED → COMPLETED</span></div>
+      <div className="lifecycle-orbit">
       {/* Background Starfield / Particles */}
       <div className="orbit-particles" aria-hidden="true">
         <svg viewBox="0 0 100 100">
@@ -20,9 +22,13 @@ export function LifecycleOrbit() {
 
       <div className="orbit-center">
         <div className="semantic-gap">
-          <span>SEMANTIC GAP</span>
-          <strong>Delivered ≠ Acknowledged</strong>
-          <small>no assumption crossed</small>
+          <i className="signal-gap-rule" aria-hidden="true" />
+          <div className="signal-gap-pill">
+            <span>SEMANTIC GAP</span>
+            <strong>Delivered ≠ Acknowledged</strong>
+            <small>no assumption crossed</small>
+          </div>
+          <i className="signal-gap-rule" aria-hidden="true" />
         </div>
       </div>
 
@@ -112,6 +118,7 @@ export function LifecycleOrbit() {
         <button type="button" className="orbit-replay">
           REPLAY ↻
         </button>
+      </div>
       </div>
     </div>
   );

@@ -1,3 +1,21 @@
+.lifecycle-orbit-panel {
+  background: var(--panel);
+  border: 1px solid var(--line-dark);
+  box-shadow: 1.2rem 1.2rem 0 var(--cyan);
+  padding: 1.5rem;
+  position: relative;
+}
+
+.lifecycle-orbit-head {
+  color: var(--steel-light);
+  display: flex;
+  font-family: var(--mono);
+  font-size: 0.46rem;
+  justify-content: space-between;
+  letter-spacing: 0.08em;
+  margin-bottom: 1.2rem;
+}
+
 .lifecycle-orbit {
   background: var(--ink);
   position: relative;
@@ -40,24 +58,12 @@
   display: flex;
   flex-direction: column;
   align-items: center;
+  gap: 0.4rem;
 }
-.semantic-gap span {
-  font-size: 0.65rem;
-  color: var(--steel-light);
-  letter-spacing: 0.05em;
-  margin-bottom: 0.4rem;
-}
-.semantic-gap strong {
-  font-size: 0.75rem;
-  color: var(--ink);
-  background: var(--text);
-  padding: 0.3rem 0.6rem;
-  font-weight: 700;
-  margin-bottom: 0.3rem;
-}
-.semantic-gap small {
-  font-size: 0.55rem;
-  color: var(--steel-light);
+.semantic-gap .signal-gap-rule {
+  border-left: 1px dashed color-mix(in srgb, var(--text) 30%, transparent);
+  height: 1rem;
+  width: 0;
 }
 
 .orbit-ring-container {
