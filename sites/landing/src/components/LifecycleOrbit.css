@@ -1,9 +1,6 @@
 .lifecycle-orbit-panel {
   background: var(--panel);
-  border: 1px solid var(--line-dark);
-  box-shadow: 1.2rem 1.2rem 0 var(--cyan);
   padding: 1.5rem;
-  position: relative;
 }
 
 .lifecycle-orbit-head {

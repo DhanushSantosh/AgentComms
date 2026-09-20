@@ -1,9 +1,6 @@
 .collision-lab {
   background: var(--panel);
-  border: 1px solid var(--line-dark);
-  box-shadow: 1.2rem 1.2rem 0 var(--cyan);
   padding: 1.5rem;
-  position: relative;
 }
 
 .collision-lab-head {
@@ -32,7 +29,6 @@
 
 .collision-scenario {
   background: var(--ink);
-  border: 1px solid var(--line-dark);
   display: flex;
   flex-direction: column;
 }
@@ -178,13 +174,11 @@
   position: absolute;
   top: 1.8rem;
   left: 40%;
-  background: var(--ink);
-  border: 1px solid var(--line-dark);
+  background: var(--panel-raised);
   padding: 0.6rem 0.8rem;
   display: flex;
   align-items: center;
   gap: 0.8rem;
-  box-shadow: 0 8px 16px rgba(0,0,0,0.5);
   z-index: 10;
   min-width: 12rem;
 }
