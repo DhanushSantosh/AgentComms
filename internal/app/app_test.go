@@ -2200,3 +2200,68 @@ func TestProjectRequiredCommandOutsideProjectGetsGuidedError(t *testing.T) {
 		t.Fatalf("expected the error message to name the directory %q, got: %s", dir, envelope.Error.Message)
 	}
 }
+
+// Drafts carry count and byte quotas but never expire, so delete is the only
+// way back under a reached cap. This drives the whole real chain -- CLI ->
+// Service -> daemonclient -> daemon -> store -- rather than the command in
+// isolation, because that chain is where a draft ID has to survive URL
+// escaping intact.
+func TestDraftDeleteRemovesADraftThroughTheRealCLI(t *testing.T) {
+	project := t.TempDir()
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
+	cleanupProjectDaemon(t, project)
+	var stdout, stderr bytes.Buffer
+	if err := Run([]string{"init", "--project", project, "--non-interactive", "--owner", "owner", "--json"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, id := range []string{"keep-me", "delete-me"} {
+		stdout.Reset()
+		stderr.Reset()
+		if err := Run([]string{"draft", "save", "--project", project, "--id", id,
+			"--kind", "message", "--body", `{"body":"hello"}`, "--json"}, &stdout, &stderr); err != nil {
+			t.Fatalf("save %s: %v (%s)", id, err, stderr.String())
+		}
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if err := Run([]string{"draft", "delete", "--project", project, "--id", "delete-me", "--output", "plain"}, &stdout, &stderr); err != nil {
+		t.Fatalf("delete: %v (%s)", err, stderr.String())
+	}
+	plain := stdout.String()
+	if strings.HasPrefix(strings.TrimSpace(plain), "{") {
+		t.Fatalf("draft delete fell back to JSON:\n%s", plain)
+	}
+	if !strings.Contains(strings.ToLower(plain), "deleted") {
+		t.Fatalf("draft delete output does not say what happened:\n%s", plain)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if err := Run([]string{"draft", "list", "--project", project, "--json"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	listing := stdout.String()
+	if strings.Contains(listing, "delete-me") {
+		t.Fatalf("deleted draft is still listed:\n%s", listing)
+	}
+	if !strings.Contains(listing, "keep-me") {
+		t.Fatalf("delete removed the wrong draft:\n%s", listing)
+	}
+
+	// A mistyped ID must fail loudly rather than exit 0 having done nothing.
+	stdout.Reset()
+	stderr.Reset()
+	if err := Run([]string{"draft", "delete", "--project", project, "--id", "never-existed", "--json"}, &stdout, &stderr); err == nil {
+		t.Fatal("deleting an absent draft succeeded silently")
+	}
+
+	// --id is mandatory: a bare delete must not become a bulk operation.
+	stdout.Reset()
+	stderr.Reset()
+	if err := Run([]string{"draft", "delete", "--project", project, "--json"}, &stdout, &stderr); err == nil {
+		t.Fatal("draft delete without --id succeeded")
+	}
+}

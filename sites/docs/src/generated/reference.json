@@ -3145,6 +3145,87 @@
       ]
     },
     {
+      "path": "agent-comms draft delete",
+      "use": "agent-comms draft delete [flags]",
+      "summary": "Delete one local draft and release its quota",
+      "flags": [
+        {
+          "name": "actor",
+          "usage": "actor override (credential must match)",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "details",
+          "usage": "show secondary and nested fields in human output",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "id",
+          "usage": "draft ID",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "json",
+          "usage": "emit a versioned JSON envelope",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "no-color",
+          "usage": "disable ANSI color",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "non-interactive",
+          "usage": "never prompt",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
+          "name": "profile",
+          "usage": "user profile name",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "project",
+          "usage": "target project root",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "quiet",
+          "shorthand": "q",
+          "usage": "suppress non-essential output",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "timeout",
+          "usage": "transaction lock timeout",
+          "default": "10s",
+          "type": "duration"
+        },
+        {
+          "name": "verbose",
+          "shorthand": "v",
+          "usage": "show operational metadata in human output",
+          "default": "false",
+          "type": "bool"
+        }
+      ]
+    },
+    {
       "path": "agent-comms draft list",
       "use": "agent-comms draft list [flags]",
       "summary": "List local drafts",

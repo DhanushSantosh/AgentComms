@@ -181,3 +181,31 @@ func (s *Store) Drafts(ctx context.Context, projectID string, limit int) ([]cont
 	}
 	return drafts, rows.Err()
 }
+
+// DeleteDraft removes one draft and, with it, the count and byte quota it
+// was holding. Drafts never expire on their own, so this is the only way a
+// project that has reached MaxDraftsPerProject or MaxDraftStorageBytes gets
+// back under the limit.
+//
+// Deleting an absent draft is an error rather than a silent success: the
+// caller asked to remove something specific, and reporting "done" when
+// nothing matched hides a mistyped ID behind an exit code of 0. The key is
+// (project_id, draft_id) to match the table's primary key -- keying on the
+// draft ID alone would reach into other projects that reuse the same name.
+func (s *Store) DeleteDraft(ctx context.Context, projectID, draftID string) error {
+	if strings.TrimSpace(projectID) == "" || strings.TrimSpace(draftID) == "" {
+		return &controlplane.Error{Code: controlplane.CodeValidation, Message: "project and draft ID are required"}
+	}
+	result, err := s.db.ExecContext(ctx, `DELETE FROM drafts WHERE project_id=? AND draft_id=?`, projectID, draftID)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return &controlplane.Error{Code: controlplane.CodeValidation, Message: fmt.Sprintf("draft %q not found", draftID)}
+	}
+	return nil
+}

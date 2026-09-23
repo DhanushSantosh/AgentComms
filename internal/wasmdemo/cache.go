@@ -319,3 +319,27 @@ func (c *MemoryCache) Drafts(_ context.Context, projectID string, limit int) ([]
 	}
 	return sorted, nil
 }
+
+// DeleteDraft removes one draft, reproducing
+// internal/localcache.Cache.DeleteDraft's contract: keyed on
+// (projectID, draftID), and an absent draft is a CodeValidation error
+// rather than a silent success. MemoryCache doubles as the WASM demo's
+// draftStore (see cmd/agent-comms-tui-wasm/bootstrap.go), so it has to
+// satisfy the same interface the on-disk stores do.
+func (c *MemoryCache) DeleteDraft(_ context.Context, projectID, draftID string) error {
+	if strings.TrimSpace(projectID) == "" || strings.TrimSpace(draftID) == "" {
+		return &controlplane.Error{Code: controlplane.CodeValidation, Message: "project and draft ID are required"}
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	drafts := c.drafts[projectID]
+	for i, draft := range drafts {
+		if draft.ID == draftID {
+			c.drafts[projectID] = append(drafts[:i:i], drafts[i+1:]...)
+			return nil
+		}
+	}
+	return &controlplane.Error{Code: controlplane.CodeValidation, Message: fmt.Sprintf("draft %q not found", draftID)}
+}

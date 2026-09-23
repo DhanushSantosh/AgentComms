@@ -453,6 +453,29 @@ func (c *Cache) Drafts(ctx context.Context, projectID string, limit int) ([]cont
 	return drafts, rows.Err()
 }
 
+// DeleteDraft removes one draft, releasing the count and byte quota it held.
+// Mirrors internal/draftstore.Store.DeleteDraft exactly -- the two stores
+// back the same CLI surface in personal and service mode respectively, so a
+// behavioural difference between them would surface as the same command
+// behaving differently depending on whether a daemon is running.
+func (c *Cache) DeleteDraft(ctx context.Context, projectID, draftID string) error {
+	if strings.TrimSpace(projectID) == "" || strings.TrimSpace(draftID) == "" {
+		return &controlplane.Error{Code: controlplane.CodeValidation, Message: "project and draft ID are required"}
+	}
+	result, err := c.db.ExecContext(ctx, `DELETE FROM drafts WHERE project_id=? AND draft_id=?`, projectID, draftID)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return &controlplane.Error{Code: controlplane.CodeValidation, Message: fmt.Sprintf("draft %q not found", draftID)}
+	}
+	return nil
+}
+
 func loadProject(ctx context.Context, tx *sql.Tx, projectID string) (model.State, uint64, string, error) {
 	var raw []byte
 	var sequence uint64

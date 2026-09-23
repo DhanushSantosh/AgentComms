@@ -9,6 +9,13 @@ need this stack.
 The authority is a stateless Go service backed by PostgreSQL. PostgreSQL is
 the source of truth.
 
+This deployment serves trusted clients in one operator-controlled trust
+domain, not mutually untrusted tenants. The shared authority token permits
+access to project creation; signed commands still enforce project roles, but
+the token does not identify a tenant and the service has no durable
+per-tenant project quotas. Keep separate trust domains on separate deployments
+with separate tokens.
+
 ## Development deployment
 
 Set the database password and service signing key, then start the supplied

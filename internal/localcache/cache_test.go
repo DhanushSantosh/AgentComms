@@ -3,6 +3,7 @@ package localcache
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -70,5 +71,54 @@ func TestDraftBoundary(t *testing.T) {
 	draft.Kind = "lease"
 	if err = cache.SaveDraft(context.Background(), draft); err == nil {
 		t.Fatal("governed lease draft was accepted")
+	}
+}
+
+func TestDeleteDraftReleasesQuotaAndRejectsAMissingID(t *testing.T) {
+	signer, _ := controlplane.GenerateSigner()
+	cache, err := Open(filepath.Join(t.TempDir(), "cache.db"), signer.PublicKey())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cache.Close()
+	ctx := context.Background()
+
+	for _, id := range []string{"keep-me", "delete-me"} {
+		if err = cache.SaveDraft(ctx, controlplane.Draft{
+			ProjectID: "project", ID: id, Kind: "document", Body: json.RawMessage(`{"title":"Draft"}`),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Same ID in a second project must survive: the delete is keyed on the
+	// (project, draft) pair, not the draft ID alone.
+	if err = cache.SaveDraft(ctx, controlplane.Draft{
+		ProjectID: "other", ID: "delete-me", Kind: "document", Body: json.RawMessage(`{"title":"Other"}`),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err = cache.DeleteDraft(ctx, "project", "delete-me"); err != nil {
+		t.Fatal(err)
+	}
+	drafts, err := cache.Drafts(ctx, "project", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(drafts) != 1 || drafts[0].ID != "keep-me" {
+		t.Fatalf("expected only keep-me to remain, got %#v", drafts)
+	}
+	survivors, err := cache.Drafts(ctx, "other", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(survivors) != 1 {
+		t.Fatalf("delete crossed a project boundary, other holds %#v", survivors)
+	}
+
+	err = cache.DeleteDraft(ctx, "project", "never-existed")
+	var controlErr *controlplane.Error
+	if !errors.As(err, &controlErr) || controlErr.Code != controlplane.CodeValidation {
+		t.Fatalf("want a VALIDATION error for an absent draft, got %#v", err)
 	}
 }

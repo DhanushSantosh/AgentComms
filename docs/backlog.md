@@ -102,12 +102,12 @@ one is picked up, remove it from here and note the landing commit.
 
 ## Security / governance
 
-- **`draft delete` CLI command (deferred from [RFC 0027](rfcs/0027-cli-surface-consolidation.md) §8).**
-  RFC 0027 added `draft show`; `draft delete` needs a new
-  `draftstore.Store.DeleteDraft` plus a daemon route and daemonclient
-  method, so it was left out of the RFC 0027 PR. Low priority — drafts are
-  non-authoritative local state and self-expire; add when someone actually
-  needs to prune them.
+- **RESOLVED 2026-09-24: `draft delete` CLI command
+  ([RFC 0036](rfcs/0036-draft-delete-quota-recovery.md)).**
+  `draft delete --id` removes only the named local draft and frees its count
+  and storage quota; an unknown ID is an error. The delete path covers the
+  local stores, daemon API, client, service, CLI, and WASM demo. Drafts do
+  not self-expire. Bulk deletion and expiry remain out of scope.
 
 - **RESOLVED 2026-09-02: added first-phase application authentication for the
   shared authority service ([RFC 0026](rfcs/0026-authority-bearer-token.md)).**
@@ -118,8 +118,9 @@ one is picked up, remove it from here and note the landing commit.
   metrics, deletion, and signed command submission. Service-mode clients and
   daemons send the token from the same environment variable without storing it
   in `.agent-comms/config.json`. This closes the anonymous service-admission
-  part of the audit follow-up; per-principal durable quotas and token rotation
-  remain future hardening, not part of this first phase.
+  part of the audit follow-up. The release targets trusted self-hosted teams,
+  not mutually untrusted tenants; per-principal durable quotas and token
+  rotation remain future hardening rather than a release gate.
 
 - **RESOLVED 2026-09-02: audited the five non-`HUMAN` `hasApproval` call
   sites deferred by [RFC 0023](rfcs/0023-single-use-orchestrator-grant-approval.md)
@@ -301,9 +302,8 @@ kept:
   injection with echo confirmation), the live brokers, and worker
   adapters. Each covers a distinct case (RFCs 0010, 0008/0009, 0006) and
   none subsumes another. Reconsidered and confirmed, not merged.
-- **`draft`** — kept and half-finished by RFC 0027 (`draft show` added,
-  `draft delete` deferred to the `draft delete` entry under Security /
-  governance).
+- **`draft`** — kept; RFC 0027 added `draft show`, and RFC 0036 completed
+  the single-draft delete and quota-recovery path.
 
 ## Unwired / vestigial code (surfaced during RFC 0028 review, 2026-09-02)
 

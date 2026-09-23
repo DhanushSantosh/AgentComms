@@ -52,6 +52,7 @@ type authorityClient interface {
 type draftStore interface {
 	SaveDraft(context.Context, controlplane.Draft) error
 	Drafts(context.Context, string, int) ([]controlplane.Draft, error)
+	DeleteDraft(ctx context.Context, projectID, draftID string) error
 }
 
 type cacheStore interface {
@@ -61,6 +62,7 @@ type cacheStore interface {
 	Events(ctx context.Context, projectID string, page controlplane.PageRequest) (controlplane.EventPage, error)
 	SaveDraft(ctx context.Context, draft controlplane.Draft) error
 	Drafts(ctx context.Context, projectID string, limit int) ([]controlplane.Draft, error)
+	DeleteDraft(ctx context.Context, projectID, draftID string) error
 }
 
 type syncState struct {
@@ -99,6 +101,7 @@ func (d *Daemon) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/projects/{project}/verify", d.verify)
 	mux.HandleFunc("POST /v1/projects/{project}/drafts", d.saveDraft)
 	mux.HandleFunc("GET /v1/projects/{project}/drafts", d.drafts)
+	mux.HandleFunc("DELETE /v1/projects/{project}/drafts/{draft}", d.deleteDraft)
 	return mux
 }
 
@@ -378,6 +381,14 @@ func (d *Daemon) drafts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"drafts": drafts, "authoritative": false})
+}
+
+func (d *Daemon) deleteDraft(w http.ResponseWriter, r *http.Request) {
+	if err := d.draftStorage.DeleteDraft(r.Context(), r.PathValue("project"), r.PathValue("draft")); err != nil {
+		writeControlError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"deleted": true, "authoritative": false})
 }
 
 func (d *Daemon) Sync(ctx context.Context, projectID string) error {

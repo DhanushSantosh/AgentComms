@@ -168,6 +168,11 @@ func (c *Client) Drafts(ctx context.Context, projectID string, limit int) ([]con
 	return response.Drafts, err
 }
 
+func (c *Client) DeleteDraft(ctx context.Context, projectID, draftID string) error {
+	return c.do(ctx, http.MethodDelete, fmt.Sprintf("/v1/projects/%s/drafts/%s",
+		url.PathEscape(projectID), url.PathEscape(draftID)), nil, &map[string]any{})
+}
+
 func (c *Client) do(ctx context.Context, method, path string, requestBody, responseBody any) error {
 	var body io.Reader
 	if requestBody != nil {

@@ -4,11 +4,13 @@ description: Run the PostgreSQL authority for multi-host coordination and initia
 section: Team operations
 order: 1
 audience: Operators
-lastVerified: 2026-08-01
+lastVerified: 2026-09-24
 related: [start/modes, operations/recovery, security/integrity]
 ---
 
 Deploy team mode only when coordination crosses users or machines. A single workstation with many agents should stay in personal mode.
+
+The service is for one operator-controlled trust domain, not mutually untrusted tenants. Every client holding the shared authority token can reach the service's project-creation endpoint; signed commands still enforce each project's actor permissions, but the token is not a tenant identity and there are no durable per-tenant project quotas. Give the token only to trusted clients. Use separate deployments and tokens for separate trust domains.
 
 ## Development with Compose
 
