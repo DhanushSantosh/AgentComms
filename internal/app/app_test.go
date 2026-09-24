@@ -406,7 +406,10 @@ func TestMain(testingMain *testing.M) {
 		if err != nil {
 			return err
 		}
+		done := make(chan struct{})
+		testDaemonRuns.Store(projectRoot, done)
 		go func() {
+			defer close(done)
 			_ = daemon.Run(context.Background(), daemon.RunConfig{
 				ServicePublicKey: config.ServicePublicKey,
 				CachePath:        runtimeinit.ProjectionPath(projectRoot), Endpoint: config.DaemonEndpoint,
@@ -425,43 +428,49 @@ func TestMain(testingMain *testing.M) {
 	os.Exit(testingMain.Run())
 }
 
+var testDaemonRuns sync.Map // project root -> daemon.Run completion channel
+
 func cleanupProjectDaemon(t *testing.T, projectRoot string) {
 	t.Helper()
 	t.Cleanup(func() {
+		run, launched := testDaemonRuns.LoadAndDelete(projectRoot)
+		if !launched {
+			return
+		}
+		done := run.(chan struct{})
+		select {
+		case <-done:
+			return
+		default:
+		}
 		projectStore := store.Open(projectRoot)
 		config, err := projectStore.Config()
 		if err != nil {
+			t.Errorf("read test daemon config for cleanup: %v", err)
 			return
 		}
-		client, err := daemonclient.New(config.DaemonEndpoint, 300*time.Millisecond)
+		client, err := daemonclient.New(config.DaemonEndpoint, daemonHealthRequestTimeout)
 		if err != nil {
 			t.Errorf("prepare daemon cleanup: %v", err)
 			return
 		}
-		healthContext, cancelHealth := context.WithTimeout(context.Background(), 300*time.Millisecond)
-		_, healthErr := client.Health(healthContext)
-		cancelHealth()
-		if healthErr != nil {
-			return
-		}
-		shutdownContext, cancelShutdown := context.WithTimeout(context.Background(), 5*time.Second)
-		shutdownErr := client.Shutdown(shutdownContext)
-		cancelShutdown()
-		if shutdownErr != nil {
-			t.Errorf("shut down test daemon: %v", shutdownErr)
-			return
-		}
-		deadline := time.Now().Add(5 * time.Second)
+		deadline := time.Now().Add(15 * time.Second)
 		for time.Now().Before(deadline) {
-			probeContext, cancelProbe := context.WithTimeout(context.Background(), 100*time.Millisecond)
-			_, probeErr := client.Health(probeContext)
-			cancelProbe()
-			if probeErr != nil {
+			select {
+			case <-done:
 				return
+			default:
 			}
-			time.Sleep(20 * time.Millisecond)
+			shutdownContext, cancelShutdown := context.WithTimeout(context.Background(), daemonHealthRequestTimeout)
+			_ = client.Shutdown(shutdownContext)
+			cancelShutdown()
+			select {
+			case <-done:
+				return
+			case <-time.After(50 * time.Millisecond):
+			}
 		}
-		t.Error("test daemon did not stop before cleanup")
+		t.Error("test daemon did not release its database before tempdir cleanup")
 	})
 }
 

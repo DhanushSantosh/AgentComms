@@ -79,7 +79,9 @@ func discoverClaudeSessionID(claudeHome string, pid int) (string, bool) {
 			if json.Unmarshal(raw, &record) == nil && record.SessionID != "" {
 				return record.SessionID, true
 			}
-			return "", false
+			// The provider writes this file directly. Seeing it between create
+			// and completion can yield empty or partial JSON, especially on a
+			// loaded Windows runner. Keep polling until the existing deadline.
 		}
 		if time.Now().After(deadline) {
 			return "", false

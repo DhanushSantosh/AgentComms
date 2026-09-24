@@ -28,12 +28,16 @@ func TestDiscoverClaudeSessionIDFindsFileWrittenAfterAShortDelay(t *testing.T) {
 	// Simulate the real-world lag between the child process starting and
 	// it getting around to writing its own session file, so this exercises
 	// the poll loop rather than a lucky first read.
+	written := make(chan error, 1)
 	go func() {
 		time.Sleep(150 * time.Millisecond)
-		_ = os.WriteFile(filepath.Join(sessionsDir, "123456.json"), raw, 0o600)
+		written <- os.WriteFile(filepath.Join(sessionsDir, "123456.json"), raw, 0o600)
 	}()
 
 	sessionID, ok := discoverClaudeSessionID(home, pid)
+	if err := <-written; err != nil {
+		t.Fatal(err)
+	}
 	if !ok || sessionID != "e22cbdad-7233-4d6d-8ecc-0c4bffd8c475" {
 		t.Fatalf("expected the session ID to be discovered, got ok=%v id=%q", ok, sessionID)
 	}
@@ -53,6 +57,9 @@ func TestDiscoverClaudeSessionIDTimesOutWhenFileNeverAppears(t *testing.T) {
 }
 
 func TestDiscoverClaudeSessionIDReportsNotOkForMalformedJSON(t *testing.T) {
+	original := sessionDiscoveryTimeout
+	sessionDiscoveryTimeout = 250 * time.Millisecond
+	t.Cleanup(func() { sessionDiscoveryTimeout = original })
 	home := t.TempDir()
 	sessionsDir := filepath.Join(home, ".claude", "sessions")
 	if err := os.MkdirAll(sessionsDir, 0o700); err != nil {
@@ -65,6 +72,30 @@ func TestDiscoverClaudeSessionIDReportsNotOkForMalformedJSON(t *testing.T) {
 	sessionID, ok := discoverClaudeSessionID(home, 42)
 	if ok || sessionID != "" {
 		t.Fatalf("expected no discovery for malformed JSON, got ok=%v id=%q", ok, sessionID)
+	}
+}
+
+func TestDiscoverClaudeSessionIDRetriesPartiallyWrittenFile(t *testing.T) {
+	home := t.TempDir()
+	sessionsDir := filepath.Join(home, ".claude", "sessions")
+	if err := os.MkdirAll(sessionsDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(sessionsDir, "123456.json")
+	if err := os.WriteFile(path, []byte(`{"sessionId":`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		time.Sleep(150 * time.Millisecond)
+		done <- os.WriteFile(path, []byte(`{"sessionId":"completed-session"}`), 0o600)
+	}()
+	id, ok := discoverClaudeSessionID(home, 123456)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if !ok || id != "completed-session" {
+		t.Fatalf("partially written session was not discovered: ok=%t id=%q", ok, id)
 	}
 }
 

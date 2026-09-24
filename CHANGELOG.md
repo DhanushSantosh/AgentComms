@@ -24,6 +24,9 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
   now report the last probe error and elapsed wait.
 - Windows process takeover no longer mistakes a newly spawned process for
   an ancestor when an exited ancestor's PID has been reused.
+- Test daemons release their database handles before temporary project
+  cleanup, and Claude session discovery tolerates a file observed midway
+  through its write.
 
 ### Security
 - Updated the transitive `devalue` dependency to a version without the

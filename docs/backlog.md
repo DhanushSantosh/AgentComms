@@ -339,8 +339,18 @@ kept:
   the new child can make that impossible relationship appear in a process
   snapshot. The ancestry check now rules out a target created after the
   caller before trusting the PID chain, with a synthetic stale-chain
-  regression and a real-child creation-time check. Confirm on the next
-  Windows CI run before treating the mitigation as validated there.
+  regression and a real-child creation-time check. The next Windows CI run
+  passed `internal/interactiveserve`; continue to watch for recurrence.
+
+- **Windows app-fixture cleanup and session discovery, mitigated
+  2026-09-24.** The next CI run failed `internal/app` in two unrelated
+  paths: `TestMutationCommandPlainOutputIsAConciseReceipt` left a test
+  daemon's projection SQLite file open when `t.TempDir` removed it, and
+  `TestDiscoverClaudeSessionIDFindsFileWrittenAfterAShortDelay` saw a
+  provider session file before it contained complete JSON. Test cleanup
+  now waits for the daemon goroutine to exit and close its stores; session
+  discovery keeps polling malformed/partial files until its existing
+  deadline, with a staged-write regression. Confirm both on Windows CI.
 
 - **`TestInvocationDeliveryFailureDoesNotTerminateObligation` is flaky on
   loaded/slow windows-latest runners, not fixed.** Observed live on PR #25's
