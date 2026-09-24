@@ -48,9 +48,24 @@ const (
 	// meaningfully changing production behavior -- a real subprocess
 	// normally becomes healthy in milliseconds, so this ceiling is rarely
 	// reached at all outside exactly this kind of CI contention.
-	daemonReadyTimeout         = 40 * time.Second
-	daemonReadyPollInterval    = 100 * time.Millisecond
-	daemonHealthRequestTimeout = 300 * time.Millisecond
+	daemonReadyTimeout      = 40 * time.Second
+	daemonReadyPollInterval = 100 * time.Millisecond
+	// daemonHealthRequestTimeout caps ONE health probe, not the whole wait
+	// -- daemonReadyTimeout above does that. The distinction matters: at
+	// 300ms this cap was tight enough that a daemon which was up and merely
+	// answering slowly failed every single probe, so the loop burned all 40s
+	// and then reported a healthy daemon as never ready. Seen live in CI run
+	// 35908564798 on 0ccbb23, where TestEnsureDaemonReplacesIncompatibleDaemon
+	// consumed the full budget (40.77s) on windows-latest and a re-run of the
+	// identical tree passed. Raising daemonReadyTimeout again would not have
+	// helped; it was already generous and fully spent.
+	//
+	// 3s is chosen to be far above any plausible loopback health round trip
+	// while staying well under the 40s ceiling, so a stuck probe still yields
+	// to the deadline rather than pinning the loop. This is not a test-only
+	// concern: ensureDaemon runs for real users, and a loaded workstation hits
+	// the same path.
+	daemonHealthRequestTimeout = 3 * time.Second
 	// daemonShutdownWaitAttempts/daemonShutdownWaitSleep bound how long
 	// ensureDaemon waits for an incompatible daemon to actually stop
 	// responding before spawning its replacement. This must comfortably

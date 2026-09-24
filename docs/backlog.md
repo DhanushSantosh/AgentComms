@@ -394,6 +394,39 @@ kept:
   integration tests. Not urgent — the indirect coverage is real — but a gap
   worth closing with direct unit tests for the highest-value paths.
 
+- **`ensureDaemon` gives each health probe 300ms but the whole wait 40s, so a
+  slow-but-healthy daemon is reported as never ready — fixed
+  2026-09-24.** CI run 35908564798 on `0ccbb23` failed `windows-latest` with
+  two daemon-readiness timeouts: `internal/app`'s
+  `TestEnsureDaemonReplacesIncompatibleDaemon` ("local daemon did not become
+  ready", 40.77s) and `internal/worker`'s
+  `TestCodexACPAdapterDoesNotRequireExecutable` ("personal daemon did not
+  become ready", 8.44s). A re-run of the identical tree passed. Not the
+  draft-delete diff that commit carried: `internal/worker` is untouched by
+  it, and `windows-latest` had passed on both `5be4ec0` and `4b6a971`.
+  The diagnostic worth keeping: **the failing run took 4m8s and the passing
+  one 5m5s.** A failure that is *faster* than a pass is tests abandoning a
+  readiness wait, not tests doing less work.
+  Root cause is a timeout-shape bug, not a too-small budget.
+  `daemonReadyTimeout` is already 40s (raised once before for this same
+  contention class) and was fully consumed, so raising it again would
+  change nothing. The suspect is `daemonHealthRequestTimeout = 300ms`
+  (`internal/app/app.go:53`): it caps each individual probe, so under
+  contention every one of the ~400 probes can time out while the daemon is
+  up and answering slowly, burning the full 40s to report a healthy daemon
+  as dead. This is user-facing, not test-only — the same path runs for a
+  real user on a loaded machine.
+  **Fixed 2026-09-24**, three changes: `daemonHealthRequestTimeout` raised
+  300ms -> 3s so a slow probe is waited on rather than abandoned (the 40s
+  ceiling still bounds total time); `personalDaemonReadyTimeout` in
+  `internal/testsupport/project.go` raised 5s -> 30s for the
+  `internal/worker` half; and `ensureDaemon`'s failure message now reports
+  the probe count, elapsed time, and last probe error instead of discarding
+  `healthErr`, so the two failure modes can be told apart from a log alone.
+  Note the pre-flight check at `cmd_misc.go:315` shares the same constant
+  and benefits too: at 300ms a slow-but-healthy running daemon could be
+  misjudged as absent and needlessly killed and respawned.
+
 ## Possibly-a-bug, not yet root-caused
 
 - **`doctor`'s `REVOKED_AGENT_HAS_OPEN_WORK` false positive investigated

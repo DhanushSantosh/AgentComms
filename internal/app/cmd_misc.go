@@ -366,7 +366,14 @@ func ensureDaemon(projectRoot string, cfg store.Config) error {
 		return fmt.Errorf("start local daemon: %w", startErr)
 	}
 	_ = logFile.Close()
+	// Keep the last probe error. Without it the failure below cannot tell a
+	// daemon that never started apart from one that started and answered too
+	// slowly for daemonHealthRequestTimeout -- symptoms that look identical
+	// in the message but have opposite fixes.
 	readyDeadline := time.Now().Add(daemonReadyTimeout)
+	started := time.Now()
+	probes := 0
+	var lastHealthErr error
 	for time.Now().Before(readyDeadline) {
 		time.Sleep(daemonReadyPollInterval)
 		healthCtx, healthCancel := context.WithTimeout(context.Background(), daemonHealthRequestTimeout)
@@ -375,9 +382,17 @@ func ensureDaemon(projectRoot string, cfg store.Config) error {
 		if healthErr == nil {
 			return nil
 		}
+		lastHealthErr = healthErr
+		probes++
+	}
+	detail := "no health probe was attempted"
+	if lastHealthErr != nil {
+		detail = fmt.Sprintf("%d probes over %s, last error: %v",
+			probes, time.Since(started).Round(time.Millisecond), lastHealthErr)
 	}
 	return &controlplane.Error{
-		Code:    controlplane.CodeUnavailable,
-		Message: "local daemon did not become ready; inspect " + filepath.Join(configDir, "daemon.log"),
+		Code: controlplane.CodeUnavailable,
+		Message: "local daemon did not become ready (" + detail + "); inspect " +
+			filepath.Join(configDir, "daemon.log"),
 	}
 }

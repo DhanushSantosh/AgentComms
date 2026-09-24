@@ -16,7 +16,20 @@ import (
 )
 
 const (
-	personalDaemonReadyTimeout = 5 * time.Second
+	// personalDaemonReadyTimeout bounds how long a test waits for a freshly
+	// started personal daemon to answer a health probe. 5s was too tight on
+	// a contended Windows runner: CI run 35908564798 on 0ccbb23 failed
+	// TestCodexACPAdapterDoesNotRequireExecutable with "personal daemon did
+	// not become ready" while the same commit passed everywhere else and on
+	// a re-run of the identical tree, so nothing was wrong with the daemon
+	// -- it simply had not finished binding within 5s while eight test
+	// packages competed for two cores. Raising the ceiling costs nothing
+	// when startup is fast, because the loop returns the moment the probe
+	// succeeds; it only changes how long a genuinely slow start is allowed
+	// to take before the test gives up. Kept below personalDaemonStopTimeout's
+	// sibling reasoning: startup and graceful drain are different operations
+	// with different natural timeouts.
+	personalDaemonReadyTimeout = 30 * time.Second
 	personalDaemonPollInterval = 10 * time.Millisecond
 	// personalDaemonStopTimeout bounds how long test cleanup waits for the
 	// daemon goroutine to exit after cancel() is called. This must
