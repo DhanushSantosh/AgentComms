@@ -1,6 +1,29 @@
 # Landing Site Illustration Consistency — Design
 
-**Status:** Approved by user 2026-09-20, ready for implementation planning.
+**Status:** SUPERSEDED 2026-09-24 — implemented, rejected, and reverted. Do
+not implement this design.
+
+This was approved on 2026-09-20 and implemented as commit `4b6a971`
+("unify custom-UI illustrations into one frame + one gap motif"). The project
+owner rejected the result on sight: spreading the shared framed-panel
+treatment to more sections read as *more* visual noise, not less — "you just
+added frames for those and that's it, it looks way worse now." Commit
+`5be4ec0` removed the hard borders, offset shadows and corner brackets from
+every illustration panel, reversing this design's central proposal.
+
+A second attempt ("Atlas": hand-drawn ink illustrations, cursive margin
+notes, a scroll-drawn spine) was then explored and also cancelled by the
+owner, and its branch and stash were deleted at their request.
+
+What survives and is still correct: the palette constraint below, and the
+observation that the page's sections each invent their own visual grammar.
+What does not: the proposed remedy. The shared frame is the specific thing
+that was tried and rejected, so any future redesign should start from the
+audit, not from this proposal.
+
+---
+
+**Original status:** Approved by user 2026-09-20, ready for implementation planning.
 
 ## Context
 

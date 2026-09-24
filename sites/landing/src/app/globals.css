@@ -256,8 +256,9 @@ img { max-width: 100%; }
    instead of looking broken. .hero-control-frame itself is untouched;
    the crop lives on this wrapper only, same reasoning as the desktop
    .hero-control-frame width rule above -- never redefine .control-frame's
-   own box directly, since .control-frame's ::before/::after corner-tick
-   decoration is shared with .demo-reel/.collision-lab/.trust-chain. */
+   own box directly, since its box rules are shared with
+   .demo-reel/.collision-lab/.trust-chain. (The ::before/::after corner-tick
+   decoration this used to name was removed from every panel in 5be4ec0.) */
 .hero-control-frame-window { position: relative; width: 100%; }
 @media (max-width: 60rem) {
   /* Shrinking the window was the wrong lever -- it dodged the "fade

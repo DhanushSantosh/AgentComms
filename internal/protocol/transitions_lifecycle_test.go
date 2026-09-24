@@ -1,6 +1,7 @@
 package protocol
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -332,8 +333,22 @@ func TestTaskClaimRejectsOverlappingWriteLeaseWithoutSharedWriteApproval(t *test
 	}
 	past := now.Add(-time.Second)
 	st.Approvals["shared"] = model.Approval{Action: "shared-write:t1:t2", Status: "APPROVED", ExpiresAt: &past}
-	if _, err := ValidateTransition(st, "builder", "task.claim", "t1", model.TaskClaimed{}, now); err == nil {
+	_, err := ValidateTransition(st, "builder", "task.claim", "t1", model.TaskClaimed{}, now)
+	if err == nil {
 		t.Fatal("expected an expired shared-write approval to reject a new overlapping claim")
+	}
+	// RFC 0037 item 5: an expired approval must not be reported as a bare
+	// overlap, or the operator debugs the overlap instead of renewing it.
+	if !strings.Contains(err.Error(), "expired") {
+		t.Fatalf("expired shared-write approval must say so, got: %v", err)
+	}
+	delete(st.Approvals, "shared")
+	_, err = ValidateTransition(st, "builder", "task.claim", "t1", model.TaskClaimed{}, now)
+	if err == nil {
+		t.Fatal("expected an overlapping claim with no approval at all to be rejected")
+	}
+	if strings.Contains(err.Error(), "expired") {
+		t.Fatalf("no approval at all must not be reported as expired, got: %v", err)
 	}
 	future := now.Add(time.Hour)
 	st.Approvals["shared"] = model.Approval{Action: "shared-write:t1:t2", Status: "APPROVED", ExpiresAt: &future}

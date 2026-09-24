@@ -12,8 +12,12 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
   Approvals panel now makes expired approvals and their eligibility clear.
 
 ### Changed
-- The landing site's illustrated sections use a calmer, consistent visual
-  treatment, and its download page resolves the latest published release
+- The landing site's illustrated sections drop the hard borders, offset
+  shadows and corner brackets they had accumulated, and three sections whose
+  visuals contradicted their own copy were corrected. This is a cleanup of
+  the existing page, not the illustration redesign that was explored and
+  abandoned during this cycle.
+- The landing site's download page resolves the latest published release
   instead of presenting a development build as current.
 - Team deployment guidance states the supported trust boundary explicitly:
   one operator-controlled, self-hosted team per shared authority service.
@@ -35,7 +39,9 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
   reported malformed-input denial-of-service advisory.
 - Action-scoped takeover and shared-write approvals now honor explicit
   expiry. Each new takeover event records the exact approval it consumed,
-  while older events retain their original replay behavior.
+  while older events retain their original replay behavior. An overlapping
+  claim refused because its shared-write approval has lapsed now says so,
+  rather than reporting only the resource overlap.
 
 ## [0.7.1] - 2026-09-19 — “Wrong Door”
 

@@ -821,7 +821,18 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 			}
 			for _, v := range st.Tasks {
 				if v.ID != id && v.Owner != "" && !v.Archived && v.Status != "COMPLETED" && v.Status != "CANCELLED" && overlap(t.Resources, v.Resources) {
-					if !hasApproval(st, "shared-write:"+id+":"+v.ID, now) && !hasApproval(st, "shared-write:"+v.ID+":"+id, now) {
+					forward, forwardExpired := eligibleActionApprovalID(st, "shared-write:"+id+":"+v.ID, now)
+					reverse, reverseExpired := eligibleActionApprovalID(st, "shared-write:"+v.ID+":"+id, now)
+					if forward == "" && reverse == "" {
+						// RFC 0037 item 5 asks the error to distinguish "no
+						// approved record" from "all matching approvals have
+						// expired". task.takeover already does; without this
+						// shared-write reported only the bare overlap, so an
+						// operator whose approval had just lapsed debugged the
+						// overlap instead of requesting a fresh approval.
+						if forwardExpired || reverseExpired {
+							return nil, fmt.Errorf("write lease overlaps task %s and the shared-write approval has expired; request a fresh approval", v.ID)
+						}
 						return nil, fmt.Errorf("write lease overlaps task %s", v.ID)
 					}
 				}
