@@ -53,18 +53,24 @@ func TestScopeAllowsRequiresEveryResourceCovered(t *testing.T) {
 }
 
 func TestHasApproval(t *testing.T) {
+	now := time.Now().UTC()
 	st := model.State{Approvals: map[string]model.Approval{
 		"a1": {Action: "do-thing", Status: "APPROVED", Tier: "ORCHESTRATOR"},
 		"a2": {Action: "do-other", Status: "PENDING", Tier: "HUMAN"},
 	}}
-	if !hasApproval(st, "do-thing") {
+	if !hasApproval(st, "do-thing", now) {
 		t.Fatal("expected an APPROVED approval to satisfy hasApproval")
 	}
-	if hasApproval(st, "do-other") {
+	if hasApproval(st, "do-other", now) {
 		t.Fatal("expected a PENDING approval not to satisfy hasApproval")
 	}
-	if hasApproval(st, "missing") {
+	if hasApproval(st, "missing", now) {
 		t.Fatal("expected a missing action not to satisfy hasApproval")
+	}
+	past := now.Add(-time.Second)
+	st.Approvals["expired"] = model.Approval{Action: "expired", Status: "APPROVED", ExpiresAt: &past}
+	if hasApproval(st, "expired", now) {
+		t.Fatal("expected an expired approval not to satisfy hasApproval")
 	}
 }
 
@@ -324,6 +330,16 @@ func TestTaskClaimRejectsOverlappingWriteLeaseWithoutSharedWriteApproval(t *test
 	if _, err := ValidateTransition(st, "builder", "task.claim", "t1", model.TaskClaimed{}, now); err != nil {
 		t.Fatalf("expected a shared-write approval to permit the overlapping claim: %v", err)
 	}
+	past := now.Add(-time.Second)
+	st.Approvals["shared"] = model.Approval{Action: "shared-write:t1:t2", Status: "APPROVED", ExpiresAt: &past}
+	if _, err := ValidateTransition(st, "builder", "task.claim", "t1", model.TaskClaimed{}, now); err == nil {
+		t.Fatal("expected an expired shared-write approval to reject a new overlapping claim")
+	}
+	future := now.Add(time.Hour)
+	st.Approvals["shared"] = model.Approval{Action: "shared-write:t1:t2", Status: "APPROVED", ExpiresAt: &future}
+	if _, err := ValidateTransition(st, "builder", "task.claim", "t1", model.TaskClaimed{}, now); err != nil {
+		t.Fatalf("expected an unexpired shared-write approval to permit a new claim: %v", err)
+	}
 }
 
 func TestTaskClaimRejectsConflictingWorktreeLease(t *testing.T) {
@@ -441,21 +457,65 @@ func TestTaskCancelAllowedFromAnyOpenStatus(t *testing.T) {
 }
 
 func TestTaskTakeoverRequiresApproval(t *testing.T) {
+	now := time.Now().UTC()
 	st := taskState(func(s *model.State) {
 		s.Tasks["t1"] = model.Task{ID: "t1", Status: "CLAIMED", Owner: "builder", Resources: []string{"repo/a"}}
 	})
-	if _, err := ValidateTransition(st, "other", "task.takeover", "t1", model.TaskStatus{}, time.Now()); err == nil {
+	if _, err := ValidateTransition(st, "other", "task.takeover", "t1", model.TaskStatus{}, now); err == nil {
 		t.Fatal("expected a takeover without an approved takeover record to be rejected")
 	}
 	st.Approvals = map[string]model.Approval{"a1": {Action: "task.takeover:t1", Status: "APPROVED"}}
-	if _, err := ValidateTransition(st, "other", "task.takeover", "t1", model.TaskStatus{}, time.Now()); err != nil {
+	if _, err := ValidateTransition(st, "other", "task.takeover", "t1", model.TaskStatus{}, now); err != nil {
 		t.Fatalf("expected an approved takeover to succeed: %v", err)
 	}
 	// RFC 0024: once consumed (by internal/projection after a successful
 	// takeover), the same record must not authorize another one.
 	st.Approvals["a1"] = model.Approval{Action: "task.takeover:t1", Status: "CONSUMED"}
-	if _, err := ValidateTransition(st, "other", "task.takeover", "t1", model.TaskStatus{}, time.Now()); err == nil {
+	if _, err := ValidateTransition(st, "other", "task.takeover", "t1", model.TaskStatus{}, now); err == nil {
 		t.Fatal("expected a consumed takeover approval not to authorize another takeover")
+	}
+	past := now.Add(-time.Second)
+	future := now.Add(time.Hour)
+	st.Approvals = map[string]model.Approval{
+		"a-expired": {Action: "task.takeover:t1", Status: "APPROVED", ExpiresAt: &past},
+		"b-valid":   {Action: "task.takeover:t1", Status: "APPROVED", ExpiresAt: &future},
+	}
+	accepted, err := ValidateTransition(st, "other", "task.takeover", "t1", model.TaskStatus{ApprovalID: "a-expired"}, now)
+	if err != nil {
+		t.Fatalf("expected valid later approval to authorize takeover: %v", err)
+	}
+	if got := accepted.(model.TaskStatus).ApprovalID; got != "b-valid" {
+		t.Fatalf("normalized approval_id = %q, want b-valid", got)
+	}
+	delete(st.Approvals, "b-valid")
+	if _, err := ValidateTransition(st, "other", "task.takeover", "t1", model.TaskStatus{}, now); err == nil {
+		t.Fatal("expected an expired-only takeover approval to be rejected")
+	}
+}
+
+func TestTaskStatusCannotClaimUnrelatedApprovalID(t *testing.T) {
+	now := time.Now().UTC()
+	st := taskState(func(s *model.State) {
+		s.Tasks["t1"] = model.Task{ID: "t1", Status: "CLAIMED", Owner: "builder", Resources: []string{"repo/a"}}
+	})
+	if _, err := ValidateTransition(st, "builder", "task.start", "t1", model.TaskStatus{ApprovalID: "self-asserted"}, now); err == nil {
+		t.Fatal("expected a non-takeover task event with a claimed approval_id to be rejected")
+	}
+}
+
+func TestApprovalRequestRejectsAlreadyExpiredWindow(t *testing.T) {
+	now := time.Now().UTC()
+	past := now.Add(-time.Second)
+	st := taskState()
+	if _, err := ValidateTransition(st, "owner", "approval.request", "expired-request", model.ApprovalRequested{
+		Tier: "ORCHESTRATOR", Action: "task.takeover:t1", Reason: "recovery", ExpiresAt: &past,
+	}, now); err == nil {
+		t.Fatal("expected a new approval with an expired window to be rejected")
+	}
+	if _, err := ValidateTransition(st, "owner", "approval.request", "no-expiry-request", model.ApprovalRequested{
+		Tier: "ORCHESTRATOR", Action: "task.takeover:t1", Reason: "recovery",
+	}, now); err != nil {
+		t.Fatalf("expected the current optional-expiry contract to remain valid: %v", err)
 	}
 }
 

@@ -263,6 +263,15 @@ one is picked up, remove it from here and note the landing commit.
   approval.Requester`, or specifically that the *activating* actor differ
   from whoever requested the approval it's relying on.
 
+  **Release policy decision, 2026-09-24:** for trusted self-hosted teams,
+  an orchestrator agent may request and approve its own `task.takeover`
+  authorization; requiring a human for every takeover is not a release
+  requirement. Any trusted active principal may redeem an approved
+  action-scoped takeover authorization; requester/redeemer binding is not
+  required for this trust model. An explicitly expired approval must not
+  remain usable; that correction is specified in accepted
+  [RFC 0037](rfcs/0037-action-approval-expiry.md).
+
 - **`agent.rename` display-name impersonation is an accepted, low-severity
   risk, not fixed.** An orchestrator (including an AGENT-principal one) can
   rename another principal's cosmetic `DisplayName` to impersonate a
@@ -343,8 +352,8 @@ kept:
   it recurs; not done here since a single confirmed flake isn't enough to
   diagnose the right fix.
 
-- **`TestEnsureDaemonReplacesIncompatibleDaemon` is flaky on loaded/slow
-  windows-latest runners too, not fixed -- now confirmed four times.** A
+- **MITIGATED 2026-09-24: `TestEnsureDaemonReplacesIncompatibleDaemon`
+  readiness flake on loaded Windows runners.** A
   second, distinct flake in the same category as the entry below, first
   seen on PR #27's CI (2026-08-13): failed with "local daemon did not
   become ready" after a 41s wait, on one of two parallel windows-latest
@@ -356,18 +365,15 @@ kept:
   on PR #30 (the TUI interaction-audit fix), again the identical ~41s
   timeout, again one of two parallel windows-latest runs, again cleared by
   a bare re-run -- unrelated to that PR's changes too (form/palette/mouse
-  logic, nowhere near daemon startup). Deliberately still not widening
-  `daemonReadyTimeout` (internal/app/app.go): it already carries its own
-  documented history of being widened exactly for this failure mode -- 10s
-  to 20s to 40s, across three separate PRs in an earlier session, each time
-  citing the identical "confirmed on CI, resolved by a bare rerun" pattern.
-  A test that already burns 41s before failing is close to the point where
-  widening further mostly delays surfacing a genuinely hung daemon rather
-  than absorbing real contention. The established mitigation (rerun)
-  reliably works and is cheap and has now cleared it cleanly all four
-  times; still holding off on a runner-load-aware retry budget instead of
-  a flat deadline until it's discussed directly, rather than guessing at
-  a redesign four data points still isn't quite enough to justify unasked.
+  logic, nowhere near daemon startup). It recurred on `0ccbb23` alongside
+  a personal-daemon readiness timeout in `internal/worker`; both cleared on
+  a rerun. The original 40s whole-wait budget had already been widened
+  several times, so `fd828c9` instead raised the individual health-probe
+  timeout from 300ms to 3s, improved failure diagnostics, and gave the
+  worker test helper a 30s startup budget. The next Windows CI run passed
+  on its first attempt. Keep watching subsequent runs: one clean run is
+  evidence for the mitigation, not proof that an intermittent failure can
+  never recur. The separate delivery-coordinator flake above remains open.
 
 - **RESOLVED 2026-08-12: `internal/protocol`'s `ValidateTransition` direct
   coverage gap closed, and a per-package coverage floor now guards against

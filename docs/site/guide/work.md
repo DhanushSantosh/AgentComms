@@ -47,4 +47,4 @@ agent-comms --actor <agent-a> task handoff --id task-api-auth --to <agent-b> --s
 agent-comms --actor <agent-b> task handoff --id task-api-auth --accept --summary "accepted verification"
 ```
 
-Takeovers and shared-write exceptions are governed transitions. The authority rechecks role, lease, resource overlap, and required approval against the same locked state used to append the event.
+Takeovers and shared-write exceptions are governed transitions. The authority rechecks role, lease, resource overlap, and required approval against the same locked state used to append the event. If the approval has an expiry, a new takeover or overlapping claim must occur before it expires; an already-granted lease is not revoked by expiry. Each takeover consumes exactly one eligible approval, so a later takeover needs a fresh authorization. Within a trusted self-hosted team, an orchestrator may approve its own takeover and any trusted active principal may redeem that approval.

@@ -5,6 +5,31 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 
 ## [Unreleased]
 
+### Added
+- `draft delete --id` removes one non-authoritative local draft, releasing
+  its count and storage quota without deleting drafts from other projects.
+
+### Changed
+- The landing site's illustrated sections use a calmer, consistent visual
+  treatment, and its download page resolves the latest published release
+  instead of presenting a development build as current.
+- Team deployment guidance states the supported trust boundary explicitly:
+  one operator-controlled, self-hosted team per shared authority service.
+
+### Fixed
+- The shell and PowerShell installers now have an explicit default release
+  version, so normal installation does not require callers to supply one.
+- A slow but healthy local daemon is no longer rejected by a 300 ms health
+  probe under Windows runner or workstation contention; startup failures
+  now report the last probe error and elapsed wait.
+
+### Security
+- Updated the transitive `devalue` dependency to a version without the
+  reported malformed-input denial-of-service advisory.
+- Action-scoped takeover and shared-write approvals now honor explicit
+  expiry. Each new takeover event records the exact approval it consumed,
+  while older events retain their original replay behavior.
+
 ## [0.7.1] - 2026-09-19 — “Wrong Door”
 
 *A follow-up patch to a real bug found the day after 0.7.0 shipped: a

@@ -167,6 +167,45 @@ func TestHumanApprovalPolicy(t *testing.T) {
 	}
 	must(t, s, "owner", "approval.approve", "a1", model.ApprovalResponse{})
 }
+
+func TestTaskTakeoverEventConsumesSelectedApproval(t *testing.T) {
+	s := setup(t)
+	activate(t, s, "alpha", model.PrincipalAgent)
+	activate(t, s, "beta", model.PrincipalAgent)
+	must(t, s, "owner", "task.create", "takeover-target", model.TaskCreated{
+		Title: "Take over work", Repository: "local", Branch: "dev", Resources: []string{"src/takeover"},
+	})
+	must(t, s, "alpha", "task.claim", "takeover-target", model.TaskClaimed{})
+	expires := time.Now().Add(time.Hour)
+	must(t, s, "owner", "approval.request", "takeover-approval", model.ApprovalRequested{
+		Tier: "ORCHESTRATOR", Action: "task.takeover:takeover-target", Reason: "recover work", ExpiresAt: &expires,
+	})
+	must(t, s, "owner", "approval.approve", "takeover-approval", model.ApprovalResponse{})
+	event, err := s.Execute("beta", "task.takeover", "takeover-target", model.TaskStatus{ApprovalID: "caller-choice-ignored"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var accepted model.TaskStatus
+	if err := json.Unmarshal(event.Data, &accepted); err != nil {
+		t.Fatal(err)
+	}
+	if accepted.ApprovalID != "takeover-approval" {
+		t.Fatalf("event approval_id = %q, want takeover-approval", accepted.ApprovalID)
+	}
+	st, err := s.State()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Tasks["takeover-target"].Owner != "beta" || st.Approvals["takeover-approval"].Status != "CONSUMED" {
+		t.Fatalf("takeover did not change owner and consume the named approval: task=%+v approval=%+v", st.Tasks["takeover-target"], st.Approvals["takeover-approval"])
+	}
+	if _, err := s.Execute("alpha", "task.takeover", "takeover-target", model.TaskStatus{}); err == nil {
+		t.Fatal("consumed approval authorized a second takeover")
+	}
+	if err := s.Verify(0, 0); err != nil {
+		t.Fatal(err)
+	}
+}
 func TestConcurrentWritersAndIntegrity(t *testing.T) {
 	s := setup(t)
 	var wg sync.WaitGroup

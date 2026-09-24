@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/DhanushSantosh/AgentComms/internal/buildinfo"
+	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
 	"github.com/DhanushSantosh/AgentComms/internal/daemon"
 	"github.com/DhanushSantosh/AgentComms/internal/daemonclient"
 	"github.com/DhanushSantosh/AgentComms/internal/identity"
@@ -839,6 +840,58 @@ func TestEnsureDaemonReplacesIncompatibleDaemon(t *testing.T) {
 	}
 	if freshHealth.ProductVersion != Version {
 		t.Fatalf("expected the replacement daemon to report the current product version, got: %+v", freshHealth)
+	}
+}
+
+// The health-probe timeout is shared by the initial compatibility check and
+// the post-launch readiness loop. A healthy daemon that takes longer than the
+// former 300ms per-probe limit to respond must be reused, not replaced. This
+// exercises the real local IPC transport on Unix and Windows, while a fake
+// response makes the slow-but-healthy condition deterministic.
+func TestEnsureDaemonReusesSlowHealthyDaemon(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(t.TempDir(), "credentials"))
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(t.TempDir(), "config"))
+	if _, err := runtimeinit.Initialize(context.Background(), runtimeinit.Config{
+		ProjectRoot: root, Owner: "owner", Mode: "personal",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	config, err := store.Open(root).Config()
+	if err != nil {
+		t.Fatal(err)
+	}
+	listener, err := daemon.ListenLocal(config.DaemonEndpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/health/live" {
+			http.NotFound(w, r)
+			return
+		}
+		time.Sleep(600 * time.Millisecond)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(daemonclient.Health{
+			Status: "live", RuntimeMode: config.RuntimeMode, ProjectID: config.ProjectID,
+			ProtocolVersion: controlplane.LocalDaemonProtocolVersion,
+			ProductVersion:  Version, BuildID: buildinfo.ResolvedBuildID(),
+			ProjectFormatVersion: store.ProjectFormatVersion,
+			CacheSchemaVersion:   projectlifecycle.ProjectionCacheSchemaVersion,
+			DraftSchemaVersion:   projectlifecycle.DraftStoreSchemaVersion,
+		})
+	})}
+	go func() { _ = server.Serve(listener) }()
+	t.Cleanup(func() { _ = server.Close() })
+
+	originalLaunch := launchDaemonProcess
+	launchDaemonProcess = func(_, _ string, _ io.Writer) error {
+		return errors.New("slow but healthy daemon must not be relaunched")
+	}
+	t.Cleanup(func() { launchDaemonProcess = originalLaunch })
+
+	if err := ensureDaemon(root, config); err != nil {
+		t.Fatal(err)
 	}
 }
 

@@ -38,13 +38,27 @@ func elevated(typ string) bool {
 	// consequences.
 	return typ == "approval.approve" || typ == "approval.reject" || typ == "agent.activate" || typ == "agent.suspend" || typ == "agent.rotate-key" || typ == "agent.rename" || typ == "agent.revoke" || typ == "agent.delete" || typ == "project.settings.update" || typ == "env.set" || typ == "env.delete"
 }
-func hasApproval(st model.State, action string) bool {
-	for _, a := range st.Approvals {
-		if a.Action == action && a.Status == "APPROVED" {
-			return true
+func eligibleActionApprovalID(st model.State, action string, now time.Time) (string, bool) {
+	chosen := ""
+	expired := false
+	for id, approval := range st.Approvals {
+		if approval.Action != action || approval.Status != "APPROVED" {
+			continue
+		}
+		if approval.ExpiresAt != nil && !approval.ExpiresAt.After(now) {
+			expired = true
+			continue
+		}
+		if chosen == "" || id < chosen {
+			chosen = id
 		}
 	}
-	return false
+	return chosen, expired
+}
+
+func hasApproval(st model.State, action string, now time.Time) bool {
+	id, _ := eligibleActionApprovalID(st, action, now)
+	return id != ""
 }
 
 // ApprovalSubjectDigest returns the canonical digest that an approval must
@@ -807,7 +821,7 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 			}
 			for _, v := range st.Tasks {
 				if v.ID != id && v.Owner != "" && !v.Archived && v.Status != "COMPLETED" && v.Status != "CANCELLED" && overlap(t.Resources, v.Resources) {
-					if !hasApproval(st, "shared-write:"+id+":"+v.ID) && !hasApproval(st, "shared-write:"+v.ID+":"+id) {
+					if !hasApproval(st, "shared-write:"+id+":"+v.ID, now) && !hasApproval(st, "shared-write:"+v.ID+":"+id, now) {
 						return nil, fmt.Errorf("write lease overlaps task %s", v.ID)
 					}
 				}
@@ -853,8 +867,18 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 			if allowed, constrained := allowedStatus[typ]; constrained && !allowed[t.Status] {
 				return nil, fmt.Errorf("%s is invalid while task is %s", typ, t.Status)
 			}
-			if typ == "task.takeover" && !hasApproval(st, "task.takeover:"+id) {
-				return nil, errors.New("approved takeover is required")
+			if typ == "task.takeover" {
+				approvalID, expired := eligibleActionApprovalID(st, "task.takeover:"+id, now)
+				if approvalID == "" {
+					if expired {
+						return nil, errors.New("takeover approval has expired; request a fresh approval")
+					}
+					return nil, errors.New("approved takeover is required")
+				}
+				p.ApprovalID = approvalID
+				payload = p
+			} else if p.ApprovalID != "" {
+				return nil, errors.New("approval_id is reserved for server-normalized task.takeover events")
 			}
 			settings := model.EffectiveProjectSettings(st.ProjectSettings)
 			if typ == "task.complete" && (t.Risk != "ROUTINE" || settings.RequireReview) {
@@ -1539,6 +1563,9 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 			return nil, errors.New("approval tier and action are required")
 		}
 		boundAction := strings.HasPrefix(request.Action, "contract:") || strings.HasPrefix(request.Action, "invocation:") || strings.HasPrefix(request.Action, "invocation-sensitive:")
+		if request.ExpiresAt != nil && !request.ExpiresAt.After(now) {
+			return nil, errors.New("approval expiry must be in the future")
+		}
 		if boundAction && (request.Subject == "" || request.SubjectDigest == "" || request.SubjectDigest != ApprovalSubjectDigestFromJSON(request.Subject) || request.ExpiresAt == nil || !request.ExpiresAt.After(now)) {
 			return nil, errors.New("contract and invocation approvals require a subject digest and future expiry")
 		}
