@@ -22,6 +22,8 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 - A slow but healthy local daemon is no longer rejected by a 300 ms health
   probe under Windows runner or workstation contention; startup failures
   now report the last probe error and elapsed wait.
+- Windows process takeover no longer mistakes a newly spawned process for
+  an ancestor when an exited ancestor's PID has been reused.
 
 ### Security
 - Updated the transitive `devalue` dependency to a version without the

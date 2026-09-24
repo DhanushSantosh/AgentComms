@@ -332,6 +332,16 @@ kept:
 
 ## Test / CI infrastructure
 
+- **Windows process-takeover ancestry false positive, mitigated 2026-09-24.**
+  CI on `3759375` failed `TestTakeoverTerminatesALiveProcess` because the
+  Toolhelp numeric parent-PID walk classified the test process as a
+  descendant of a child it had just spawned. A stale parent PID reused by
+  the new child can make that impossible relationship appear in a process
+  snapshot. The ancestry check now rules out a target created after the
+  caller before trusting the PID chain, with a synthetic stale-chain
+  regression and a real-child creation-time check. Confirm on the next
+  Windows CI run before treating the mitigation as validated there.
+
 - **`TestInvocationDeliveryFailureDoesNotTerminateObligation` is flaky on
   loaded/slow windows-latest runners, not fixed.** Observed live on PR #25's
   CI (2026-08-13): failed once with `"an unexpired delivery attempt already

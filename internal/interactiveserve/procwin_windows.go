@@ -52,13 +52,28 @@ func currentProcessIsDescendantOf(pid int) (descendant, determined bool) {
 	if !ok {
 		return false, false
 	}
-	current := windows.GetCurrentProcessId()
+	return currentProcessIsDescendantOfWithParents(pid, parents)
+}
+
+func currentProcessIsDescendantOfWithParents(pid int, parents map[uint32]uint32) (descendant, determined bool) {
+	// Toolhelp records numeric parent PIDs, not process identities. If an
+	// ancestor exited and Windows reused its PID for a newer process, a
+	// snapshot can make that newer process look like our ancestor. A real
+	// ancestor must have started before this process, so rule out a younger
+	// target before trusting the PID chain.
+	if younger, known := targetStartedAfterCaller(pid); known && younger {
+		return false, true
+	}
+	return descendantInParentMap(windows.GetCurrentProcessId(), uint32(pid), parents)
+}
+
+func descendantInParentMap(current, target uint32, parents map[uint32]uint32) (descendant, determined bool) {
 	for depth := 0; depth < maxAncestorWalkDepth; depth++ {
 		parent, found := parents[current]
 		if !found {
 			return false, true
 		}
-		if int(parent) == pid {
+		if parent == target {
 			return true, true
 		}
 		if parent == 0 || parent == current {
@@ -67,6 +82,23 @@ func currentProcessIsDescendantOf(pid int) (descendant, determined bool) {
 		current = parent
 	}
 	return false, true
+}
+
+func targetStartedAfterCaller(pid int) (younger, known bool) {
+	target, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
+	if err != nil {
+		return false, false
+	}
+	defer windows.CloseHandle(target)
+	var targetCreated, currentCreated windows.Filetime
+	var exit, kernel, user windows.Filetime
+	if err := windows.GetProcessTimes(target, &targetCreated, &exit, &kernel, &user); err != nil {
+		return false, false
+	}
+	if err := windows.GetProcessTimes(windows.CurrentProcess(), &currentCreated, &exit, &kernel, &user); err != nil {
+		return false, false
+	}
+	return targetCreated.Nanoseconds() > currentCreated.Nanoseconds(), true
 }
 
 // processParentMap snapshots every running process's pid->parent-pid

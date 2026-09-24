@@ -94,11 +94,31 @@ func TestCurrentProcessIsDescendantOfOwnParent(t *testing.T) {
 // running on the machine.
 func TestCurrentProcessIsNotDescendantOfItsOwnChild(t *testing.T) {
 	pid := spawnLongRunning(t)
+	if younger, known := targetStartedAfterCaller(pid); !known || !younger {
+		t.Fatalf("expected newly spawned child to have a later creation time: younger=%t known=%t", younger, known)
+	}
 	descendant, determined := currentProcessIsDescendantOf(pid)
 	if !determined {
 		t.Skip("Toolhelp32Snapshot-based ancestry check unavailable in this environment")
 	}
 	if descendant {
 		t.Fatal("expected the test process not to be a descendant of its own child")
+	}
+}
+
+func TestCurrentProcessRejectsReusedAncestorPID(t *testing.T) {
+	pid := spawnLongRunning(t)
+	// Model a Toolhelp snapshot with a stale parent PID that has since
+	// been reused by this child. Numeric ancestry alone says descendant;
+	// process creation time must override that impossible relationship.
+	parents := map[uint32]uint32{windows.GetCurrentProcessId(): uint32(pid)}
+	if descendant, _ := descendantInParentMap(windows.GetCurrentProcessId(), uint32(pid), parents); !descendant {
+		t.Fatal("fixture did not reproduce the stale-PID false positive")
+	}
+	if younger, known := targetStartedAfterCaller(pid); !known || !younger {
+		t.Fatalf("expected reused target PID to be younger: younger=%t known=%t", younger, known)
+	}
+	if descendant, determined := currentProcessIsDescendantOfWithParents(pid, parents); !determined || descendant {
+		t.Fatalf("newly spawned child was misclassified as ancestor: descendant=%t determined=%t", descendant, determined)
 	}
 }
