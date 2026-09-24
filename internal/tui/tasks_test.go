@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -10,6 +11,18 @@ import (
 	"github.com/DhanushSantosh/AgentComms/internal/service"
 	"github.com/DhanushSantosh/AgentComms/internal/testsupport"
 )
+
+func TestTakeoverGuidanceRequiresCurrentApproval(t *testing.T) {
+	if prompt := actTakeover.prompt("task-1"); !strings.Contains(prompt, "approved, unexpired `task.takeover:task-1` approval") {
+		t.Fatalf("takeover prompt does not explain expiry: %q", prompt)
+	}
+	err := actTakeover.OnError(errors.New("takeover approval has expired; request a fresh approval"), "task-1")
+	for _, want := range []string{"takeover approval has expired", "new ID", "--action task.takeover:task-1"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("expired takeover error missing %q: %v", want, err)
+		}
+	}
+}
 
 func newTestService(t *testing.T) *service.Service {
 	t.Helper()

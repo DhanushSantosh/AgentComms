@@ -4,7 +4,7 @@ description: Navigate the terminal interface, manage the project, and complete e
 section: Start here
 order: 5
 audience: Human operators
-lastVerified: 2026-08-12
+lastVerified: 2026-09-24
 related: [guide/agents, guide/governance, guide/maintenance, security/identity]
 ---
 
@@ -30,9 +30,11 @@ The highlighted row and section marker are the authoritative navigation indicato
 
 ## What you can control
 
-The TUI exposes project overview and attention queues, tasks, inbox messages, agents, runtimes, approvals, invocations, project settings, documents, decisions, blockers, audit health, activity, and archive search.
+The TUI exposes project overview and attention queues, tasks, inbox messages, agents, runtimes, approvals, invocations, project settings, documents, decisions, local drafts, blockers, audit health, activity, and archive search. In Drafts, you can save or delete one local draft at a time; deletion asks for confirmation and frees that draft's storage quota.
 
 Agent management includes registration, activation, suspension, revocation, deletion when eligible, role/scope updates, and runtime inspection. Invocation views expose consumer routing, preferred runtimes, delivery evidence, acknowledgement, lifecycle state, and explicit redelivery.
+
+Approval requests can specify an expiry duration for any approval action. It is optional for task takeover and shared-write, and required for bound contract and invocation approvals. The Approvals view shows and marks an elapsed expiry even when the recorded status remains APPROVED; an expired approval cannot authorize a new transition. An already-granted task lease is not revoked when its approval later expires.
 
 ## Real project states
 

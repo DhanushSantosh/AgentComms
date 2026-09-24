@@ -2,10 +2,12 @@ package tui
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // draftSaveForm calls Service.SaveDraft directly, bypassing Execute entirely
@@ -51,31 +53,124 @@ var draftSaveForm = &ActionForm{
 func (m *Model) refreshDrafts() {
 	if drafts, err := m.svc.Drafts(50); err == nil {
 		m.drafts = drafts
+		if m.draftCursor >= len(m.drafts) {
+			m.draftCursor = max(0, len(m.drafts)-1)
+		}
+	}
+}
+
+func (m Model) updateDrafts(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if wheel, ok := msg.(tea.MouseWheelMsg); ok {
+		switch wheel.Button {
+		case tea.MouseWheelUp:
+			m.draftCursor = max(0, m.draftCursor-1)
+		case tea.MouseWheelDown:
+			m.draftCursor = min(len(m.drafts)-1, m.draftCursor+1)
+		}
+		m.keepDraftCursorVisible()
+		return m, nil
+	}
+	if click, ok := msg.(tea.MouseClickMsg); ok {
+		mouse := click.Mouse()
+		p := colors(m.highContrast)
+		_, _, _, contentH := m.bodyLayout(p)
+		bodyTop := m.bodyPrefixHeight(p)
+		if mouse.Button == tea.MouseLeft && mouse.X >= m.sidebarWidth()+1 &&
+			mouse.Y >= bodyTop && mouse.Y < bodyTop+contentH {
+			index := mouse.Y - bodyTop + m.scrollOffset - 1
+			if index >= 0 && index < len(m.drafts) {
+				m.draftCursor = index
+			}
+		}
+		return m, nil
+	}
+	key, ok := msg.(tea.KeyPressMsg)
+	if !ok {
+		return m, nil
+	}
+	switch key.String() {
+	case "esc", "left":
+		m.rowFocus = false
+	case "q", "ctrl+c":
+		return m, tea.Quit
+	case "/", "ctrl+p":
+		m.palette = true
+		m.paletteSelected = 0
+	case "up", "k":
+		m.draftCursor = max(0, m.draftCursor-1)
+	case "down", "j":
+		m.draftCursor = min(len(m.drafts)-1, m.draftCursor+1)
+		m.draftCursor = max(0, m.draftCursor)
+	case "pgdown", "f":
+		m.draftCursor = min(len(m.drafts)-1, m.draftCursor+max(1, m.draftPageSize()))
+		m.draftCursor = max(0, m.draftCursor)
+	case "pgup", "b":
+		m.draftCursor = max(0, m.draftCursor-max(1, m.draftPageSize()))
+	case "n":
+		return m.openActionForm(draftSaveForm, "draft.save", "")
+	case "r":
+		m.refresh()
+	case "d":
+		if len(m.drafts) == 0 {
+			m.notice = "No draft selected."
+			return m, nil
+		}
+		id := m.drafts[m.draftCursor].ID
+		m.confirm = &confirmState{
+			prompt: "Delete local draft " + fmt.Sprintf("%q", id) + "?",
+			id:     id, localDraft: true,
+		}
+	case "?":
+		m.notice = "↑/↓ select draft · [d] delete selected · [n] save draft · [r] refresh · [esc] back"
+	}
+	m.keepDraftCursorVisible()
+	return m, nil
+}
+
+func (m Model) draftPageSize() int {
+	_, _, _, contentH := m.bodyLayout(colors(m.highContrast))
+	return max(1, contentH-1)
+}
+
+func (m *Model) keepDraftCursorVisible() {
+	if len(m.drafts) == 0 {
+		m.draftCursor = 0
+		return
+	}
+	row := m.draftCursor + 1 // heading occupies the first content row
+	if row < m.scrollOffset {
+		m.scrollOffset = row
+	}
+	if row >= m.scrollOffset+m.draftPageSize() {
+		m.scrollOffset = row - m.draftPageSize() + 1
 	}
 }
 
 func (m Model) draftsView(p palette) string {
+	width := m.contentWidth()
 	if len(m.drafts) == 0 {
-		return lipgloss.NewStyle().Foreground(p.muted).Render("No drafts saved yet. Press [n] to save one.")
+		return lipgloss.NewStyle().Foreground(p.muted).Inline(true).Render(
+			ansi.Truncate("No drafts saved yet. Press [n] to save one.", width, "…"))
 	}
-	rows := []string{lipgloss.NewStyle().Foreground(p.muted).Render("KIND        DRAFT                          UPDATED")}
-	for _, d := range m.drafts {
-		rows = append(rows, lipgloss.NewStyle().Foreground(p.text).Render(
-			padTo(d.Kind, 11)+" "+padTo(d.ID, 30)+" "+d.UpdatedAt.Local().Format("2006-01-02 15:04:05"),
-		))
+	rows := []string{lipgloss.NewStyle().Foreground(p.muted).Inline(true).Render(
+		ansi.Truncate("DRAFT ID · KIND · UPDATED", width, "…"))}
+	for i, d := range m.drafts {
+		marker := "  "
+		if m.rowFocus && i == m.draftCursor {
+			marker = "> "
+		}
+		line := marker + d.ID + " · " + d.Kind + " · " + d.UpdatedAt.Local().Format("2006-01-02 15:04:05")
+		rows = append(rows, lipgloss.NewStyle().Foreground(p.text).Inline(true).Render(ansi.Truncate(line, width, "…")))
 	}
 	draftFooterParts := []string{
 		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[n]") + " " + lipgloss.NewStyle().Foreground(p.muted).Render("save draft"),
+		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[d]") + " " + lipgloss.NewStyle().Foreground(p.muted).Render("delete selected"),
 		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[r]") + " " + lipgloss.NewStyle().Foreground(p.muted).Render("refresh"),
 	}
-	rows = append(rows, "", strings.Join(draftFooterParts, " · "))
-	return strings.Join(rows, "\n")
-}
-
-func padTo(s string, width int) string {
-	s = truncate(s, width)
-	if len(s) >= width {
-		return s
+	if !m.rowFocus {
+		rows = append(rows, lipgloss.NewStyle().Foreground(p.muted).Inline(true).Render(
+			ansi.Truncate("Press [enter] to select a draft.", width, "…")))
 	}
-	return s + strings.Repeat(" ", width-len(s))
+	rows = append(rows, "", ansi.Truncate(strings.Join(draftFooterParts, " · "), width, "…"))
+	return strings.Join(rows, "\n")
 }

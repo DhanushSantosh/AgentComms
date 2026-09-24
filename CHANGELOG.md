@@ -8,6 +8,8 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 ### Added
 - `draft delete --id` removes one non-authoritative local draft, releasing
   its count and storage quota without deleting drafts from other projects.
+- The TUI Drafts panel can delete a selected draft with confirmation, and its
+  Approvals panel now makes expired approvals and their eligibility clear.
 
 ### Changed
 - The landing site's illustrated sections use a calmer, consistent visual

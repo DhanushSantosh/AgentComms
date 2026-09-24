@@ -968,11 +968,15 @@ func (m Model) renderInspector(p palette, width int) string {
 		}
 	case "Approvals":
 		if app, ok := m.state.Approvals[id]; ok {
+			status := approvalDisplayStatus(app, time.Now())
 			lines = append(lines, titleStyle.Render("Action: ")+app.Action)
-			lines = append(lines, mutedStyle.Render(fmt.Sprintf("Tier: %s  |  Status: %s  |  Requester: %s", app.Tier, fmtStatus(app.Status), app.Requester)))
+			lines = append(lines, mutedStyle.Render(fmt.Sprintf("Tier: %s  |  Status: %s  |  Requester: %s", app.Tier, fmtStatus(status), app.Requester)))
 			lines = append(lines, titleStyle.Render("Reason: ")+app.Reason)
 			if app.ExpiresAt != nil {
 				lines = append(lines, mutedStyle.Render("Expires: ")+app.ExpiresAt.Local().Format(time.RFC3339))
+			}
+			if status == "EXPIRED" {
+				lines = append(lines, mutedStyle.Render("Recorded as "+app.Status+", but this approval can no longer authorize the action. Request a new approval."))
 			}
 			if app.Subject != "" {
 				lines = append(lines, titleStyle.Render("Reviewed operation: ")+app.Subject)

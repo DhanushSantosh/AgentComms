@@ -2,7 +2,9 @@ package tui
 
 import (
 	"reflect"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 )
@@ -16,6 +18,61 @@ func approvalLabels(acts []RowAction) []string {
 		out[i] = a.Label
 	}
 	return out
+}
+
+func TestExpiredApprovedApprovalIsMarkedUnusable(t *testing.T) {
+	now := time.Now().UTC()
+	past := now.Add(-time.Minute)
+	future := now.Add(time.Hour)
+	for _, tc := range []struct {
+		name string
+		a    model.Approval
+		want string
+	}{
+		{"expired approved", model.Approval{Status: "APPROVED", ExpiresAt: &past}, "EXPIRED"},
+		{"current approved", model.Approval{Status: "APPROVED", ExpiresAt: &future}, "APPROVED"},
+		{"approved without expiry", model.Approval{Status: "APPROVED"}, "APPROVED"},
+		{"pending with elapsed expiry", model.Approval{Status: "PENDING", ExpiresAt: &past}, "EXPIRED"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := approvalDisplayStatus(tc.a, now); got != tc.want {
+				t.Fatalf("display status = %q, want %q", got, tc.want)
+			}
+		})
+	}
+	if got := approvalLabels(approvalActionsFor(model.Approval{Status: "PENDING", Tier: "ORCHESTRATOR", ExpiresAt: &past}, model.RoleOwner, model.PrincipalHuman)); !reflect.DeepEqual(got, []string{"reject"}) {
+		t.Fatalf("expired pending approval should offer only rejection, got %v", got)
+	}
+
+	a := model.Approval{ID: "expired-1", Status: "APPROVED", Tier: "ORCHESTRATOR", Action: "task.takeover:task-1", ExpiresAt: &past}
+	st := model.State{Approvals: map[string]model.Approval{a.ID: a}}
+	rows := (approvalRowSource{}).Rows(st, "owner", false)
+	if len(rows) != 1 || !strings.Contains(rows[0][2], "EXPIRED") {
+		t.Fatalf("approval row did not show expiry: %v", rows)
+	}
+
+	s := newTestService(t)
+	m, err := New(s, "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.view = 5 // Approvals
+	m.state.Approvals[a.ID] = a
+	m.approvalList.Refresh(m.state, m.actor)
+	inspector := m.renderInspector(colors(false), 100)
+	for _, want := range []string{"EXPIRED", "Recorded as APPROVED", "can no longer authorize"} {
+		if !strings.Contains(inspector, want) {
+			t.Fatalf("inspector missing %q: %s", want, inspector)
+		}
+	}
+}
+
+func TestApprovalRequestFormDescribesExpiryScope(t *testing.T) {
+	if !strings.Contains(approvalRequestForm.Hint, "takeover and shared-write") ||
+		!strings.Contains(approvalRequestForm.Hint, "contract/invocation approvals require one") ||
+		approvalRequestForm.Fields[7].Label != "Expires in (duration)" {
+		t.Fatalf("approval expiry guidance is incomplete: hint=%q label=%q", approvalRequestForm.Hint, approvalRequestForm.Fields[7].Label)
+	}
 }
 
 func TestApprovalActionsForStates(t *testing.T) {
