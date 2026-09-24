@@ -778,6 +778,15 @@ func TestTUIResolvesOwnerWhenLegacyActorIsAmbiguous(t *testing.T) {
 // daemon.Run in-process instead of spawning a real subprocess) so the
 // replacement daemon it launches genuinely answers on the same endpoint.
 func TestEnsureDaemonReplacesIncompatibleDaemon(t *testing.T) {
+	testEnsureDaemonReplacesIncompatibleDaemon(t, 0)
+}
+
+func TestEnsureDaemonReplacesIncompatibleDaemonAfterSlowFixtureStart(t *testing.T) {
+	testEnsureDaemonReplacesIncompatibleDaemon(t, 5*time.Second)
+}
+
+func testEnsureDaemonReplacesIncompatibleDaemon(t *testing.T, startupDelay time.Duration) {
+	t.Helper()
 	root := t.TempDir()
 	cleanupProjectDaemon(t, root)
 	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(t.TempDir(), "credentials"))
@@ -798,40 +807,59 @@ func TestEnsureDaemonReplacesIncompatibleDaemon(t *testing.T) {
 	}
 
 	staleCtx, stopStale := context.WithCancel(context.Background())
-	defer stopStale()
+	staleDone := make(chan struct{})
+	var staleRunErr error
 	go func() {
-		_ = daemon.Run(staleCtx, daemon.RunConfig{
+		defer close(staleDone)
+		if startupDelay > 0 {
+			select {
+			case <-time.After(startupDelay):
+			case <-staleCtx.Done():
+				return
+			}
+		}
+		staleRunErr = daemon.Run(staleCtx, daemon.RunConfig{
 			ServicePublicKey: config.ServicePublicKey, CachePath: runtimeinit.ProjectionPath(root),
 			Endpoint: config.DaemonEndpoint, RuntimeMode: "personal", PersonalDatabase: runtimeinit.DatabasePath(root),
 			ServicePrivateKey: credential.PrivateKey, ProjectID: config.ProjectID,
 			ProductVersion: "stale-version", BuildID: "stale-build",
 		})
 	}()
+	t.Cleanup(func() {
+		stopStale()
+		select {
+		case <-staleDone:
+		case <-time.After(15 * time.Second):
+			t.Error("fixture stale daemon did not stop after cancellation")
+		}
+	})
 
 	client, err := daemonclient.New(config.DaemonEndpoint, 300*time.Millisecond)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var staleHealth daemonclient.Health
-	// 200 attempts, not the original 50: this fixture's stale daemon is a
-	// goroutine started moments earlier, and this loop's per-attempt cost
-	// is small (a failed dial returns near-instantly, it doesn't wait out
-	// the 300ms context timeout), so 50 attempts was really only ~1-2s of
-	// real budget -- confirmed too tight on a real Windows CI runner
-	// (named-pipe dial, not a Unix socket) on a clean re-run of the exact
-	// same commit, distinct from the SQLITE_BUSY race daemonShutdownWaitAttempts
-	// fixes elsewhere in this file.
-	for attempt := 0; ; attempt++ {
+	// A failed named-pipe or Unix-socket dial can return immediately, so a
+	// fixed probe count does not guarantee any useful wall-clock startup
+	// budget. Give the fixture the same deadline as a real daemon launch.
+	staleStarted := time.Now()
+	staleDeadline := staleStarted.Add(daemonReadyTimeout)
+	for time.Now().Before(staleDeadline) {
 		ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 		staleHealth, err = client.Health(ctx)
 		cancel()
 		if err == nil {
 			break
 		}
-		if attempt >= 200 {
-			t.Fatalf("fixture stale daemon never became healthy: %v", err)
+		select {
+		case <-staleDone:
+			t.Fatalf("fixture stale daemon exited before becoming healthy: %v", staleRunErr)
+		default:
 		}
 		time.Sleep(20 * time.Millisecond)
+	}
+	if err != nil {
+		t.Fatalf("fixture stale daemon never became healthy after %s: %v", time.Since(staleStarted).Round(time.Millisecond), err)
 	}
 	if staleHealth.BuildID != "stale-build" {
 		t.Fatalf("fixture daemon did not report the expected stale build ID: %+v", staleHealth)
