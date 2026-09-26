@@ -1,6 +1,13 @@
 FROM golang:1.26.5 AS build
 WORKDIR /src
 COPY go.mod go.sum ./
+# go.mod carries local replace directives (./third_party/bubbletea-v2-js and
+# ./third_party/clipboard-js), and `go mod download` reads the replaced
+# modules' own go.mod files. Copying only go.mod/go.sum -- the usual
+# deps-first caching split -- makes it fail with "no such file or directory"
+# before any source is present. third_party changes rarely, so copying it
+# here keeps the dependency layer cacheable.
+COPY third_party/ ./third_party/
 RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 go build -trimpath -o /out/agent-comms-server ./cmd/agent-comms-server
