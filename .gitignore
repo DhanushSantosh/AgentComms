@@ -7,6 +7,7 @@ dist/
 /agent-comms.exe
 /agent-comms-*.exe
 node_modules/
+.env
 .env.local
 *.tsbuildinfo
 .playwright-cli/
