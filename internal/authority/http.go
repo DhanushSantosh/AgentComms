@@ -37,7 +37,9 @@ type HTTPConfig struct {
 	RatePerSecond float64
 	RateBurst     float64
 	BearerToken   string
-	Logger        *slog.Logger
+	// ExtraTokens maps a label to an additional accepted bearer token.
+	ExtraTokens map[string]string
+	Logger      *slog.Logger
 }
 
 type HTTPServer struct {
@@ -47,7 +49,13 @@ type HTTPServer struct {
 	streamAdmission chan struct{}
 	rates           *rateRegistry
 	bearerToken     string
-	metrics         serverMetrics
+	// extraTokens holds additional accepted bearer tokens keyed by a label
+	// (typically the principal the token was issued to). Any one of them
+	// authenticates, so a token issued to a peer in an environment you do
+	// not control -- a cloud agent whose transcript is not private -- can be
+	// revoked on its own without rotating everyone else's. See RFC 0039.
+	extraTokens map[string]string
+	metrics     serverMetrics
 }
 
 type serverMetrics struct {
@@ -84,6 +92,7 @@ func NewHTTPServer(engine *Engine, cfg HTTPConfig) *HTTPServer {
 	return &HTTPServer{
 		engine: engine, logger: logger, admission: make(chan struct{}, maxInFlight), streamAdmission: make(chan struct{}, maxStreams),
 		rates: newRateRegistry(rate, burst), bearerToken: strings.TrimSpace(cfg.BearerToken),
+		extraTokens: normalizeTokenSet(cfg.ExtraTokens),
 	}
 }
 
@@ -138,7 +147,7 @@ func (s *HTTPServer) middleware(next http.Handler) http.Handler {
 }
 
 func (s *HTTPServer) authorized(r *http.Request) bool {
-	if isPublicRequest(r) || s.bearerToken == "" {
+	if isPublicRequest(r) || (s.bearerToken == "" && len(s.extraTokens) == 0) {
 		return true
 	}
 	raw := r.Header.Get("Authorization")
@@ -151,8 +160,43 @@ func (s *HTTPServer) authorized(r *http.Request) bool {
 		return false
 	}
 	presentedDigest := sha256.Sum256([]byte(presented))
-	expectedDigest := sha256.Sum256([]byte(s.bearerToken))
-	return subtle.ConstantTimeCompare(presentedDigest[:], expectedDigest[:]) == 1
+	// Every candidate is compared, and comparison stays constant-time, so
+	// neither the number of configured tokens nor which one matched is
+	// observable from response timing.
+	matched := false
+	if s.bearerToken != "" {
+		expected := sha256.Sum256([]byte(s.bearerToken))
+		if subtle.ConstantTimeCompare(presentedDigest[:], expected[:]) == 1 {
+			matched = true
+		}
+	}
+	for _, token := range s.extraTokens {
+		expected := sha256.Sum256([]byte(token))
+		if subtle.ConstantTimeCompare(presentedDigest[:], expected[:]) == 1 {
+			matched = true
+		}
+	}
+	return matched
+}
+
+// normalizeTokenSet drops blank labels and blank tokens so a partially
+// filled environment variable cannot silently authorize the empty string.
+func normalizeTokenSet(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for label, token := range in {
+		label, token = strings.TrimSpace(label), strings.TrimSpace(token)
+		if label == "" || token == "" {
+			continue
+		}
+		out[label] = token
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func isPublicRequest(r *http.Request) bool {

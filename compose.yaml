@@ -24,6 +24,10 @@ services:
       AGENT_COMMS_DATABASE_URL: postgres://agent_comms:${POSTGRES_PASSWORD}@postgres:5432/agent_comms?sslmode=disable
       AGENT_COMMS_LISTEN: 0.0.0.0:8787
       AGENT_COMMS_AUTHORITY_TOKEN: ${AGENT_COMMS_AUTHORITY_TOKEN:?set AGENT_COMMS_AUTHORITY_TOKEN}
+      # Optional per-peer tokens, "<label>=<token>" comma-separated. Issue one
+      # to any participant whose environment you do not control so it can be
+      # revoked on its own. Empty by default.
+      AGENT_COMMS_PEER_TOKENS: ${AGENT_COMMS_PEER_TOKENS:-}
       AGENT_COMMS_SERVICE_PRIVATE_KEY: ${AGENT_COMMS_SERVICE_PRIVATE_KEY:?set AGENT_COMMS_SERVICE_PRIVATE_KEY}
     ports:
       - "127.0.0.1:8787:8787"
