@@ -2,10 +2,33 @@
 
 ## Status and owners
 
-**Proposed, 2026-09-26.** Raised by the project owner while standing up a
-real cross-machine test; drafted by claude-main. Not yet accepted — this
-records the problem and the shape of a solution, and deliberately stops
-short of committing to a migration design.
+**Deferred, 2026-09-27.** Raised by the project owner while standing up a
+real cross-machine test; drafted by claude-main. Not accepted, and not
+scheduled — this records the problem and the shape of a solution, and
+deliberately stops short of committing to a migration design.
+
+The attempt that produced it was stopped on 2026-09-27. The protocol side
+worked: a second participant with its own project directory, config dir,
+credential store and keypair self-registered against a shared Postgres
+authority, was activated by the owner, and exchanged a message — verified
+end to end. What did not work was the environment around it. A hosted peer
+whose container, permissions and lifecycle you do not control could not be
+driven to completion: its tool classifier refused to run the project's own
+CLI, and it could not modify its own permission file to lift that, by
+design. That is a harness problem, not a protocol problem, and no amount of
+work in this repo resolves it.
+
+Three real defects were found and fixed on the way, and they stand
+independently of this RFC: the Dockerfile could not build at all
+(`1bfa946`), `.env` was not git-ignored while `compose.yaml` required three
+secrets (`afde24f`), and `daemon serve` never passed the authority token, so
+service mode failed for every CLI command (`08b14c8`). That last one had
+survived precisely because reaching service mode requires discarding a
+project first — the friction this RFC is about.
+
+Per-peer bearer tokens were implemented and then reverted with the rest of
+the cloud-agent work; see `810915f` in history if that idea is revived.
+See also `docs/backlog.md`, "Remote and hosted participants".
 
 ## Problem and desired outcome
 

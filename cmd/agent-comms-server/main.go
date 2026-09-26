@@ -43,10 +43,6 @@ func run() error {
 	}
 	production := strings.EqualFold(os.Getenv("AGENT_COMMS_ENV"), "production")
 	authorityToken := strings.TrimSpace(os.Getenv("AGENT_COMMS_AUTHORITY_TOKEN"))
-	peerTokens, err := parsePeerTokens(os.Getenv("AGENT_COMMS_PEER_TOKENS"))
-	if err != nil {
-		return err
-	}
 	if err := validateRuntimeSecrets(production, authorityToken); err != nil {
 		return err
 	}
@@ -81,8 +77,8 @@ func run() error {
 	server := &http.Server{
 		Addr: address, Handler: authority.NewHTTPServer(engine, authority.HTTPConfig{
 			MaxInFlight: envInt("AGENT_COMMS_MAX_IN_FLIGHT", 256),
-			BearerToken: authorityToken, ExtraTokens: peerTokens,
-			Logger: logger,
+			BearerToken: authorityToken,
+			Logger:      logger,
 		}).Handler(),
 		ReadHeaderTimeout: serverReadTimeout, ReadTimeout: serverReadTimeout,
 		WriteTimeout: serverWriteTimeout, IdleTimeout: serverIdleTimeout,
@@ -237,43 +233,4 @@ func envInt(name string, fallback int) int {
 		return fallback
 	}
 	return value
-}
-
-// parsePeerTokens reads AGENT_COMMS_PEER_TOKENS, a comma-separated list of
-// "<label>=<token>" pairs, into the additional bearer tokens the authority
-// will accept. The label is the principal the token was issued to.
-//
-// The point is revocability. A single shared AGENT_COMMS_AUTHORITY_TOKEN has
-// to be delivered to every participant, which is impossible to do privately
-// for a peer whose environment you do not control -- a hosted agent reachable
-// only through its own chat transcript, for instance. Issuing that peer its
-// own token means a leak costs you one identity and one `docker compose up`
-// to revoke, instead of rotating the credential every participant holds.
-//
-// Commands are already Ed25519-verified per principal, so these tokens gate
-// reachability, not authority: holding one does not let a peer act as anyone
-// but itself. It does still permit project creation, which has no signature
-// gate, so issue them deliberately.
-func parsePeerTokens(raw string) (map[string]string, error) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return nil, nil
-	}
-	tokens := make(map[string]string)
-	for _, entry := range strings.Split(raw, ",") {
-		entry = strings.TrimSpace(entry)
-		if entry == "" {
-			continue
-		}
-		label, token, found := strings.Cut(entry, "=")
-		label, token = strings.TrimSpace(label), strings.TrimSpace(token)
-		if !found || label == "" || token == "" {
-			return nil, fmt.Errorf("AGENT_COMMS_PEER_TOKENS entries must be <label>=<token>, got %q", entry)
-		}
-		if _, duplicate := tokens[label]; duplicate {
-			return nil, fmt.Errorf("AGENT_COMMS_PEER_TOKENS has duplicate label %q", label)
-		}
-		tokens[label] = token
-	}
-	return tokens, nil
 }

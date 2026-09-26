@@ -453,6 +453,43 @@ kept:
   and benefits too: at 300ms a slow-but-healthy running daemon could be
   misjudged as absent and needlessly killed and respawned.
 
+## Remote and hosted participants
+
+- **Cloud/hosted agents as team-mode participants — attempted 2026-09-27,
+  stopped, deferred.** A project cannot gain a remote participant without
+  being recreated: `RuntimeMode` is a property of the project
+  (`internal/store/store.go:70,143`), `init --mode service` always calls
+  `CreateProject` (`internal/runtimeinit/runtimeinit.go:213`), there is no
+  join verb, and `docs/service-deployment.md` says existing projects are not
+  converted in place. Full design and edge cases in
+  [RFC 0038](rfcs/0038-project-participation-independent-of-runtime-mode.md),
+  now Deferred.
+  **What was proven to work**, so it does not need re-deriving: the protocol
+  supports multi-machine participation as-is. A second participant with its
+  own project directory, config dir, credential store and keypair
+  self-registered against a shared Postgres authority, was activated by the
+  owner, and exchanged a message — one chain, `AUTHORITATIVE`. `agent.register`
+  is self-service (`internal/protocol/transitions.go:470` skips the actor
+  check), so a peer generates its own keypair and only the public half
+  travels inside the signed event. No key exchange is needed, and none should
+  be designed in.
+  **What blocked it** was the peer's environment, not this codebase. A hosted
+  agent's container, tool permissions and restart semantics are not under the
+  operator's control; its classifier refused to run this project's own CLI,
+  and it correctly declined to edit its own permission file to lift that.
+  Nothing in this repo fixes that.
+  **Two constraints worth keeping in mind** if this is revived. First, the
+  authority client sends only `Content-Type` and `Authorization: Bearer`
+  (`internal/remote/client.go:127-130`) — no custom headers, no client
+  certificates — so the service cannot sit behind Cloudflare Access, SSO, or
+  mTLS, and a bearer token is the only thing standing in front of a public
+  deployment. Second, that token is a master key: it gates project creation,
+  which has no signature check (`createProject` takes a bare JSON body),
+  while every other command is already Ed25519-verified per principal
+  (`internal/authority/postgres.go:363`). Per-peer revocable tokens were
+  implemented as a fix and reverted with the rest of this work — see
+  `810915f` in history.
+
 ## Possibly-a-bug, not yet root-caused
 
 - **`doctor`'s `REVOKED_AGENT_HAS_OPEN_WORK` false positive investigated
