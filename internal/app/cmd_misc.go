@@ -293,22 +293,33 @@ func (c *cli) daemonCmd() *cobra.Command {
 		}
 		ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
 		defer stop()
-		return daemon.Run(ctx, daemon.RunConfig{
-			AuthorityURL: cfg.AuthorityURL, ServicePublicKey: cfg.ServicePublicKey,
-			CachePath: cachePath, Endpoint: cfg.DaemonEndpoint,
-			ConnectorConfigPath: strings.TrimSpace(os.Getenv("AGENT_COMMS_CONNECTOR_CONFIG")),
-			RuntimeMode:         cfg.RuntimeMode, PersonalDatabase: runtimeinit.DatabasePath(projectRoot),
-			ServicePrivateKey: servicePrivateKey, ProjectID: cfg.ProjectID,
-			ProductVersion: Version, BuildID: buildinfo.ResolvedBuildID(),
-			ProjectFormatVersion: store.ProjectFormatVersion,
-			CacheSchemaVersion:   projectlifecycle.ProjectionCacheSchemaVersion,
-			DraftSchemaVersion:   projectlifecycle.DraftStoreSchemaVersion,
-			DraftPath:            runtimeinit.DraftPath(projectRoot),
-			ProjectRoot:          projectRoot,
-		})
+		return daemon.Run(ctx, serveRunConfig(projectRoot, cfg, cachePath, servicePrivateKey))
 	}}
 	root.AddCommand(serve)
 	return root
+}
+
+// serveRunConfig assembles the daemon's configuration for `daemon serve`.
+// Extracted from the command closure so it can be tested directly: it was
+// previously built inline, and the AuthorityToken field was simply missing,
+// which left every daemon ensureDaemon spawned unable to authenticate to a
+// service-mode authority. cmd/agent-comms-daemon reads the same variable, so
+// the two entry points now agree.
+func serveRunConfig(projectRoot string, cfg store.Config, cachePath, servicePrivateKey string) daemon.RunConfig {
+	return daemon.RunConfig{
+		AuthorityURL: cfg.AuthorityURL, ServicePublicKey: cfg.ServicePublicKey,
+		AuthorityToken: strings.TrimSpace(os.Getenv("AGENT_COMMS_AUTHORITY_TOKEN")),
+		CachePath:      cachePath, Endpoint: cfg.DaemonEndpoint,
+		ConnectorConfigPath: strings.TrimSpace(os.Getenv("AGENT_COMMS_CONNECTOR_CONFIG")),
+		RuntimeMode:         cfg.RuntimeMode, PersonalDatabase: runtimeinit.DatabasePath(projectRoot),
+		ServicePrivateKey: servicePrivateKey, ProjectID: cfg.ProjectID,
+		ProductVersion: Version, BuildID: buildinfo.ResolvedBuildID(),
+		ProjectFormatVersion: store.ProjectFormatVersion,
+		CacheSchemaVersion:   projectlifecycle.ProjectionCacheSchemaVersion,
+		DraftSchemaVersion:   projectlifecycle.DraftStoreSchemaVersion,
+		DraftPath:            runtimeinit.DraftPath(projectRoot),
+		ProjectRoot:          projectRoot,
+	}
 }
 
 func ensureDaemon(projectRoot string, cfg store.Config) error {

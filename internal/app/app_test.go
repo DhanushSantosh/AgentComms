@@ -2355,3 +2355,39 @@ func TestDraftDeleteRemovesADraftThroughTheRealCLI(t *testing.T) {
 		t.Fatal("draft delete without --id succeeded")
 	}
 }
+
+// A service-mode daemon authenticates to the authority with a bearer token.
+// `daemon serve` built its RunConfig inline and simply omitted the field, so
+// every daemon ensureDaemon spawned was unauthenticated and the authority
+// answered 401 "authority token is required" for every command in a
+// service-mode project -- while cmd/agent-comms-daemon, reading the same
+// variable, worked. Nothing failed at compile time because the zero value of
+// a string field is a valid string.
+func TestServeRunConfigCarriesTheAuthorityToken(t *testing.T) {
+	t.Setenv("AGENT_COMMS_AUTHORITY_TOKEN", "  token-with-surrounding-space  ")
+	cfg := store.Config{
+		RuntimeMode: "service", AuthorityURL: "https://authority.example",
+		ProjectID: "project", DaemonEndpoint: "/tmp/daemon.sock",
+	}
+	run := serveRunConfig(t.TempDir(), cfg, "/tmp/cache.db", "")
+	if run.AuthorityToken != "token-with-surrounding-space" {
+		t.Fatalf("service-mode daemon would start unauthenticated: AuthorityToken=%q", run.AuthorityToken)
+	}
+	if run.AuthorityURL != cfg.AuthorityURL || run.RuntimeMode != "service" || run.ProjectID != "project" {
+		t.Fatalf("run config lost project identity: %+v", run)
+	}
+}
+
+// Personal mode never talks to a remote authority, so an inherited token must
+// not leak into its config -- and an unset variable must not become a
+// whitespace-only token that looks set.
+func TestServeRunConfigLeavesTheTokenEmptyWhenUnset(t *testing.T) {
+	t.Setenv("AGENT_COMMS_AUTHORITY_TOKEN", "   ")
+	run := serveRunConfig(t.TempDir(), store.Config{RuntimeMode: "personal", ProjectID: "project"}, "/tmp/cache.db", "key")
+	if run.AuthorityToken != "" {
+		t.Fatalf("whitespace-only token should normalize to empty, got %q", run.AuthorityToken)
+	}
+	if run.ServicePrivateKey != "key" {
+		t.Fatalf("personal mode lost its signing key: %+v", run)
+	}
+}
