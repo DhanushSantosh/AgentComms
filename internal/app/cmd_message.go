@@ -197,6 +197,15 @@ func (c *cli) approvalCmd() *cobra.Command {
 			id = fmt.Sprintf("approval-%d", time.Now().UnixNano())
 		}
 		var expiresAt *time.Time
+		// A negative --expires-in used to fall through this branch and
+		// leave ExpiresAt nil, which under RFC 0037 means "never expires":
+		// asking for a window that already closed silently produced a
+		// permanent approval, the opposite of the request. The protocol's
+		// own guard could not catch it because the CLI never sent a past
+		// timestamp. Zero still means "not specified".
+		if expiresIn < 0 {
+			return fmt.Errorf("--expires-in must be positive; %s is in the past, and an approval with no expiry never expires", expiresIn)
+		}
 		if expiresIn > 0 {
 			value := time.Now().UTC().Add(expiresIn)
 			expiresAt = &value

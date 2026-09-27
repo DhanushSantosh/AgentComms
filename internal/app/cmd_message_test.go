@@ -321,3 +321,37 @@ func TestMessagePostAcceptsADisplayNameAndRecordsTheActorID(t *testing.T) {
 		t.Error("an unresolvable recipient must be refused")
 	}
 }
+
+// A negative --expires-in once fell through the "> 0" branch and left
+// ExpiresAt nil, which RFC 0037 reads as "never expires" -- so asking for a
+// window that had already closed produced a permanent approval. The
+// protocol guard could not catch it, because the CLI never sent a past
+// timestamp for it to reject.
+func TestApprovalRequestRefusesANegativeExpiry(t *testing.T) {
+	project := t.TempDir()
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
+	cleanupProjectDaemon(t, project)
+	var stdout, stderr bytes.Buffer
+	run := func(args ...string) error {
+		stdout.Reset()
+		stderr.Reset()
+		return Run(append(args, "--project", project, "--json"), &stdout, &stderr)
+	}
+	if err := run("init", "--non-interactive", "--owner", "owner"); err != nil {
+		t.Fatal(err)
+	}
+	if err := run("approval", "request", "--actor", "owner", "--id", "past",
+		"--action", "demo:x", "--tier", "ORCHESTRATOR", "--reason", "r", "--expires-in", "-1h"); err == nil {
+		t.Fatal("a negative --expires-in must be refused, not silently become no-expiry")
+	}
+	// Zero still means "not specified", and a positive window still works.
+	if err := run("approval", "request", "--actor", "owner", "--id", "future",
+		"--action", "demo:y", "--tier", "ORCHESTRATOR", "--reason", "r", "--expires-in", "1h"); err != nil {
+		t.Fatalf("a positive window must still be accepted: %v (%s)", err, stderr.String())
+	}
+	if err := run("approval", "request", "--actor", "owner", "--id", "none",
+		"--action", "demo:z", "--tier", "ORCHESTRATOR", "--reason", "r"); err != nil {
+		t.Fatalf("omitting --expires-in must still be accepted: %v (%s)", err, stderr.String())
+	}
+}
