@@ -23,6 +23,7 @@ function MiniMap({ shared, agent }: { shared?: boolean; agent?: string }) {
 export function ModeBridge() {
   return (
     <div className="mode-bridge continuity-map" role="img" aria-label="The same project map expands from one local machine to two shared machines while CLI, TUI, and MCP remain unchanged">
+      <div className="mode-bridge-head"><span>LOCAL TO SHARED</span><span>ONE MACHINE → TWO MACHINES</span></div>
       <div className="continuity-heading"><span>LOCAL<small>one machine</small></span><i>→</i><span>SHARED<small>two machines</small></span></div>
       <div className="continuity-topology">
         <div className="continuity-machine continuity-machine--local"><b>MACHINE A</b><MiniMap /></div>

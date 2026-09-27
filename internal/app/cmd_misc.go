@@ -293,22 +293,33 @@ func (c *cli) daemonCmd() *cobra.Command {
 		}
 		ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
 		defer stop()
-		return daemon.Run(ctx, daemon.RunConfig{
-			AuthorityURL: cfg.AuthorityURL, ServicePublicKey: cfg.ServicePublicKey,
-			CachePath: cachePath, Endpoint: cfg.DaemonEndpoint,
-			ConnectorConfigPath: strings.TrimSpace(os.Getenv("AGENT_COMMS_CONNECTOR_CONFIG")),
-			RuntimeMode:         cfg.RuntimeMode, PersonalDatabase: runtimeinit.DatabasePath(projectRoot),
-			ServicePrivateKey: servicePrivateKey, ProjectID: cfg.ProjectID,
-			ProductVersion: Version, BuildID: buildinfo.ResolvedBuildID(),
-			ProjectFormatVersion: store.ProjectFormatVersion,
-			CacheSchemaVersion:   projectlifecycle.ProjectionCacheSchemaVersion,
-			DraftSchemaVersion:   projectlifecycle.DraftStoreSchemaVersion,
-			DraftPath:            runtimeinit.DraftPath(projectRoot),
-			ProjectRoot:          projectRoot,
-		})
+		return daemon.Run(ctx, serveRunConfig(projectRoot, cfg, cachePath, servicePrivateKey))
 	}}
 	root.AddCommand(serve)
 	return root
+}
+
+// serveRunConfig assembles the daemon's configuration for `daemon serve`.
+// Extracted from the command closure so it can be tested directly: it was
+// previously built inline, and the AuthorityToken field was simply missing,
+// which left every daemon ensureDaemon spawned unable to authenticate to a
+// service-mode authority. cmd/agent-comms-daemon reads the same variable, so
+// the two entry points now agree.
+func serveRunConfig(projectRoot string, cfg store.Config, cachePath, servicePrivateKey string) daemon.RunConfig {
+	return daemon.RunConfig{
+		AuthorityURL: cfg.AuthorityURL, ServicePublicKey: cfg.ServicePublicKey,
+		AuthorityToken: strings.TrimSpace(os.Getenv("AGENT_COMMS_AUTHORITY_TOKEN")),
+		CachePath:      cachePath, Endpoint: cfg.DaemonEndpoint,
+		ConnectorConfigPath: strings.TrimSpace(os.Getenv("AGENT_COMMS_CONNECTOR_CONFIG")),
+		RuntimeMode:         cfg.RuntimeMode, PersonalDatabase: runtimeinit.DatabasePath(projectRoot),
+		ServicePrivateKey: servicePrivateKey, ProjectID: cfg.ProjectID,
+		ProductVersion: Version, BuildID: buildinfo.ResolvedBuildID(),
+		ProjectFormatVersion: store.ProjectFormatVersion,
+		CacheSchemaVersion:   projectlifecycle.ProjectionCacheSchemaVersion,
+		DraftSchemaVersion:   projectlifecycle.DraftStoreSchemaVersion,
+		DraftPath:            runtimeinit.DraftPath(projectRoot),
+		ProjectRoot:          projectRoot,
+	}
 }
 
 func ensureDaemon(projectRoot string, cfg store.Config) error {
@@ -366,7 +377,14 @@ func ensureDaemon(projectRoot string, cfg store.Config) error {
 		return fmt.Errorf("start local daemon: %w", startErr)
 	}
 	_ = logFile.Close()
+	// Keep the last probe error. Without it the failure below cannot tell a
+	// daemon that never started apart from one that started and answered too
+	// slowly for daemonHealthRequestTimeout -- symptoms that look identical
+	// in the message but have opposite fixes.
 	readyDeadline := time.Now().Add(daemonReadyTimeout)
+	started := time.Now()
+	probes := 0
+	var lastHealthErr error
 	for time.Now().Before(readyDeadline) {
 		time.Sleep(daemonReadyPollInterval)
 		healthCtx, healthCancel := context.WithTimeout(context.Background(), daemonHealthRequestTimeout)
@@ -375,9 +393,17 @@ func ensureDaemon(projectRoot string, cfg store.Config) error {
 		if healthErr == nil {
 			return nil
 		}
+		lastHealthErr = healthErr
+		probes++
+	}
+	detail := "no health probe was attempted"
+	if lastHealthErr != nil {
+		detail = fmt.Sprintf("%d probes over %s, last error: %v",
+			probes, time.Since(started).Round(time.Millisecond), lastHealthErr)
 	}
 	return &controlplane.Error{
-		Code:    controlplane.CodeUnavailable,
-		Message: "local daemon did not become ready; inspect " + filepath.Join(configDir, "daemon.log"),
+		Code: controlplane.CodeUnavailable,
+		Message: "local daemon did not become ready (" + detail + "); inspect " +
+			filepath.Join(configDir, "daemon.log"),
 	}
 }

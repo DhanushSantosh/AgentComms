@@ -156,11 +156,19 @@ func (m Model) confirmChoiceAt(p palette, x, y int) (yes, ok bool) {
 	if m.confirm == nil {
 		return false, false
 	}
+	yesLabel := confirmYesLabel
+	if m.confirm.localDraft {
+		yesLabel = draftConfirmYesLabel
+	}
 	rows := []string{
 		lipgloss.NewStyle().Foreground(p.amber).Bold(true).Render("REVIEW / Signed change"),
 		m.confirm.prompt,
 		"",
 		lipgloss.NewStyle().Foreground(p.muted).Render("This action becomes part of project history."),
+	}
+	if m.confirm.localDraft {
+		rows[0] = lipgloss.NewStyle().Foreground(p.amber).Bold(true).Render("REVIEW / Local draft deletion")
+		rows[3] = lipgloss.NewStyle().Foreground(p.muted).Render("This deletes one local draft and frees its quota; it does not change project history.")
 	}
 	line := m.bodyPrefixHeight(p)
 	for _, row := range rows {
@@ -177,10 +185,10 @@ func (m Model) confirmChoiceAt(p palette, x, y int) (yes, ok bool) {
 	if relativeX < 0 {
 		return false, false
 	}
-	if relativeX < lipgloss.Width(confirmYesLabel) {
+	if relativeX < lipgloss.Width(yesLabel) {
 		return true, true
 	}
-	noStart := lipgloss.Width(confirmYesLabel) + lipgloss.Width(confirmGap)
+	noStart := lipgloss.Width(yesLabel) + lipgloss.Width(confirmGap)
 	if relativeX >= noStart && relativeX < noStart+lipgloss.Width(confirmNoLabel) {
 		return false, true
 	}

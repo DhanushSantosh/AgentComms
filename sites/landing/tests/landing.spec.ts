@@ -182,7 +182,10 @@ test("launches the real TUI in the control room and can act on the seeded approv
   // a screenshot of the real render -- asserting a prefix that survives
   // truncation is more robust than assuming the full word always fits.
   await expect(terminal.getByText(/PEND/i).first()).toBeVisible();
-  await expect(terminal.getByText("agent.activate:reviewer", { exact: false }).first()).toBeVisible();
+  // RFC 0039: the seeded agent is "claude-reviewer", so the approval's
+  // action is agent.activate:claude-reviewer. The approval's own ID
+  // (approval-orchestrator-reviewer) is a separate literal and unchanged.
+  await expect(terminal.getByText("agent.activate:claude-reviewer", { exact: false }).first()).toBeVisible();
 
   // Reject the seeded approval (key "x") -- a real, signed, terminal state
   // transition (approvals.go's appReject -> approval.reject), not a

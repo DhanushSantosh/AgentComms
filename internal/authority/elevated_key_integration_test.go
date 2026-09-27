@@ -71,20 +71,20 @@ func TestPostgresOrchestratorGrantRejectsPrimaryKeySignatureOnceElevatedKeyRegis
 	register("owner", owner, model.PrincipalHuman)
 	must("owner", owner, "agent.activate", "owner",
 		model.AgentActivated{Role: model.RoleOwner, Capabilities: []string{"*"}, Scopes: []string{"*"}})
-	register("candidate", candidate, model.PrincipalAgent)
-	must("owner", owner, "agent.activate", "candidate", model.AgentActivated{Role: model.Role("MEMBER"), Scopes: []string{"src"}})
+	register("claude-candidate", candidate, model.PrincipalAgent)
+	must("owner", owner, "agent.activate", "claude-candidate", model.AgentActivated{Role: model.Role("MEMBER"), Scopes: []string{"src"}})
 
-	action := protocol.OrchestratorGrantApprovalAction("candidate")
-	must("owner", owner, "approval.request", protocol.OrchestratorGrantApprovalID("candidate"), model.ApprovalRequested{Tier: "HUMAN", Action: action, Reason: "test"})
-	must("owner", owner, "approval.approve", protocol.OrchestratorGrantApprovalID("candidate"), model.ApprovalResponse{})
+	action := protocol.OrchestratorGrantApprovalAction("claude-candidate")
+	must("owner", owner, "approval.request", protocol.OrchestratorGrantApprovalID("claude-candidate"), model.ApprovalRequested{Tier: "HUMAN", Action: action, Reason: "test"})
+	must("owner", owner, "approval.approve", protocol.OrchestratorGrantApprovalID("claude-candidate"), model.ApprovalResponse{})
 
 	must("owner", owner, "agent.elevate-key", "owner", model.AgentElevatedKeyRegistered{PublicKey: elevated.PublicKey()})
 
-	if _, _, err = mutate("owner", owner, "agent.activate", "candidate",
+	if _, _, err = mutate("owner", owner, "agent.activate", "claude-candidate",
 		model.AgentActivated{Role: model.RoleOrchestrator, Scopes: []string{"src"}}); err == nil {
 		t.Fatal("expected a primary-key signature to be rejected once an elevated key is registered")
 	}
-	if _, _, err = mutate("owner", elevated, "agent.activate", "candidate",
+	if _, _, err = mutate("owner", elevated, "agent.activate", "claude-candidate",
 		model.AgentActivated{Role: model.RoleOrchestrator, Scopes: []string{"src"}}); err != nil {
 		t.Fatalf("expected the elevated-key signature to be accepted: %v", err)
 	}
@@ -103,18 +103,18 @@ func TestPostgresOrchestratorGrantRejectsPrimaryKeySignatureOnceElevatedKeyRegis
 	// personalauthority's TestRevokeOfOrchestratorRejectsPrimaryKeySignatureOnceElevatedKeyRegistered,
 	// exercising scopedElevationState's own "agent.revoke" SQL query, not
 	// just the personal-mode in-memory state path.
-	if _, _, err = mutate("owner", owner, "agent.revoke", "candidate", model.RuntimeStatusChanged{}); err == nil {
+	if _, _, err = mutate("owner", owner, "agent.revoke", "claude-candidate", model.RuntimeStatusChanged{}); err == nil {
 		t.Fatal("expected a primary-key signature to be rejected revoking an orchestrator once an elevated key is registered")
 	}
-	if _, _, err = mutate("owner", elevated, "agent.revoke", "candidate", model.RuntimeStatusChanged{}); err != nil {
+	if _, _, err = mutate("owner", elevated, "agent.revoke", "claude-candidate", model.RuntimeStatusChanged{}); err != nil {
 		t.Fatalf("expected the elevated-key signature to be accepted: %v", err)
 	}
 
-	if _, _, err = mutate("owner", owner, "agent.delete", "candidate",
+	if _, _, err = mutate("owner", owner, "agent.delete", "claude-candidate",
 		model.AgentDeleted{Reason: "remove retired identity"}); err == nil {
 		t.Fatal("expected a primary-key signature to be rejected deleting a principal once an elevated key is registered")
 	}
-	deleted, _, err := mutate("owner", elevated, "agent.delete", "candidate",
+	deleted, _, err := mutate("owner", elevated, "agent.delete", "claude-candidate",
 		model.AgentDeleted{Reason: "remove retired identity"})
 	if err != nil {
 		t.Fatalf("expected elevated-key deletion to be accepted: %v", err)
@@ -126,12 +126,12 @@ func TestPostgresOrchestratorGrantRejectsPrimaryKeySignatureOnceElevatedKeyRegis
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, exists := state.Agents["candidate"]; exists {
+	if _, exists := state.Agents["claude-candidate"]; exists {
 		t.Fatal("deleted principal remained in the Postgres projection")
 	}
 
 	replacement, _ := controlplane.GenerateSigner()
-	registered, _, err := mutate("candidate", replacement, "agent.register", "candidate",
+	registered, _, err := mutate("claude-candidate", replacement, "agent.register", "claude-candidate",
 		model.AgentRegistered{PublicKey: replacement.PublicKey(), PrincipalType: model.PrincipalAgent, DisplayName: "replacement"})
 	if err != nil {
 		t.Fatalf("expected deleted ID to be reusable: %v", err)
@@ -153,7 +153,7 @@ func TestPostgresOrchestratorGrantRejectsPrimaryKeySignatureOnceElevatedKeyRegis
 	seenOriginal := false
 	seenReplacement := false
 	for _, record := range page.Items {
-		if record.Event.Type != "agent.register" || record.Event.Actor != "candidate" {
+		if record.Event.Type != "agent.register" || record.Event.Actor != "claude-candidate" {
 			continue
 		}
 		switch record.Event.ActorKeyFingerprint {

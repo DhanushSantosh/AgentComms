@@ -1,6 +1,7 @@
 package protocol
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -53,18 +54,24 @@ func TestScopeAllowsRequiresEveryResourceCovered(t *testing.T) {
 }
 
 func TestHasApproval(t *testing.T) {
+	now := time.Now().UTC()
 	st := model.State{Approvals: map[string]model.Approval{
 		"a1": {Action: "do-thing", Status: "APPROVED", Tier: "ORCHESTRATOR"},
 		"a2": {Action: "do-other", Status: "PENDING", Tier: "HUMAN"},
 	}}
-	if !hasApproval(st, "do-thing") {
+	if !hasApproval(st, "do-thing", now) {
 		t.Fatal("expected an APPROVED approval to satisfy hasApproval")
 	}
-	if hasApproval(st, "do-other") {
+	if hasApproval(st, "do-other", now) {
 		t.Fatal("expected a PENDING approval not to satisfy hasApproval")
 	}
-	if hasApproval(st, "missing") {
+	if hasApproval(st, "missing", now) {
 		t.Fatal("expected a missing action not to satisfy hasApproval")
+	}
+	past := now.Add(-time.Second)
+	st.Approvals["expired"] = model.Approval{Action: "expired", Status: "APPROVED", ExpiresAt: &past}
+	if hasApproval(st, "expired", now) {
+		t.Fatal("expected an expired approval not to satisfy hasApproval")
 	}
 }
 
@@ -146,7 +153,7 @@ func TestContainsString(t *testing.T) {
 	if !containsString([]string{"a", "b"}, "b") {
 		t.Fatal("expected containsString to find a present value")
 	}
-	if containsString([]string{"a", "b"}, "c") {
+	if containsString([]string{"a", "b"}, "claude-c") {
 		t.Fatal("expected containsString to reject an absent value")
 	}
 	if containsString(nil, "a") {
@@ -253,9 +260,9 @@ func TestAgentRenameRequiresExistingActiveTargetAndNonEmptyName(t *testing.T) {
 func taskState(extra ...func(*model.State)) model.State {
 	st := model.State{
 		Agents: map[string]model.Agent{
-			"owner":   humanAgent("owner"),
-			"builder": {ID: "builder", Status: "ACTIVE", Role: model.Role("MEMBER"), PrincipalType: model.PrincipalAgent, Scopes: []string{"*"}},
-			"other":   {ID: "other", Status: "ACTIVE", Role: model.Role("MEMBER"), PrincipalType: model.PrincipalAgent, Scopes: []string{"*"}},
+			"owner":          humanAgent("owner"),
+			"claude-builder": {ID: "claude-builder", Status: "ACTIVE", Role: model.Role("MEMBER"), PrincipalType: model.PrincipalAgent, Scopes: []string{"*"}},
+			"other":          {ID: "other", Status: "ACTIVE", Role: model.Role("MEMBER"), PrincipalType: model.PrincipalAgent, Scopes: []string{"*"}},
 		},
 		Tasks: map[string]model.Task{},
 	}
@@ -289,19 +296,19 @@ func TestTaskCreateValidatesRequiredFieldsAndDuplicateID(t *testing.T) {
 func TestTaskClaimRejectsScopeOverrunAndOwnedTasks(t *testing.T) {
 	st := taskState(func(s *model.State) {
 		s.Tasks["t1"] = model.Task{ID: "t1", Status: "OPEN", Resources: []string{"repo/a"}}
-		s.Tasks["owned"] = model.Task{ID: "owned", Status: "CLAIMED", Owner: "builder", Resources: []string{"repo/b"}}
+		s.Tasks["owned"] = model.Task{ID: "owned", Status: "CLAIMED", Owner: "claude-builder", Resources: []string{"repo/b"}}
 	})
 	if _, err := ValidateTransition(st, "owner", "task.claim", "owned", model.TaskClaimed{}, time.Now()); err == nil {
 		t.Fatal("expected claiming an already-owned task to be rejected")
 	}
 	scoped := taskState(func(s *model.State) {
-		s.Agents["builder"] = model.Agent{ID: "builder", Status: "ACTIVE", Role: model.Role("MEMBER"), PrincipalType: model.PrincipalAgent, Scopes: []string{"repo/only-this"}}
+		s.Agents["claude-builder"] = model.Agent{ID: "claude-builder", Status: "ACTIVE", Role: model.Role("MEMBER"), PrincipalType: model.PrincipalAgent, Scopes: []string{"repo/only-this"}}
 		s.Tasks["t1"] = model.Task{ID: "t1", Status: "OPEN", Resources: []string{"repo/other"}}
 	})
-	if _, err := ValidateTransition(scoped, "builder", "task.claim", "t1", model.TaskClaimed{}, time.Now()); err == nil {
+	if _, err := ValidateTransition(scoped, "claude-builder", "task.claim", "t1", model.TaskClaimed{}, time.Now()); err == nil {
 		t.Fatal("expected a claim exceeding the principal's scopes to be rejected")
 	}
-	if _, err := ValidateTransition(st, "builder", "task.claim", "t1", model.TaskClaimed{}, time.Now()); err != nil {
+	if _, err := ValidateTransition(st, "claude-builder", "task.claim", "t1", model.TaskClaimed{}, time.Now()); err != nil {
 		t.Fatalf("expected a valid claim to succeed: %v", err)
 	}
 }
@@ -315,14 +322,38 @@ func TestTaskClaimRejectsOverlappingWriteLeaseWithoutSharedWriteApproval(t *test
 			LeaseUntil: now.Add(time.Hour),
 		}
 	})
-	if _, err := ValidateTransition(st, "builder", "task.claim", "t1", model.TaskClaimed{}, now); err == nil {
+	if _, err := ValidateTransition(st, "claude-builder", "task.claim", "t1", model.TaskClaimed{}, now); err == nil {
 		t.Fatal("expected an overlapping write lease to be rejected without a shared-write approval")
 	}
 	st.Approvals = map[string]model.Approval{
 		"shared": {Action: "shared-write:t1:t2", Status: "APPROVED"},
 	}
-	if _, err := ValidateTransition(st, "builder", "task.claim", "t1", model.TaskClaimed{}, now); err != nil {
+	if _, err := ValidateTransition(st, "claude-builder", "task.claim", "t1", model.TaskClaimed{}, now); err != nil {
 		t.Fatalf("expected a shared-write approval to permit the overlapping claim: %v", err)
+	}
+	past := now.Add(-time.Second)
+	st.Approvals["shared"] = model.Approval{Action: "shared-write:t1:t2", Status: "APPROVED", ExpiresAt: &past}
+	_, err := ValidateTransition(st, "claude-builder", "task.claim", "t1", model.TaskClaimed{}, now)
+	if err == nil {
+		t.Fatal("expected an expired shared-write approval to reject a new overlapping claim")
+	}
+	// RFC 0037 item 5: an expired approval must not be reported as a bare
+	// overlap, or the operator debugs the overlap instead of renewing it.
+	if !strings.Contains(err.Error(), "expired") {
+		t.Fatalf("expired shared-write approval must say so, got: %v", err)
+	}
+	delete(st.Approvals, "shared")
+	_, err = ValidateTransition(st, "claude-builder", "task.claim", "t1", model.TaskClaimed{}, now)
+	if err == nil {
+		t.Fatal("expected an overlapping claim with no approval at all to be rejected")
+	}
+	if strings.Contains(err.Error(), "expired") {
+		t.Fatalf("no approval at all must not be reported as expired, got: %v", err)
+	}
+	future := now.Add(time.Hour)
+	st.Approvals["shared"] = model.Approval{Action: "shared-write:t1:t2", Status: "APPROVED", ExpiresAt: &future}
+	if _, err := ValidateTransition(st, "claude-builder", "task.claim", "t1", model.TaskClaimed{}, now); err != nil {
+		t.Fatalf("expected an unexpired shared-write approval to permit a new claim: %v", err)
 	}
 }
 
@@ -335,24 +366,24 @@ func TestTaskClaimRejectsConflictingWorktreeLease(t *testing.T) {
 			Worktree: "wt", LeaseUntil: now.Add(time.Hour),
 		}
 	})
-	if _, err := ValidateTransition(st, "builder", "task.claim", "t1", model.TaskClaimed{}, now); err == nil {
+	if _, err := ValidateTransition(st, "claude-builder", "task.claim", "t1", model.TaskClaimed{}, now); err == nil {
 		t.Fatal("expected a worktree already leased by a different owner to be rejected")
 	}
 }
 
 func TestTaskRenewRequiresOwnerAndProgress(t *testing.T) {
 	st := taskState(func(s *model.State) {
-		s.Tasks["t1"] = model.Task{ID: "t1", Status: "CLAIMED", Owner: "builder", Resources: []string{"repo/a"}}
+		s.Tasks["t1"] = model.Task{ID: "t1", Status: "CLAIMED", Owner: "claude-builder", Resources: []string{"repo/a"}}
 	})
 	if _, err := ValidateTransition(st, "other", "task.renew", "t1",
 		model.TaskRenewed{Progress: "still working"}, time.Now()); err == nil {
 		t.Fatal("expected a non-owner renewal to be rejected")
 	}
-	if _, err := ValidateTransition(st, "builder", "task.renew", "t1",
+	if _, err := ValidateTransition(st, "claude-builder", "task.renew", "t1",
 		model.TaskRenewed{Progress: ""}, time.Now()); err == nil {
 		t.Fatal("expected a renewal without a progress summary to be rejected")
 	}
-	if _, err := ValidateTransition(st, "builder", "task.renew", "t1",
+	if _, err := ValidateTransition(st, "claude-builder", "task.renew", "t1",
 		model.TaskRenewed{Progress: "still working"}, time.Now()); err != nil {
 		t.Fatalf("expected a valid renewal to succeed: %v", err)
 	}
@@ -360,17 +391,17 @@ func TestTaskRenewRequiresOwnerAndProgress(t *testing.T) {
 
 func TestTaskHandoffAndAcceptRequireCorrectParty(t *testing.T) {
 	st := taskState(func(s *model.State) {
-		s.Tasks["t1"] = model.Task{ID: "t1", Status: "IN_PROGRESS", Owner: "builder", Resources: []string{"repo/a"}, HandoffTo: "other"}
+		s.Tasks["t1"] = model.Task{ID: "t1", Status: "IN_PROGRESS", Owner: "claude-builder", Resources: []string{"repo/a"}, HandoffTo: "other"}
 	})
 	if _, err := ValidateTransition(st, "other", "task.handoff", "t1",
 		model.TaskHandoff{To: "other", Summary: "handing off"}, time.Now()); err == nil {
 		t.Fatal("expected handoff initiated by a non-owner to be rejected")
 	}
-	if _, err := ValidateTransition(st, "builder", "task.handoff", "t1",
+	if _, err := ValidateTransition(st, "claude-builder", "task.handoff", "t1",
 		model.TaskHandoff{To: "other", Summary: "handing off"}, time.Now()); err != nil {
 		t.Fatalf("expected the task owner to hand off successfully: %v", err)
 	}
-	if _, err := ValidateTransition(st, "builder", "task.handoff.accept", "t1",
+	if _, err := ValidateTransition(st, "claude-builder", "task.handoff.accept", "t1",
 		model.TaskStatus{}, time.Now()); err == nil {
 		t.Fatal("expected acceptance by anyone other than the handoff target to be rejected")
 	}
@@ -384,14 +415,14 @@ func TestTaskStatusTransitionsEnforceAllowedSourceStatus(t *testing.T) {
 	st := taskState(func(s *model.State) {
 		s.Tasks["t1"] = model.Task{ID: "t1", Status: "OPEN", Owner: "", Resources: []string{"repo/a"}}
 	})
-	if _, err := ValidateTransition(st, "builder", "task.start", "t1", model.TaskStatus{}, time.Now()); err == nil {
+	if _, err := ValidateTransition(st, "claude-builder", "task.start", "t1", model.TaskStatus{}, time.Now()); err == nil {
 		t.Fatal("expected task.start on an OPEN (unclaimed) task to be rejected")
 	}
-	st.Tasks["t1"] = model.Task{ID: "t1", Status: "CLAIMED", Owner: "builder", Resources: []string{"repo/a"}}
-	if _, err := ValidateTransition(st, "builder", "task.start", "t1", model.TaskStatus{}, time.Now()); err != nil {
+	st.Tasks["t1"] = model.Task{ID: "t1", Status: "CLAIMED", Owner: "claude-builder", Resources: []string{"repo/a"}}
+	if _, err := ValidateTransition(st, "claude-builder", "task.start", "t1", model.TaskStatus{}, time.Now()); err != nil {
 		t.Fatalf("expected task.start on a CLAIMED task owned by the actor to succeed: %v", err)
 	}
-	st.Tasks["t1"] = model.Task{ID: "t1", Status: "IN_PROGRESS", Owner: "builder", Resources: []string{"repo/a"}}
+	st.Tasks["t1"] = model.Task{ID: "t1", Status: "IN_PROGRESS", Owner: "claude-builder", Resources: []string{"repo/a"}}
 	if _, err := ValidateTransition(st, "other", "task.block", "t1", model.TaskStatus{}, time.Now()); err == nil {
 		t.Fatal("expected blocking someone else's task by a non-owner, non-orchestrator actor to be rejected")
 	}
@@ -403,22 +434,22 @@ func TestTaskStatusTransitionsEnforceAllowedSourceStatus(t *testing.T) {
 func TestTaskCompleteRequiresReviewForNonRoutineOrRequireReviewSettings(t *testing.T) {
 	now := time.Now()
 	st := taskState(func(s *model.State) {
-		s.Tasks["t1"] = model.Task{ID: "t1", Status: "IN_PROGRESS", Owner: "builder", Resources: []string{"repo/a"}, Risk: "HIGH"}
+		s.Tasks["t1"] = model.Task{ID: "t1", Status: "IN_PROGRESS", Owner: "claude-builder", Resources: []string{"repo/a"}, Risk: "HIGH"}
 	})
-	if _, err := ValidateTransition(st, "builder", "task.complete", "t1", model.TaskStatus{}, now); err == nil {
+	if _, err := ValidateTransition(st, "claude-builder", "task.complete", "t1", model.TaskStatus{}, now); err == nil {
 		t.Fatal("expected completing a non-ROUTINE task straight from IN_PROGRESS to be rejected")
 	}
-	st.Tasks["t1"] = model.Task{ID: "t1", Status: "REVIEW", Owner: "builder", Resources: []string{"repo/a"}, Risk: "HIGH"}
-	if _, err := ValidateTransition(st, "builder", "task.complete", "t1", model.TaskStatus{}, now); err == nil {
+	st.Tasks["t1"] = model.Task{ID: "t1", Status: "REVIEW", Owner: "claude-builder", Resources: []string{"repo/a"}, Risk: "HIGH"}
+	if _, err := ValidateTransition(st, "claude-builder", "task.complete", "t1", model.TaskStatus{}, now); err == nil {
 		t.Fatal("expected the task owner (not an eligible reviewer) to be rejected completing their own reviewed task")
 	}
 	if _, err := ValidateTransition(st, "owner", "task.complete", "t1", model.TaskStatus{}, now); err != nil {
 		t.Fatalf("expected an owner-role reviewer to complete the task: %v", err)
 	}
 	routine := taskState(func(s *model.State) {
-		s.Tasks["t1"] = model.Task{ID: "t1", Status: "IN_PROGRESS", Owner: "builder", Resources: []string{"repo/a"}, Risk: "ROUTINE"}
+		s.Tasks["t1"] = model.Task{ID: "t1", Status: "IN_PROGRESS", Owner: "claude-builder", Resources: []string{"repo/a"}, Risk: "ROUTINE"}
 	})
-	if _, err := ValidateTransition(routine, "builder", "task.complete", "t1", model.TaskStatus{}, now); err != nil {
+	if _, err := ValidateTransition(routine, "claude-builder", "task.complete", "t1", model.TaskStatus{}, now); err != nil {
 		t.Fatalf("expected a ROUTINE task to skip the review gate by default: %v", err)
 	}
 }
@@ -426,36 +457,80 @@ func TestTaskCompleteRequiresReviewForNonRoutineOrRequireReviewSettings(t *testi
 func TestTaskCancelAllowedFromAnyOpenStatus(t *testing.T) {
 	for _, status := range []string{"OPEN", "OFFERED", "CLAIMED", "IN_PROGRESS", "BLOCKED", "REVIEW"} {
 		st := taskState(func(s *model.State) {
-			s.Tasks["t1"] = model.Task{ID: "t1", Status: status, Owner: "builder", Resources: []string{"repo/a"}}
+			s.Tasks["t1"] = model.Task{ID: "t1", Status: status, Owner: "claude-builder", Resources: []string{"repo/a"}}
 		})
-		if _, err := ValidateTransition(st, "builder", "task.cancel", "t1", model.TaskStatus{}, time.Now()); err != nil {
+		if _, err := ValidateTransition(st, "claude-builder", "task.cancel", "t1", model.TaskStatus{}, time.Now()); err != nil {
 			t.Fatalf("expected task.cancel to succeed from status %s: %v", status, err)
 		}
 	}
 	st := taskState(func(s *model.State) {
-		s.Tasks["t1"] = model.Task{ID: "t1", Status: "COMPLETED", Owner: "builder", Resources: []string{"repo/a"}}
+		s.Tasks["t1"] = model.Task{ID: "t1", Status: "COMPLETED", Owner: "claude-builder", Resources: []string{"repo/a"}}
 	})
-	if _, err := ValidateTransition(st, "builder", "task.cancel", "t1", model.TaskStatus{}, time.Now()); err == nil {
+	if _, err := ValidateTransition(st, "claude-builder", "task.cancel", "t1", model.TaskStatus{}, time.Now()); err == nil {
 		t.Fatal("expected task.cancel on an already-COMPLETED task to be rejected")
 	}
 }
 
 func TestTaskTakeoverRequiresApproval(t *testing.T) {
+	now := time.Now().UTC()
 	st := taskState(func(s *model.State) {
-		s.Tasks["t1"] = model.Task{ID: "t1", Status: "CLAIMED", Owner: "builder", Resources: []string{"repo/a"}}
+		s.Tasks["t1"] = model.Task{ID: "t1", Status: "CLAIMED", Owner: "claude-builder", Resources: []string{"repo/a"}}
 	})
-	if _, err := ValidateTransition(st, "other", "task.takeover", "t1", model.TaskStatus{}, time.Now()); err == nil {
+	if _, err := ValidateTransition(st, "other", "task.takeover", "t1", model.TaskStatus{}, now); err == nil {
 		t.Fatal("expected a takeover without an approved takeover record to be rejected")
 	}
 	st.Approvals = map[string]model.Approval{"a1": {Action: "task.takeover:t1", Status: "APPROVED"}}
-	if _, err := ValidateTransition(st, "other", "task.takeover", "t1", model.TaskStatus{}, time.Now()); err != nil {
+	if _, err := ValidateTransition(st, "other", "task.takeover", "t1", model.TaskStatus{}, now); err != nil {
 		t.Fatalf("expected an approved takeover to succeed: %v", err)
 	}
 	// RFC 0024: once consumed (by internal/projection after a successful
 	// takeover), the same record must not authorize another one.
 	st.Approvals["a1"] = model.Approval{Action: "task.takeover:t1", Status: "CONSUMED"}
-	if _, err := ValidateTransition(st, "other", "task.takeover", "t1", model.TaskStatus{}, time.Now()); err == nil {
+	if _, err := ValidateTransition(st, "other", "task.takeover", "t1", model.TaskStatus{}, now); err == nil {
 		t.Fatal("expected a consumed takeover approval not to authorize another takeover")
+	}
+	past := now.Add(-time.Second)
+	future := now.Add(time.Hour)
+	st.Approvals = map[string]model.Approval{
+		"a-expired": {Action: "task.takeover:t1", Status: "APPROVED", ExpiresAt: &past},
+		"b-valid":   {Action: "task.takeover:t1", Status: "APPROVED", ExpiresAt: &future},
+	}
+	accepted, err := ValidateTransition(st, "other", "task.takeover", "t1", model.TaskStatus{ApprovalID: "a-expired"}, now)
+	if err != nil {
+		t.Fatalf("expected valid later approval to authorize takeover: %v", err)
+	}
+	if got := accepted.(model.TaskStatus).ApprovalID; got != "b-valid" {
+		t.Fatalf("normalized approval_id = %q, want b-valid", got)
+	}
+	delete(st.Approvals, "b-valid")
+	if _, err := ValidateTransition(st, "other", "task.takeover", "t1", model.TaskStatus{}, now); err == nil {
+		t.Fatal("expected an expired-only takeover approval to be rejected")
+	}
+}
+
+func TestTaskStatusCannotClaimUnrelatedApprovalID(t *testing.T) {
+	now := time.Now().UTC()
+	st := taskState(func(s *model.State) {
+		s.Tasks["t1"] = model.Task{ID: "t1", Status: "CLAIMED", Owner: "claude-builder", Resources: []string{"repo/a"}}
+	})
+	if _, err := ValidateTransition(st, "claude-builder", "task.start", "t1", model.TaskStatus{ApprovalID: "self-asserted"}, now); err == nil {
+		t.Fatal("expected a non-takeover task event with a claimed approval_id to be rejected")
+	}
+}
+
+func TestApprovalRequestRejectsAlreadyExpiredWindow(t *testing.T) {
+	now := time.Now().UTC()
+	past := now.Add(-time.Second)
+	st := taskState()
+	if _, err := ValidateTransition(st, "owner", "approval.request", "expired-request", model.ApprovalRequested{
+		Tier: "ORCHESTRATOR", Action: "task.takeover:t1", Reason: "recovery", ExpiresAt: &past,
+	}, now); err == nil {
+		t.Fatal("expected a new approval with an expired window to be rejected")
+	}
+	if _, err := ValidateTransition(st, "owner", "approval.request", "no-expiry-request", model.ApprovalRequested{
+		Tier: "ORCHESTRATOR", Action: "task.takeover:t1", Reason: "recovery",
+	}, now); err != nil {
+		t.Fatalf("expected the current optional-expiry contract to remain valid: %v", err)
 	}
 }
 
@@ -464,9 +539,9 @@ func TestTaskTakeoverRequiresApproval(t *testing.T) {
 func messageState() model.State {
 	return model.State{
 		Agents: map[string]model.Agent{
-			"owner":      humanAgent("owner"),
-			"agent-orch": agentOrchestrator("agent-orch"),
-			"recipient":  {ID: "recipient", Status: "ACTIVE", Role: model.Role("MEMBER"), PrincipalType: model.PrincipalAgent},
+			"owner":            humanAgent("owner"),
+			"agent-orch":       agentOrchestrator("agent-orch"),
+			"claude-recipient": {ID: "claude-recipient", Status: "ACTIVE", Role: model.Role("MEMBER"), PrincipalType: model.PrincipalAgent},
 		},
 		Messages: map[string]model.Message{},
 	}
@@ -475,7 +550,7 @@ func messageState() model.State {
 func TestMessagePostValidatesKindRecipientsAndBodyLength(t *testing.T) {
 	st := messageState()
 	if _, err := ValidateTransition(st, "owner", "message.post", "m1",
-		model.MessagePosted{Kind: "NOT_A_KIND", To: []string{"recipient"}, Subject: "s"}, time.Now()); err == nil {
+		model.MessagePosted{Kind: "NOT_A_KIND", To: []string{"claude-recipient"}, Subject: "s"}, time.Now()); err == nil {
 		t.Fatal("expected an invalid message kind to be rejected")
 	}
 	if _, err := ValidateTransition(st, "owner", "message.post", "m1",
@@ -484,29 +559,29 @@ func TestMessagePostValidatesKindRecipientsAndBodyLength(t *testing.T) {
 	}
 	longBody := make([]byte, 1201)
 	if _, err := ValidateTransition(st, "owner", "message.post", "m1",
-		model.MessagePosted{Kind: "FYI", To: []string{"recipient"}, Subject: "s", Body: string(longBody)}, time.Now()); err == nil {
+		model.MessagePosted{Kind: "FYI", To: []string{"claude-recipient"}, Subject: "s", Body: string(longBody)}, time.Now()); err == nil {
 		t.Fatal("expected a message body over 1200 characters to be rejected")
 	}
 	if _, err := ValidateTransition(st, "owner", "message.post", "m1",
-		model.MessagePosted{Kind: "FYI", To: []string{"recipient"}, Subject: "s"}, time.Now()); err != nil {
+		model.MessagePosted{Kind: "FYI", To: []string{"claude-recipient"}, Subject: "s"}, time.Now()); err != nil {
 		t.Fatalf("expected a valid FYI message to succeed: %v", err)
 	}
 }
 
 func TestMessagePostContractKindRequiresElevationOrApproval(t *testing.T) {
 	st := messageState()
-	if _, err := ValidateTransition(st, "recipient", "message.post", "m1",
+	if _, err := ValidateTransition(st, "claude-recipient", "message.post", "m1",
 		model.MessagePosted{Kind: "CONTRACT", To: []string{"owner"}, Subject: "s"}, time.Now()); err == nil {
 		t.Fatal("expected a CONTRACT message from a non-elevated, non-approved actor to be rejected")
 	}
 	if _, err := ValidateTransition(st, "owner", "message.post", "m1",
-		model.MessagePosted{Kind: "CONTRACT", To: []string{"recipient"}, Subject: "s"}, time.Now()); err != nil {
+		model.MessagePosted{Kind: "CONTRACT", To: []string{"claude-recipient"}, Subject: "s"}, time.Now()); err != nil {
 		t.Fatalf("expected an owner to post a CONTRACT message directly: %v", err)
 	}
 	contract := model.MessagePosted{Kind: "CONTRACT", To: []string{"owner"}, Subject: "s"}
 	expires := time.Now().Add(time.Hour)
-	st.Approvals = map[string]model.Approval{"a1": {Action: "contract:m2", Status: "APPROVED", SubjectDigest: ApprovalSubjectDigest("recipient", "message.post", "m2", contract), ExpiresAt: &expires}}
-	if _, err := ValidateTransition(st, "recipient", "message.post", "m2",
+	st.Approvals = map[string]model.Approval{"a1": {Action: "contract:m2", Status: "APPROVED", SubjectDigest: ApprovalSubjectDigest("claude-recipient", "message.post", "m2", contract), ExpiresAt: &expires}}
+	if _, err := ValidateTransition(st, "claude-recipient", "message.post", "m2",
 		contract, time.Now()); err != nil {
 		t.Fatalf("expected an approved contract publication to succeed: %v", err)
 	}
@@ -515,13 +590,13 @@ func TestMessagePostContractKindRequiresElevationOrApproval(t *testing.T) {
 func TestMessageResponseTransitionsEnforceRecipientStatus(t *testing.T) {
 	st := messageState()
 	st.Messages["m1"] = model.Message{
-		ID: "m1", Kind: "ACTION", From: "owner", To: []string{"recipient"},
-		Recipients: []model.RecipientState{{Principal: "recipient", Status: "PENDING"}},
+		ID: "m1", Kind: "ACTION", From: "owner", To: []string{"claude-recipient"},
+		Recipients: []model.RecipientState{{Principal: "claude-recipient", Status: "PENDING"}},
 	}
 	if _, err := ValidateTransition(st, "owner", "message.ack", "m1", model.MessageResponse{}, time.Now()); err == nil {
 		t.Fatal("expected message.ack by a non-recipient to be rejected")
 	}
-	normalized, err := ValidateTransition(st, "recipient", "message.ack", "m1", model.MessageResponse{}, time.Now())
+	normalized, err := ValidateTransition(st, "claude-recipient", "message.ack", "m1", model.MessageResponse{}, time.Now())
 	if err != nil {
 		t.Fatalf("expected a pending recipient to ack an ACTION message: %v", err)
 	}
@@ -529,27 +604,27 @@ func TestMessageResponseTransitionsEnforceRecipientStatus(t *testing.T) {
 		t.Fatalf("expected ack of an ACTION message to normalize to ACCEPTED, got %+v", normalized)
 	}
 	st.Messages["m1"].Recipients[0].Status = "ACCEPTED"
-	if _, err := ValidateTransition(st, "recipient", "message.complete", "m1", model.MessageResponse{}, time.Now()); err != nil {
+	if _, err := ValidateTransition(st, "claude-recipient", "message.complete", "m1", model.MessageResponse{}, time.Now()); err != nil {
 		t.Fatalf("expected completing an ACCEPTED ACTION message to succeed: %v", err)
 	}
 
 	st.Messages["blocker"] = model.Message{
-		ID: "blocker", Kind: "BLOCKER", From: "owner", To: []string{"recipient"},
-		Recipients: []model.RecipientState{{Principal: "recipient", Status: "PENDING"}},
+		ID: "blocker", Kind: "BLOCKER", From: "owner", To: []string{"claude-recipient"},
+		Recipients: []model.RecipientState{{Principal: "claude-recipient", Status: "PENDING"}},
 	}
-	if _, err := ValidateTransition(st, "recipient", "message.resolve", "blocker", model.MessageResponse{}, time.Now()); err == nil {
+	if _, err := ValidateTransition(st, "claude-recipient", "message.resolve", "blocker", model.MessageResponse{}, time.Now()); err == nil {
 		t.Fatal("expected resolving a not-yet-acknowledged BLOCKER to be rejected")
 	}
 	st.Messages["blocker"].Recipients[0].Status = "ACKNOWLEDGED"
-	if _, err := ValidateTransition(st, "recipient", "message.resolve", "blocker", model.MessageResponse{}, time.Now()); err != nil {
+	if _, err := ValidateTransition(st, "claude-recipient", "message.resolve", "blocker", model.MessageResponse{}, time.Now()); err != nil {
 		t.Fatalf("expected resolving an acknowledged BLOCKER to succeed: %v", err)
 	}
 
 	st.Messages["reject-me"] = model.Message{
-		ID: "reject-me", Kind: "FYI", From: "owner", To: []string{"recipient"},
-		Recipients: []model.RecipientState{{Principal: "recipient", Status: "PENDING"}},
+		ID: "reject-me", Kind: "FYI", From: "owner", To: []string{"claude-recipient"},
+		Recipients: []model.RecipientState{{Principal: "claude-recipient", Status: "PENDING"}},
 	}
-	if _, err := ValidateTransition(st, "recipient", "message.reject", "reject-me", model.MessageResponse{}, time.Now()); err != nil {
+	if _, err := ValidateTransition(st, "claude-recipient", "message.reject", "reject-me", model.MessageResponse{}, time.Now()); err != nil {
 		t.Fatalf("expected rejecting a pending message to succeed: %v", err)
 	}
 }
@@ -599,8 +674,8 @@ func TestBoundApprovalRequestRequiresReviewableMatchingSubject(t *testing.T) {
 }
 
 func TestApprovalRequestCanReplaceOnlyConsumedOrchestratorGrant(t *testing.T) {
-	action := OrchestratorGrantApprovalAction("candidate")
-	id := OrchestratorGrantApprovalID("candidate")
+	action := OrchestratorGrantApprovalAction("claude-candidate")
+	id := OrchestratorGrantApprovalID("claude-candidate")
 	request := model.ApprovalRequested{Tier: "HUMAN", Action: action, Reason: "fresh decision"}
 	st := model.State{
 		Agents: map[string]model.Agent{"owner": humanAgent("owner")},
@@ -694,8 +769,8 @@ func TestDocumentLifecycleCreateUpdateSupersede(t *testing.T) {
 func runtimeAgentState() model.State {
 	return model.State{
 		Agents: map[string]model.Agent{
-			"owner":   humanAgent("owner"),
-			"builder": {ID: "builder", Status: "ACTIVE", Role: model.Role("MEMBER"), PrincipalType: model.PrincipalAgent},
+			"owner":          humanAgent("owner"),
+			"claude-builder": {ID: "claude-builder", Status: "ACTIVE", Role: model.Role("MEMBER"), PrincipalType: model.PrincipalAgent},
 		},
 		AgentRuntimes: map[string]model.AgentRuntime{},
 		Invocations:   map[string]model.Invocation{},
@@ -704,25 +779,25 @@ func runtimeAgentState() model.State {
 
 func TestRuntimeRegisterValidatesOwnerDuplicateAndDefinition(t *testing.T) {
 	st := runtimeAgentState()
-	if _, err := ValidateTransition(st, "builder", "runtime.register", "r1",
-		model.RuntimeRegistered{AgentID: "builder", Connector: "MCP", MaxConcurrent: 1}, time.Now()); err != nil {
+	if _, err := ValidateTransition(st, "claude-builder", "runtime.register", "r1",
+		model.RuntimeRegistered{AgentID: "claude-builder", Connector: "MCP", MaxConcurrent: 1}, time.Now()); err != nil {
 		t.Fatalf("expected a self-registered runtime to succeed: %v", err)
 	}
 	// ValidateTransition is a pure validator -- it never mutates st itself,
 	// that's the projection's job (internal/projection/apply.go). Simulate
 	// that persisted effect here so the next call actually observes the
 	// runtime as already registered.
-	st.AgentRuntimes["r1"] = model.AgentRuntime{ID: "r1", AgentID: "builder"}
-	if _, err := ValidateTransition(st, "builder", "runtime.register", "r1",
-		model.RuntimeRegistered{AgentID: "builder", Connector: "MCP", MaxConcurrent: 1}, time.Now()); err == nil {
+	st.AgentRuntimes["r1"] = model.AgentRuntime{ID: "r1", AgentID: "claude-builder"}
+	if _, err := ValidateTransition(st, "claude-builder", "runtime.register", "r1",
+		model.RuntimeRegistered{AgentID: "claude-builder", Connector: "MCP", MaxConcurrent: 1}, time.Now()); err == nil {
 		t.Fatal("expected registering an already-existing runtime ID to be rejected")
 	}
-	if _, err := ValidateTransition(st, "builder", "runtime.register", "r2",
+	if _, err := ValidateTransition(st, "claude-builder", "runtime.register", "r2",
 		model.RuntimeRegistered{AgentID: "owner", Connector: "MCP", MaxConcurrent: 1}, time.Now()); err == nil {
 		t.Fatal("expected an agent to be rejected registering a runtime on someone else's behalf without elevation")
 	}
-	if _, err := ValidateTransition(st, "builder", "runtime.register", "r3",
-		model.RuntimeRegistered{AgentID: "builder", Connector: "NOT_A_CONNECTOR", MaxConcurrent: 1}, time.Now()); err == nil {
+	if _, err := ValidateTransition(st, "claude-builder", "runtime.register", "r3",
+		model.RuntimeRegistered{AgentID: "claude-builder", Connector: "NOT_A_CONNECTOR", MaxConcurrent: 1}, time.Now()); err == nil {
 		t.Fatal("expected an invalid connector to be rejected")
 	}
 }
@@ -731,10 +806,10 @@ func TestRuntimeHeartbeatValidatesHealthCapacityAndAssignedInvocations(t *testin
 	now := time.Now().UTC()
 	st := runtimeAgentState()
 	st.AgentRuntimes["r1"] = model.AgentRuntime{
-		ID: "r1", AgentID: "builder", Kind: model.RuntimeKindWorker,
+		ID: "r1", AgentID: "claude-builder", Kind: model.RuntimeKindWorker,
 		Connector: "MCP", Status: "ONLINE", MaxConcurrent: 2,
 	}
-	if _, err := ValidateTransition(st, "builder", "runtime.heartbeat", "r1",
+	if _, err := ValidateTransition(st, "claude-builder", "runtime.heartbeat", "r1",
 		model.RuntimeHeartbeat{Health: "NOT_A_STATUS"}, now); err == nil {
 		t.Fatal("expected an invalid health value to be rejected")
 	}
@@ -742,16 +817,16 @@ func TestRuntimeHeartbeatValidatesHealthCapacityAndAssignedInvocations(t *testin
 		model.RuntimeHeartbeat{Health: "HEALTHY"}, now); err == nil {
 		t.Fatal("expected a heartbeat from a non-owning actor to be rejected")
 	}
-	if _, err := ValidateTransition(st, "builder", "runtime.heartbeat", "r1",
+	if _, err := ValidateTransition(st, "claude-builder", "runtime.heartbeat", "r1",
 		model.RuntimeHeartbeat{Health: "HEALTHY", ActiveInvocations: []string{"ghost"}}, now); err == nil {
 		t.Fatal("expected an active invocation not assigned to this runtime to be rejected")
 	}
-	st.Invocations["inv1"] = model.Invocation{ID: "inv1", Target: "builder", RuntimeID: "r1"}
-	if _, err := ValidateTransition(st, "builder", "runtime.heartbeat", "r1",
+	st.Invocations["inv1"] = model.Invocation{ID: "inv1", Target: "claude-builder", RuntimeID: "r1"}
+	if _, err := ValidateTransition(st, "claude-builder", "runtime.heartbeat", "r1",
 		model.RuntimeHeartbeat{Health: "HEALTHY", ActiveInvocations: []string{"inv1", "inv1"}}, now); err == nil {
 		t.Fatal("expected duplicate active invocation IDs to be rejected")
 	}
-	if _, err := ValidateTransition(st, "builder", "runtime.heartbeat", "r1",
+	if _, err := ValidateTransition(st, "claude-builder", "runtime.heartbeat", "r1",
 		model.RuntimeHeartbeat{Health: "HEALTHY", ActiveInvocations: []string{"inv1"}}, now); err != nil {
 		t.Fatalf("expected a valid heartbeat to succeed: %v", err)
 	}
@@ -761,34 +836,34 @@ func TestRuntimeStatusChangeTransitionsEnforceLifecycleOrder(t *testing.T) {
 	now := time.Now()
 	st := runtimeAgentState()
 	st.AgentRuntimes["r1"] = model.AgentRuntime{
-		ID: "r1", AgentID: "builder", Kind: model.RuntimeKindWorker,
+		ID: "r1", AgentID: "claude-builder", Kind: model.RuntimeKindWorker,
 		Connector: "MCP", Status: "ONLINE", MaxConcurrent: 1,
 	}
-	if _, err := ValidateTransition(st, "builder", "runtime.resume", "r1", model.RuntimeStatusChanged{}, now); err == nil {
+	if _, err := ValidateTransition(st, "claude-builder", "runtime.resume", "r1", model.RuntimeStatusChanged{}, now); err == nil {
 		t.Fatal("expected resuming a non-draining runtime to be rejected")
 	}
-	if _, err := ValidateTransition(st, "builder", "runtime.drain", "r1", model.RuntimeStatusChanged{}, now); err != nil {
+	if _, err := ValidateTransition(st, "claude-builder", "runtime.drain", "r1", model.RuntimeStatusChanged{}, now); err != nil {
 		t.Fatalf("expected draining an online runtime to succeed: %v", err)
 	}
-	st.AgentRuntimes["r1"] = model.AgentRuntime{ID: "r1", AgentID: "builder", Status: "DRAINING", MaxConcurrent: 1}
-	if _, err := ValidateTransition(st, "builder", "runtime.drain", "r1", model.RuntimeStatusChanged{}, now); err == nil {
+	st.AgentRuntimes["r1"] = model.AgentRuntime{ID: "r1", AgentID: "claude-builder", Status: "DRAINING", MaxConcurrent: 1}
+	if _, err := ValidateTransition(st, "claude-builder", "runtime.drain", "r1", model.RuntimeStatusChanged{}, now); err == nil {
 		t.Fatal("expected draining an already-draining runtime to be rejected")
 	}
-	if _, err := ValidateTransition(st, "builder", "runtime.resume", "r1", model.RuntimeStatusChanged{}, now); err != nil {
+	if _, err := ValidateTransition(st, "claude-builder", "runtime.resume", "r1", model.RuntimeStatusChanged{}, now); err != nil {
 		t.Fatalf("expected resuming a draining runtime to succeed: %v", err)
 	}
 	if _, err := ValidateTransition(st, "owner", "runtime.revoke", "r1", model.RuntimeStatusChanged{}, now); err != nil {
 		t.Fatalf("expected an owner to revoke a runtime: %v", err)
 	}
-	if _, err := ValidateTransition(st, "builder", "runtime.revoke", "r1", model.RuntimeStatusChanged{}, now); err == nil {
+	if _, err := ValidateTransition(st, "claude-builder", "runtime.revoke", "r1", model.RuntimeStatusChanged{}, now); err == nil {
 		t.Fatal("expected a plain agent (not owner/orchestrator) to be rejected revoking a runtime")
 	}
-	st.AgentRuntimes["r1"] = model.AgentRuntime{ID: "r1", AgentID: "builder", Status: "REVOKED"}
-	if _, err := ValidateTransition(st, "builder", "runtime.delete", "r1", model.RuntimeStatusChanged{}, now); err != nil {
+	st.AgentRuntimes["r1"] = model.AgentRuntime{ID: "r1", AgentID: "claude-builder", Status: "REVOKED"}
+	if _, err := ValidateTransition(st, "claude-builder", "runtime.delete", "r1", model.RuntimeStatusChanged{}, now); err != nil {
 		t.Fatalf("expected the runtime owner to delete a revoked runtime: %v", err)
 	}
-	st.AgentRuntimes["r2"] = model.AgentRuntime{ID: "r2", AgentID: "builder", Status: "ONLINE"}
-	if _, err := ValidateTransition(st, "builder", "runtime.delete", "r2", model.RuntimeStatusChanged{}, now); err == nil {
+	st.AgentRuntimes["r2"] = model.AgentRuntime{ID: "r2", AgentID: "claude-builder", Status: "ONLINE"}
+	if _, err := ValidateTransition(st, "claude-builder", "runtime.delete", "r2", model.RuntimeStatusChanged{}, now); err == nil {
 		t.Fatal("expected deleting a non-revoked runtime to be rejected")
 	}
 }
@@ -797,19 +872,19 @@ func TestRuntimeStatusChangeTransitionsEnforceLifecycleOrder(t *testing.T) {
 
 func TestInvocationPolicyUpdateValidatesModeActorsAndConsumerModes(t *testing.T) {
 	st := runtimeAgentState()
-	if _, err := ValidateTransition(st, "builder", "invocation.policy.update", "builder",
+	if _, err := ValidateTransition(st, "claude-builder", "invocation.policy.update", "claude-builder",
 		model.InvocationPolicyUpdated{Mode: "AUTOMATIC"}, time.Now()); err == nil {
 		t.Fatal("expected a non-elevated actor to be rejected updating an invocation policy")
 	}
-	if _, err := ValidateTransition(st, "owner", "invocation.policy.update", "builder",
+	if _, err := ValidateTransition(st, "owner", "invocation.policy.update", "claude-builder",
 		model.InvocationPolicyUpdated{Mode: "NOT_A_MODE"}, time.Now()); err == nil {
 		t.Fatal("expected an invalid policy mode to be rejected")
 	}
-	if _, err := ValidateTransition(st, "owner", "invocation.policy.update", "builder",
+	if _, err := ValidateTransition(st, "owner", "invocation.policy.update", "claude-builder",
 		model.InvocationPolicyUpdated{Mode: "TRUSTED", TrustedActors: []string{"missing"}}, time.Now()); err == nil {
 		t.Fatal("expected an unknown trusted actor to be rejected")
 	}
-	normalized, err := ValidateTransition(st, "owner", "invocation.policy.update", "builder",
+	normalized, err := ValidateTransition(st, "owner", "invocation.policy.update", "claude-builder",
 		model.InvocationPolicyUpdated{Mode: "AUTOMATIC"}, time.Now())
 	if err != nil {
 		t.Fatalf("expected a valid policy update to succeed: %v", err)
@@ -818,7 +893,7 @@ func TestInvocationPolicyUpdateValidatesModeActorsAndConsumerModes(t *testing.T)
 	if policy.DefaultConsumerMode != model.ConsumerModeEither || len(policy.AllowedConsumerModes) != 3 {
 		t.Fatalf("expected default consumer mode/allowed modes to be filled with sane defaults, got %+v", policy)
 	}
-	if _, err := ValidateTransition(st, "owner", "invocation.policy.update", "builder",
+	if _, err := ValidateTransition(st, "owner", "invocation.policy.update", "claude-builder",
 		model.InvocationPolicyUpdated{
 			Mode: "AUTOMATIC", DefaultConsumerMode: model.ConsumerModeWorkerOnly,
 			AllowedConsumerModes: []model.ConsumerMode{model.ConsumerModeInteractiveOnly},
@@ -830,74 +905,74 @@ func TestInvocationPolicyUpdateValidatesModeActorsAndConsumerModes(t *testing.T)
 // -- invocation.request policy-gated branches ----------------------------
 
 // requesterAgentState returns a state with a plain, non-elevated AGENT
-// principal ("requester") -- invocation.request's target-policy gate
+// principal ("claude-requester") -- invocation.request's target-policy gate
 // (MANUAL/TRUSTED/DISABLED) is only reachable for a non-elevated requester,
 // since actorElevated(actor) (owner/orchestrator) bypasses it entirely by
 // design; using "owner" here would silently skip every branch this exercises.
 func requesterAgentState() model.State {
 	st := runtimeAgentState()
-	st.Agents["requester"] = model.Agent{ID: "requester", Status: "ACTIVE", Role: model.Role("MEMBER"), PrincipalType: model.PrincipalAgent}
+	st.Agents["claude-requester"] = model.Agent{ID: "claude-requester", Status: "ACTIVE", Role: model.Role("MEMBER"), PrincipalType: model.PrincipalAgent}
 	return st
 }
 
 func TestInvocationRequestManualPolicyRequiresPriorApproval(t *testing.T) {
 	st := requesterAgentState()
 	st.InvocationPolicies = map[string]model.InvocationPolicy{
-		"builder": {AgentID: "builder", Mode: "MANUAL"},
+		"claude-builder": {AgentID: "claude-builder", Mode: "MANUAL"},
 	}
-	if _, err := ValidateTransition(st, "requester", "invocation.request", "inv1",
-		model.InvocationRequested{Target: "builder", Instruction: "do it"}, time.Now()); err == nil {
+	if _, err := ValidateTransition(st, "claude-requester", "invocation.request", "inv1",
+		model.InvocationRequested{Target: "claude-builder", Instruction: "do it"}, time.Now()); err == nil {
 		t.Fatal("expected a MANUAL-policy target to require a pre-existing approval")
 	}
-	invocation := model.InvocationRequested{Target: "builder", Instruction: "do it", Priority: "NORMAL", ConsumerMode: model.ConsumerModeEither}
+	invocation := model.InvocationRequested{Target: "claude-builder", Instruction: "do it", Priority: "NORMAL", ConsumerMode: model.ConsumerModeEither}
 	expires := time.Now().Add(time.Hour)
-	st.Approvals = map[string]model.Approval{"a1": {Action: "invocation:inv1", Status: "APPROVED", SubjectDigest: ApprovalSubjectDigest("requester", "invocation.request", "inv1", invocation), ExpiresAt: &expires}}
-	if _, err := ValidateTransition(st, "requester", "invocation.request", "inv1",
-		model.InvocationRequested{Target: "builder", Instruction: "do it"}, time.Now()); err != nil {
+	st.Approvals = map[string]model.Approval{"a1": {Action: "invocation:inv1", Status: "APPROVED", SubjectDigest: ApprovalSubjectDigest("claude-requester", "invocation.request", "inv1", invocation), ExpiresAt: &expires}}
+	if _, err := ValidateTransition(st, "claude-requester", "invocation.request", "inv1",
+		model.InvocationRequested{Target: "claude-builder", Instruction: "do it"}, time.Now()); err != nil {
 		t.Fatalf("expected an approved MANUAL-policy invocation to succeed: %v", err)
 	}
-	if _, err := ValidateTransition(st, "requester", "invocation.request", "inv1",
-		model.InvocationRequested{Target: "builder", Instruction: "do something else"}, time.Now()); err == nil {
+	if _, err := ValidateTransition(st, "claude-requester", "invocation.request", "inv1",
+		model.InvocationRequested{Target: "claude-builder", Instruction: "do something else"}, time.Now()); err == nil {
 		t.Fatal("expected changed invocation content to reject the bound approval")
 	}
 	past := time.Now().Add(-time.Minute)
-	st.Approvals["a1"] = model.Approval{Action: "invocation:inv1", Status: "APPROVED", SubjectDigest: ApprovalSubjectDigest("requester", "invocation.request", "inv1", invocation), ExpiresAt: &past}
-	if _, err := ValidateTransition(st, "requester", "invocation.request", "inv1",
-		model.InvocationRequested{Target: "builder", Instruction: "do it"}, time.Now()); err == nil {
+	st.Approvals["a1"] = model.Approval{Action: "invocation:inv1", Status: "APPROVED", SubjectDigest: ApprovalSubjectDigest("claude-requester", "invocation.request", "inv1", invocation), ExpiresAt: &past}
+	if _, err := ValidateTransition(st, "claude-requester", "invocation.request", "inv1",
+		model.InvocationRequested{Target: "claude-builder", Instruction: "do it"}, time.Now()); err == nil {
 		t.Fatal("expected an expired invocation approval to be rejected")
 	}
 }
 
 func TestSensitiveInvocationRequiresHumanTierBoundApproval(t *testing.T) {
 	st := requesterAgentState()
-	requester := st.Agents["requester"]
+	requester := st.Agents["claude-requester"]
 	requester.Scopes = []string{"src"}
-	st.Agents["requester"] = requester
-	builder := st.Agents["builder"]
+	st.Agents["claude-requester"] = requester
+	builder := st.Agents["claude-builder"]
 	builder.Scopes = []string{"src"}
-	st.Agents["builder"] = builder
-	st.InvocationPolicies = map[string]model.InvocationPolicy{"builder": {AgentID: "builder", Mode: "AUTOMATIC", RequireHumanForSensitive: true}}
+	st.Agents["claude-builder"] = builder
+	st.InvocationPolicies = map[string]model.InvocationPolicy{"claude-builder": {AgentID: "claude-builder", Mode: "AUTOMATIC", RequireHumanForSensitive: true}}
 	st.Tasks = map[string]model.Task{"high": {ID: "high", Risk: "HIGH", Resources: []string{"src"}}}
-	payload := model.InvocationRequested{Target: "builder", TaskID: "high", Instruction: "sensitive", Scopes: []string{"src"}, Priority: "NORMAL", ConsumerMode: model.ConsumerModeEither}
+	payload := model.InvocationRequested{Target: "claude-builder", TaskID: "high", Instruction: "sensitive", Scopes: []string{"src"}, Priority: "NORMAL", ConsumerMode: model.ConsumerModeEither}
 	expires := time.Now().Add(time.Hour)
-	digest := ApprovalSubjectDigest("requester", "invocation.request", "inv-sensitive", payload)
+	digest := ApprovalSubjectDigest("claude-requester", "invocation.request", "inv-sensitive", payload)
 	st.Approvals = map[string]model.Approval{"a1": {Tier: "ORCHESTRATOR", Action: "invocation-sensitive:inv-sensitive", Status: "APPROVED", SubjectDigest: digest, ExpiresAt: &expires}}
-	if _, err := ValidateTransition(st, "requester", "invocation.request", "inv-sensitive", model.InvocationRequested{Target: "builder", TaskID: "high", Instruction: "sensitive"}, time.Now()); err == nil {
+	if _, err := ValidateTransition(st, "claude-requester", "invocation.request", "inv-sensitive", model.InvocationRequested{Target: "claude-builder", TaskID: "high", Instruction: "sensitive"}, time.Now()); err == nil {
 		t.Fatal("expected an ORCHESTRATOR-tier approval to fail the HUMAN-sensitive gate")
 	}
 	approval := st.Approvals["a1"]
 	approval.Tier = "HUMAN"
 	st.Approvals["a1"] = approval
-	if _, err := ValidateTransition(st, "requester", "invocation.request", "inv-sensitive", model.InvocationRequested{Target: "builder", TaskID: "high", Instruction: "sensitive"}, time.Now()); err != nil {
+	if _, err := ValidateTransition(st, "claude-requester", "invocation.request", "inv-sensitive", model.InvocationRequested{Target: "claude-builder", TaskID: "high", Instruction: "sensitive"}, time.Now()); err != nil {
 		t.Fatalf("expected a HUMAN-tier bound approval to succeed: %v", err)
 	}
 }
 
 func TestInvocationRequestDisabledPolicyAlwaysRejects(t *testing.T) {
 	st := requesterAgentState()
-	st.InvocationPolicies = map[string]model.InvocationPolicy{"builder": {AgentID: "builder", Mode: "DISABLED"}}
-	if _, err := ValidateTransition(st, "requester", "invocation.request", "inv1",
-		model.InvocationRequested{Target: "builder", Instruction: "do it"}, time.Now()); err == nil {
+	st.InvocationPolicies = map[string]model.InvocationPolicy{"claude-builder": {AgentID: "claude-builder", Mode: "DISABLED"}}
+	if _, err := ValidateTransition(st, "claude-requester", "invocation.request", "inv1",
+		model.InvocationRequested{Target: "claude-builder", Instruction: "do it"}, time.Now()); err == nil {
 		t.Fatal("expected a DISABLED target policy to always reject an invocation request")
 	}
 }
@@ -905,15 +980,15 @@ func TestInvocationRequestDisabledPolicyAlwaysRejects(t *testing.T) {
 func TestInvocationRequestTrustedPolicyRequiresListedRequester(t *testing.T) {
 	st := requesterAgentState()
 	st.InvocationPolicies = map[string]model.InvocationPolicy{
-		"builder": {AgentID: "builder", Mode: "TRUSTED", TrustedActors: []string{"someone-else"}},
+		"claude-builder": {AgentID: "claude-builder", Mode: "TRUSTED", TrustedActors: []string{"someone-else"}},
 	}
-	if _, err := ValidateTransition(st, "requester", "invocation.request", "inv1",
-		model.InvocationRequested{Target: "builder", Instruction: "do it"}, time.Now()); err == nil {
+	if _, err := ValidateTransition(st, "claude-requester", "invocation.request", "inv1",
+		model.InvocationRequested{Target: "claude-builder", Instruction: "do it"}, time.Now()); err == nil {
 		t.Fatal("expected an untrusted requester to be rejected under a TRUSTED policy")
 	}
-	st.InvocationPolicies["builder"] = model.InvocationPolicy{AgentID: "builder", Mode: "TRUSTED", TrustedActors: []string{"requester"}}
-	if _, err := ValidateTransition(st, "requester", "invocation.request", "inv1",
-		model.InvocationRequested{Target: "builder", Instruction: "do it"}, time.Now()); err != nil {
+	st.InvocationPolicies["claude-builder"] = model.InvocationPolicy{AgentID: "claude-builder", Mode: "TRUSTED", TrustedActors: []string{"claude-requester"}}
+	if _, err := ValidateTransition(st, "claude-requester", "invocation.request", "inv1",
+		model.InvocationRequested{Target: "claude-builder", Instruction: "do it"}, time.Now()); err != nil {
 		t.Fatalf("expected a trusted requester to succeed under a TRUSTED policy: %v", err)
 	}
 }
@@ -923,17 +998,17 @@ func TestInvocationRequestDeadlineMustBeInFutureAndWithinTTL(t *testing.T) {
 	st := runtimeAgentState()
 	past := now.Add(-time.Hour)
 	if _, err := ValidateTransition(st, "owner", "invocation.request", "inv1",
-		model.InvocationRequested{Target: "builder", Instruction: "do it", Deadline: &past}, now); err == nil {
+		model.InvocationRequested{Target: "claude-builder", Instruction: "do it", Deadline: &past}, now); err == nil {
 		t.Fatal("expected a past deadline to be rejected")
 	}
 	tooFar := now.Add(30 * 24 * time.Hour)
 	if _, err := ValidateTransition(st, "owner", "invocation.request", "inv1",
-		model.InvocationRequested{Target: "builder", Instruction: "do it", Deadline: &tooFar}, now); err == nil {
+		model.InvocationRequested{Target: "claude-builder", Instruction: "do it", Deadline: &tooFar}, now); err == nil {
 		t.Fatal("expected a deadline beyond the max invocation TTL to be rejected")
 	}
 	ok := now.Add(time.Hour)
 	if _, err := ValidateTransition(st, "owner", "invocation.request", "inv1",
-		model.InvocationRequested{Target: "builder", Instruction: "do it", Deadline: &ok}, now); err != nil {
+		model.InvocationRequested{Target: "claude-builder", Instruction: "do it", Deadline: &ok}, now); err != nil {
 		t.Fatalf("expected a reasonable future deadline to succeed: %v", err)
 	}
 }
@@ -942,14 +1017,14 @@ func TestInvocationRequestSensitiveRequiresHumanOrApproval(t *testing.T) {
 	st := runtimeAgentState()
 	st.Agents["requester-agent"] = model.Agent{ID: "requester-agent", Status: "ACTIVE", Role: model.Role("MEMBER"), PrincipalType: model.PrincipalAgent}
 	st.InvocationPolicies = map[string]model.InvocationPolicy{
-		"builder": {AgentID: "builder", Mode: "AUTOMATIC", RequireHumanForSensitive: true},
+		"claude-builder": {AgentID: "claude-builder", Mode: "AUTOMATIC", RequireHumanForSensitive: true},
 	}
 	if _, err := ValidateTransition(st, "requester-agent", "invocation.request", "inv1",
-		model.InvocationRequested{Target: "builder", Instruction: "do it", Priority: "URGENT"}, time.Now()); err == nil {
+		model.InvocationRequested{Target: "claude-builder", Instruction: "do it", Priority: "URGENT"}, time.Now()); err == nil {
 		t.Fatal("expected a sensitive (URGENT) invocation from a non-human requester to require human approval")
 	}
 	if _, err := ValidateTransition(st, "owner", "invocation.request", "inv1",
-		model.InvocationRequested{Target: "builder", Instruction: "do it", Priority: "URGENT"}, time.Now()); err != nil {
+		model.InvocationRequested{Target: "claude-builder", Instruction: "do it", Priority: "URGENT"}, time.Now()); err != nil {
 		t.Fatalf("expected a human requester to bypass the sensitive-invocation approval gate: %v", err)
 	}
 }
@@ -957,7 +1032,7 @@ func TestInvocationRequestSensitiveRequiresHumanOrApproval(t *testing.T) {
 func TestInvocationRequestRejectsInvalidPriority(t *testing.T) {
 	st := runtimeAgentState()
 	if _, err := ValidateTransition(st, "owner", "invocation.request", "inv1",
-		model.InvocationRequested{Target: "builder", Instruction: "do it", Priority: "SUPER_URGENT"}, time.Now()); err == nil {
+		model.InvocationRequested{Target: "claude-builder", Instruction: "do it", Priority: "SUPER_URGENT"}, time.Now()); err == nil {
 		t.Fatal("expected an invalid priority value to be rejected")
 	}
 }
@@ -966,12 +1041,12 @@ func TestInvocationClaimRejectsPastDeadline(t *testing.T) {
 	now := time.Now().UTC()
 	past := now.Add(-time.Minute)
 	st := runtimeAgentState()
-	st.Invocations["inv1"] = model.Invocation{ID: "inv1", Target: "builder", Status: "PENDING", Deadline: &past}
+	st.Invocations["inv1"] = model.Invocation{ID: "inv1", Target: "claude-builder", Status: "PENDING", Deadline: &past}
 	st.AgentRuntimes["r1"] = model.AgentRuntime{
-		ID: "r1", AgentID: "builder", Kind: model.RuntimeKindWorker,
+		ID: "r1", AgentID: "claude-builder", Kind: model.RuntimeKindWorker,
 		Connector: "MCP", Status: "ONLINE", Health: "HEALTHY", MaxConcurrent: 1,
 	}
-	if _, err := ValidateTransition(st, "builder", "invocation.claim", "inv1",
+	if _, err := ValidateTransition(st, "claude-builder", "invocation.claim", "inv1",
 		model.InvocationClaimed{RuntimeID: "r1"}, now); err == nil {
 		t.Fatal("expected claiming an invocation past its deadline to be rejected")
 	}
@@ -981,22 +1056,22 @@ func TestInvocationRejectExpireCancelEnforceActorAndStatus(t *testing.T) {
 	now := time.Now().UTC()
 	past := now.Add(-time.Minute)
 	st := runtimeAgentState()
-	st.Invocations["open"] = model.Invocation{ID: "open", Target: "builder", RequestedBy: "owner", Status: "PENDING"}
+	st.Invocations["open"] = model.Invocation{ID: "open", Target: "claude-builder", RequestedBy: "owner", Status: "PENDING"}
 	if _, err := ValidateTransition(st, "owner", "invocation.reject", "open",
 		model.InvocationRejected{Reason: "not now"}, now); err == nil {
 		t.Fatal("expected invocation.reject by someone other than the target to be rejected")
 	}
-	if _, err := ValidateTransition(st, "builder", "invocation.reject", "open",
+	if _, err := ValidateTransition(st, "claude-builder", "invocation.reject", "open",
 		model.InvocationRejected{Reason: ""}, now); err == nil {
 		t.Fatal("expected invocation.reject without a reason to be rejected")
 	}
-	if _, err := ValidateTransition(st, "builder", "invocation.reject", "open",
+	if _, err := ValidateTransition(st, "claude-builder", "invocation.reject", "open",
 		model.InvocationRejected{Reason: "not now"}, now); err != nil {
 		t.Fatalf("expected the target to reject a pending invocation: %v", err)
 	}
 
-	st.Invocations["expireme"] = model.Invocation{ID: "expireme", Target: "builder", RequestedBy: "owner", Status: "PENDING", Deadline: &past}
-	if _, err := ValidateTransition(st, "builder", "invocation.expire", "expireme",
+	st.Invocations["expireme"] = model.Invocation{ID: "expireme", Target: "claude-builder", RequestedBy: "owner", Status: "PENDING", Deadline: &past}
+	if _, err := ValidateTransition(st, "claude-builder", "invocation.expire", "expireme",
 		model.InvocationRejected{Reason: "expired"}, now); err == nil {
 		t.Fatal("expected invocation.expire by someone other than the requester/owner/orchestrator to be rejected")
 	}
@@ -1005,12 +1080,12 @@ func TestInvocationRejectExpireCancelEnforceActorAndStatus(t *testing.T) {
 		t.Fatalf("expected the requester to expire a past-deadline invocation: %v", err)
 	}
 
-	st.Invocations["cancelme"] = model.Invocation{ID: "cancelme", Target: "builder", RequestedBy: "owner", Status: "RUNNING"}
+	st.Invocations["cancelme"] = model.Invocation{ID: "cancelme", Target: "claude-builder", RequestedBy: "owner", Status: "RUNNING"}
 	if _, err := ValidateTransition(st, "owner", "invocation.cancel", "cancelme",
 		model.InvocationRejected{Reason: "changed my mind"}, now); err != nil {
 		t.Fatalf("expected the requester to cancel a running invocation: %v", err)
 	}
-	st.Invocations["done"] = model.Invocation{ID: "done", Target: "builder", RequestedBy: "owner", Status: "COMPLETED"}
+	st.Invocations["done"] = model.Invocation{ID: "done", Target: "claude-builder", RequestedBy: "owner", Status: "COMPLETED"}
 	if _, err := ValidateTransition(st, "owner", "invocation.cancel", "done",
 		model.InvocationRejected{Reason: "too late"}, now); err == nil {
 		t.Fatal("expected cancelling an already-COMPLETED invocation to be rejected")
@@ -1022,7 +1097,7 @@ func TestInvocationDeliveryFailedRequiresMatchingAttemptAndRetryTime(t *testing.
 	attemptedAt := now.Add(-time.Second)
 	attemptUntil := now.Add(time.Minute)
 	st := runtimeAgentState()
-	st.Invocations["inv1"] = model.Invocation{ID: "inv1", Target: "builder", RequestedBy: "owner", Status: "PENDING"}
+	st.Invocations["inv1"] = model.Invocation{ID: "inv1", Target: "claude-builder", RequestedBy: "owner", Status: "PENDING"}
 	st.InvocationDeliveries = map[string]model.InvocationDelivery{
 		"d1": {
 			ID: "d1", InvocationID: "inv1", RuntimeID: "r1", Attempt: 1, Status: "ATTEMPTED",

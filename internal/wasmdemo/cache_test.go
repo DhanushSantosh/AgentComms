@@ -3,6 +3,7 @@ package wasmdemo
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
@@ -116,5 +117,38 @@ func TestMemoryCacheSaveDraftThenDraftsReturnsIt(t *testing.T) {
 	}
 	if drafts[0].ID != "draft-1" {
 		t.Errorf("expected draft-1, got %q", drafts[0].ID)
+	}
+}
+
+func TestMemoryCacheDeleteDraftRemovesItAndReportsMissingIDs(t *testing.T) {
+	cache := NewMemoryCache()
+	ctx := context.Background()
+	body, err := json.Marshal(map[string]string{"text": "hello"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"draft-1", "draft-2"} {
+		if err = cache.SaveDraft(ctx, controlplane.Draft{
+			ProjectID: "demo", ID: id, Kind: "message", Body: body,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err = cache.DeleteDraft(ctx, "demo", "draft-1"); err != nil {
+		t.Fatal(err)
+	}
+	drafts, err := cache.Drafts(ctx, "demo", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(drafts) != 1 || drafts[0].ID != "draft-2" {
+		t.Fatalf("expected only draft-2 to remain, got %#v", drafts)
+	}
+	// The demo cache backs the WASM TUI's draft store, so it has to fail the
+	// same way the on-disk stores do rather than silently succeeding.
+	err = cache.DeleteDraft(ctx, "demo", "draft-1")
+	var controlErr *controlplane.Error
+	if !errors.As(err, &controlErr) || controlErr.Code != controlplane.CodeValidation {
+		t.Fatalf("want a VALIDATION error deleting an already-deleted draft, got %#v", err)
 	}
 }

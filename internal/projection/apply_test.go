@@ -11,7 +11,7 @@ import (
 func TestLegacyInvocationAndRuntimeProjectToCompatibilityDefaults(t *testing.T) {
 	state := model.State{}
 	requestData, err := json.Marshal(model.InvocationRequested{
-		Target: "builder", Instruction: "Review the project",
+		Target: "claude-builder", Instruction: "Review the project",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -23,13 +23,13 @@ func TestLegacyInvocationAndRuntimeProjectToCompatibilityDefaults(t *testing.T) 
 		t.Fatal(err)
 	}
 	runtimeData, err := json.Marshal(model.RuntimeRegistered{
-		AgentID: "builder", Connector: "MCP", MaxConcurrent: 1,
+		AgentID: "claude-builder", Connector: "MCP", MaxConcurrent: 1,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err = ApplyEvent(&state, model.Event{
-		ID: "event-runtime", Time: time.Now().UTC(), Actor: "builder",
+		ID: "event-runtime", Time: time.Now().UTC(), Actor: "claude-builder",
 		Type: "runtime.register", EntityID: "runtime", Data: runtimeData,
 	}); err != nil {
 		t.Fatal(err)
@@ -73,7 +73,7 @@ func TestApprovalProjectionPreservesSubjectAndExpiry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = ApplyEvent(&state, model.Event{ID: "event-approval", Time: time.Now().UTC(), Actor: "requester", Type: "approval.request", EntityID: "approval-1", Data: data}); err != nil {
+	if err = ApplyEvent(&state, model.Event{ID: "event-approval", Time: time.Now().UTC(), Actor: "claude-requester", Type: "approval.request", EntityID: "approval-1", Data: data}); err != nil {
 		t.Fatal(err)
 	}
 	approval := state.Approvals["approval-1"]
@@ -120,6 +120,59 @@ func TestTaskTakeoverConsumesOneApproval(t *testing.T) {
 	}
 }
 
+func TestTaskTakeoverConsumesNamedApprovalNotExpiredLegacyFirst(t *testing.T) {
+	now := time.Now().UTC()
+	past := now.Add(-time.Hour)
+	future := now.Add(time.Hour)
+	state := model.State{
+		Tasks: map[string]model.Task{"task-1": {ID: "task-1", Status: "CLAIMED", Owner: "first"}},
+		Approvals: map[string]model.Approval{
+			"approval-a": {ID: "approval-a", Action: "task.takeover:task-1", Status: "APPROVED", ExpiresAt: &past},
+			"approval-b": {ID: "approval-b", Action: "task.takeover:task-1", Status: "APPROVED", ExpiresAt: &future},
+		},
+	}
+	data, err := json.Marshal(model.TaskStatus{ApprovalID: "approval-b"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyEvent(&state, model.Event{
+		ID: "event-takeover", Time: now, Actor: "second",
+		Type: "task.takeover", EntityID: "task-1", Data: data,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := state.Approvals["approval-a"].Status; got != "APPROVED" {
+		t.Fatalf("expired lower-ID approval status = %q, want unchanged APPROVED", got)
+	}
+	if got := state.Approvals["approval-b"].Status; got != "CONSUMED" {
+		t.Fatalf("named valid approval status = %q, want CONSUMED", got)
+	}
+}
+
+func TestTaskTakeoverRejectsInvalidNamedApprovalWithoutChangingState(t *testing.T) {
+	now := time.Now().UTC()
+	past := now.Add(-time.Second)
+	state := model.State{
+		Tasks: map[string]model.Task{"task-1": {ID: "task-1", Status: "CLAIMED", Owner: "first"}},
+		Approvals: map[string]model.Approval{
+			"approval-a": {ID: "approval-a", Action: "task.takeover:task-1", Status: "APPROVED", ExpiresAt: &past},
+		},
+	}
+	data, err := json.Marshal(model.TaskStatus{ApprovalID: "approval-a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyEvent(&state, model.Event{
+		ID: "bad-event", Time: now, Actor: "second",
+		Type: "task.takeover", EntityID: "task-1", Data: data,
+	}); err == nil {
+		t.Fatal("expected an event naming an expired approval to be rejected")
+	}
+	if state.Tasks["task-1"].Owner != "first" || state.Approvals["approval-a"].Status != "APPROVED" {
+		t.Fatal("invalid takeover event partially changed projected state")
+	}
+}
+
 // TestAgentRoleSwitchedOnlyChangesRole is the regression test for RFC
 // 0018's core self-service invariant: unlike AgentActivated, applying
 // AgentRoleSwitched must never touch Capabilities or Scopes -- a principal
@@ -127,8 +180,8 @@ func TestTaskTakeoverConsumesOneApproval(t *testing.T) {
 // new standing.
 func TestAgentRoleSwitchedOnlyChangesRole(t *testing.T) {
 	state := model.State{Agents: map[string]model.Agent{
-		"builder": {
-			ID: "builder", Status: "ACTIVE", Role: model.Role("MEMBER"),
+		"claude-builder": {
+			ID: "claude-builder", Status: "ACTIVE", Role: model.Role("MEMBER"),
 			Capabilities: []string{"go", "test"}, Scopes: []string{"src"},
 		},
 	}}
@@ -137,12 +190,12 @@ func TestAgentRoleSwitchedOnlyChangesRole(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err = ApplyEvent(&state, model.Event{
-		ID: "event-switch", Time: time.Now().UTC(), Actor: "builder",
-		Type: "agent.switch-role", EntityID: "builder", Data: switchData,
+		ID: "event-switch", Time: time.Now().UTC(), Actor: "claude-builder",
+		Type: "agent.switch-role", EntityID: "claude-builder", Data: switchData,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	got := state.Agents["builder"]
+	got := state.Agents["claude-builder"]
 	if got.Role != "Tester" {
 		t.Fatalf("expected role to become Tester, got %q", got.Role)
 	}

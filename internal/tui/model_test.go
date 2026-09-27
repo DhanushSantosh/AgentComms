@@ -202,7 +202,7 @@ func TestOverviewScrollReachesTrueEndOnASmallTerminal(t *testing.T) {
 func TestSmallTerminalNeverRendersMoreLinesThanItHas(t *testing.T) {
 	s := newTestService(t)
 	for i := 0; i < 10; i++ {
-		registerAgent(t, s, "agent-0"+string(rune('0'+i)), model.Role("MEMBER"), "src")
+		registerAgent(t, s, "claude-agent-0"+string(rune('0'+i)), model.Role("MEMBER"), "src")
 	}
 	if _, e := s.Execute("owner", "message.post", "msg-1", model.MessagePosted{Kind: "FYI", To: []string{"owner"}, Subject: "hi"}); e != nil {
 		t.Fatal(e)
@@ -267,7 +267,7 @@ func TestProjectControlDirectNavigation(t *testing.T) {
 // view refreshes its content immediately, without entering row-focus mode.
 func TestSwitchingViewsWithoutEnterShowsLiveContent(t *testing.T) {
 	s := newTestService(t)
-	if _, err := s.Register("builder", "builder", model.PrincipalAgent); err != nil {
+	if _, err := s.Register("claude-builder", "claude-builder", model.PrincipalAgent); err != nil {
 		t.Fatal(err)
 	}
 	m, err := New(s, "owner")
@@ -287,7 +287,7 @@ func TestSwitchingViewsWithoutEnterShowsLiveContent(t *testing.T) {
 	if strings.Contains(body, "No rows here yet.") {
 		t.Fatal("Agents view shows no rows until Enter is pressed -- content should be live as soon as the view opens")
 	}
-	if !strings.Contains(body, "builder") {
+	if !strings.Contains(body, "claude-builder") {
 		t.Fatalf("Agents view should show the registered agent without needing Enter, got:\n%s", body)
 	}
 }

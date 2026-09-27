@@ -5,6 +5,108 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-09-27 — “Roll Call”
+
+*Agents now say which runtime they are. An agent's ID names its provider —
+`claude`, `claude-2`, `codex-reviewer` — with a free-form display name you
+can address them by, and registering one no longer requires inventing an
+ID. Alongside that: team mode against a shared authority actually works
+now, drafts can finally be deleted, and approvals honour the expiry they
+were given.*
+
+**Breaking**
+- **Breaking:** A new AGENT principal's ID must name its provider:
+  `<provider>` or `<provider>-<suffix>`, lower case, from `claude`,
+  `codex`, `opencode`. Existing principals are unaffected and nothing
+  renames; HUMAN principals keep free-form IDs.
+- **Breaking:** Action-scoped takeover and shared-write approvals now
+  honour a stated expiry, so a lapsed approval that previously still
+  authorized work is refused.
+
+**Added**
+- `agent register --provider <name>` derives the ID, so `--id` is optional.
+- Principals can be addressed by display name wherever an actor ID is taken.
+- `draft delete --id` removes one local draft and releases its quota.
+
+**Fixed**
+- Team mode: every command in a service-mode project failed with
+  `401 authority token is required`; the daemon never passed the token.
+- `docker compose up --build` could not build the authority image at all.
+- A slow but healthy local daemon is no longer rejected by a 300 ms probe.
+- `approval request --expires-in` with a negative value silently produced an
+  approval that never expires.
+
+**Security**
+- `.env` is git-ignored; `compose.yaml` requires three secrets, one of them
+  the authority signing key.
+- Updated the transitive `devalue` dependency off a denial-of-service
+  advisory.
+
+### Added
+- An AGENT principal's actor ID now names the AI provider behind it
+  (`<provider>` or `<provider>-<suffix>`, lower case), so which runtime
+  produced an event is answerable from the identity that appears in every
+  event, table and log line. `agent register --provider <name>` derives the
+  ID — `claude`, then `claude-2` — making `--id` optional. Display names
+  stay free-form and optional, and are preferred wherever a principal is
+  shown. A principal can be addressed by display name anywhere an actor ID
+  is accepted; resolution prefers the actor ID, matches display names
+  case-insensitively, and refuses an ambiguous name rather than guessing.
+  Events always record the canonical actor ID. Registering a declarative
+  adapter adds its name to the accepted provider set. See RFC 0039.
+- `draft delete --id` removes one non-authoritative local draft, releasing
+  its count and storage quota without deleting drafts from other projects.
+- The TUI Drafts panel can delete a selected draft with confirmation, and its
+  Approvals panel now makes expired approvals and their eligibility clear.
+
+### Changed
+- The landing site's illustrated sections drop the hard borders, offset
+  shadows and corner brackets they had accumulated, and three sections whose
+  visuals contradicted their own copy were corrected. This is a cleanup of
+  the existing page, not the illustration redesign that was explored and
+  abandoned during this cycle.
+- The landing site's download page resolves the latest published release
+  instead of presenting a development build as current.
+- Team deployment guidance states the supported trust boundary explicitly:
+  one operator-controlled, self-hosted team per shared authority service.
+
+### Fixed
+- Service (team) mode did not work through the CLI at all: `daemon serve`
+  never passed `AGENT_COMMS_AUTHORITY_TOKEN` to the daemon it spawned, so
+  every command in a service-mode project failed with
+  `401 authority token is required`. The standalone `agent-comms-daemon`
+  binary read the same variable and worked, which masked it.
+- `docker compose up --build`, the documented way to stand up a team
+  authority, could not build the image: the Dockerfile copied only
+  `go.mod`/`go.sum` before `go mod download`, but `go.mod` carries local
+  replace directives into `third_party/`. A `.dockerignore` was also added;
+  the build context was 614MB.
+- `approval request --expires-in` with a negative duration silently produced
+  an approval with no expiry — which means it never expires — instead of
+  refusing a window that had already closed.
+- The shell and PowerShell installers now have an explicit default release
+  version, so normal installation does not require callers to supply one.
+- A slow but healthy local daemon is no longer rejected by a 300 ms health
+  probe under Windows runner or workstation contention; startup failures
+  now report the last probe error and elapsed wait.
+- Windows process takeover no longer mistakes a newly spawned process for
+  an ancestor when an exited ancestor's PID has been reused.
+- Test daemons release their database handles before temporary project
+  cleanup, and Claude session discovery tolerates a file observed midway
+  through its write.
+
+### Security
+- `.env` is now git-ignored. `compose.yaml` declares three required secrets,
+  one of them the authority's Ed25519 signing key, and the natural place to
+  put them was a file git would have committed.
+- Updated the transitive `devalue` dependency to a version without the
+  reported malformed-input denial-of-service advisory.
+- Action-scoped takeover and shared-write approvals now honor explicit
+  expiry. Each new takeover event records the exact approval it consumed,
+  while older events retain their original replay behavior. An overlapping
+  claim refused because its shared-write approval has lapsed now says so,
+  rather than reporting only the resource overlap.
+
 ## [0.7.1] - 2026-09-19 — “Wrong Door”
 
 *A follow-up patch to a real bug found the day after 0.7.0 shipped: a

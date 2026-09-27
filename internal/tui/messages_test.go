@@ -19,7 +19,7 @@ func msgLabels(acts []RowAction) []string {
 }
 
 func recipient(status string) []model.RecipientState {
-	return []model.RecipientState{{Principal: "builder", Status: status}}
+	return []model.RecipientState{{Principal: "claude-builder", Status: status}}
 }
 
 func TestMessageActionsForStates(t *testing.T) {
@@ -43,7 +43,7 @@ func TestMessageActionsForStates(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := msgLabels(messageActionsFor(c.msg, "builder"))
+			got := msgLabels(messageActionsFor(c.msg, "claude-builder"))
 			if !reflect.DeepEqual(got, c.want) {
 				t.Fatalf("got %v, want %v", got, c.want)
 			}

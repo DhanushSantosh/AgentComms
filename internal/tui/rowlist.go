@@ -89,6 +89,7 @@ type confirmState struct {
 	prompt     string
 	typ        string
 	id         string
+	localDraft bool
 	payload    any
 	onError    func(err error, id string) error
 	passphrase string
@@ -594,6 +595,16 @@ func (m Model) resolveConfirm(yes bool) (tea.Model, tea.Cmd) {
 		m.notice = "Cancelled."
 		return m, nil
 	}
+	if c.localDraft {
+		if err := m.svc.DeleteDraft(c.id); err != nil {
+			m.err = err
+			return m, nil
+		}
+		m.err = nil
+		m.notice = "Deleted draft " + c.id
+		m.refreshDrafts()
+		return m, nil
+	}
 	if c.chainOrchestratorApproval {
 		return m.dispatchOrchestratorApprovalChain(c)
 	}
@@ -609,12 +620,24 @@ func (m Model) resolveConfirm(yes bool) (tea.Model, tea.Cmd) {
 // button line and confirmChoiceAt's (mouse.go) click hit-testing, so the
 // clickable regions can never drift from what's actually printed on screen.
 const (
-	confirmYesLabel = "[y / enter] Sign and apply"
-	confirmNoLabel  = "[n / esc] Go back"
-	confirmGap      = "    "
+	confirmYesLabel      = "[y / enter] Sign and apply"
+	draftConfirmYesLabel = "[y / enter] Delete draft"
+	confirmNoLabel       = "[n / esc] Go back"
+	confirmGap           = "    "
 )
 
 func (m Model) renderConfirm(p palette) string {
+	if m.confirm.localDraft {
+		rows := []string{
+			lipgloss.NewStyle().Foreground(p.amber).Bold(true).Render("REVIEW / Local draft deletion"),
+			m.confirm.prompt,
+			"",
+			lipgloss.NewStyle().Foreground(p.muted).Render("This deletes one local draft and frees its quota; it does not change project history."),
+			lipgloss.NewStyle().Foreground(p.amber).Render(draftConfirmYesLabel + confirmGap + confirmNoLabel),
+		}
+		return lipgloss.NewStyle().BorderLeft(true).BorderStyle(lipgloss.ThickBorder()).
+			BorderForeground(p.amber).PaddingLeft(2).Render(strings.Join(rows, "\n"))
+	}
 	rows := []string{
 		lipgloss.NewStyle().Foreground(p.amber).Bold(true).Render("REVIEW / Signed change"),
 		m.confirm.prompt,

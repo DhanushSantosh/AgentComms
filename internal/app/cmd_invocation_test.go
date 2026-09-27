@@ -36,13 +36,13 @@ func TestInvocationRequestExplainsPendingConsumer(t *testing.T) {
 		}
 	}
 	must("init", "--non-interactive", "--owner", "owner", "--mode", "personal", "--json")
-	must("agent", "register", "--id", "builder", "--json")
-	must("agent", "activate", "--id", "builder", "--role", "AGENT", "--scope", "src", "--json")
+	must("agent", "register", "--id", "claude-builder", "--json")
+	must("agent", "activate", "--id", "claude-builder", "--role", "AGENT", "--scope", "src", "--json")
 
-	// No runtime for "builder" is online, and --consumer is deliberately
+	// No runtime for "claude-builder" is online, and --consumer is deliberately
 	// omitted so the receipt must resolve it from the target's policy
 	// default rather than showing it blank.
-	if err := run("invocation", "request", "--id", "inv-queued", "--to", "builder", "--instruction", "say hi"); err != nil {
+	if err := run("invocation", "request", "--id", "inv-queued", "--to", "claude-builder", "--instruction", "say hi"); err != nil {
 		t.Fatalf("invocation request: %v\n%s", err, stderr.String())
 	}
 	plain := out.String()
@@ -92,9 +92,9 @@ func TestInvocationListEmptyStateDistinguishesNothingFromNoMatches(t *testing.T)
 		t.Fatalf("expected the genuinely-empty message, got: %q", out.String())
 	}
 
-	must("agent", "register", "--id", "builder", "--json")
-	must("agent", "activate", "--id", "builder", "--role", "AGENT", "--scope", "src", "--json")
-	must("invocation", "request", "--id", "inv-1", "--to", "builder", "--instruction", "say hi", "--json")
+	must("agent", "register", "--id", "claude-builder", "--json")
+	must("agent", "activate", "--id", "claude-builder", "--role", "AGENT", "--scope", "src", "--json")
+	must("invocation", "request", "--id", "inv-1", "--to", "claude-builder", "--instruction", "say hi", "--json")
 
 	if err := run("invocation", "list", "--status", "COMPLETED"); err != nil {
 		t.Fatal(err)
@@ -119,7 +119,7 @@ func TestInvocationListEmptyStateDistinguishesNothingFromNoMatches(t *testing.T)
 // silently reintroduce the same class of bug.
 func TestInvocationRequestOutcomeHintsNameOnlyRealFlags(t *testing.T) {
 	for _, outcome := range []string{"PENDING_CONSUMER", "UNAVAILABLE", "AMBIGUOUS", "SUCCEEDED"} {
-		_, hint := invocationRequestOutcomeHint(outcome, "", "inv-1", "builder")
+		_, hint := invocationRequestOutcomeHint(outcome, "", "inv-1", "claude-builder")
 		if strings.Contains(hint, "listen --id") {
 			t.Fatalf("%s hint suggests unsupported `listen --id`: %s", outcome, hint)
 		}
@@ -127,11 +127,11 @@ func TestInvocationRequestOutcomeHintsNameOnlyRealFlags(t *testing.T) {
 			t.Fatalf("%s hint suggests unsupported `policy set --to`: %s", outcome, hint)
 		}
 	}
-	_, pendingHint := invocationRequestOutcomeHint("PENDING_CONSUMER", "", "inv-1", "builder")
+	_, pendingHint := invocationRequestOutcomeHint("PENDING_CONSUMER", "", "inv-1", "claude-builder")
 	if !strings.Contains(pendingHint, "invocation listen --runtime") {
 		t.Fatalf("PENDING_CONSUMER hint should suggest the real `listen --runtime` flag: %s", pendingHint)
 	}
-	_, ambiguousHint := invocationRequestOutcomeHint("AMBIGUOUS", "", "inv-1", "builder")
+	_, ambiguousHint := invocationRequestOutcomeHint("AMBIGUOUS", "", "inv-1", "claude-builder")
 	if !strings.Contains(ambiguousHint, "policy set --agent") {
 		t.Fatalf("AMBIGUOUS hint should suggest the real `policy set --agent` flag: %s", ambiguousHint)
 	}
@@ -184,9 +184,9 @@ func TestInvocationInspectShowsInstructionByDefault(t *testing.T) {
 		}
 	}
 	must("init", "--non-interactive", "--owner", "owner", "--mode", "personal", "--json")
-	must("agent", "register", "--id", "builder", "--json")
-	must("agent", "activate", "--id", "builder", "--role", "AGENT", "--scope", "src", "--json")
-	must("invocation", "request", "--id", "inv-inspect", "--to", "builder", "--instruction", "review the release notes carefully", "--json")
+	must("agent", "register", "--id", "claude-builder", "--json")
+	must("agent", "activate", "--id", "claude-builder", "--role", "AGENT", "--scope", "src", "--json")
+	must("invocation", "request", "--id", "inv-inspect", "--to", "claude-builder", "--instruction", "review the release notes carefully", "--json")
 
 	if err := run("invocation", "inspect", "--id", "inv-inspect"); err != nil {
 		t.Fatalf("invocation inspect: %v\n%s", err, stderr.String())
@@ -228,9 +228,9 @@ func TestAttentionSurfacesPendingConsumerInvocationAfterGrace(t *testing.T) {
 		}
 	}
 	must("init", "--non-interactive", "--owner", "owner", "--mode", "personal")
-	must("agent", "register", "--id", "builder")
-	must("agent", "activate", "--id", "builder", "--role", "AGENT", "--scope", "src")
-	must("invocation", "request", "--id", "inv-pending", "--to", "builder", "--instruction", "say hi")
+	must("agent", "register", "--id", "claude-builder")
+	must("agent", "activate", "--id", "claude-builder", "--role", "AGENT", "--scope", "src")
+	must("invocation", "request", "--id", "inv-pending", "--to", "claude-builder", "--instruction", "say hi")
 
 	// Within the grace period: must not yet appear.
 	old := attentionPendingConsumerGrace

@@ -85,9 +85,12 @@ var (
 		Key: "t", Label: "takeover", EventType: "task.takeover", Confirm: true,
 		Payload: func() any { return model.TaskStatus{} },
 		Prompt: func(id string) string {
-			return "Take over " + id + "? This requires an existing approved `task.takeover:" + id + "` approval."
+			return "Take over " + id + "? This requires an approved, unexpired `task.takeover:" + id + "` approval."
 		},
 		OnError: func(err error, id string) error {
+			if strings.Contains(err.Error(), "takeover approval has expired") {
+				return fmt.Errorf("%w — request a fresh approval with a new ID via `agent-comms approval request --action task.takeover:%s`", err, id)
+			}
 			return fmt.Errorf("%w — request one via `agent-comms approval request --action task.takeover:%s`", err, id)
 		},
 	}

@@ -1,7 +1,10 @@
 import { BrandMark } from "@/components/BrandMark";
+import { getLatestVersion } from "@/lib/latestRelease";
 import { documentationPage, site } from "@/lib/site";
 
-export function SiteFooter() {
+export async function SiteFooter() {
+  const version = await getLatestVersion();
+
   return (
     <footer className="site-footer" data-reveal="footer">
       <div className="site-footer-main">
@@ -38,7 +41,7 @@ export function SiteFooter() {
 
       <div className="site-footer-bottom">
         <span>Agent Comms is free and open source.</span>
-        <span>AC / {site.productVersion}</span>
+        <span>AC / {version}</span>
       </div>
     </footer>
   );

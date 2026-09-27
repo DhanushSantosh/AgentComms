@@ -34,7 +34,7 @@ func TestCodexLiveDoesNotRequireSessionID(t *testing.T) {
 func TestCodexLiveIsRegisteredWithoutExecutableRequirement(t *testing.T) {
 	instance, root := workerService(t)
 	worker, err := New(Config{
-		Service: instance, Actor: "DAMON", RuntimeID: "runtime-damon",
+		Service: instance, Actor: "claude-damon", RuntimeID: "runtime-damon",
 		Adapter: "codex-live", WorkDir: root,
 		ListenWait: time.Second, ExecutionTimeout: time.Minute, Once: true,
 	})

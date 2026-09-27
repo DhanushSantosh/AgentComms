@@ -38,13 +38,27 @@ func elevated(typ string) bool {
 	// consequences.
 	return typ == "approval.approve" || typ == "approval.reject" || typ == "agent.activate" || typ == "agent.suspend" || typ == "agent.rotate-key" || typ == "agent.rename" || typ == "agent.revoke" || typ == "agent.delete" || typ == "project.settings.update" || typ == "env.set" || typ == "env.delete"
 }
-func hasApproval(st model.State, action string) bool {
-	for _, a := range st.Approvals {
-		if a.Action == action && a.Status == "APPROVED" {
-			return true
+func eligibleActionApprovalID(st model.State, action string, now time.Time) (string, bool) {
+	chosen := ""
+	expired := false
+	for id, approval := range st.Approvals {
+		if approval.Action != action || approval.Status != "APPROVED" {
+			continue
+		}
+		if approval.ExpiresAt != nil && !approval.ExpiresAt.After(now) {
+			expired = true
+			continue
+		}
+		if chosen == "" || id < chosen {
+			chosen = id
 		}
 	}
-	return false
+	return chosen, expired
+}
+
+func hasApproval(st model.State, action string, now time.Time) bool {
+	id, _ := eligibleActionApprovalID(st, action, now)
+	return id != ""
 }
 
 // ApprovalSubjectDigest returns the canonical digest that an approval must
@@ -452,6 +466,20 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 		if _, exists := st.Agents[id]; exists {
 			return nil, errors.New("principal already exists")
 		}
+		// RFC 0039: an AGENT's actor ID names the runtime behind it, so
+		// "which provider produced this event" is answerable from the
+		// identity that appears in every event, table and log line. HUMAN
+		// principals are exempt -- a person is not a provider.
+		//
+		// Enforced here rather than in the CLI because this validator is
+		// shared by CLI, MCP, TUI and both authority backends. Replay is
+		// unaffected: projection.ApplyEvent does not call this, so
+		// principals registered before this rule keep projecting.
+		if registered.PrincipalType == model.PrincipalAgent {
+			if err := model.ValidateAgentActorID(id); err != nil {
+				return nil, err
+			}
+		}
 	}
 	if typ != "agent.register" {
 		a, x := active(st, actor)
@@ -807,7 +835,18 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 			}
 			for _, v := range st.Tasks {
 				if v.ID != id && v.Owner != "" && !v.Archived && v.Status != "COMPLETED" && v.Status != "CANCELLED" && overlap(t.Resources, v.Resources) {
-					if !hasApproval(st, "shared-write:"+id+":"+v.ID) && !hasApproval(st, "shared-write:"+v.ID+":"+id) {
+					forward, forwardExpired := eligibleActionApprovalID(st, "shared-write:"+id+":"+v.ID, now)
+					reverse, reverseExpired := eligibleActionApprovalID(st, "shared-write:"+v.ID+":"+id, now)
+					if forward == "" && reverse == "" {
+						// RFC 0037 item 5 asks the error to distinguish "no
+						// approved record" from "all matching approvals have
+						// expired". task.takeover already does; without this
+						// shared-write reported only the bare overlap, so an
+						// operator whose approval had just lapsed debugged the
+						// overlap instead of requesting a fresh approval.
+						if forwardExpired || reverseExpired {
+							return nil, fmt.Errorf("write lease overlaps task %s and the shared-write approval has expired; request a fresh approval", v.ID)
+						}
 						return nil, fmt.Errorf("write lease overlaps task %s", v.ID)
 					}
 				}
@@ -853,8 +892,18 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 			if allowed, constrained := allowedStatus[typ]; constrained && !allowed[t.Status] {
 				return nil, fmt.Errorf("%s is invalid while task is %s", typ, t.Status)
 			}
-			if typ == "task.takeover" && !hasApproval(st, "task.takeover:"+id) {
-				return nil, errors.New("approved takeover is required")
+			if typ == "task.takeover" {
+				approvalID, expired := eligibleActionApprovalID(st, "task.takeover:"+id, now)
+				if approvalID == "" {
+					if expired {
+						return nil, errors.New("takeover approval has expired; request a fresh approval")
+					}
+					return nil, errors.New("approved takeover is required")
+				}
+				p.ApprovalID = approvalID
+				payload = p
+			} else if p.ApprovalID != "" {
+				return nil, errors.New("approval_id is reserved for server-normalized task.takeover events")
 			}
 			settings := model.EffectiveProjectSettings(st.ProjectSettings)
 			if typ == "task.complete" && (t.Risk != "ROUTINE" || settings.RequireReview) {
@@ -1539,6 +1588,9 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 			return nil, errors.New("approval tier and action are required")
 		}
 		boundAction := strings.HasPrefix(request.Action, "contract:") || strings.HasPrefix(request.Action, "invocation:") || strings.HasPrefix(request.Action, "invocation-sensitive:")
+		if request.ExpiresAt != nil && !request.ExpiresAt.After(now) {
+			return nil, errors.New("approval expiry must be in the future")
+		}
 		if boundAction && (request.Subject == "" || request.SubjectDigest == "" || request.SubjectDigest != ApprovalSubjectDigestFromJSON(request.Subject) || request.ExpiresAt == nil || !request.ExpiresAt.After(now)) {
 			return nil, errors.New("contract and invocation approvals require a subject digest and future expiry")
 		}

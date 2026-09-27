@@ -64,9 +64,9 @@ func TestRuntimeSessionBindingReflectsCapturedProviderAndID(t *testing.T) {
 func TestRuntimesViewRendersDetailPaneForSelectedRow(t *testing.T) {
 	t.Setenv("AGENT_COMMS_CONFIG_DIR", t.TempDir())
 	instance := newTestService(t)
-	registerAgent(t, instance, "AXIOM", model.Role("MEMBER"), "src")
-	if _, err := instance.Execute("AXIOM", "runtime.register", "axiom-runtime-1",
-		model.RuntimeRegistered{AgentID: "AXIOM", Connector: "MANUAL", MaxConcurrent: 1}); err != nil {
+	registerAgent(t, instance, "claude-axiom", model.Role("MEMBER"), "src")
+	if _, err := instance.Execute("claude-axiom", "runtime.register", "axiom-runtime-1",
+		model.RuntimeRegistered{AgentID: "claude-axiom", Connector: "MANUAL", MaxConcurrent: 1}); err != nil {
 		t.Fatal(err)
 	}
 	if err := sessionbind.Save(instance.Store.Root, "axiom-runtime-1", "e22cbdad-7233-4d6d-8ecc-0c4bffd8c475", "claude"); err != nil {
@@ -80,7 +80,7 @@ func TestRuntimesViewRendersDetailPaneForSelectedRow(t *testing.T) {
 	view.rowFocus = true
 	view.runtimeList.Refresh(view.state, view.actor)
 	rendered := view.View().Content
-	for _, expected := range []string{"AXIOM", "RUNTIME DETAIL", "Claude", "e22cbdad-7233-4d6d-8ecc-0c4bffd8c475"} {
+	for _, expected := range []string{"claude-axiom", "RUNTIME DETAIL", "Claude", "e22cbdad-7233-4d6d-8ecc-0c4bffd8c475"} {
 		if !strings.Contains(rendered, expected) {
 			t.Errorf("runtimes view missing %q:\n%s", expected, rendered)
 		}
@@ -96,9 +96,9 @@ func TestRuntimesViewRendersDetailPaneForSelectedRow(t *testing.T) {
 func TestRuntimeDetailIncludesProviderAndSession(t *testing.T) {
 	t.Setenv("AGENT_COMMS_CONFIG_DIR", t.TempDir())
 	instance := newTestService(t)
-	registerAgent(t, instance, "AXIOM", model.Role("MEMBER"), "src")
-	if _, err := instance.Execute("AXIOM", "runtime.register", "axiom-runtime-1",
-		model.RuntimeRegistered{AgentID: "AXIOM", Connector: "MANUAL", MaxConcurrent: 1}); err != nil {
+	registerAgent(t, instance, "claude-axiom", model.Role("MEMBER"), "src")
+	if _, err := instance.Execute("claude-axiom", "runtime.register", "axiom-runtime-1",
+		model.RuntimeRegistered{AgentID: "claude-axiom", Connector: "MANUAL", MaxConcurrent: 1}); err != nil {
 		t.Fatal(err)
 	}
 	if err := sessionbind.Save(instance.Store.Root, "axiom-runtime-1", "e22cbdad-7233-4d6d-8ecc-0c4bffd8c475", "claude"); err != nil {

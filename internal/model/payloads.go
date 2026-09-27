@@ -85,9 +85,10 @@ type TaskHandoff struct {
 	Summary string `json:"summary"`
 }
 type TaskStatus struct {
-	Summary  string   `json:"summary,omitempty"`
-	Evidence []string `json:"evidence,omitempty"`
-	Reviewer string   `json:"reviewer,omitempty"`
+	Summary    string   `json:"summary,omitempty"`
+	Evidence   []string `json:"evidence,omitempty"`
+	Reviewer   string   `json:"reviewer,omitempty"`
+	ApprovalID string   `json:"approval_id,omitempty"`
 }
 type RecipientState struct {
 	Principal string     `json:"principal"`

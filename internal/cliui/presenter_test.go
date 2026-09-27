@@ -112,7 +112,7 @@ func TestPresenterRenderResultProducesDeterministicReadableTree(t *testing.T) {
 		"task_id": "task-7\x1b]8;;https://evil.invalid\a",
 		"status":  "CLAIMED",
 		"lease": map[string]any{
-			"owner": "builder",
+			"owner": "claude-builder",
 			"until": "2026-08-26T10:30:00Z",
 		},
 		"resources": []string{"src/api", "docs"},
@@ -123,7 +123,7 @@ func TestPresenterRenderResultProducesDeterministicReadableTree(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := output.String()
-	for _, want := range []string{"Task claim", "Status", "CLAIMED", "Task id", "task-7", "Lease", "Owner", "builder", "Resources (2)", "src/api"} {
+	for _, want := range []string{"Task claim", "Status", "CLAIMED", "Task id", "task-7", "Lease", "Owner", "claude-builder", "Resources (2)", "src/api"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("readable result is missing %q:\n%s", want, got)
 		}

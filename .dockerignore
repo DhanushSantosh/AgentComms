@@ -1,0 +1,44 @@
+# The server image builds Go sources only (see Dockerfile.server). Without
+# this file Docker uploads the whole tree as build context -- measured at
+# 614MB, of which sites/ is 782MB on disk and node_modules/ 583MB, none of
+# it reachable from cmd/agent-comms-server.
+#
+# Keep in mind when editing: Dockerfile.server does `COPY . .` after the
+# dependency layer, so anything excluded here is absent from the build.
+# go.mod's local replace directives need third_party/, and the two
+# //go:embed directives (internal/authority/schema.sql,
+# internal/onboarding/decision_tree.tmpl) sit beside their Go files in
+# internal/ -- do not exclude any of those.
+
+# Version control and local agent state
+.git
+.gitignore
+.worktrees
+.agent-comms
+.claude
+.superpowers
+
+# JavaScript workspaces: the landing site, the docs site, and their deps
+sites
+node_modules
+**/node_modules
+package-lock.json
+
+# Build, test and scratch output
+output
+dist
+**/.next
+**/test-results
+**/playwright-report
+agent-comms-fresh
+
+# Documentation and CI config, none of it compiled into the binary
+docs
+.github
+*.md
+LICENSE
+
+# Container definitions themselves
+Dockerfile*
+compose.yaml
+.dockerignore

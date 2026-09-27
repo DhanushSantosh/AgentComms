@@ -24,12 +24,12 @@ func enterInboxView(t *testing.T, m Model) Model {
 
 func TestAckThenCompleteActionMessage(t *testing.T) {
 	s := newTestService(t)
-	registerAgent(t, s, "builder", model.Role("MEMBER"), "src")
-	if _, e := s.Execute("owner", "message.post", "msg-1", model.MessagePosted{Kind: "ACTION", To: []string{"builder"}, Subject: "Run tests", Body: "Attach results"}); e != nil {
+	registerAgent(t, s, "claude-builder", model.Role("MEMBER"), "src")
+	if _, e := s.Execute("owner", "message.post", "msg-1", model.MessagePosted{Kind: "ACTION", To: []string{"claude-builder"}, Subject: "Run tests", Body: "Attach results"}); e != nil {
 		t.Fatal(e)
 	}
 
-	m, e := New(s, "builder")
+	m, e := New(s, "claude-builder")
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -51,7 +51,7 @@ func TestAckThenCompleteActionMessage(t *testing.T) {
 		t.Fatal(e)
 	}
 	for _, r := range st.Messages["msg-1"].Recipients {
-		if r.Principal == "builder" && r.Status != "COMPLETED" {
+		if r.Principal == "claude-builder" && r.Status != "COMPLETED" {
 			t.Fatalf("status = %q, want COMPLETED", r.Status)
 		}
 	}
@@ -59,12 +59,12 @@ func TestAckThenCompleteActionMessage(t *testing.T) {
 
 func TestAckThenResolveBlocker(t *testing.T) {
 	s := newTestService(t)
-	registerAgent(t, s, "builder", model.Role("MEMBER"), "src")
-	if _, e := s.Execute("owner", "message.post", "msg-2", model.MessagePosted{Kind: "BLOCKER", To: []string{"builder"}, Subject: "CI is down"}); e != nil {
+	registerAgent(t, s, "claude-builder", model.Role("MEMBER"), "src")
+	if _, e := s.Execute("owner", "message.post", "msg-2", model.MessagePosted{Kind: "BLOCKER", To: []string{"claude-builder"}, Subject: "CI is down"}); e != nil {
 		t.Fatal(e)
 	}
 
-	m, e := New(s, "builder")
+	m, e := New(s, "claude-builder")
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -83,7 +83,7 @@ func TestAckThenResolveBlocker(t *testing.T) {
 		t.Fatal(e)
 	}
 	for _, r := range st.Messages["msg-2"].Recipients {
-		if r.Principal == "builder" && r.Status != "RESOLVED" {
+		if r.Principal == "claude-builder" && r.Status != "RESOLVED" {
 			t.Fatalf("status = %q, want RESOLVED", r.Status)
 		}
 	}
@@ -98,7 +98,7 @@ func TestAckThenResolveBlocker(t *testing.T) {
 func TestOwnerSeesEveryMessageByRealOwnerID(t *testing.T) {
 	state := model.State{
 		Messages: map[string]model.Message{
-			"msg-1": {Kind: "ACTION", From: "builder", Subject: "narrow", To: []string{"builder"}},
+			"msg-1": {Kind: "ACTION", From: "claude-builder", Subject: "narrow", To: []string{"claude-builder"}},
 		},
 	}
 	source := messageRowSource{owner: "Dhanush"}
@@ -115,7 +115,7 @@ func TestOwnerSeesEveryMessageByRealOwnerID(t *testing.T) {
 
 func TestContractPostRequiresConfirm(t *testing.T) {
 	s := newTestService(t)
-	registerAgent(t, s, "builder", model.Role("MEMBER"), "src")
+	registerAgent(t, s, "claude-builder", model.Role("MEMBER"), "src")
 
 	m, e := New(s, "owner")
 	if e != nil {
@@ -128,7 +128,7 @@ func TestContractPostRequiresConfirm(t *testing.T) {
 	}
 	m.inputs[0].SetValue("contract-1")
 	m.inputs[1].SetValue("CONTRACT")
-	m.inputs[2].SetValue("builder")
+	m.inputs[2].SetValue("claude-builder")
 	m.inputs[3].SetValue("API contract")
 	m.inputs[4].SetValue("Body text")
 	m.formFocus = len(m.inputs) - 1
@@ -155,8 +155,8 @@ func TestContractPostRequiresConfirm(t *testing.T) {
 
 func TestContractFormCanRequestBoundApproval(t *testing.T) {
 	s := newTestService(t)
-	registerAgent(t, s, "builder", model.Role("MEMBER"), "src")
-	m, err := New(s, "builder")
+	registerAgent(t, s, "claude-builder", model.Role("MEMBER"), "src")
+	m, err := New(s, "claude-builder")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,12 +200,12 @@ func TestContractFormCanRequestBoundApproval(t *testing.T) {
 // wrapped.
 func TestRowCellsNeverWrapOntoAnExtraLine(t *testing.T) {
 	s := newTestService(t)
-	registerAgent(t, s, "HENRY", model.Role("MEMBER"), "src")
-	registerAgent(t, s, "PETER", model.Role("MEMBER"), "src")
-	if _, e := s.Execute("HENRY", "message.post", "msg-1", model.MessagePosted{Kind: "FYI", To: []string{"owner"}, Subject: "Hello from HENRY"}); e != nil {
+	registerAgent(t, s, "claude-henry", model.Role("MEMBER"), "src")
+	registerAgent(t, s, "claude-peter", model.Role("MEMBER"), "src")
+	if _, e := s.Execute("claude-henry", "message.post", "msg-1", model.MessagePosted{Kind: "FYI", To: []string{"owner"}, Subject: "Hello from HENRY"}); e != nil {
 		t.Fatal(e)
 	}
-	if _, e := s.Execute("PETER", "message.post", "msg-2", model.MessagePosted{Kind: "FYI", To: []string{"owner"}, Subject: "Greetings from PETER"}); e != nil {
+	if _, e := s.Execute("claude-peter", "message.post", "msg-2", model.MessagePosted{Kind: "FYI", To: []string{"owner"}, Subject: "Greetings from PETER"}); e != nil {
 		t.Fatal(e)
 	}
 
@@ -222,7 +222,14 @@ func TestRowCellsNeverWrapOntoAnExtraLine(t *testing.T) {
 		// which is the correct, non-wrapping degradation this test exists
 		// to confirm still holds -- only a wrap would split it onto its own
 		// line entirely.
-		for _, want := range []string{"HENRY", "PETER"} {
+		// Senders are matched on a prefix for the same reason "DELIV"
+		// stands in for "DELIVERED" above: under RFC 0039 an agent ID
+		// carries its provider, and at width 70 the FROM column
+		// legitimately truncates it. Truncation is the correct
+		// degradation; a wrap is the failure this test exists to catch,
+		// and a wrapped row would put the sender and the state on
+		// different lines regardless of how much of the name survived.
+		for _, want := range []string{"claude-hen", "claude-pet"} {
 			found := false
 			for _, line := range lines {
 				if strings.Contains(line, want) && strings.Contains(line, "DELIV") {

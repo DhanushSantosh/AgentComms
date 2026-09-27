@@ -102,12 +102,12 @@ one is picked up, remove it from here and note the landing commit.
 
 ## Security / governance
 
-- **`draft delete` CLI command (deferred from [RFC 0027](rfcs/0027-cli-surface-consolidation.md) §8).**
-  RFC 0027 added `draft show`; `draft delete` needs a new
-  `draftstore.Store.DeleteDraft` plus a daemon route and daemonclient
-  method, so it was left out of the RFC 0027 PR. Low priority — drafts are
-  non-authoritative local state and self-expire; add when someone actually
-  needs to prune them.
+- **RESOLVED 2026-09-24: `draft delete` CLI command
+  ([RFC 0036](rfcs/0036-draft-delete-quota-recovery.md)).**
+  `draft delete --id` removes only the named local draft and frees its count
+  and storage quota; an unknown ID is an error. The delete path covers the
+  local stores, daemon API, client, service, CLI, and WASM demo. Drafts do
+  not self-expire. Bulk deletion and expiry remain out of scope.
 
 - **RESOLVED 2026-09-02: added first-phase application authentication for the
   shared authority service ([RFC 0026](rfcs/0026-authority-bearer-token.md)).**
@@ -118,8 +118,9 @@ one is picked up, remove it from here and note the landing commit.
   metrics, deletion, and signed command submission. Service-mode clients and
   daemons send the token from the same environment variable without storing it
   in `.agent-comms/config.json`. This closes the anonymous service-admission
-  part of the audit follow-up; per-principal durable quotas and token rotation
-  remain future hardening, not part of this first phase.
+  part of the audit follow-up. The release targets trusted self-hosted teams,
+  not mutually untrusted tenants; per-principal durable quotas and token
+  rotation remain future hardening rather than a release gate.
 
 - **RESOLVED 2026-09-02: audited the five non-`HUMAN` `hasApproval` call
   sites deferred by [RFC 0023](rfcs/0023-single-use-orchestrator-grant-approval.md)
@@ -262,6 +263,15 @@ one is picked up, remove it from here and note the landing commit.
   approval.Requester`, or specifically that the *activating* actor differ
   from whoever requested the approval it's relying on.
 
+  **Release policy decision, 2026-09-24:** for trusted self-hosted teams,
+  an orchestrator agent may request and approve its own `task.takeover`
+  authorization; requiring a human for every takeover is not a release
+  requirement. Any trusted active principal may redeem an approved
+  action-scoped takeover authorization; requester/redeemer binding is not
+  required for this trust model. An explicitly expired approval must not
+  remain usable; that correction is specified in accepted
+  [RFC 0037](rfcs/0037-action-approval-expiry.md).
+
 - **`agent.rename` display-name impersonation is an accepted, low-severity
   risk, not fixed.** An orchestrator (including an AGENT-principal one) can
   rename another principal's cosmetic `DisplayName` to impersonate a
@@ -301,9 +311,8 @@ kept:
   injection with echo confirmation), the live brokers, and worker
   adapters. Each covers a distinct case (RFCs 0010, 0008/0009, 0006) and
   none subsumes another. Reconsidered and confirmed, not merged.
-- **`draft`** — kept and half-finished by RFC 0027 (`draft show` added,
-  `draft delete` deferred to the `draft delete` entry under Security /
-  governance).
+- **`draft`** — kept; RFC 0027 added `draft show`, and RFC 0036 completed
+  the single-draft delete and quota-recovery path.
 
 ## Unwired / vestigial code (surfaced during RFC 0028 review, 2026-09-02)
 
@@ -322,6 +331,26 @@ kept:
   remove the field.
 
 ## Test / CI infrastructure
+
+- **Windows process-takeover ancestry false positive, mitigated 2026-09-24.**
+  CI on `3759375` failed `TestTakeoverTerminatesALiveProcess` because the
+  Toolhelp numeric parent-PID walk classified the test process as a
+  descendant of a child it had just spawned. A stale parent PID reused by
+  the new child can make that impossible relationship appear in a process
+  snapshot. The ancestry check now rules out a target created after the
+  caller before trusting the PID chain, with a synthetic stale-chain
+  regression and a real-child creation-time check. The next Windows CI run
+  passed `internal/interactiveserve`; continue to watch for recurrence.
+
+- **Windows app-fixture cleanup and session discovery, mitigated
+  2026-09-24.** The next CI run failed `internal/app` in two unrelated
+  paths: `TestMutationCommandPlainOutputIsAConciseReceipt` left a test
+  daemon's projection SQLite file open when `t.TempDir` removed it, and
+  `TestDiscoverClaudeSessionIDFindsFileWrittenAfterAShortDelay` saw a
+  provider session file before it contained complete JSON. Test cleanup
+  now waits for the daemon goroutine to exit and close its stores; session
+  discovery keeps polling malformed/partial files until its existing
+  deadline, with a staged-write regression. Confirm both on Windows CI.
 
 - **`TestInvocationDeliveryFailureDoesNotTerminateObligation` is flaky on
   loaded/slow windows-latest runners, not fixed.** Observed live on PR #25's
@@ -343,8 +372,8 @@ kept:
   it recurs; not done here since a single confirmed flake isn't enough to
   diagnose the right fix.
 
-- **`TestEnsureDaemonReplacesIncompatibleDaemon` is flaky on loaded/slow
-  windows-latest runners too, not fixed -- now confirmed four times.** A
+- **MITIGATED 2026-09-24: `TestEnsureDaemonReplacesIncompatibleDaemon`
+  readiness flake on loaded Windows runners.** A
   second, distinct flake in the same category as the entry below, first
   seen on PR #27's CI (2026-08-13): failed with "local daemon did not
   become ready" after a 41s wait, on one of two parallel windows-latest
@@ -356,18 +385,15 @@ kept:
   on PR #30 (the TUI interaction-audit fix), again the identical ~41s
   timeout, again one of two parallel windows-latest runs, again cleared by
   a bare re-run -- unrelated to that PR's changes too (form/palette/mouse
-  logic, nowhere near daemon startup). Deliberately still not widening
-  `daemonReadyTimeout` (internal/app/app.go): it already carries its own
-  documented history of being widened exactly for this failure mode -- 10s
-  to 20s to 40s, across three separate PRs in an earlier session, each time
-  citing the identical "confirmed on CI, resolved by a bare rerun" pattern.
-  A test that already burns 41s before failing is close to the point where
-  widening further mostly delays surfacing a genuinely hung daemon rather
-  than absorbing real contention. The established mitigation (rerun)
-  reliably works and is cheap and has now cleared it cleanly all four
-  times; still holding off on a runner-load-aware retry budget instead of
-  a flat deadline until it's discussed directly, rather than guessing at
-  a redesign four data points still isn't quite enough to justify unasked.
+  logic, nowhere near daemon startup). It recurred on `0ccbb23` alongside
+  a personal-daemon readiness timeout in `internal/worker`; both cleared on
+  a rerun. The original 40s whole-wait budget had already been widened
+  several times, so `fd828c9` instead raised the individual health-probe
+  timeout from 300ms to 3s, improved failure diagnostics, and gave the
+  worker test helper a 30s startup budget. The next Windows CI run passed
+  on its first attempt. Keep watching subsequent runs: one clean run is
+  evidence for the mitigation, not proof that an intermittent failure can
+  never recur. The separate delivery-coordinator flake above remains open.
 
 - **RESOLVED 2026-08-12: `internal/protocol`'s `ValidateTransition` direct
   coverage gap closed, and a per-package coverage floor now guards against
@@ -393,6 +419,76 @@ kept:
   coverage through `internal/service`/`internal/app`/`internal/mcp`/`internal/tui`
   integration tests. Not urgent — the indirect coverage is real — but a gap
   worth closing with direct unit tests for the highest-value paths.
+
+- **`ensureDaemon` gives each health probe 300ms but the whole wait 40s, so a
+  slow-but-healthy daemon is reported as never ready — fixed
+  2026-09-24.** CI run 35908564798 on `0ccbb23` failed `windows-latest` with
+  two daemon-readiness timeouts: `internal/app`'s
+  `TestEnsureDaemonReplacesIncompatibleDaemon` ("local daemon did not become
+  ready", 40.77s) and `internal/worker`'s
+  `TestCodexACPAdapterDoesNotRequireExecutable` ("personal daemon did not
+  become ready", 8.44s). A re-run of the identical tree passed. Not the
+  draft-delete diff that commit carried: `internal/worker` is untouched by
+  it, and `windows-latest` had passed on both `5be4ec0` and `4b6a971`.
+  The diagnostic worth keeping: **the failing run took 4m8s and the passing
+  one 5m5s.** A failure that is *faster* than a pass is tests abandoning a
+  readiness wait, not tests doing less work.
+  Root cause is a timeout-shape bug, not a too-small budget.
+  `daemonReadyTimeout` is already 40s (raised once before for this same
+  contention class) and was fully consumed, so raising it again would
+  change nothing. The suspect is `daemonHealthRequestTimeout = 300ms`
+  (`internal/app/app.go:53`): it caps each individual probe, so under
+  contention every one of the ~400 probes can time out while the daemon is
+  up and answering slowly, burning the full 40s to report a healthy daemon
+  as dead. This is user-facing, not test-only — the same path runs for a
+  real user on a loaded machine.
+  **Fixed 2026-09-24**, three changes: `daemonHealthRequestTimeout` raised
+  300ms -> 3s so a slow probe is waited on rather than abandoned (the 40s
+  ceiling still bounds total time); `personalDaemonReadyTimeout` in
+  `internal/testsupport/project.go` raised 5s -> 30s for the
+  `internal/worker` half; and `ensureDaemon`'s failure message now reports
+  the probe count, elapsed time, and last probe error instead of discarding
+  `healthErr`, so the two failure modes can be told apart from a log alone.
+  Note the pre-flight check at `cmd_misc.go:315` shares the same constant
+  and benefits too: at 300ms a slow-but-healthy running daemon could be
+  misjudged as absent and needlessly killed and respawned.
+
+## Remote and hosted participants
+
+- **Cloud/hosted agents as team-mode participants — attempted 2026-09-27,
+  stopped, deferred.** A project cannot gain a remote participant without
+  being recreated: `RuntimeMode` is a property of the project
+  (`internal/store/store.go:70,143`), `init --mode service` always calls
+  `CreateProject` (`internal/runtimeinit/runtimeinit.go:213`), there is no
+  join verb, and `docs/service-deployment.md` says existing projects are not
+  converted in place. Full design and edge cases in
+  [RFC 0038](rfcs/0038-project-participation-independent-of-runtime-mode.md),
+  now Deferred.
+  **What was proven to work**, so it does not need re-deriving: the protocol
+  supports multi-machine participation as-is. A second participant with its
+  own project directory, config dir, credential store and keypair
+  self-registered against a shared Postgres authority, was activated by the
+  owner, and exchanged a message — one chain, `AUTHORITATIVE`. `agent.register`
+  is self-service (`internal/protocol/transitions.go:470` skips the actor
+  check), so a peer generates its own keypair and only the public half
+  travels inside the signed event. No key exchange is needed, and none should
+  be designed in.
+  **What blocked it** was the peer's environment, not this codebase. A hosted
+  agent's container, tool permissions and restart semantics are not under the
+  operator's control; its classifier refused to run this project's own CLI,
+  and it correctly declined to edit its own permission file to lift that.
+  Nothing in this repo fixes that.
+  **Two constraints worth keeping in mind** if this is revived. First, the
+  authority client sends only `Content-Type` and `Authorization: Bearer`
+  (`internal/remote/client.go:127-130`) — no custom headers, no client
+  certificates — so the service cannot sit behind Cloudflare Access, SSO, or
+  mTLS, and a bearer token is the only thing standing in front of a public
+  deployment. Second, that token is a master key: it gates project creation,
+  which has no signature check (`createProject` takes a bare JSON body),
+  while every other command is already Ed25519-verified per principal
+  (`internal/authority/postgres.go:363`). Per-peer revocable tokens were
+  implemented as a fix and reverted with the rest of this work — see
+  `810915f` in history.
 
 ## Possibly-a-bug, not yet root-caused
 

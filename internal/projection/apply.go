@@ -1,6 +1,7 @@
 package projection
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -136,6 +137,15 @@ func ApplyEvent(s *model.State, e model.Event) error {
 			t.Owner = e.Actor
 			t.HandoffTo = ""
 		case "task.takeover":
+			if p.ApprovalID != "" {
+				if err := consumeNamedApprovedAction(s, p.ApprovalID, "task.takeover:"+e.EntityID, e.Time); err != nil {
+					return err
+				}
+			} else {
+				// Events written before RFC 0037 lack approval_id. Preserve
+				// their original sorted, action-only replay semantics.
+				consumeApprovedAction(s, "task.takeover:"+e.EntityID)
+			}
 			settings := model.EffectiveProjectSettings(s.ProjectSettings)
 			defaultLease, _ := time.ParseDuration(settings.DefaultLease)
 			staleGrace, _ := time.ParseDuration(settings.StaleGrace)
@@ -143,7 +153,6 @@ func ApplyEvent(s *model.State, e model.Event) error {
 			t.Status = "CLAIMED"
 			t.LeaseUntil = e.Time.Add(defaultLease)
 			t.StaleUntil = t.LeaseUntil.Add(staleGrace)
-			consumeApprovedAction(s, "task.takeover:"+e.EntityID)
 		}
 		s.Tasks[e.EntityID] = t
 	case *model.MessagePosted:
@@ -501,6 +510,17 @@ func consumeApprovedAction(s *model.State, action string) {
 	approval := s.Approvals[ids[0]]
 	approval.Status = "CONSUMED"
 	s.Approvals[ids[0]] = approval
+}
+
+func consumeNamedApprovedAction(s *model.State, id, action string, at time.Time) error {
+	approval, ok := s.Approvals[id]
+	if !ok || approval.Action != action || approval.Status != "APPROVED" ||
+		(approval.ExpiresAt != nil && !approval.ExpiresAt.After(at)) {
+		return fmt.Errorf("takeover approval %q is missing, expired, or not approved for %q", id, action)
+	}
+	approval.Status = "CONSUMED"
+	s.Approvals[id] = approval
+	return nil
 }
 
 func defaultRisk(v string) string {

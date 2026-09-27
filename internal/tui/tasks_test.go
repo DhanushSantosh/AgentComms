@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -10,6 +11,18 @@ import (
 	"github.com/DhanushSantosh/AgentComms/internal/service"
 	"github.com/DhanushSantosh/AgentComms/internal/testsupport"
 )
+
+func TestTakeoverGuidanceRequiresCurrentApproval(t *testing.T) {
+	if prompt := actTakeover.prompt("task-1"); !strings.Contains(prompt, "approved, unexpired `task.takeover:task-1` approval") {
+		t.Fatalf("takeover prompt does not explain expiry: %q", prompt)
+	}
+	err := actTakeover.OnError(errors.New("takeover approval has expired; request a fresh approval"), "task-1")
+	for _, want := range []string{"takeover approval has expired", "new ID", "--action task.takeover:task-1"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("expired takeover error missing %q: %v", want, err)
+		}
+	}
+}
 
 func newTestService(t *testing.T) *service.Service {
 	t.Helper()
@@ -76,10 +89,10 @@ func enterTasksView(t *testing.T, m Model) Model {
 
 func TestRowSelectionAndClaimEndToEnd(t *testing.T) {
 	s := newTestService(t)
-	registerAgent(t, s, "builder", model.Role("MEMBER"), "src")
+	registerAgent(t, s, "claude-builder", model.Role("MEMBER"), "src")
 	createTask(t, s, "task-1")
 
-	m, e := New(s, "builder")
+	m, e := New(s, "claude-builder")
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -98,16 +111,16 @@ func TestRowSelectionAndClaimEndToEnd(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if st.Tasks["task-1"].Owner != "builder" {
+	if st.Tasks["task-1"].Owner != "claude-builder" {
 		t.Fatalf("owner = %q, want builder", st.Tasks["task-1"].Owner)
 	}
 }
 
 func TestTakeoverBlockedThenApprovedSucceeds(t *testing.T) {
 	s := newTestService(t)
-	registerAgent(t, s, "builder", model.Role("MEMBER"), "src")
+	registerAgent(t, s, "claude-builder", model.Role("MEMBER"), "src")
 	createTask(t, s, "task-1")
-	if _, e := s.Execute("builder", "task.claim", "task-1", model.TaskClaimed{}); e != nil {
+	if _, e := s.Execute("claude-builder", "task.claim", "task-1", model.TaskClaimed{}); e != nil {
 		t.Fatal(e)
 	}
 
@@ -129,7 +142,7 @@ func TestTakeoverBlockedThenApprovedSucceeds(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if st.Tasks["task-1"].Owner != "builder" {
+	if st.Tasks["task-1"].Owner != "claude-builder" {
 		t.Fatalf("owner changed unexpectedly to %q", st.Tasks["task-1"].Owner)
 	}
 
@@ -160,9 +173,9 @@ func TestTakeoverBlockedThenApprovedSucceeds(t *testing.T) {
 
 func TestRenewFormSubmitsProgress(t *testing.T) {
 	s := newTestService(t)
-	registerAgent(t, s, "builder", model.Role("MEMBER"), "src")
+	registerAgent(t, s, "claude-builder", model.Role("MEMBER"), "src")
 	createTask(t, s, "task-1")
-	if _, e := s.Execute("builder", "task.claim", "task-1", model.TaskClaimed{}); e != nil {
+	if _, e := s.Execute("claude-builder", "task.claim", "task-1", model.TaskClaimed{}); e != nil {
 		t.Fatal(e)
 	}
 	before, e := s.State()
@@ -170,7 +183,7 @@ func TestRenewFormSubmitsProgress(t *testing.T) {
 		t.Fatal(e)
 	}
 
-	m, e := New(s, "builder")
+	m, e := New(s, "claude-builder")
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -197,13 +210,13 @@ func TestRenewFormSubmitsProgress(t *testing.T) {
 
 func TestHandoffTwoFieldForm(t *testing.T) {
 	s := newTestService(t)
-	registerAgent(t, s, "builder", model.Role("MEMBER"), "src")
+	registerAgent(t, s, "claude-builder", model.Role("MEMBER"), "src")
 	createTask(t, s, "task-1")
-	if _, e := s.Execute("builder", "task.claim", "task-1", model.TaskClaimed{}); e != nil {
+	if _, e := s.Execute("claude-builder", "task.claim", "task-1", model.TaskClaimed{}); e != nil {
 		t.Fatal(e)
 	}
 
-	m, e := New(s, "builder")
+	m, e := New(s, "claude-builder")
 	if e != nil {
 		t.Fatal(e)
 	}

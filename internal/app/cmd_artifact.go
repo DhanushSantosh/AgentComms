@@ -538,7 +538,25 @@ func (c *cli) draftCmd() *cobra.Command {
 		return fmt.Errorf("draft %q not found", showID)
 	}}
 	show.Flags().StringVar(&showID, "id", "", "draft ID")
-	root.AddCommand(save, list, show)
+	var deleteID string
+	// Drafts have count and byte quotas but never expire, so without this
+	// a project that reached either cap had no way back under it.
+	remove := &cobra.Command{Use: "delete", Args: cobra.NoArgs, Short: "Delete one local draft and release its quota", RunE: func(cmd *cobra.Command, args []string) error {
+		if strings.TrimSpace(deleteID) == "" {
+			return errors.New("--id is required")
+		}
+		if e := c.svc.DeleteDraft(deleteID); e != nil {
+			return e
+		}
+		result := map[string]any{"id": deleteID, "deleted": true, "authoritative": false}
+		return c.emitDocument("draft.delete", result, cliui.Document{
+			Title: "Local draft deleted", Status: cliui.StatusSuccess,
+			Fields: []cliui.Field{{Label: "Draft", Value: deleteID}, {Label: "Authoritative", Value: "no"}},
+			Hint:   "Deleting a draft frees the count and storage it held against this project's local draft quota.",
+		})
+	}}
+	remove.Flags().StringVar(&deleteID, "id", "", "draft ID")
+	root.AddCommand(save, list, show, remove)
 	return root
 }
 

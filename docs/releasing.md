@@ -53,7 +53,11 @@ TUI, agent controls, command palette, and resilient local control plane.
    `README.md`'s quickstart install command to the new version -- unlike
    `docs/site/start/install.md` (resolved automatically at doc-build time by
    `sites/docs/remark-release-tag.mjs`), the README is plain GitHub markdown
-   with no build step, so this is a manual edit every release.
+   with no build step, so this is a manual edit every release. Also bump the
+   default version baked into `install.sh` (`AGENT_COMMS_VERSION:-vX.Y.Z`) and
+   `install.ps1` (`$Version`'s default) -- the landing site's install command
+   omits `AGENT_COMMS_VERSION`/`-Version` and relies on each script's own
+   default matching the release it ships with.
 5. Obtain core-maintainer review and merge using a merge commit.
 6. A release/security maintainer chooses a unique change-reflective episode
    nickname, records it in the changelog, and creates the protected annotated

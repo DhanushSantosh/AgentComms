@@ -50,3 +50,12 @@ Environment entries are governed coordination data. Do not store secrets unless 
 ## Local drafts
 
 Drafts are bounded, local, and non-authoritative. Use them for document text, message bodies, or artifact metadata that is not ready to submit. A draft creates no event, lease, obligation, or current truth until submission succeeds.
+
+```sh
+agent-comms draft save --id release-notes --kind document --body '{"title":"Draft"}'
+agent-comms draft list
+agent-comms draft show --id release-notes
+agent-comms draft delete --id release-notes
+```
+
+Drafts are capped per project: 1,000 drafts, 50 MiB total, and 5 MiB for any single draft. Drafts do not expire, so reaching a cap makes the next `draft save` fail with `local draft count limit reached` or `local draft storage limit reached` until you free space. `draft delete` is how you free it — removing a draft immediately releases both the count and the bytes it held. Deletion is scoped to one draft in the current project; a draft ID that does not exist is reported as an error rather than passing silently, so a mistyped ID never looks like a successful cleanup.

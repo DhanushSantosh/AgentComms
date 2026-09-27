@@ -4,13 +4,75 @@ description: What changed in each tagged release, why it matters, and where to f
 section: Releases
 order: 1
 audience: Everyone
-lastVerified: 2026-09-03
+lastVerified: 2026-09-27
 related: [guide/maintenance, security/releases]
 ---
 
 Every tagged release is signed and dated. This page summarizes what changed and why; the repository's [CHANGELOG.md](https://github.com/DhanushSantosh/AgentComms/blob/main/CHANGELOG.md) carries the exhaustive per-change detail this page intentionally leaves out.
 
 Every release below is **Beta** — before v1.0.0, SemVer's own 0.x.y convention means anything may still change without notice. There is no Stable channel yet; that label only becomes accurate once a 1.x release ships.
+
+## v0.8.0 — "Roll Call" — Beta — 2026-09-27
+
+Agents now say which runtime they are. An agent's ID names its provider — `claude`, `claude-2`, `codex-reviewer` — with a free-form display name you can address them by, and registering one no longer requires inventing an ID. Alongside that: team mode against a shared authority actually works now, drafts can finally be deleted, and approvals honour the expiry they were given.
+
+**Breaking**
+
+- A new AGENT principal's ID must name its provider: `<provider>` or `<provider>-<suffix>`, lower case, from `claude`, `codex`, `opencode`. Existing principals are unaffected and nothing renames; HUMAN principals keep free-form IDs. A declarative adapter adds its own name to the accepted set.
+- Action-scoped takeover and shared-write approvals now honour a stated expiry, so a lapsed approval that previously still authorized work is refused.
+
+**Added**
+
+- `agent register --provider <name>` derives the actor ID, so `--id` is optional: the first agent of a provider is `claude`, the next `claude-2`.
+- A principal can be addressed by display name anywhere an actor ID is accepted. Resolution prefers the actor ID and refuses an ambiguous display name rather than guessing; the signed event always records the actor ID.
+- `draft delete --id` removes one local draft and releases the count and storage quota it held. Drafts do not expire, so this is the only way back under a reached cap.
+
+**Fixed**
+
+- Team mode did not work through the CLI at all: `daemon serve` never passed the authority token to the daemon it spawned, so every command in a service-mode project failed with `401 authority token is required`.
+- `docker compose up --build`, the documented way to stand up a team authority, could not build the image.
+- A slow but healthy local daemon is no longer rejected by a 300 ms health probe; startup failures now report the last probe error and elapsed wait.
+- `approval request --expires-in` with a negative value silently produced an approval that never expires.
+
+**Security**
+
+- `.env` is git-ignored. `compose.yaml` requires three secrets, one of them the authority's signing key.
+- Updated the transitive `devalue` dependency off a denial-of-service advisory.
+
+## v0.7.1 — "Wrong Door" — Beta — 2026-09-19
+
+A follow-up patch to a real bug found the day after 0.7.0 shipped: a stray, non-project directory got mistaken for a real one and crashed `update apply`. This closes the whole class of it — every session cache now knows to stay out of directories it doesn't own, and a command run in the wrong place says so plainly instead of leaking a filesystem error — plus two more redundant command names found along the way.
+
+**Breaking**
+
+- Live-serve session tracking (Claude, Codex, OpenCode) and runtime session bindings no longer write into a project directory at all; all four now share one hashed cache location under the shared config directory.
+- `update check` and `update apply` are now one command, `update`, which checks first and then prompts to install.
+- `project upgrade status` is removed; it was byte-for-byte the same code as `project upgrade plan`.
+
+**Fixed**
+
+- A command run outside any Agent Comms project (e.g. `task list` in an empty directory) now fails immediately with a clear `NOT_A_PROJECT` error and a next step, instead of a raw filesystem error with a misleading hint.
+
+## v0.7.0 — "Read Receipt" — Beta — 2026-09-17
+
+A coherence pass across the whole CLI: `live tail`'s ad-hoc file-watching is gone in favor of the one supported way to watch a live session, message and document acknowledgment gain a proper retry and read path, and a broad UX audit closes gaps in how the CLI explains its own state — registration, approvals, inbox, and installation all say more than they used to.
+
+**Added**
+
+- `document notify` retries a stuck document acknowledgement without duplicating one already sent; `message show` reads a message's subject and body directly.
+- `agc`, a short alias for `agent-comms`, installed alongside the main binary.
+
+**Breaking**
+
+- Removed `agent-comms live tail`; `live attach --provider claude|codex` is the one supported way to watch a live agent session now.
+- The managed bootstrap marker file renamed `.agents` -> `.agentcomms`; existing projects migrate automatically.
+- Removed the `session` and `decision` command groups; CLI surface consolidated per RFC 0027.
+
+**Fixed**
+
+- `approval show`, `message inbox`, `agent register`/`status` all surface state and context by default that used to be hidden behind `--details` or missing entirely.
+- Empty `task list`/`message inbox`/`invocation list` now distinguish "nothing exists yet" from "your filter matched nothing."
+- TUI document-update edits no longer silently corrupt untouched fields, or misapply keyboard input in the command palette.
 
 ## v0.6.0 — "Chain of Trust" — Beta — 2026-09-03
 

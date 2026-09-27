@@ -70,7 +70,15 @@ func Findings(ctx context.Context, svc *service.Service) ([]Finding, error) {
 		}
 	}
 	for id := range st.Agents {
-		if strings.EqualFold(id, "builder") || strings.Contains(strings.ToLower(id), "test") || strings.Contains(strings.ToLower(id), "smoke") {
+		// RFC 0039 puts the provider in front of every agent ID, so a
+		// placeholder identity now reads "claude-builder" rather than
+		// "builder". Match on the part after the provider, or this warning
+		// silently stops firing for exactly the names it exists to catch.
+		suffix := id
+		if provider, ok := model.ProviderOf(id); ok {
+			suffix = strings.TrimPrefix(strings.TrimPrefix(id, provider), "-")
+		}
+		if strings.EqualFold(suffix, "builder") || strings.Contains(strings.ToLower(id), "test") || strings.Contains(strings.ToLower(id), "smoke") {
 			add("WARNING", "TEST_LIKE_RUNTIME", "runtime contains test-like agent identity "+id, "Verify every identity explicitly before activation.")
 			break
 		}

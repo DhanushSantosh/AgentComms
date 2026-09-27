@@ -49,22 +49,30 @@ func TestPostgresTransactionalAuthority(t *testing.T) {
 		}
 		return engine.Mutate(context.Background(), command)
 	}
-	register := func(id string, signer *controlplane.Signer) {
+	registerAs := func(id string, signer *controlplane.Signer, principal model.PrincipalType) {
 		t.Helper()
 		if _, _, registerErr := mutate(id, signer, "agent.register", id, model.AgentRegistered{
-			PublicKey: signer.PublicKey(), PrincipalType: model.PrincipalAgent, DisplayName: id,
+			PublicKey: signer.PublicKey(), PrincipalType: principal, DisplayName: id,
 		}, uuid.NewString()); registerErr != nil {
 			t.Fatal(registerErr)
 		}
 	}
-	register("owner", owner)
+	register := func(id string, signer *controlplane.Signer) {
+		t.Helper()
+		registerAs(id, signer, model.PrincipalAgent)
+	}
+	// The owner is a person, not a runtime: HUMAN, which is also what
+	// exempts it from RFC 0039's provider-scoped agent ID grammar. It was
+	// registered as an AGENT here before, which the activate below
+	// (RoleOwner) already contradicted.
+	registerAs("owner", owner, model.PrincipalHuman)
 	if _, _, err = mutate("owner", owner, "agent.activate", "owner",
 		model.AgentActivated{Role: model.RoleOwner, Capabilities: []string{"*"}, Scopes: []string{"*"}}, uuid.NewString()); err != nil {
 		t.Fatal(err)
 	}
-	register("alpha", alpha)
-	register("beta", beta)
-	for _, id := range []string{"alpha", "beta"} {
+	register("claude-alpha", alpha)
+	register("claude-beta", beta)
+	for _, id := range []string{"claude-alpha", "claude-beta"} {
 		if _, _, err = mutate("owner", owner, "agent.activate", id,
 			model.AgentActivated{Role: model.Role("MEMBER"), Scopes: []string{"src"}}, uuid.NewString()); err != nil {
 			t.Fatal(err)
@@ -94,7 +102,7 @@ func TestPostgresTransactionalAuthority(t *testing.T) {
 	start := make(chan struct{})
 	results := make(chan error, 2)
 	var writers sync.WaitGroup
-	for id, signer := range map[string]*controlplane.Signer{"alpha": alpha, "beta": beta} {
+	for id, signer := range map[string]*controlplane.Signer{"claude-alpha": alpha, "claude-beta": beta} {
 		writers.Add(1)
 		go func(id string, signer *controlplane.Signer) {
 			defer writers.Done()
@@ -122,35 +130,35 @@ func TestPostgresTransactionalAuthority(t *testing.T) {
 	if state.Tasks["exclusive"].Owner == "" {
 		t.Fatal("exclusive task has no owner")
 	}
-	if _, _, err = mutate("alpha", alpha, "runtime.register", "runtime-alpha",
-		model.RuntimeRegistered{AgentID: "alpha", Connector: "MCP", MaxConcurrent: 2}, uuid.NewString()); err != nil {
+	if _, _, err = mutate("claude-alpha", alpha, "runtime.register", "runtime-alpha",
+		model.RuntimeRegistered{AgentID: "claude-alpha", Connector: "MCP", MaxConcurrent: 2}, uuid.NewString()); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err = mutate("alpha", alpha, "runtime.heartbeat", "runtime-alpha",
+	if _, _, err = mutate("claude-alpha", alpha, "runtime.heartbeat", "runtime-alpha",
 		model.RuntimeHeartbeat{Health: "HEALTHY"}, uuid.NewString()); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err = mutate("alpha", alpha, "runtime.register", "runtime-delivery",
+	if _, _, err = mutate("claude-alpha", alpha, "runtime.register", "runtime-delivery",
 		model.RuntimeRegistered{
-			AgentID: "alpha", Connector: "LOCAL_PROCESS",
+			AgentID: "claude-alpha", Connector: "LOCAL_PROCESS",
 			ConfigReference: "integration-local", MaxConcurrent: 1,
 		}, uuid.NewString()); err != nil {
 		t.Fatal(err)
 	}
 	for _, runtimeID := range []string{"runtime-a", "runtime-b"} {
-		if _, _, err = mutate("alpha", alpha, "runtime.register", runtimeID,
+		if _, _, err = mutate("claude-alpha", alpha, "runtime.register", runtimeID,
 			model.RuntimeRegistered{
-				AgentID: "alpha", Connector: "MCP", MaxConcurrent: 1,
+				AgentID: "claude-alpha", Connector: "MCP", MaxConcurrent: 1,
 			}, uuid.NewString()); err != nil {
 			t.Fatal(err)
 		}
-		if _, _, err = mutate("alpha", alpha, "runtime.heartbeat", runtimeID,
+		if _, _, err = mutate("claude-alpha", alpha, "runtime.heartbeat", runtimeID,
 			model.RuntimeHeartbeat{Health: "HEALTHY"}, uuid.NewString()); err != nil {
 			t.Fatal(err)
 		}
 	}
 	if _, _, err = mutate("owner", owner, "invocation.request", "inv-exclusive",
-		model.InvocationRequested{Target: "alpha", Instruction: "Perform one exclusive action"}, uuid.NewString()); err != nil {
+		model.InvocationRequested{Target: "claude-alpha", Instruction: "Perform one exclusive action"}, uuid.NewString()); err != nil {
 		t.Fatal(err)
 	}
 	notificationStart := make(chan struct{})
@@ -189,7 +197,7 @@ func TestPostgresTransactionalAuthority(t *testing.T) {
 		go func(runtimeID string) {
 			defer invocationWriters.Done()
 			<-invocationStart
-			_, _, claimErr := mutate("alpha", alpha, "invocation.claim", "inv-exclusive",
+			_, _, claimErr := mutate("claude-alpha", alpha, "invocation.claim", "inv-exclusive",
 				model.InvocationClaimed{RuntimeID: runtimeID}, uuid.NewString())
 			invocationResults <- claimErr
 		}(runtimeID)
@@ -227,7 +235,7 @@ func TestPostgresTransactionalAuthority(t *testing.T) {
 			<-loadStart
 			_, _, loadErr := mutate("owner", owner, "invocation.request",
 				fmt.Sprintf("inv-load-%03d", index),
-				model.InvocationRequested{Target: "beta", Instruction: "Concurrent invocation load"},
+				model.InvocationRequested{Target: "claude-beta", Instruction: "Concurrent invocation load"},
 				uuid.NewString())
 			loadResults <- loadErr
 		}(index)

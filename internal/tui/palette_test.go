@@ -22,7 +22,7 @@ import (
 // makes that automatic).
 func TestPaletteOpenedFromRowFocusDoesNotLeakKeystrokes(t *testing.T) {
 	s := newTestService(t)
-	registerAgent(t, s, "builder", model.Role("MEMBER"), "src")
+	registerAgent(t, s, "claude-builder", model.Role("MEMBER"), "src")
 	m, err := New(s, "owner")
 	if err != nil {
 		t.Fatal(err)

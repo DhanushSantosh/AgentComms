@@ -633,14 +633,25 @@ func (m Model) workforce(p palette, width int) string {
 		// it actually was: a name nobody set. Falling back to the agent's
 		// ID (always present, always unique) means every row always shows
 		// a real identity.
-		name := empty(agent.DisplayName, agentID)
+		// Prefer the display name; fall back to the ID. Under RFC 0039 an
+		// agent ID starts with its provider, so the fallback shares a
+		// 7-character prefix ("claude-") with every other agent of that
+		// provider -- end-truncating it spends the column on the one part
+		// that distinguishes nothing ("claude-review…"). Truncating from
+		// the middle keeps both the provider and the tail that actually
+		// identifies the agent.
+		name := agent.DisplayName
+		truncateName := truncate
+		if name == "" {
+			name, truncateName = agentID, truncateMiddle
+		}
 		if width < 54 {
 			rows = append(rows, fmt.Sprintf("%-12s %s\n             %s", signal, name, truncate(work, width-13)))
 			continue
 		}
 		rows = append(rows, fmt.Sprintf(
 			"%-12s %-14s %-10s %s",
-			signal, truncate(name, 13), strings.ToLower(string(agent.Role)), truncate(work, max(10, width-42)),
+			signal, truncateName(name, 13), strings.ToLower(string(agent.Role)), truncate(work, max(10, width-42)),
 		))
 	}
 	return strings.Join(rows, "\n")
@@ -968,11 +979,15 @@ func (m Model) renderInspector(p palette, width int) string {
 		}
 	case "Approvals":
 		if app, ok := m.state.Approvals[id]; ok {
+			status := approvalDisplayStatus(app, time.Now())
 			lines = append(lines, titleStyle.Render("Action: ")+app.Action)
-			lines = append(lines, mutedStyle.Render(fmt.Sprintf("Tier: %s  |  Status: %s  |  Requester: %s", app.Tier, fmtStatus(app.Status), app.Requester)))
+			lines = append(lines, mutedStyle.Render(fmt.Sprintf("Tier: %s  |  Status: %s  |  Requester: %s", app.Tier, fmtStatus(status), app.Requester)))
 			lines = append(lines, titleStyle.Render("Reason: ")+app.Reason)
 			if app.ExpiresAt != nil {
 				lines = append(lines, mutedStyle.Render("Expires: ")+app.ExpiresAt.Local().Format(time.RFC3339))
+			}
+			if status == "EXPIRED" {
+				lines = append(lines, mutedStyle.Render("Recorded as "+app.Status+", but this approval can no longer authorize the action. Request a new approval."))
 			}
 			if app.Subject != "" {
 				lines = append(lines, titleStyle.Render("Reviewed operation: ")+app.Subject)
@@ -1003,6 +1018,25 @@ func truncate(value string, width int) string {
 		return "…"
 	}
 	return string(runes[:width-1]) + "…"
+}
+
+// truncateMiddle shortens value to width by eliding its middle rather than
+// its tail, so a value whose leading characters are shared with its
+// neighbours ("claude-reviewer", "claude-developer") stays distinguishable.
+// Falls back to plain truncation below the width where a middle elision
+// could still show something from both ends.
+func truncateMiddle(value string, width int) string {
+	runes := []rune(value)
+	if width <= 0 || len(runes) <= width {
+		return truncate(value, width)
+	}
+	if width < 5 {
+		return truncate(value, width)
+	}
+	keep := width - 1
+	head := (keep + 1) / 2
+	tail := keep - head
+	return string(runes[:head]) + "…" + string(runes[len(runes)-tail:])
 }
 
 // wrapText greedily word-wraps plain (unstyled) text to width, joining

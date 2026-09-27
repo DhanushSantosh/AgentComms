@@ -45,15 +45,15 @@ func TestSeedDemoProjectLeavesAPendingApprovalAndInvocation(t *testing.T) {
 		t.Error("expected the seeded demo to leave a running invocation for the visitor to act on")
 	}
 
-	reviewer, ok := state.Agents["reviewer"]
+	reviewer, ok := state.Agents["claude-reviewer"]
 	if !ok || string(reviewer.Role) != "Release-Coordinator" {
 		t.Errorf("expected reviewer to be activated as Release-Coordinator, got %+v", reviewer)
 	}
-	developer, ok := state.Agents["developer"]
+	developer, ok := state.Agents["claude-developer"]
 	if !ok || string(developer.Role) != "Frontend-Architect" {
 		t.Errorf("expected developer to have switched to Frontend-Architect, got %+v", developer)
 	}
-	tester, ok := state.Agents["tester"]
+	tester, ok := state.Agents["claude-tester"]
 	if !ok || string(tester.Role) != "Tester" {
 		t.Errorf("expected tester to be activated as Tester, got %+v", tester)
 	}
@@ -62,7 +62,7 @@ func TestSeedDemoProjectLeavesAPendingApprovalAndInvocation(t *testing.T) {
 	}
 
 	task, ok := state.Tasks["task-auth-session"]
-	if !ok || task.Owner != "developer" {
+	if !ok || task.Owner != "claude-developer" {
 		t.Errorf("expected developer to have claimed the test/auth task, got %+v", task)
 	}
 }

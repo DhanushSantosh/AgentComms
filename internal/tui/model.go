@@ -38,26 +38,26 @@ var navigationHubs = []navigationHub{
 }
 
 type Model struct {
-	svc            *service.Service
-	state          model.State
-	actor          string
-	projectID      string
-	width, height  int
-	view, cursor   int
-	palette        bool
-	query, notice  string
+	svc           *service.Service
+	state         model.State
+	actor         string
+	projectID     string
+	width, height int
+	view, cursor  int
+	palette       bool
+	query, notice string
 	// paletteSelected is UX-11's keyboard selection cursor: which of
 	// paletteMatches()'s (capped at 6) rows Up/Down/Enter/mouse-hover
 	// currently targets. Reset to 0 whenever the palette opens or the
 	// query changes, since the match list itself changes underneath it.
 	paletteSelected int
-	err            error
-	highContrast   bool
-	form           string
-	inputs         []textinput.Model
-	formFocus      int
-	formTaskID     string
-	formSpec       *ActionForm
+	err             error
+	highContrast    bool
+	form            string
+	inputs          []textinput.Model
+	formFocus       int
+	formTaskID      string
+	formSpec        *ActionForm
 	// formPrefill and formInitialValue are UX-12/codex-review follow-up:
 	// textinput.Model is single-line and unconditionally collapses
 	// newlines/tabs to spaces (bubbles' own runeutil sanitizer, applied by
@@ -77,28 +77,29 @@ type Model struct {
 	// still-deferred item).
 	formPrefill      []string
 	formInitialValue []string
-	rowFocus       bool
-	taskList       RowList
-	messageList    RowList
-	approvalList   RowList
-	agentList      RowList
-	invocationList RowList
-	runtimeList    RowList
-	documentList   RowList
-	decisionList   RowList
-	artifactList   RowList
-	envList        RowList
-	drafts         []controlplane.Draft
-	settingsFocus  bool
-	settingsCursor int
-	confirm        *confirmState
-	watcher        *fsnotify.Watcher
-	lifecycle      projectlifecycle.Plan
-	findings       []doctor.Finding
-	inspecting     bool
-	toastMsg       string
-	toastExpiresAt time.Time
-	lastSeq        uint64
+	rowFocus         bool
+	taskList         RowList
+	messageList      RowList
+	approvalList     RowList
+	agentList        RowList
+	invocationList   RowList
+	runtimeList      RowList
+	documentList     RowList
+	decisionList     RowList
+	artifactList     RowList
+	envList          RowList
+	drafts           []controlplane.Draft
+	draftCursor      int
+	settingsFocus    bool
+	settingsCursor   int
+	confirm          *confirmState
+	watcher          *fsnotify.Watcher
+	lifecycle        projectlifecycle.Plan
+	findings         []doctor.Finding
+	inspecting       bool
+	toastMsg         string
+	toastExpiresAt   time.Time
+	lastSeq          uint64
 	// staleReads counts consecutive refreshSilent failures in a row (reset
 	// to 0 on any successful read) -- refreshSilent swallows read errors so
 	// a just-shown action result or notice never gets stomped by a routine
@@ -278,6 +279,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateConfirm(msg)
 	}
 	if m.rowFocus {
+		if views[m.view] == "Drafts" {
+			return m.updateDrafts(msg)
+		}
 		return m.updateRowList(msg)
 	}
 	if m.settingsFocus {
@@ -439,7 +443,7 @@ func (m *Model) focusCurrentView() {
 	m.refreshView(name)
 	switch name {
 	case "Tasks", "My work", "Inbox", "Approvals", "Agents", "Invocations",
-		"Runtimes", "Documents", "Contracts & decisions", "Artifacts", "Environment":
+		"Runtimes", "Documents", "Contracts & decisions", "Artifacts", "Environment", "Drafts":
 		m.rowFocus = true
 	case "Project settings":
 		m.settingsFocus = true

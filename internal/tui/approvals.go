@@ -12,7 +12,7 @@ import (
 
 var approvalRequestForm = &ActionForm{
 	Title: "Request approval",
-	Hint:  "Destructive, irreversible, external, production-data, credential, and force-push actions require an approver.",
+	Hint:  "Expiry also applies to takeover and shared-write approvals; contract/invocation approvals require one.",
 	Fields: []FormField{
 		{Label: "Approval ID", Placeholder: "approval-001", Required: true},
 		{Label: "Tier", Options: []string{"ORCHESTRATOR", "HUMAN"}},
@@ -21,7 +21,7 @@ var approvalRequestForm = &ActionForm{
 		{Label: "Affected (comma-separated)", Placeholder: ""},
 		{Label: "Subject JSON (contract/invocation)", Placeholder: ""},
 		{Label: "Subject digest (contract/invocation)", Placeholder: ""},
-		{Label: "Expires in (contract/invocation)", Placeholder: "24h"},
+		{Label: "Expires in (duration)", Placeholder: "24h"},
 	},
 	Build: func(v []string) (any, error) {
 		tier := strings.ToUpper(strings.TrimSpace(v[1]))
@@ -88,11 +88,19 @@ func approvalActionsFor(a model.Approval, role model.Role, pt model.PrincipalTyp
 		return nil
 	}
 	var acts []RowAction
-	if a.Tier != "HUMAN" || pt == model.PrincipalHuman {
+	if approvalDisplayStatus(a, time.Now()) != "EXPIRED" && (a.Tier != "HUMAN" || pt == model.PrincipalHuman) {
 		acts = append(acts, approveActionFor(a))
 	}
 	acts = append(acts, appReject)
 	return acts
+}
+
+// Expiry limits an approval's usability without changing its recorded status.
+func approvalDisplayStatus(a model.Approval, now time.Time) string {
+	if (a.Status == "APPROVED" || a.Status == "PENDING") && a.ExpiresAt != nil && !a.ExpiresAt.After(now) {
+		return "EXPIRED"
+	}
+	return a.Status
 }
 
 type approvalRowSource struct{}
@@ -118,7 +126,7 @@ func (s approvalRowSource) Rows(st model.State, actor string, mine bool) []table
 	rows := make([]table.Row, 0, len(ids))
 	for _, id := range ids {
 		a := st.Approvals[id]
-		rows = append(rows, table.Row{id, a.Tier, fmtStatus(a.Status), a.Action})
+		rows = append(rows, table.Row{id, a.Tier, fmtStatus(approvalDisplayStatus(a, time.Now())), a.Action})
 	}
 	return rows
 }

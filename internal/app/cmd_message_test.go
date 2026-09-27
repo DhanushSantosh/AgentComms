@@ -34,17 +34,17 @@ func TestInboxUnreadReflectsPerRecipientObligation(t *testing.T) {
 		}
 	}
 	must("init", "--non-interactive", "--owner", "owner", "--mode", "personal")
-	must("agent", "register", "--actor", "owner", "--id", "recipient-a")
-	must("agent", "activate", "--actor", "owner", "--id", "recipient-a", "--role", "AGENT", "--scope", "src")
-	must("agent", "register", "--actor", "owner", "--id", "recipient-b")
-	must("agent", "activate", "--actor", "owner", "--id", "recipient-b", "--role", "AGENT", "--scope", "src")
+	must("agent", "register", "--actor", "owner", "--id", "claude-recipient-a")
+	must("agent", "activate", "--actor", "owner", "--id", "claude-recipient-a", "--role", "AGENT", "--scope", "src")
+	must("agent", "register", "--actor", "owner", "--id", "claude-recipient-b")
+	must("agent", "activate", "--actor", "owner", "--id", "claude-recipient-b", "--role", "AGENT", "--scope", "src")
 	must("message", "post", "--actor", "owner", "--id", "two-recipients", "--kind", "ACTION",
-		"--to", "recipient-a", "--to", "recipient-b", "--subject", "Please review", "--body", "Details")
+		"--to", "claude-recipient-a", "--to", "claude-recipient-b", "--subject", "Please review", "--body", "Details")
 
 	// recipient-a acknowledges its own copy; recipient-b never acts.
-	must("message", "ack", "--actor", "recipient-a", "--id", "two-recipients")
+	must("message", "ack", "--actor", "claude-recipient-a", "--id", "two-recipients")
 
-	must("message", "inbox", "--actor", "recipient-a", "--unread")
+	must("message", "inbox", "--actor", "claude-recipient-a", "--unread")
 	var recipientAInbox map[string]any
 	if err := json.Unmarshal(extractResult(t, out.Bytes()), &recipientAInbox); err != nil {
 		t.Fatal(err)
@@ -53,7 +53,7 @@ func TestInboxUnreadReflectsPerRecipientObligation(t *testing.T) {
 		t.Fatalf("recipient-a (already acknowledged) still shown as unread purely because recipient-b hasn't acted: %s", out.String())
 	}
 
-	must("message", "inbox", "--actor", "recipient-b", "--unread")
+	must("message", "inbox", "--actor", "claude-recipient-b", "--unread")
 	var recipientBInbox map[string]any
 	if err := json.Unmarshal(extractResult(t, out.Bytes()), &recipientBInbox); err != nil {
 		t.Fatal(err)
@@ -87,15 +87,15 @@ func TestInboxLimitIsDeterministic(t *testing.T) {
 		}
 	}
 	must("init", "--non-interactive", "--owner", "owner", "--mode", "personal")
-	must("agent", "register", "--actor", "owner", "--id", "recipient")
-	must("agent", "activate", "--actor", "owner", "--id", "recipient", "--role", "AGENT", "--scope", "src")
+	must("agent", "register", "--actor", "owner", "--id", "claude-recipient")
+	must("agent", "activate", "--actor", "owner", "--id", "claude-recipient", "--role", "AGENT", "--scope", "src")
 	for _, id := range []string{"msg-a", "msg-b", "msg-c", "msg-d", "msg-e", "msg-f", "msg-g", "msg-h"} {
-		must("message", "post", "--actor", "owner", "--id", id, "--kind", "FYI", "--to", "recipient", "--subject", id)
+		must("message", "post", "--actor", "owner", "--id", id, "--kind", "FYI", "--to", "claude-recipient", "--subject", id)
 	}
 
 	first := ""
 	for i := 0; i < 12; i++ {
-		must("message", "inbox", "--actor", "recipient", "--limit", "1")
+		must("message", "inbox", "--actor", "claude-recipient", "--limit", "1")
 		var got map[string]any
 		if err := json.Unmarshal(extractResult(t, out.Bytes()), &got); err != nil {
 			t.Fatal(err)
@@ -137,12 +137,12 @@ func TestMessageShow(t *testing.T) {
 		}
 	}
 	must("init", "--non-interactive", "--owner", "owner", "--mode", "personal")
-	must("agent", "register", "--actor", "owner", "--id", "recipient")
-	must("agent", "activate", "--actor", "owner", "--id", "recipient", "--role", "AGENT", "--scope", "src")
+	must("agent", "register", "--actor", "owner", "--id", "claude-recipient")
+	must("agent", "activate", "--actor", "owner", "--id", "claude-recipient", "--role", "AGENT", "--scope", "src")
 	must("message", "post", "--actor", "owner", "--id", "readable", "--kind", "FYI",
-		"--to", "recipient", "--subject", "A subject worth reading", "--body", "The full body text")
+		"--to", "claude-recipient", "--subject", "A subject worth reading", "--body", "The full body text")
 
-	must("message", "show", "--actor", "recipient", "--id", "readable")
+	must("message", "show", "--actor", "claude-recipient", "--id", "readable")
 	var shown struct {
 		Subject string `json:"subject"`
 		Body    string `json:"body"`
@@ -155,7 +155,7 @@ func TestMessageShow(t *testing.T) {
 		t.Fatalf("message show returned %+v, want the full subject/body/sender", shown)
 	}
 
-	if err := run("message", "show", "--actor", "recipient", "--id", "does-not-exist"); err == nil {
+	if err := run("message", "show", "--actor", "claude-recipient", "--id", "does-not-exist"); err == nil {
 		t.Fatal("expected message show for an unknown ID to fail")
 	}
 }
@@ -187,15 +187,15 @@ func TestApprovalShowDefaultsIncludeReviewedOperationAndExpiry(t *testing.T) {
 		}
 	}
 	must("init", "--non-interactive", "--owner", "owner", "--mode", "personal")
-	must("agent", "register", "--actor", "owner", "--id", "reviewer")
-	must("agent", "activate", "--actor", "owner", "--id", "reviewer", "--role", "AGENT", "--scope", "src")
+	must("agent", "register", "--actor", "owner", "--id", "claude-reviewer")
+	must("agent", "activate", "--actor", "owner", "--id", "claude-reviewer", "--role", "AGENT", "--scope", "src")
 	must("message", "post", "--actor", "owner", "--id", "bound-contract", "--kind", "CONTRACT",
-		"--to", "reviewer", "--subject", "Review exact operation", "--body", "Only publish these reviewed terms",
+		"--to", "claude-reviewer", "--subject", "Review exact operation", "--body", "Only publish these reviewed terms",
 		"--request-approval", "--approval-id", "bound-contract-approval", "--non-interactive")
 
 	// Plain human output is the actual bar the audit found too low --
 	// --json always carried the full struct regardless of this bug.
-	if err := Run([]string{"approval", "show", "--project", project, "--actor", "reviewer",
+	if err := Run([]string{"approval", "show", "--project", project, "--actor", "claude-reviewer",
 		"--id", "bound-contract-approval", "--output", "plain"}, &out, &stderr); err != nil {
 		t.Fatalf("approval show (plain): %v\n%s", err, stderr.String())
 	}
@@ -231,11 +231,11 @@ func TestInboxEmptyStateDistinguishesNothingFromNoMatches(t *testing.T) {
 		}
 	}
 	must("init", "--non-interactive", "--owner", "owner", "--mode", "personal", "--json")
-	must("agent", "register", "--actor", "owner", "--id", "recipient", "--json")
-	must("agent", "activate", "--actor", "owner", "--id", "recipient", "--role", "AGENT", "--scope", "src", "--json")
+	must("agent", "register", "--actor", "owner", "--id", "claude-recipient", "--json")
+	must("agent", "activate", "--actor", "owner", "--id", "claude-recipient", "--role", "AGENT", "--scope", "src", "--json")
 
 	// Nothing addressed to this actor at all.
-	if err := run("message", "inbox", "--actor", "recipient"); err != nil {
+	if err := run("message", "inbox", "--actor", "claude-recipient"); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out.String(), "Nothing addressed to you yet") {
@@ -244,8 +244,8 @@ func TestInboxEmptyStateDistinguishesNothingFromNoMatches(t *testing.T) {
 
 	// A real message exists, but --from matches nothing.
 	must("message", "post", "--actor", "owner", "--id", "msg-1", "--kind", "FYI",
-		"--to", "recipient", "--subject", "Hi", "--json")
-	if err := run("message", "inbox", "--actor", "recipient", "--from", "nobody"); err != nil {
+		"--to", "claude-recipient", "--subject", "Hi", "--json")
+	if err := run("message", "inbox", "--actor", "claude-recipient", "--from", "nobody"); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out.String(), "No messages match this filter") {
@@ -266,4 +266,92 @@ func extractResult(t *testing.T, envelope []byte) []byte {
 		t.Fatalf("decode envelope: %v\n%s", err, envelope)
 	}
 	return wrapper.Result
+}
+
+// RFC 0039 section 4: a principal may be named by its display name, and
+// the signed event must still record the canonical actor ID.
+func TestMessagePostAcceptsADisplayNameAndRecordsTheActorID(t *testing.T) {
+	project := t.TempDir()
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
+	cleanupProjectDaemon(t, project)
+	var stdout, stderr bytes.Buffer
+	run := func(args ...string) error {
+		stdout.Reset()
+		stderr.Reset()
+		return Run(append(args, "--project", project, "--json"), &stdout, &stderr)
+	}
+	if err := run("init", "--non-interactive", "--owner", "owner"); err != nil {
+		t.Fatal(err)
+	}
+	// --actor is explicit throughout: once this project has more than one
+	// locally-registered identity, the machine-wide active-profile default
+	// is ambiguous and the CLI rightly refuses to sign. Leaving it implicit
+	// made this pass locally and fail in CI, where the profile state differs.
+	if err := run("agent", "register", "--actor", "owner", "--provider", "claude", "--display-name", "Atlas"); err != nil {
+		t.Fatalf("register: %v (%s)", err, stderr.String())
+	}
+	if err := run("agent", "activate", "--actor", "owner", "--id", "claude", "--role", "Engineer", "--scope", "*"); err != nil {
+		t.Fatalf("activate: %v (%s)", err, stderr.String())
+	}
+
+	// Addressed by display name...
+	if err := run("message", "post", "--actor", "owner", "--to", "Atlas",
+		"--kind", "FYI", "--subject", "hello", "--body", "by display name"); err != nil {
+		t.Fatalf("post by display name: %v (%s)", err, stderr.String())
+	}
+	// ...but the event records the actor ID, not "Atlas".
+	posted := stdout.String()
+	if strings.Contains(posted, `"Atlas"`) {
+		t.Errorf("the signed event must not record a display name:\n%s", posted)
+	}
+	if !strings.Contains(posted, "claude") {
+		t.Errorf("the event should record the canonical actor ID:\n%s", posted)
+	}
+	// The recipient sees it in their inbox under their own identity.
+	if err := run("message", "inbox", "--actor", "claude"); err != nil {
+		t.Fatalf("inbox: %v (%s)", err, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "hello") {
+		t.Errorf("recipient should have the message:\n%s", stdout.String())
+	}
+	// An unknown reference is refused rather than silently delivered.
+	if err := run("message", "post", "--actor", "owner", "--to", "Nobody",
+		"--kind", "FYI", "--subject", "x", "--body", "y"); err == nil {
+		t.Error("an unresolvable recipient must be refused")
+	}
+}
+
+// A negative --expires-in once fell through the "> 0" branch and left
+// ExpiresAt nil, which RFC 0037 reads as "never expires" -- so asking for a
+// window that had already closed produced a permanent approval. The
+// protocol guard could not catch it, because the CLI never sent a past
+// timestamp for it to reject.
+func TestApprovalRequestRefusesANegativeExpiry(t *testing.T) {
+	project := t.TempDir()
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
+	cleanupProjectDaemon(t, project)
+	var stdout, stderr bytes.Buffer
+	run := func(args ...string) error {
+		stdout.Reset()
+		stderr.Reset()
+		return Run(append(args, "--project", project, "--json"), &stdout, &stderr)
+	}
+	if err := run("init", "--non-interactive", "--owner", "owner"); err != nil {
+		t.Fatal(err)
+	}
+	if err := run("approval", "request", "--actor", "owner", "--id", "past",
+		"--action", "demo:x", "--tier", "ORCHESTRATOR", "--reason", "r", "--expires-in", "-1h"); err == nil {
+		t.Fatal("a negative --expires-in must be refused, not silently become no-expiry")
+	}
+	// Zero still means "not specified", and a positive window still works.
+	if err := run("approval", "request", "--actor", "owner", "--id", "future",
+		"--action", "demo:y", "--tier", "ORCHESTRATOR", "--reason", "r", "--expires-in", "1h"); err != nil {
+		t.Fatalf("a positive window must still be accepted: %v (%s)", err, stderr.String())
+	}
+	if err := run("approval", "request", "--actor", "owner", "--id", "none",
+		"--action", "demo:z", "--tier", "ORCHESTRATOR", "--reason", "r"); err != nil {
+		t.Fatalf("omitting --expires-in must still be accepted: %v (%s)", err, stderr.String())
+	}
 }

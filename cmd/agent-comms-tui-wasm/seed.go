@@ -18,9 +18,15 @@ import (
 // placeholder tokens for the same reason. Kept short on purpose:
 // internal/tui/model.go's real workforce table truncates the AGENT column
 // to 13 characters (see workforce()'s `truncate(name, 13)`), a genuine
-// constraint any real user's agent ids are already subject to -- "reviewer"/
-// "developer"/"tester" all render in full, unlike the "agent-"-prefixed
-// forms first tried here, which got cut to "agent-develo…" mid-word.
+// constraint any real user's agent ids are already subject to. Under RFC
+// 0039 these ids carry their provider ("claude-reviewer"), which no longer
+// fits that column. These are seeded with the id as their display name, so
+// they render through the id path and middle-truncate -- "claude…viewer",
+// "claude…eloper", distinct from each other. That is the point of eliding
+// the middle rather than the tail: the "agent-"-prefixed forms first tried
+// here end-truncated to "agent-develo…" mid-word, losing exactly the part
+// that told two agents apart. Seed a distinct DisplayName if a future demo
+// needs these rendered in full.
 //
 //   - reviewer (Release-Coordinator): online, an active runtime,
 //     mid-invocation from owner, and requesting its own HUMAN-tier
@@ -32,9 +38,9 @@ import (
 //     runtime -- shows up OFFLINE, exactly as the landing page's static
 //     story has it.
 const (
-	agentReviewer  = "reviewer"
-	agentDeveloper = "developer"
-	agentTester    = "tester"
+	agentReviewer  = "claude-reviewer"
+	agentDeveloper = "claude-developer"
+	agentTester    = "claude-tester"
 
 	reviewerRuntimeID  = "reviewer-runtime-1"
 	developerRuntimeID = "developer-runtime-1"

@@ -479,6 +479,22 @@ func (s *Service) Drafts(limit int) ([]controlplane.Draft, error) {
 	return s.remote.Drafts(ctx, cfg.ProjectID, limit)
 }
 
+func (s *Service) DeleteDraft(id string) error {
+	if s.remoteErr != nil {
+		return s.remoteErr
+	}
+	if s.remote == nil {
+		return errors.New("drafts require authoritative service mode")
+	}
+	cfg, err := s.Store.Config()
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), controlplane.DefaultRequestTimeout)
+	defer cancel()
+	return s.remote.DeleteDraft(ctx, cfg.ProjectID, id)
+}
+
 func RefreshRuntimePresence(state *model.State, now time.Time) {
 	protocol.RefreshRuntimePresence(state, now)
 }

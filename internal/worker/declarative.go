@@ -144,6 +144,12 @@ func RegisterDeclarativeAdapter(spec DeclarativeSpec) error {
 		return fmt.Errorf("cannot override built-in adapter %q", spec.Name)
 	}
 	adapters[name] = declarativeAdapter{spec: spec}
+	// A declarative adapter is a provider this project runs, so its name
+	// also becomes a valid prefix for agent actor IDs (RFC 0039). Without
+	// this the adapter system's escape hatch is documented but absent:
+	// you could add a runtime and still be unable to register an agent
+	// for it.
+	model.RegisterProvider(name)
 	return nil
 }
 

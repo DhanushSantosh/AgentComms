@@ -2,41 +2,46 @@ import type { Metadata } from "next";
 import { PageBreadcrumb } from "@/components/PageBreadcrumb";
 import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
-import { buildFromSourceMethod, downloadRelease, installerMethods } from "@/lib/downloads";
+import { buildFromSourceMethod, getDownloadData } from "@/lib/downloads";
 import { documentationPage, site } from "@/lib/site";
 import { softwareApplicationJsonLd } from "@/lib/structuredData";
 import styles from "./download.module.css";
 
-const pageTitle = `Install Agent Comms ${downloadRelease.tag}`;
 const pageDescription = "Install the Agent Comms CLI on Linux, macOS, or Windows with the official verified installer.";
 
-export const metadata: Metadata = {
-  title: pageTitle,
-  description: pageDescription,
-  alternates: { canonical: "/download" },
-  openGraph: {
-    type: "website",
+export async function generateMetadata(): Promise<Metadata> {
+  const { downloadRelease } = await getDownloadData();
+  const pageTitle = `Install Agent Comms ${downloadRelease.tag}`;
+
+  return {
     title: pageTitle,
     description: pageDescription,
-    url: "/download"
-  },
-  twitter: { card: "summary_large_image", title: pageTitle, description: pageDescription }
-};
+    alternates: { canonical: "/download" },
+    openGraph: {
+      type: "website",
+      title: pageTitle,
+      description: pageDescription,
+      url: "/download"
+    },
+    twitter: { card: "summary_large_image", title: pageTitle, description: pageDescription }
+  };
+}
 
 const downloadNavItems = [
   { label: "Installers", href: "#installer" },
   { label: "Releases", href: "/releases" }
 ];
 
-// buildFromSourceMethod is deliberately not in `desk` -- it's a
-// contributor path, not a third installer for the general audience the
-// numbered INSTALL INDEX and platform cards are built for. It gets its
-// own, visually distinct treatment lower on the page instead of sitting
-// as an equal-weight "03" alongside Linux/macOS and Windows.
-const desk = installerMethods;
 const sourceCommandID = "install-command-source";
 
-export default function DownloadPage() {
+export default async function DownloadPage() {
+  // buildFromSourceMethod is deliberately not in `desk` -- it's a
+  // contributor path, not a third installer for the general audience the
+  // numbered INSTALL INDEX and platform cards are built for. It gets its
+  // own, visually distinct treatment lower on the page instead of sitting
+  // as an equal-weight "03" alongside Linux/macOS and Windows.
+  const { installerMethods: desk, downloadRelease } = await getDownloadData();
+
   return (
     <>
       <script

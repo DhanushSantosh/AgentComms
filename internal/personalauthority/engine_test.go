@@ -59,9 +59,9 @@ func TestTransactionalAuthorityRejectsConcurrentClaims(t *testing.T) {
 		model.AgentActivated{Role: model.RoleOwner, Capabilities: []string{"*"}, Scopes: []string{"*"}}, uuid.NewString()); err != nil {
 		t.Fatal(err)
 	}
-	register("alpha", alpha, model.PrincipalAgent)
-	register("beta", beta, model.PrincipalAgent)
-	for _, agentID := range []string{"alpha", "beta"} {
+	register("claude-alpha", alpha, model.PrincipalAgent)
+	register("claude-beta", beta, model.PrincipalAgent)
+	for _, agentID := range []string{"claude-alpha", "claude-beta"} {
 		if _, _, err = mutate("owner", owner, "agent.activate", agentID,
 			model.AgentActivated{Role: model.Role("MEMBER"), Scopes: []string{"src"}}, uuid.NewString()); err != nil {
 			t.Fatal(err)
@@ -95,7 +95,7 @@ func TestTransactionalAuthorityRejectsConcurrentClaims(t *testing.T) {
 	start := make(chan struct{})
 	results := make(chan error, 2)
 	var writers sync.WaitGroup
-	for agentID, signer := range map[string]*controlplane.Signer{"alpha": alpha, "beta": beta} {
+	for agentID, signer := range map[string]*controlplane.Signer{"claude-alpha": alpha, "claude-beta": beta} {
 		writers.Add(1)
 		go func(agentID string, signer *controlplane.Signer) {
 			defer writers.Done()

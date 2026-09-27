@@ -34,13 +34,13 @@ func TestDocumentCreateNotifyReportsPartialFailure(t *testing.T) {
 		}
 	}
 	must("init", "--non-interactive", "--owner", "owner", "--mode", "personal")
-	must("agent", "register", "--actor", "owner", "--id", "reviewer")
-	must("agent", "activate", "--actor", "owner", "--id", "reviewer", "--role", "AGENT", "--scope", "src")
+	must("agent", "register", "--actor", "owner", "--id", "claude-reviewer")
+	must("agent", "activate", "--actor", "owner", "--id", "claude-reviewer", "--role", "AGENT", "--scope", "src")
 
 	// One real recipient (succeeds), one nonexistent recipient (fails) --
 	// the audit's own reproduction of the bug.
 	must("document", "create", "--actor", "owner", "--id", "doc-1", "--title", "Plan",
-		"--body", "The plan", "--notify", "reviewer", "--notify", "nonexistent-agent")
+		"--body", "The plan", "--notify", "claude-reviewer", "--notify", "nonexistent-agent")
 
 	var result struct {
 		Notify []struct {
@@ -65,8 +65,8 @@ func TestDocumentCreateNotifyReportsPartialFailure(t *testing.T) {
 	for _, r := range result.Notify {
 		byPrincipal[r.Principal] = r
 	}
-	if got := byPrincipal["reviewer"]; got.Status != "sent" || got.MessageID != "msg-5:doc-1:reviewer" {
-		t.Fatalf("reviewer notify result = %+v, want status=sent message_id=msg-5:doc-1:reviewer", got)
+	if got := byPrincipal["claude-reviewer"]; got.Status != "sent" || got.MessageID != "msg-5:doc-1:claude-reviewer" {
+		t.Fatalf("reviewer notify result = %+v, want status=sent message_id=msg-5:doc-1:claude-reviewer", got)
 	}
 	failed := byPrincipal["nonexistent-agent"]
 	if failed.Status != "failed" || failed.Error == "" {
@@ -137,18 +137,18 @@ func TestDocumentNotifyRetriesOnlyFailedRecipientWithoutDuplicating(t *testing.T
 		}
 	}
 	must("init", "--non-interactive", "--owner", "owner", "--mode", "personal")
-	must("agent", "register", "--actor", "owner", "--id", "reviewer")
-	must("agent", "activate", "--actor", "owner", "--id", "reviewer", "--role", "AGENT", "--scope", "src")
+	must("agent", "register", "--actor", "owner", "--id", "claude-reviewer")
+	must("agent", "activate", "--actor", "owner", "--id", "claude-reviewer", "--role", "AGENT", "--scope", "src")
 
 	// reviewer succeeds; late-joiner doesn't exist yet, so it fails.
 	must("document", "create", "--actor", "owner", "--id", "doc-1", "--title", "Plan",
-		"--body", "The plan", "--notify", "reviewer", "--notify", "late-joiner")
+		"--body", "The plan", "--notify", "claude-reviewer", "--notify", "claude-late-joiner")
 
 	// Now late-joiner is registered and activated -- the earlier blocker is gone.
-	must("agent", "register", "--actor", "owner", "--id", "late-joiner")
-	must("agent", "activate", "--actor", "owner", "--id", "late-joiner", "--role", "AGENT", "--scope", "src")
+	must("agent", "register", "--actor", "owner", "--id", "claude-late-joiner")
+	must("agent", "activate", "--actor", "owner", "--id", "claude-late-joiner", "--role", "AGENT", "--scope", "src")
 
-	must("document", "notify", "--actor", "owner", "--id", "doc-1", "--notify", "reviewer", "--notify", "late-joiner")
+	must("document", "notify", "--actor", "owner", "--id", "doc-1", "--notify", "claude-reviewer", "--notify", "claude-late-joiner")
 
 	var result struct {
 		Notify []struct {
@@ -164,23 +164,23 @@ func TestDocumentNotifyRetriesOnlyFailedRecipientWithoutDuplicating(t *testing.T
 	for _, r := range result.Notify {
 		byPrincipal[r.Principal] = r.Status
 	}
-	if byPrincipal["reviewer"] != "already-sent" {
-		t.Fatalf("reviewer (already notified) should be already-sent, got %q: %s", byPrincipal["reviewer"], out.String())
+	if byPrincipal["claude-reviewer"] != "already-sent" {
+		t.Fatalf("reviewer (already notified) should be already-sent, got %q: %s", byPrincipal["claude-reviewer"], out.String())
 	}
-	if byPrincipal["late-joiner"] != "sent" {
-		t.Fatalf("late-joiner (previously failed, now valid) should be sent, got %q: %s", byPrincipal["late-joiner"], out.String())
+	if byPrincipal["claude-late-joiner"] != "sent" {
+		t.Fatalf("late-joiner (previously failed, now valid) should be sent, got %q: %s", byPrincipal["claude-late-joiner"], out.String())
 	}
 
 	// Confirm no duplicate message was created for reviewer: inbox must
 	// show exactly one message from this document for reviewer.
-	must("message", "inbox", "--actor", "reviewer")
+	must("message", "inbox", "--actor", "claude-reviewer")
 	var inbox map[string]any
 	if err := json.Unmarshal(extractResult(t, out.Bytes()), &inbox); err != nil {
 		t.Fatalf("decode inbox: %v\n%s", err, out.String())
 	}
 	count := 0
 	for id := range inbox {
-		if id == "msg-5:doc-1:reviewer" {
+		if id == "msg-5:doc-1:claude-reviewer" {
 			count++
 		}
 	}
@@ -192,10 +192,10 @@ func TestDocumentNotifyRetriesOnlyFailedRecipientWithoutDuplicating(t *testing.T
 // TestDocumentNotifyMessageIDsDoNotCollideAcrossDashes is the regression
 // test for a bug an independent review caught before release: the original
 // "msg-" + documentID + "-" + principal ID scheme was ambiguous whenever
-// either ID itself contains a dash. Document "a-b" notifying "c" and
-// document "a" notifying "b-c" both produced "msg-a-b-c" -- creating the
+// either ID itself contains a dash. Document "a-b" notifying "claude-c" and
+// document "a" notifying "claude-b-c" both produced "msg-a-b-c" -- creating the
 // second collided with the first's already-sent message and silently
-// reported "already-sent" without "b-c" ever actually being notified.
+// reported "already-sent" without "claude-b-c" ever actually being notified.
 func TestDocumentNotifyMessageIDsDoNotCollideAcrossDashes(t *testing.T) {
 	project := t.TempDir()
 	cleanupProjectDaemon(t, project)
@@ -214,15 +214,15 @@ func TestDocumentNotifyMessageIDsDoNotCollideAcrossDashes(t *testing.T) {
 		}
 	}
 	must("init", "--non-interactive", "--owner", "owner", "--mode", "personal")
-	for _, id := range []string{"c", "b-c"} {
+	for _, id := range []string{"claude-c", "claude-b-c"} {
 		must("agent", "register", "--actor", "owner", "--id", id)
 		must("agent", "activate", "--actor", "owner", "--id", id, "--role", "AGENT", "--scope", "src")
 	}
-	// document "a-b" notifying "c" -- under the old scheme, both this and
+	// document "a-b" notifying "claude-c" -- under the old scheme, both this and
 	// the next call produce "msg-a-b-c".
-	must("document", "create", "--actor", "owner", "--id", "a-b", "--title", "First", "--body", "first", "--notify", "c")
-	// document "a" notifying "b-c" -- must be its own, unambiguous message.
-	must("document", "create", "--actor", "owner", "--id", "a", "--title", "Second", "--body", "second", "--notify", "b-c")
+	must("document", "create", "--actor", "owner", "--id", "a-b", "--title", "First", "--body", "first", "--notify", "claude-c")
+	// document "a" notifying "claude-b-c" -- must be its own, unambiguous message.
+	must("document", "create", "--actor", "owner", "--id", "a", "--title", "Second", "--body", "second", "--notify", "claude-b-c")
 
 	if strings.Contains(out.String(), "already-sent") {
 		t.Fatalf("false success for a never-notified recipient (message ID collision): %s", out.String())
@@ -236,7 +236,7 @@ func TestDocumentNotifyMessageIDsDoNotCollideAcrossDashes(t *testing.T) {
 	if err := json.Unmarshal(extractResult(t, out.Bytes()), &result); err != nil {
 		t.Fatalf("decode: %v\n%s", err, out.String())
 	}
-	if len(result.Notify) != 1 || result.Notify[0].Principal != "b-c" || result.Notify[0].Status != "sent" {
+	if len(result.Notify) != 1 || result.Notify[0].Principal != "claude-b-c" || result.Notify[0].Status != "sent" {
 		t.Fatalf("expected b-c to be actually notified, got: %+v", result.Notify)
 	}
 }
@@ -265,17 +265,17 @@ func TestDocumentNotifyRecognizesLegacySchemeMessage(t *testing.T) {
 		}
 	}
 	must("init", "--non-interactive", "--owner", "owner", "--mode", "personal")
-	must("agent", "register", "--actor", "owner", "--id", "reviewer")
-	must("agent", "activate", "--actor", "owner", "--id", "reviewer", "--role", "AGENT", "--scope", "src")
+	must("agent", "register", "--actor", "owner", "--id", "claude-reviewer")
+	must("agent", "activate", "--actor", "owner", "--id", "claude-reviewer", "--role", "AGENT", "--scope", "src")
 	must("document", "create", "--actor", "owner", "--id", "doc-1", "--title", "Plan", "--body", "plan")
 
 	// Simulate a notification that was already sent under the pre-fix
 	// scheme, before this document/notify pair ever went through the
 	// current code.
-	must("message", "post", "--actor", "owner", "--id", "msg-doc-1-reviewer", "--kind", "DECISION",
-		"--to", "reviewer", "--subject", "Plan", "--body", "Governed document doc-1 requires your acknowledgement.")
+	must("message", "post", "--actor", "owner", "--id", "msg-doc-1-claude-reviewer", "--kind", "DECISION",
+		"--to", "claude-reviewer", "--subject", "Plan", "--body", "Governed document doc-1 requires your acknowledgement.")
 
-	must("document", "notify", "--actor", "owner", "--id", "doc-1", "--notify", "reviewer")
+	must("document", "notify", "--actor", "owner", "--id", "doc-1", "--notify", "claude-reviewer")
 	var result struct {
 		Notify []documentNotifyResult `json:"notify"`
 	}
@@ -286,7 +286,7 @@ func TestDocumentNotifyRecognizesLegacySchemeMessage(t *testing.T) {
 		t.Fatalf("expected the legacy-scheme message to be recognized as already-sent, got: %+v", result.Notify)
 	}
 
-	must("message", "inbox", "--actor", "reviewer")
+	must("message", "inbox", "--actor", "claude-reviewer")
 	var inbox map[string]any
 	if err := json.Unmarshal(extractResult(t, out.Bytes()), &inbox); err != nil {
 		t.Fatalf("decode inbox: %v\n%s", err, out.String())
@@ -320,17 +320,17 @@ func TestDocumentNotifyIgnoresUnrelatedMessageAtTheExpectedID(t *testing.T) {
 		}
 	}
 	must("init", "--non-interactive", "--owner", "owner", "--mode", "personal")
-	must("agent", "register", "--actor", "owner", "--id", "reviewer")
-	must("agent", "activate", "--actor", "owner", "--id", "reviewer", "--role", "AGENT", "--scope", "src")
+	must("agent", "register", "--actor", "owner", "--id", "claude-reviewer")
+	must("agent", "activate", "--actor", "owner", "--id", "claude-reviewer", "--role", "AGENT", "--scope", "src")
 	must("document", "create", "--actor", "owner", "--id", "doc-1", "--title", "Plan", "--body", "plan")
 
 	// An unrelated FYI message, posted by something else entirely, happens
-	// to land on the exact ID a notify to "reviewer" for "doc-1" would use.
-	unrelatedID := notifyMessageID("doc-1", "reviewer")
+	// to land on the exact ID a notify to "claude-reviewer" for "doc-1" would use.
+	unrelatedID := notifyMessageID("doc-1", "claude-reviewer")
 	must("message", "post", "--actor", "owner", "--id", unrelatedID, "--kind", "FYI",
-		"--to", "reviewer", "--subject", "Unrelated", "--body", "This has nothing to do with doc-1's acknowledgement.")
+		"--to", "claude-reviewer", "--subject", "Unrelated", "--body", "This has nothing to do with doc-1's acknowledgement.")
 
-	must("document", "notify", "--actor", "owner", "--id", "doc-1", "--notify", "reviewer")
+	must("document", "notify", "--actor", "owner", "--id", "doc-1", "--notify", "claude-reviewer")
 	var result struct {
 		Notify []documentNotifyResult `json:"notify"`
 	}

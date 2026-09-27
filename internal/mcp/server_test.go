@@ -149,11 +149,11 @@ func TestIdentityToolReportsConnectionActor(t *testing.T) {
 	instance, _ := testsupport.StartPersonalProject(t)
 	input := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"identity","arguments":{}}}` + "\n"
 	var output bytes.Buffer
-	resolution := identity.ActorResolution{Actor: "AXIOM", Source: identity.ActorSourceHostBinding, HostLabel: "claude"}
+	resolution := identity.ActorResolution{Actor: "claude-axiom", Source: identity.ActorSourceHostBinding, HostLabel: "claude"}
 	if err := Serve(instance, resolution, testServerVersion, strings.NewReader(input), &output); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(output.String(), `"actor":"AXIOM"`) || !strings.Contains(output.String(), `"source":"host_binding"`) {
+	if !strings.Contains(output.String(), `"actor":"claude-axiom"`) || !strings.Contains(output.String(), `"source":"host_binding"`) {
 		t.Fatalf("identity tool did not report the bound actor and resolution source: %s", output.String())
 	}
 }
@@ -167,7 +167,7 @@ func TestIdentityToolReportsConnectionActor(t *testing.T) {
 func TestGetStartedToolReportsRegistrationState(t *testing.T) {
 	instance, _ := testsupport.StartPersonalProject(t)
 	input := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_started","arguments":{}}}` + "\n"
-	resolution := identity.ActorResolution{Actor: "fresh-agent", Source: identity.ActorSourceProjectOwner}
+	resolution := identity.ActorResolution{Actor: "claude-fresh-agent", Source: identity.ActorSourceProjectOwner}
 
 	var before bytes.Buffer
 	if err := Serve(instance, resolution, testServerVersion, strings.NewReader(input), &before); err != nil {
@@ -180,16 +180,16 @@ func TestGetStartedToolReportsRegistrationState(t *testing.T) {
 		t.Fatalf("expected get_started's guide to mention agent_register: %s", before.String())
 	}
 
-	if _, err := instance.Register("fresh-agent", "Fresh Agent", model.PrincipalAgent); err != nil {
+	if _, err := instance.Register("claude-fresh-agent", "Fresh Agent", model.PrincipalAgent); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := instance.Execute("owner", "agent.activate", "fresh-agent",
+	if _, err := instance.Execute("owner", "agent.activate", "claude-fresh-agent",
 		model.AgentActivated{Role: model.Role("MEMBER"), Scopes: []string{"src"}}); err != nil {
 		t.Fatal(err)
 	}
 
 	var after bytes.Buffer
-	registeredResolution := identity.ActorResolution{Actor: "fresh-agent", Source: identity.ActorSourceHostBinding, HostLabel: "claude"}
+	registeredResolution := identity.ActorResolution{Actor: "claude-fresh-agent", Source: identity.ActorSourceHostBinding, HostLabel: "claude"}
 	if err := Serve(instance, registeredResolution, testServerVersion, strings.NewReader(input), &after); err != nil {
 		t.Fatal(err)
 	}
@@ -203,30 +203,30 @@ func TestGetStartedToolReportsRegistrationState(t *testing.T) {
 
 func TestInvocationToolsReturnAndClaimWork(t *testing.T) {
 	instance, _ := testsupport.StartPersonalProject(t)
-	if _, err := instance.Register("builder", "Builder", model.PrincipalAgent); err != nil {
+	if _, err := instance.Register("claude-builder", "Builder", model.PrincipalAgent); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := instance.Execute("owner", "agent.activate", "builder",
+	if _, err := instance.Execute("owner", "agent.activate", "claude-builder",
 		model.AgentActivated{Role: model.Role("MEMBER"), Scopes: []string{"src"}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := instance.Execute("builder", "runtime.register", "runtime-builder",
-		model.RuntimeRegistered{AgentID: "builder", Connector: "MCP", MaxConcurrent: 1}); err != nil {
+	if _, err := instance.Execute("claude-builder", "runtime.register", "runtime-builder",
+		model.RuntimeRegistered{AgentID: "claude-builder", Connector: "MCP", MaxConcurrent: 1}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := instance.Execute("builder", "runtime.heartbeat", "runtime-builder",
+	if _, err := instance.Execute("claude-builder", "runtime.heartbeat", "runtime-builder",
 		model.RuntimeHeartbeat{Health: "HEALTHY"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := instance.Execute("owner", "invocation.request", "inv-mcp",
-		model.InvocationRequested{Target: "builder", Instruction: "Exercise MCP"}); err != nil {
+		model.InvocationRequested{Target: "claude-builder", Instruction: "Exercise MCP"}); err != nil {
 		t.Fatal(err)
 	}
 	input := strings.Join([]string{
 		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"invocation_listen","arguments":{"runtime_id":"runtime-builder","wait_seconds":1}}}`,
 	}, "\n") + "\n"
 	var output bytes.Buffer
-	if err := Serve(instance, asActor("builder"), testServerVersion, strings.NewReader(input), &output); err != nil {
+	if err := Serve(instance, asActor("claude-builder"), testServerVersion, strings.NewReader(input), &output); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(output.String(), `"found":true`) ||
@@ -266,9 +266,9 @@ func TestNotificationsReceiveNoResponse(t *testing.T) {
 func TestAgentRegisterToolCreatesCredential(t *testing.T) {
 	instance, _ := testsupport.StartPersonalProject(t)
 
-	registerInput := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"agent_register","arguments":{"id":"fresh-agent"}}}` + "\n"
+	registerInput := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"agent_register","arguments":{"id":"claude-fresh-agent"}}}` + "\n"
 	var registerOut bytes.Buffer
-	if e := Serve(instance, asActor("fresh-agent"), testServerVersion, strings.NewReader(registerInput), &registerOut); e != nil {
+	if e := Serve(instance, asActor("claude-fresh-agent"), testServerVersion, strings.NewReader(registerInput), &registerOut); e != nil {
 		t.Fatal(e)
 	}
 	if strings.Contains(registerOut.String(), `"error"`) {
@@ -278,11 +278,11 @@ func TestAgentRegisterToolCreatesCredential(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if _, ok := state.Agents["fresh-agent"]; !ok {
+	if _, ok := state.Agents["claude-fresh-agent"]; !ok {
 		t.Fatalf("fresh-agent was not registered: %+v", state.Agents)
 	}
 
-	activateInput := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"agent_activate","arguments":{"id":"fresh-agent","role":"AGENT","scopes":["src"]}}}` + "\n"
+	activateInput := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"agent_activate","arguments":{"id":"claude-fresh-agent","role":"AGENT","scopes":["src"]}}}` + "\n"
 	var activateOut bytes.Buffer
 	if e := Serve(instance, asActor("owner"), testServerVersion, strings.NewReader(activateInput), &activateOut); e != nil {
 		t.Fatal(e)
@@ -293,7 +293,7 @@ func TestAgentRegisterToolCreatesCredential(t *testing.T) {
 
 	runtimeInput := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"runtime_register","arguments":{"id":"fresh-runtime","connector":"MCP","max_concurrent":1}}}` + "\n"
 	var runtimeOut bytes.Buffer
-	if e := Serve(instance, asActor("fresh-agent"), testServerVersion, strings.NewReader(runtimeInput), &runtimeOut); e != nil {
+	if e := Serve(instance, asActor("claude-fresh-agent"), testServerVersion, strings.NewReader(runtimeInput), &runtimeOut); e != nil {
 		t.Fatal(e)
 	}
 	if strings.Contains(runtimeOut.String(), `"error"`) {
@@ -337,14 +337,14 @@ func TestAgentRegisterToolRejectsSpoofedID(t *testing.T) {
 // bootstrap case: a brand-new project has no stored profile for any
 // (project, host) pair yet, so a connection resolves to the project owner
 // by fallback. That owner-fallback connection must be able to register a
-// freshly-chosen, meaningful ID (e.g. "AXIOM") rather than being stuck
+// freshly-chosen, meaningful ID (e.g. "claude-axiom") rather than being stuck
 // self-registering literally as "owner" — the owner already has authority
 // to create new principals, so this is bootstrapping a new identity, not
 // impersonating an existing one.
 func TestAgentRegisterToolPermitsOwnerFallbackBootstrap(t *testing.T) {
 	instance, _ := testsupport.StartPersonalProject(t)
 
-	input := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"agent_register","arguments":{"id":"AXIOM"}}}` + "\n"
+	input := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"agent_register","arguments":{"id":"claude-axiom"}}}` + "\n"
 	var out bytes.Buffer
 	if e := Serve(instance, asActor("owner"), testServerVersion, strings.NewReader(input), &out); e != nil {
 		t.Fatal(e)
@@ -356,7 +356,7 @@ func TestAgentRegisterToolPermitsOwnerFallbackBootstrap(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if _, ok := state.Agents["AXIOM"]; !ok {
+	if _, ok := state.Agents["claude-axiom"]; !ok {
 		t.Fatalf("AXIOM was not registered: %+v", state.Agents)
 	}
 }
@@ -367,14 +367,14 @@ func TestAgentRegisterToolPermitsOwnerFallbackBootstrap(t *testing.T) {
 // new agent on its behalf, exactly like the owner can.
 func TestAgentRegisterToolPermitsActiveOrchestratorSponsorship(t *testing.T) {
 	instance, _ := testsupport.StartPersonalProject(t)
-	if _, e := instance.Register("lead", "Lead", model.PrincipalAgent); e != nil {
+	if _, e := instance.Register("claude-lead", "Lead", model.PrincipalAgent); e != nil {
 		t.Fatal(e)
 	}
-	grantOrchestrator(t, instance, "owner", "lead", []string{"src"})
+	grantOrchestrator(t, instance, "owner", "claude-lead", []string{"src"})
 
-	input := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"agent_register","arguments":{"id":"sponsored-agent"}}}` + "\n"
+	input := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"agent_register","arguments":{"id":"claude-sponsored-agent"}}}` + "\n"
 	var out bytes.Buffer
-	if e := Serve(instance, asActor("lead"), testServerVersion, strings.NewReader(input), &out); e != nil {
+	if e := Serve(instance, asActor("claude-lead"), testServerVersion, strings.NewReader(input), &out); e != nil {
 		t.Fatal(e)
 	}
 	if strings.Contains(out.String(), `"error"`) {
@@ -384,7 +384,7 @@ func TestAgentRegisterToolPermitsActiveOrchestratorSponsorship(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if _, ok := state.Agents["sponsored-agent"]; !ok {
+	if _, ok := state.Agents["claude-sponsored-agent"]; !ok {
 		t.Fatalf("sponsored-agent was not registered: %+v", state.Agents)
 	}
 }
@@ -396,17 +396,17 @@ func TestAgentRegisterToolPermitsActiveOrchestratorSponsorship(t *testing.T) {
 // principal (unlike the spoofing test's unregistered "codex-runner").
 func TestAgentRegisterToolRejectsNonOrchestratorAgentSponsorship(t *testing.T) {
 	instance, _ := testsupport.StartPersonalProject(t)
-	if _, e := instance.Register("reviewer", "Reviewer", model.PrincipalAgent); e != nil {
+	if _, e := instance.Register("claude-reviewer", "Reviewer", model.PrincipalAgent); e != nil {
 		t.Fatal(e)
 	}
-	if _, e := instance.Execute("owner", "agent.activate", "reviewer",
+	if _, e := instance.Execute("owner", "agent.activate", "claude-reviewer",
 		model.AgentActivated{Role: model.Role("MEMBER"), Scopes: []string{"src"}}); e != nil {
 		t.Fatal(e)
 	}
 
 	input := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"agent_register","arguments":{"id":"someone-else"}}}` + "\n"
 	var out bytes.Buffer
-	if e := Serve(instance, asActor("reviewer"), testServerVersion, strings.NewReader(input), &out); e != nil {
+	if e := Serve(instance, asActor("claude-reviewer"), testServerVersion, strings.NewReader(input), &out); e != nil {
 		t.Fatal(e)
 	}
 	if !strings.Contains(out.String(), `"data":{"code":"AUTHORIZATION"}`) {
@@ -430,9 +430,9 @@ func TestAgentRegisterToolRejectsNonOrchestratorAgentSponsorship(t *testing.T) {
 func TestAgentRegisterToolRejectsInvalidPrincipalType(t *testing.T) {
 	instance, _ := testsupport.StartPersonalProject(t)
 
-	input := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"agent_register","arguments":{"id":"fresh-agent","principal_type":"OWNER"}}}` + "\n"
+	input := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"agent_register","arguments":{"id":"claude-fresh-agent","principal_type":"OWNER"}}}` + "\n"
 	var out bytes.Buffer
-	if e := Serve(instance, asActor("fresh-agent"), testServerVersion, strings.NewReader(input), &out); e != nil {
+	if e := Serve(instance, asActor("claude-fresh-agent"), testServerVersion, strings.NewReader(input), &out); e != nil {
 		t.Fatal(e)
 	}
 	if !strings.Contains(out.String(), `"error"`) {
@@ -445,20 +445,20 @@ func TestAgentRegisterToolRejectsInvalidPrincipalType(t *testing.T) {
 // tool must not loosen that rule.
 func TestAgentActivateToolRequiresElevation(t *testing.T) {
 	instance, _ := testsupport.StartPersonalProject(t)
-	if _, e := instance.Register("bystander", "Bystander", model.PrincipalAgent); e != nil {
+	if _, e := instance.Register("claude-bystander", "Bystander", model.PrincipalAgent); e != nil {
 		t.Fatal(e)
 	}
-	if _, e := instance.Execute("owner", "agent.activate", "bystander",
+	if _, e := instance.Execute("owner", "agent.activate", "claude-bystander",
 		model.AgentActivated{Role: model.Role("MEMBER"), Scopes: []string{"src"}}); e != nil {
 		t.Fatal(e)
 	}
-	if _, e := instance.Register("fresh-agent", "Fresh Agent", model.PrincipalAgent); e != nil {
+	if _, e := instance.Register("claude-fresh-agent", "Fresh Agent", model.PrincipalAgent); e != nil {
 		t.Fatal(e)
 	}
 
-	activateInput := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"agent_activate","arguments":{"id":"fresh-agent","role":"AGENT"}}}` + "\n"
+	activateInput := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"agent_activate","arguments":{"id":"claude-fresh-agent","role":"AGENT"}}}` + "\n"
 	var unauthorizedOut bytes.Buffer
-	if e := Serve(instance, asActor("bystander"), testServerVersion, strings.NewReader(activateInput), &unauthorizedOut); e != nil {
+	if e := Serve(instance, asActor("claude-bystander"), testServerVersion, strings.NewReader(activateInput), &unauthorizedOut); e != nil {
 		t.Fatal(e)
 	}
 	if !strings.Contains(unauthorizedOut.String(), `"error"`) {
@@ -482,17 +482,17 @@ func TestAgentActivateToolRequiresElevation(t *testing.T) {
 // owner-or-orchestrator elevation gate.
 func TestAgentActivateToolRequiresHumanToGrantOrchestratorRole(t *testing.T) {
 	instance, _ := testsupport.StartPersonalProject(t)
-	if _, e := instance.Register("agent-lead", "Agent Lead", model.PrincipalAgent); e != nil {
+	if _, e := instance.Register("claude-agent-lead", "Agent Lead", model.PrincipalAgent); e != nil {
 		t.Fatal(e)
 	}
-	grantOrchestrator(t, instance, "owner", "agent-lead", []string{"src"})
-	if _, e := instance.Register("candidate", "Candidate", model.PrincipalAgent); e != nil {
+	grantOrchestrator(t, instance, "owner", "claude-agent-lead", []string{"src"})
+	if _, e := instance.Register("claude-candidate", "Candidate", model.PrincipalAgent); e != nil {
 		t.Fatal(e)
 	}
 
-	input := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"agent_activate","arguments":{"id":"candidate","role":"ORCHESTRATOR"}}}` + "\n"
+	input := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"agent_activate","arguments":{"id":"claude-candidate","role":"ORCHESTRATOR"}}}` + "\n"
 	var agentOut bytes.Buffer
-	if e := Serve(instance, asActor("agent-lead"), testServerVersion, strings.NewReader(input), &agentOut); e != nil {
+	if e := Serve(instance, asActor("claude-agent-lead"), testServerVersion, strings.NewReader(input), &agentOut); e != nil {
 		t.Fatal(e)
 	}
 	if !strings.Contains(agentOut.String(), `"data":{"code":"AUTHORIZATION"}`) {
@@ -502,7 +502,7 @@ func TestAgentActivateToolRequiresHumanToGrantOrchestratorRole(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if state.Agents["candidate"].Role == model.RoleOrchestrator {
+	if state.Agents["claude-candidate"].Role == model.RoleOrchestrator {
 		t.Fatal("candidate must not have been granted the orchestrator role")
 	}
 
@@ -516,12 +516,12 @@ func TestAgentActivateToolRequiresHumanToGrantOrchestratorRole(t *testing.T) {
 	if !strings.Contains(unapprovedOut.String(), `"error"`) {
 		t.Fatalf("expected the owner's grant to be rejected without a prior approval, got: %s", unapprovedOut.String())
 	}
-	if _, e := instance.Execute("owner", "approval.request", protocol.OrchestratorGrantApprovalID("candidate"), model.ApprovalRequested{
-		Tier: "HUMAN", Action: protocol.OrchestratorGrantApprovalAction("candidate"), Reason: "test",
+	if _, e := instance.Execute("owner", "approval.request", protocol.OrchestratorGrantApprovalID("claude-candidate"), model.ApprovalRequested{
+		Tier: "HUMAN", Action: protocol.OrchestratorGrantApprovalAction("claude-candidate"), Reason: "test",
 	}); e != nil {
 		t.Fatal(e)
 	}
-	if _, e := instance.Execute("owner", "approval.approve", protocol.OrchestratorGrantApprovalID("candidate"), model.ApprovalResponse{}); e != nil {
+	if _, e := instance.Execute("owner", "approval.approve", protocol.OrchestratorGrantApprovalID("claude-candidate"), model.ApprovalResponse{}); e != nil {
 		t.Fatal(e)
 	}
 
@@ -548,17 +548,17 @@ func TestAgentActivateToolRequiresHumanToGrantOrchestratorRole(t *testing.T) {
 // never registers it.)
 func TestMCPElevatedKeyTransitionsFailClosed(t *testing.T) {
 	instance, _ := testsupport.StartPersonalProject(t)
-	if _, e := instance.Register("candidate", "Candidate", model.PrincipalAgent); e != nil {
+	if _, e := instance.Register("claude-candidate", "Candidate", model.PrincipalAgent); e != nil {
 		t.Fatal(e)
 	}
-	if _, e := instance.Execute("owner", "agent.activate", "candidate", model.AgentActivated{Role: model.Role("MEMBER"), Scopes: []string{"src"}}); e != nil {
+	if _, e := instance.Execute("owner", "agent.activate", "claude-candidate", model.AgentActivated{Role: model.Role("MEMBER"), Scopes: []string{"src"}}); e != nil {
 		t.Fatal(e)
 	}
 	if _, e := instance.ElevateKey("owner", "a strong passphrase"); e != nil {
 		t.Fatal(e)
 	}
-	if _, e := instance.Execute("owner", "approval.request", protocol.OrchestratorGrantApprovalID("candidate"), model.ApprovalRequested{
-		Tier: "HUMAN", Action: protocol.OrchestratorGrantApprovalAction("candidate"), Reason: "test",
+	if _, e := instance.Execute("owner", "approval.request", protocol.OrchestratorGrantApprovalID("claude-candidate"), model.ApprovalRequested{
+		Tier: "HUMAN", Action: protocol.OrchestratorGrantApprovalAction("claude-candidate"), Reason: "test",
 	}); e != nil {
 		t.Fatal(e)
 	}
@@ -566,11 +566,11 @@ func TestMCPElevatedKeyTransitionsFailClosed(t *testing.T) {
 	// through the service to reach the activate-over-MCP scenario below --
 	// this direct call also goes through instance.PassphrasePrompt (nil),
 	// so it doubles as proof the approve step itself fails closed too.
-	if _, e := instance.Execute("owner", "approval.approve", protocol.OrchestratorGrantApprovalID("candidate"), model.ApprovalResponse{}); e == nil {
+	if _, e := instance.Execute("owner", "approval.approve", protocol.OrchestratorGrantApprovalID("claude-candidate"), model.ApprovalResponse{}); e == nil {
 		t.Fatal("expected approval.approve to fail closed with no PassphrasePrompt configured, once an elevated key is registered")
 	}
 
-	activateInput := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"agent_activate","arguments":{"id":"candidate","role":"ORCHESTRATOR"}}}` + "\n"
+	activateInput := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"agent_activate","arguments":{"id":"claude-candidate","role":"ORCHESTRATOR"}}}` + "\n"
 	var activateOut bytes.Buffer
 	if e := Serve(instance, asActor("owner"), testServerVersion, strings.NewReader(activateInput), &activateOut); e != nil {
 		t.Fatal(e)
@@ -582,7 +582,7 @@ func TestMCPElevatedKeyTransitionsFailClosed(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if state.Agents["candidate"].Role == model.RoleOrchestrator {
+	if state.Agents["claude-candidate"].Role == model.RoleOrchestrator {
 		t.Fatal("candidate must not have been granted the orchestrator role over MCP")
 	}
 
@@ -590,15 +590,15 @@ func TestMCPElevatedKeyTransitionsFailClosed(t *testing.T) {
 	// answering prompt (bypassing MCP), so the revoke-over-MCP path below
 	// has an actual orchestrator to target.
 	instance.PassphrasePrompt = func(string) (string, error) { return "a strong passphrase", nil }
-	if _, e := instance.Execute("owner", "approval.approve", protocol.OrchestratorGrantApprovalID("candidate"), model.ApprovalResponse{}); e != nil {
+	if _, e := instance.Execute("owner", "approval.approve", protocol.OrchestratorGrantApprovalID("claude-candidate"), model.ApprovalResponse{}); e != nil {
 		t.Fatal(e)
 	}
-	if _, e := instance.Execute("owner", "agent.activate", "candidate", model.AgentActivated{Role: model.RoleOrchestrator, Scopes: []string{"src"}}); e != nil {
+	if _, e := instance.Execute("owner", "agent.activate", "claude-candidate", model.AgentActivated{Role: model.RoleOrchestrator, Scopes: []string{"src"}}); e != nil {
 		t.Fatal(e)
 	}
 	instance.PassphrasePrompt = nil
 
-	revokeInput := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"agent_revoke","arguments":{"id":"candidate"}}}` + "\n"
+	revokeInput := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"agent_revoke","arguments":{"id":"claude-candidate"}}}` + "\n"
 	var revokeOut bytes.Buffer
 	if e := Serve(instance, asActor("owner"), testServerVersion, strings.NewReader(revokeInput), &revokeOut); e != nil {
 		t.Fatal(e)
@@ -610,7 +610,7 @@ func TestMCPElevatedKeyTransitionsFailClosed(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if state.Agents["candidate"].Status == "REVOKED" {
+	if state.Agents["claude-candidate"].Status == "REVOKED" {
 		t.Fatal("candidate must not have been revoked over MCP")
 	}
 }
@@ -621,18 +621,18 @@ func TestMCPElevatedKeyTransitionsFailClosed(t *testing.T) {
 // different orchestrator over MCP either.
 func TestAgentRevokeToolRejectsAgentOrchestratorRevokingAnotherOrchestrator(t *testing.T) {
 	instance, _ := testsupport.StartPersonalProject(t)
-	if _, e := instance.Register("agent-lead", "Agent Lead", model.PrincipalAgent); e != nil {
+	if _, e := instance.Register("claude-agent-lead", "Agent Lead", model.PrincipalAgent); e != nil {
 		t.Fatal(e)
 	}
-	grantOrchestrator(t, instance, "owner", "agent-lead", []string{"src"})
-	if _, e := instance.Register("other-orchestrator", "Other Orchestrator", model.PrincipalAgent); e != nil {
+	grantOrchestrator(t, instance, "owner", "claude-agent-lead", []string{"src"})
+	if _, e := instance.Register("claude-other-orchestrator", "Other Orchestrator", model.PrincipalAgent); e != nil {
 		t.Fatal(e)
 	}
-	grantOrchestrator(t, instance, "owner", "other-orchestrator", []string{"src"})
+	grantOrchestrator(t, instance, "owner", "claude-other-orchestrator", []string{"src"})
 
-	input := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"agent_revoke","arguments":{"id":"other-orchestrator"}}}` + "\n"
+	input := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"agent_revoke","arguments":{"id":"claude-other-orchestrator"}}}` + "\n"
 	var agentOut bytes.Buffer
-	if e := Serve(instance, asActor("agent-lead"), testServerVersion, strings.NewReader(input), &agentOut); e != nil {
+	if e := Serve(instance, asActor("claude-agent-lead"), testServerVersion, strings.NewReader(input), &agentOut); e != nil {
 		t.Fatal(e)
 	}
 	if !strings.Contains(agentOut.String(), `"data":{"code":"AUTHORIZATION"}`) {
@@ -650,8 +650,8 @@ func TestAgentRevokeToolRejectsAgentOrchestratorRevokingAnotherOrchestrator(t *t
 	if e != nil {
 		t.Fatal(e)
 	}
-	if state.Agents["other-orchestrator"].Status != "REVOKED" {
-		t.Fatalf("other-orchestrator was not revoked: %+v", state.Agents["other-orchestrator"])
+	if state.Agents["claude-other-orchestrator"].Status != "REVOKED" {
+		t.Fatalf("other-orchestrator was not revoked: %+v", state.Agents["claude-other-orchestrator"])
 	}
 }
 

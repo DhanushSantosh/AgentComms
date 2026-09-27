@@ -71,6 +71,27 @@ export default function HomePage() {
               <span>3. RESOLVES TO RECORD</span>
             </div>
           </header>
+          <div className="control-signal" aria-hidden="true">
+            <div className="control-signal-head"><span>LIVE STREAM</span><span>SEQ 142–147</span></div>
+            <div className="control-stream">
+              <div className="control-stream-row"><i>0142</i><b>agent.switch-role</b><span>developer · OWNER</span></div>
+              <div className="control-stream-row"><i>0143</i><b>task.claim</b><span>reviewer · auth/session</span></div>
+              <div className="control-stream-row"><i>0144</i><b>invocation.request</b><span>OWNER → reviewer</span></div>
+              <div className="control-stream-row control-stream-row--flag"><i>0146</i><b>approval.request</b><span>reviewer · HUMAN tier</span></div>
+              <div className="control-stream-row"><i>0147</i><b>invocation.start</b><span>reviewer · lease renewed</span></div>
+            </div>
+            <div className="signal-gap"><div className="signal-gap-pill"><span>1. Rises from the stream</span></div></div>
+            <div className="control-approval-card">
+              <span>APPROVAL REQUIRED · HUMAN TIER</span>
+              <dl>
+                <div><dt>WHO</dt><dd>reviewer</dd></div>
+                <div><dt>WHAT</dt><dd>agent.activate:reviewer</dd></div>
+                <div><dt>WHY</dt><dd>Coordinate the auth-session release</dd></div>
+              </dl>
+            </div>
+            <div className="signal-gap"><div className="signal-gap-pill"><span>2. Shows who &amp; why → 3. Resolves to record</span></div></div>
+            <div className="control-record-stamp"><b>SIGNED</b><span>RECORD #0146 · approval.granted</span></div>
+          </div>
           <div className="control-capabilities">
             <article><span>ATTENTION</span><strong>Know what needs you now.</strong><p>Approvals, blocked work, ambiguous delivery, and runtime health come forward.</p></article>
             <article><span>AUTHORITY</span><strong>Control who can do what.</strong><p>Roles, scopes, identities, runtimes, suspensions, revocations, and elevated actions stay governed.</p></article>
@@ -118,16 +139,19 @@ export default function HomePage() {
             <p>Bind a live Codex, Claude, or OpenCode session once. Agents can deliver bounded work to each other, while you keep the evidence and the final say.</p>
             <a href={documentationPage("/agents/interactive/")}>Connect an interactive session <span>↗</span></a>
           </div>
-          <div className="relay-sequence" data-relay-sequence aria-label="DEVELOPER sends bounded work to TESTER; transport is evidenced, TESTER acknowledges it, and a verified result returns">
-            <div className="relay-party relay-party--source"><span>REQUESTER</span><strong>DEVELOPER</strong><small>CODEX / INTERACTIVE</small></div>
-            <div className="relay-message"><span>Verify the auth session changes.</span><small>EXPECTED · pass/fail report</small></div>
-            <div className="relay-evidence"><i /><span data-relay-evidence="echo">PTY_TEXT_ECHOED</span><i /><span data-relay-evidence="enter">PTY_ENTER_SENT</span><i /></div>
-            <div className="relay-party relay-party--target"><span>TARGET</span><strong>TESTER</strong><small>OPENCODE / INTERACTIVE</small></div>
-            <div className="relay-gap"><strong>DELIVERED ≠ ACKNOWLEDGED</strong><small>transport evidence is not a claim</small></div>
-            <div className="relay-claim"><b>ACKNOWLEDGED</b><span>invocation.claim</span></div>
-            <div className="relay-result"><span>RESULT RETURNED</span><b>24 / 24 auth tests pass</b><small>invocation.complete · receipt signed</small></div>
-            <button type="button" className="relay-replay" data-relay-replay aria-label="Replay agent relay demonstration">REPLAY ↻</button>
-            <p className="relay-outcome" aria-live="polite" data-relay-outcome>Bounded request committed.</p>
+          <div className="relay-frame">
+            <div className="relay-frame-head"><span>DIRECT AGENT RELAY</span><span>LIVE · SIMULATED</span></div>
+            <div className="relay-sequence" data-relay-sequence aria-label="DEVELOPER sends bounded work to TESTER; transport is evidenced, TESTER acknowledges it, and a verified result returns">
+              <div className="relay-party relay-party--source"><span>REQUESTER</span><strong>DEVELOPER</strong><small>CODEX / INTERACTIVE</small></div>
+              <div className="relay-message"><span>Verify the auth session changes.</span><small>EXPECTED · pass/fail report</small></div>
+              <div className="relay-evidence"><i /><span data-relay-evidence="echo">PTY_TEXT_ECHOED</span><i /><span data-relay-evidence="enter">PTY_ENTER_SENT</span><i /></div>
+              <div className="relay-party relay-party--target"><span>TARGET</span><strong>TESTER</strong><small>OPENCODE / INTERACTIVE</small></div>
+              <div className="relay-gap signal-gap-pill"><strong>DELIVERED ≠ ACKNOWLEDGED</strong><small>transport evidence is not a claim</small></div>
+              <div className="relay-claim"><b>ACKNOWLEDGED</b><span>invocation.claim</span></div>
+              <div className="relay-result"><span>RESULT RETURNED</span><b>24 / 24 auth tests pass</b><small>invocation.complete · receipt signed</small></div>
+              <button type="button" className="relay-replay" data-relay-replay aria-label="Replay agent relay demonstration">REPLAY ↻</button>
+              <p className="relay-outcome" aria-live="polite" data-relay-outcome>Bounded request committed.</p>
+            </div>
           </div>
         </section>
 

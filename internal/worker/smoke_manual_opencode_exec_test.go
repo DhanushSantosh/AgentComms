@@ -29,7 +29,7 @@ func TestManualSmokeOpenCodeExec(t *testing.T) {
 	}
 	instance, root := workerService(t)
 	worker, err := New(Config{
-		Service: instance, Actor: "AXIOM", RuntimeID: "runtime-axiom",
+		Service: instance, Actor: "claude-axiom", RuntimeID: "runtime-axiom",
 		Adapter: "opencode", Executable: executable, WorkDir: root,
 		// Confirmed live: a denied bash call can push a single response past
 		// 90s waiting on the model, even though the common case finishes in
