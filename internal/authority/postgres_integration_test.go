@@ -49,15 +49,23 @@ func TestPostgresTransactionalAuthority(t *testing.T) {
 		}
 		return engine.Mutate(context.Background(), command)
 	}
-	register := func(id string, signer *controlplane.Signer) {
+	registerAs := func(id string, signer *controlplane.Signer, principal model.PrincipalType) {
 		t.Helper()
 		if _, _, registerErr := mutate(id, signer, "agent.register", id, model.AgentRegistered{
-			PublicKey: signer.PublicKey(), PrincipalType: model.PrincipalAgent, DisplayName: id,
+			PublicKey: signer.PublicKey(), PrincipalType: principal, DisplayName: id,
 		}, uuid.NewString()); registerErr != nil {
 			t.Fatal(registerErr)
 		}
 	}
-	register("owner", owner)
+	register := func(id string, signer *controlplane.Signer) {
+		t.Helper()
+		registerAs(id, signer, model.PrincipalAgent)
+	}
+	// The owner is a person, not a runtime: HUMAN, which is also what
+	// exempts it from RFC 0039's provider-scoped agent ID grammar. It was
+	// registered as an AGENT here before, which the activate below
+	// (RoleOwner) already contradicted.
+	registerAs("owner", owner, model.PrincipalHuman)
 	if _, _, err = mutate("owner", owner, "agent.activate", "owner",
 		model.AgentActivated{Role: model.RoleOwner, Capabilities: []string{"*"}, Scopes: []string{"*"}}, uuid.NewString()); err != nil {
 		t.Fatal(err)
