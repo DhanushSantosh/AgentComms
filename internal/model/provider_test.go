@@ -44,9 +44,54 @@ func TestValidateAgentActorIDExplainsTheFixRatherThanTheRule(t *testing.T) {
 	if got := err.Error(); !contains(got, "claude-reviewer") {
 		t.Errorf("error should suggest the fixed ID, got: %s", got)
 	}
+	// Still rejected -- the grammar is lower case -- but the suggestion
+	// must be the normalized ID, not "claude-claude-main".
 	upper := ValidateAgentActorID("Claude-Main")
-	if upper == nil || !contains(upper.Error(), "claude-main") {
-		t.Errorf("a capitalised ID should be told its lower-case form, got: %v", upper)
+	if upper == nil {
+		t.Fatal("Claude-Main is not lower case and must be rejected")
+	}
+	if !contains(upper.Error(), `try "claude-main"`) {
+		t.Errorf("should suggest the normalized form, got: %v", upper)
+	}
+}
+
+// A suggestion the caller cannot use is worse than none: it sends them to a
+// second identical failure. Every suggestion this error makes must itself
+// pass validation.
+func TestSuggestedReplacementsAreThemselvesValid(t *testing.T) {
+	for _, bad := range []string{
+		"reviewer", "Reviewer", "builder", "  spaced  ", "UPPER", "agent-00",
+		"foo_bar", "x..y", "BAD ID", "claude-", "claude-BAD", "claude_main", "-lead", "",
+	} {
+		err := ValidateAgentActorID(bad)
+		if err == nil {
+			continue // legitimately valid; nothing to suggest
+		}
+		suggestion, ok := suggestedActorID(bad)
+		if !ok {
+			// No suggestion offered -- the message must then not pretend to
+			// have one, which the "use <provider>-<suffix>" wording handles.
+			continue
+		}
+		if vErr := ValidateAgentActorID(suggestion); vErr != nil {
+			t.Errorf("input %q was told to try %q, which is itself invalid: %v", bad, suggestion, vErr)
+		}
+	}
+}
+
+// Specifically the cases that used to produce unusable advice.
+func TestPreviouslyMisleadingSuggestionsAreGone(t *testing.T) {
+	for _, bad := range []string{"foo_bar", "x..y", "BAD ID", "claude-BAD"} {
+		err := ValidateAgentActorID(bad)
+		if err == nil {
+			t.Fatalf("%q should be rejected", bad)
+		}
+		if contains(err.Error(), "try \"") {
+			suggestion, _ := suggestedActorID(bad)
+			if vErr := ValidateAgentActorID(suggestion); vErr != nil {
+				t.Errorf("%q still offers the invalid suggestion %q", bad, suggestion)
+			}
+		}
 	}
 }
 

@@ -267,3 +267,53 @@ func extractResult(t *testing.T, envelope []byte) []byte {
 	}
 	return wrapper.Result
 }
+
+// RFC 0039 section 4: a principal may be named by its display name, and
+// the signed event must still record the canonical actor ID.
+func TestMessagePostAcceptsADisplayNameAndRecordsTheActorID(t *testing.T) {
+	project := t.TempDir()
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
+	cleanupProjectDaemon(t, project)
+	var stdout, stderr bytes.Buffer
+	run := func(args ...string) error {
+		stdout.Reset()
+		stderr.Reset()
+		return Run(append(args, "--project", project, "--json"), &stdout, &stderr)
+	}
+	if err := run("init", "--non-interactive", "--owner", "owner"); err != nil {
+		t.Fatal(err)
+	}
+	if err := run("agent", "register", "--provider", "claude", "--display-name", "Atlas"); err != nil {
+		t.Fatalf("register: %v (%s)", err, stderr.String())
+	}
+	if err := run("agent", "activate", "--id", "claude", "--role", "Engineer", "--scope", "*"); err != nil {
+		t.Fatalf("activate: %v (%s)", err, stderr.String())
+	}
+
+	// Addressed by display name...
+	if err := run("message", "post", "--actor", "owner", "--to", "Atlas",
+		"--kind", "FYI", "--subject", "hello", "--body", "by display name"); err != nil {
+		t.Fatalf("post by display name: %v (%s)", err, stderr.String())
+	}
+	// ...but the event records the actor ID, not "Atlas".
+	posted := stdout.String()
+	if strings.Contains(posted, `"Atlas"`) {
+		t.Errorf("the signed event must not record a display name:\n%s", posted)
+	}
+	if !strings.Contains(posted, "claude") {
+		t.Errorf("the event should record the canonical actor ID:\n%s", posted)
+	}
+	// The recipient sees it in their inbox under their own identity.
+	if err := run("message", "inbox", "--actor", "claude"); err != nil {
+		t.Fatalf("inbox: %v (%s)", err, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "hello") {
+		t.Errorf("recipient should have the message:\n%s", stdout.String())
+	}
+	// An unknown reference is refused rather than silently delivered.
+	if err := run("message", "post", "--actor", "owner", "--to", "Nobody",
+		"--kind", "FYI", "--subject", "x", "--body", "y"); err == nil {
+		t.Error("an unresolvable recipient must be refused")
+	}
+}

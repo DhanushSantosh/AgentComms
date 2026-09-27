@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/DhanushSantosh/AgentComms/internal/model"
 )
 
 func TestDeclarativeAdapterAgyEquivalence(t *testing.T) {
@@ -113,5 +115,32 @@ func TestRegisterDeclarativeAdapterRefusesToOverwriteBuiltIn(t *testing.T) {
 func TestRegisterDeclarativeAdapterAcceptsAgy(t *testing.T) {
 	if err := RegisterDeclarativeAdapter(DeclarativeSpec{Name: "agy", ExecutableName: "agy"}); err != nil {
 		t.Fatalf("expected agy to be registrable now that it isn't built-in, got: %v", err)
+	}
+}
+
+// RFC 0039's escape hatch: adding a runtime via a declarative adapter must
+// also make agent IDs for that runtime registrable. Without this wiring the
+// hatch is documented but absent -- you can add the adapter and still be
+// unable to register an agent for it, which is exactly the dead end
+// antigravity-main was pointed at.
+func TestRegisteringADeclarativeAdapterMakesItsProviderValid(t *testing.T) {
+	const name = "housecat"
+	if model.IsKnownProvider(name) {
+		t.Fatalf("%q must not already be a provider for this test to mean anything", name)
+	}
+	if err := model.ValidateAgentActorID(name + "-main"); err == nil {
+		t.Fatalf("%s-main should be invalid before the adapter exists", name)
+	}
+
+	t.Cleanup(func() { delete(adapters, name) })
+	if err := RegisterDeclarativeAdapter(DeclarativeSpec{Name: name, ExecutableName: "housecat"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if !model.IsKnownProvider(name) {
+		t.Fatalf("registering the adapter should have made %q a provider", name)
+	}
+	if err := model.ValidateAgentActorID(name + "-main"); err != nil {
+		t.Errorf("%s-main should be registrable once its adapter exists: %v", name, err)
 	}
 }

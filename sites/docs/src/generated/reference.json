@@ -516,7 +516,7 @@
         },
         {
           "name": "id",
-          "usage": "principal ID",
+          "usage": "principal ID (optional for AGENT: defaults to the provider name)",
           "default": "",
           "type": "string"
         },
@@ -559,6 +559,12 @@
         {
           "name": "project",
           "usage": "target project root",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "provider",
+          "usage": "AI provider backing this agent: claude, codex, opencode",
           "default": "",
           "type": "string"
         },

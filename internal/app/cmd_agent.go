@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -15,6 +16,21 @@ func (c *cli) agentCmd() *cobra.Command {
 	var display, ptype string
 	reg := &cobra.Command{Use: "register", Short: "Register a governed identity", RunE: func(cmd *cobra.Command, args []string) error {
 		id, _ := cmd.Flags().GetString("id")
+		provider, _ := cmd.Flags().GetString("provider")
+		principal := model.PrincipalType(strings.ToUpper(ptype))
+		// RFC 0039: an AGENT's ID names its provider. --provider is the
+		// primary input and --id optional, defaulting to "<provider>" or
+		// "<provider>-2" when that is taken, so the common case needs no
+		// ID at all. HUMAN principals are exempt and keep --id required.
+		if principal == model.PrincipalAgent {
+			resolved, resolveErr := c.resolveAgentID(id, provider)
+			if resolveErr != nil {
+				return resolveErr
+			}
+			id = resolved
+		} else if strings.TrimSpace(id) == "" {
+			return errors.New("agent register: --id is required for a HUMAN principal")
+		}
 		if id != c.actor {
 			can, e := c.svc.CanSponsorRegistration(c.actor)
 			if e != nil {
@@ -24,7 +40,7 @@ func (c *cli) agentCmd() *cobra.Command {
 				return fmt.Errorf("agent register: registering a different id requires an active orchestrator or human principal (actor: %s)", c.actor)
 			}
 		}
-		v, e := c.svc.Register(id, display, model.PrincipalType(strings.ToUpper(ptype)))
+		v, e := c.svc.Register(id, display, principal)
 		if e != nil {
 			return e
 		}
@@ -77,8 +93,12 @@ func (c *cli) agentCmd() *cobra.Command {
 			Hint: fmt.Sprintf("An active orchestrator or human principal must run `agent-comms agent activate --id %s --role <role> --scope <scope>` before %s can act.", id, id),
 		})
 	}}
-	reg.Flags().String("id", "", "principal ID")
-	_ = reg.MarkFlagRequired("id")
+	reg.Flags().String("id", "", "principal ID (optional for AGENT: defaults to the provider name)")
+	reg.Flags().String("provider", "", "AI provider backing this agent: "+strings.Join(model.KnownProviders(), ", "))
+	// --id is no longer required: for an AGENT it is derived from
+	// --provider (RFC 0039). RunE enforces that one of the two is present,
+	// and that a HUMAN principal still supplies an --id, which cobra's
+	// blanket "required" could not express.
 	reg.Flags().StringVar(&display, "display-name", "", "display name")
 	reg.Flags().StringVar(&ptype, "principal-type", "AGENT", "HUMAN or AGENT")
 	var role string
@@ -185,4 +205,43 @@ func (c *cli) agentCmd() *cobra.Command {
 	})
 	root.AddCommand(reg, act, switchRoleCmd, suspend, rotate, elevate, rename, revoke, deleteAgent, list, show)
 	return root
+}
+
+// resolveAgentID applies RFC 0039's rules to the --id/--provider pair.
+//
+// Either flag alone is enough: --provider derives the ID, --id implies its
+// provider. Given both, they must agree, because silently preferring one
+// would make the other a lie in the receipt the caller reads back.
+func (c *cli) resolveAgentID(id, provider string) (string, error) {
+	id = strings.TrimSpace(id)
+	provider = strings.ToLower(strings.TrimSpace(provider))
+
+	if provider != "" && !model.IsKnownProvider(provider) {
+		return "", fmt.Errorf("agent register: unknown provider %q; known providers: %s",
+			provider, strings.Join(model.KnownProviders(), ", "))
+	}
+	if id == "" {
+		if provider == "" {
+			return "", fmt.Errorf("agent register: --provider is required for an AGENT (one of: %s), or pass --id naming it",
+				strings.Join(model.KnownProviders(), ", "))
+		}
+		state, stateErr := c.svc.State()
+		if stateErr != nil {
+			return "", stateErr
+		}
+		return model.DefaultAgentActorID(provider, func(candidate string) bool {
+			_, taken := state.Agents[candidate]
+			return taken
+		}), nil
+	}
+	if err := model.ValidateAgentActorID(id); err != nil {
+		return "", err
+	}
+	if provider != "" {
+		if actual, _ := model.ProviderOf(id); actual != provider {
+			return "", fmt.Errorf("agent register: --id %q names provider %q, which contradicts --provider %q",
+				id, actual, provider)
+		}
+	}
+	return id, nil
 }

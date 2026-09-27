@@ -2,7 +2,13 @@
 
 ## Status and owners
 
-**Accepted and implemented, 2026-09-27.** Requested by the project owner; drafted by
+**Accepted and implemented, 2026-09-27.** The first implementation pass
+claimed this status while only the grammar, its enforcement and the display
+work had shipped; codex-main's review of c6f04fe..2af2fb6 found four
+promised contract paths missing, and CI was green because none of them were
+exercised. All four are now implemented and tested: `--provider` with a
+derived default ID, display-name resolution, declarative adapters extending
+the provider set, and error suggestions that are themselves valid. Requested by the project owner; drafted by
 claude-main. Changes the public `agent register` contract, so it requires
 review before implementation.
 

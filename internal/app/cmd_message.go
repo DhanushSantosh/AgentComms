@@ -31,7 +31,15 @@ func (c *cli) messageCmd() *cobra.Command {
 			}
 			body = string(b)
 		}
-		payload := model.MessagePosted{Kind: strings.ToUpper(kind), To: to, Subject: subject, Body: body, TaskID: taskID}
+		// RFC 0039: recipients may be given as an actor ID or a display
+		// name. Resolve to canonical actor IDs here, at the CLI boundary,
+		// so the signed event never records a display name -- those can be
+		// reused and renamed, which would make the record ambiguous.
+		resolvedTo, resolveErr := c.resolvePrincipals(to)
+		if resolveErr != nil {
+			return resolveErr
+		}
+		payload := model.MessagePosted{Kind: strings.ToUpper(kind), To: resolvedTo, Subject: subject, Body: body, TaskID: taskID}
 		if requestApproval {
 			if payload.Kind != "CONTRACT" {
 				return fmt.Errorf("--request-approval is only valid for CONTRACT messages")
@@ -253,4 +261,28 @@ func (c *cli) approvalCmd() *cobra.Command {
 	})
 	root.AddCommand(request, approve, reject, list, show)
 	return root
+}
+
+// resolvePrincipals maps each reference (actor ID or display name) to its
+// canonical actor ID, preserving order and refusing ambiguity.
+func (c *cli) resolvePrincipals(references []string) ([]string, error) {
+	if len(references) == 0 {
+		return references, nil
+	}
+	state, err := c.svc.State()
+	if err != nil {
+		// Without state there is nothing to resolve against; pass the
+		// references through and let the authority reject an unknown one,
+		// which is what happened before resolution existed.
+		return references, nil
+	}
+	resolved := make([]string, 0, len(references))
+	for _, reference := range references {
+		id, resolveErr := model.ResolvePrincipal(state.Agents, reference)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		resolved = append(resolved, id)
+	}
+	return resolved, nil
 }

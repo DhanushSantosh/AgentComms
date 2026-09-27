@@ -101,14 +101,57 @@ func ValidateAgentActorID(actorID string) error {
 		return nil
 	}
 	providers := strings.Join(KnownProviders(), ", ")
-	if lowered := strings.ToLower(actorID); lowered != actorID {
-		return fmt.Errorf("agent ID %q must be lower case; try %q", actorID, lowered)
+	// Only suggest a replacement that would itself pass. Suggesting
+	// "claude-foo_bar" for "foo_bar", or "reviewer" for "Reviewer", sends
+	// the caller to a second identical failure and makes the message worse
+	// than no suggestion at all.
+	if suggestion, ok := suggestedActorID(actorID); ok {
+		return fmt.Errorf("agent ID %q must name its provider: try %q. Known providers: %s",
+			actorID, suggestion, providers)
 	}
 	return fmt.Errorf(
-		"agent ID %q must name its provider: use <provider> or <provider>-<suffix> (e.g. claude-%s). Known providers: %s",
-		actorID, actorID, providers,
+		"agent ID %q must name its provider: use <provider> or <provider>-<suffix>, "+
+			"where <suffix> is lower-case letters, digits and hyphens. Known providers: %s",
+		actorID, providers,
 	)
 }
+
+// suggestedActorID derives a valid ID from what the caller typed, or
+// reports that nothing salvageable could be formed. It never returns a
+// value that ValidateAgentActorID would reject.
+func suggestedActorID(actorID string) (string, bool) {
+	candidate := strings.ToLower(strings.TrimSpace(actorID))
+	if candidate == "" {
+		return "", false
+	}
+	// Case or surrounding space was the only problem: suggest the
+	// normalized form rather than prefixing an already-valid ID into
+	// "claude-claude-main".
+	if _, ok := ProviderOf(candidate); ok {
+		return candidate, true
+	}
+	// Already provider-prefixed but otherwise malformed (bad suffix
+	// characters): there is no single obvious repair, so say nothing.
+	if _, ok := ProviderOf(candidate); !ok {
+		for _, provider := range KnownProviders() {
+			if candidate == provider || strings.HasPrefix(candidate, provider+"-") {
+				return "", false
+			}
+		}
+	}
+	if !actorSuffix.MatchString(candidate) {
+		return "", false
+	}
+	suggestion := defaultSuggestionProvider + "-" + candidate
+	if _, ok := ProviderOf(suggestion); !ok {
+		return "", false
+	}
+	return suggestion, true
+}
+
+// defaultSuggestionProvider is the provider used when illustrating a fixed
+// ID. It only ever appears inside an error message.
+const defaultSuggestionProvider = "claude"
 
 // DefaultAgentActorID returns the ID to use when none was supplied:
 // "<provider>", or "<provider>-2", "-3", ... when earlier ones are taken.

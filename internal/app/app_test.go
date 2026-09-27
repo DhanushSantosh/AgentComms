@@ -1436,14 +1436,14 @@ func TestAgentRegisterCLIEnforcesSponsorshipRule(t *testing.T) {
 
 	// A plain, active AGENT-role principal must be rejected when
 	// registering a different id.
-	if e := run("agent", "register", "--actor", "claude-reviewer", "--id", "someone-else"); e == nil {
+	if e := run("agent", "register", "--actor", "claude-reviewer", "--id", "claude-someone-else"); e == nil {
 		t.Fatal("expected a plain agent's sponsorship attempt to be rejected")
 	} else if code := errorCode(e); code != "AUTHORIZATION" {
 		t.Fatalf("expected AUTHORIZATION, got %s: %v", code, e)
 	}
 
 	must("status")
-	if bytes.Contains(out.Bytes(), []byte(`"someone-else"`)) {
+	if bytes.Contains(out.Bytes(), []byte(`"claude-someone-else"`)) {
 		t.Fatal("rejected sponsorship attempt must not have registered the principal")
 	}
 
@@ -2389,5 +2389,59 @@ func TestServeRunConfigLeavesTheTokenEmptyWhenUnset(t *testing.T) {
 	}
 	if run.ServicePrivateKey != "key" {
 		t.Fatalf("personal mode lost its signing key: %+v", run)
+	}
+}
+
+// RFC 0039 section 3: --provider is the primary input and --id optional.
+// Registering an agent should not require inventing an ID at all.
+func TestAgentRegisterDerivesTheIDFromTheProvider(t *testing.T) {
+	project := t.TempDir()
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
+	cleanupProjectDaemon(t, project)
+	var stdout, stderr bytes.Buffer
+	run := func(args ...string) error {
+		stdout.Reset()
+		stderr.Reset()
+		return Run(append(args, "--project", project, "--json"), &stdout, &stderr)
+	}
+	if err := run("init", "--non-interactive", "--owner", "owner"); err != nil {
+		t.Fatal(err)
+	}
+
+	// No --id: the first agent of a provider takes the bare provider name.
+	if err := run("agent", "register", "--provider", "claude"); err != nil {
+		t.Fatalf("register with only --provider: %v (%s)", err, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), `"claude"`) {
+		t.Fatalf("expected the derived ID to be \"claude\":\n%s", stdout.String())
+	}
+	// The second falls to claude-2 rather than colliding.
+	if err := run("agent", "register", "--provider", "claude"); err != nil {
+		t.Fatalf("second register: %v (%s)", err, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "claude-2") {
+		t.Fatalf("expected the second agent to be claude-2:\n%s", stdout.String())
+	}
+	// An explicit conforming --id still works, with or without --provider.
+	if err := run("agent", "register", "--id", "codex-reviewer"); err != nil {
+		t.Fatalf("explicit --id: %v (%s)", err, stderr.String())
+	}
+	// Contradiction is refused rather than silently resolved: preferring
+	// one flag would make the other a lie in the receipt.
+	if err := run("agent", "register", "--id", "codex-other", "--provider", "claude"); err == nil {
+		t.Fatal("an --id naming codex with --provider claude must be refused")
+	}
+	// An unknown provider names the ones that exist.
+	if err := run("agent", "register", "--provider", "nosuchmodel"); err == nil {
+		t.Fatal("an unknown provider must be refused")
+	} else if !strings.Contains(err.Error(), "claude") {
+		t.Errorf("the error should list known providers, got: %v", err)
+	}
+	// Neither flag: say what is needed instead of a bare validation error.
+	if err := run("agent", "register"); err == nil {
+		t.Fatal("registering an AGENT with neither --id nor --provider must be refused")
+	} else if !strings.Contains(err.Error(), "--provider") {
+		t.Errorf("the error should ask for --provider, got: %v", err)
 	}
 }
