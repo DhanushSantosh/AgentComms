@@ -181,12 +181,12 @@ func TestApprovalRejectRequiresConfirm(t *testing.T) {
 
 func TestHumanTierApprovalHidesApproveForAgentPrincipal(t *testing.T) {
 	s := newTestService(t)
-	registerAgent(t, s, "auto-orch", model.RoleOrchestrator, "*")
+	registerAgent(t, s, "claude-auto-orch", model.RoleOrchestrator, "*")
 	if _, e := s.Execute("owner", "approval.request", "approval-1", model.ApprovalRequested{Tier: "HUMAN", Action: "release.publish", Reason: "test"}); e != nil {
 		t.Fatal(e)
 	}
 
-	m, e := New(s, "auto-orch")
+	m, e := New(s, "claude-auto-orch")
 	if e != nil {
 		t.Fatal(e)
 	}

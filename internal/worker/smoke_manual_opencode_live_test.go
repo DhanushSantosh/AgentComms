@@ -22,7 +22,7 @@ func TestManualSmokeOpenCodeLive(t *testing.T) {
 	}
 	instance, root := workerService(t)
 	worker, err := New(Config{
-		Service: instance, Actor: "AXIOM", RuntimeID: "runtime-axiom",
+		Service: instance, Actor: "claude-axiom", RuntimeID: "runtime-axiom",
 		Adapter: "opencode-live", WorkDir: root,
 		ListenWait: time.Second, ExecutionTimeout: 90 * time.Second, Once: true,
 		Status: func(s string) { t.Log("status:", s) },

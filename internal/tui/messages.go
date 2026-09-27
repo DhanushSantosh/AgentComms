@@ -142,9 +142,14 @@ func messageActionsFor(m model.Message, actor string) []RowAction {
 type messageRowSource struct{ owner string }
 
 func (messageRowSource) Columns(width int) []table.Column {
-	kind, from, state := 10, 13, 12
+	// FROM has to hold a principal ID, and under RFC 0039 an agent's ID
+	// carries its provider ("claude-henry", 12 characters). At the old
+	// narrow width of 10 every agent of a provider rendered as the same
+	// "claude-…", which reads as one sender rather than a truncated name.
+	// SUBJECT is the flexible column and has the slack to give.
+	kind, from, state := 10, 16, 12
 	if width < 75 {
-		kind, from, state = 8, 10, 10
+		kind, from, state = 8, 13, 10
 	}
 	subj := max(8, width-kind-from-state)
 	return []table.Column{

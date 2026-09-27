@@ -165,11 +165,11 @@ func TestMutationCommandPlainOutputIsAConciseReceipt(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	if err := Run([]string{"agent", "register", "--project", project, "--id", "builder", "--output", "plain"}, &stdout, &stderr); err != nil {
+	if err := Run([]string{"agent", "register", "--project", project, "--id", "claude-builder", "--output", "plain"}, &stdout, &stderr); err != nil {
 		t.Fatal(err)
 	}
 	plain := stdout.String()
-	for _, want := range []string{"Agent registered", "Agent", "builder", "Registered by", "owner", "Sequence"} {
+	for _, want := range []string{"Agent registered", "Agent", "claude-builder", "Registered by", "owner", "Sequence"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("mutation receipt is missing %q:\n%s", want, plain)
 		}
@@ -199,14 +199,14 @@ func TestAgentRegisterExplainsPendingActivation(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	if err := Run([]string{"agent", "register", "--project", project, "--id", "builder", "--output", "plain"}, &stdout, &stderr); err != nil {
+	if err := Run([]string{"agent", "register", "--project", project, "--id", "claude-builder", "--output", "plain"}, &stdout, &stderr); err != nil {
 		t.Fatal(err)
 	}
 	plain := stdout.String()
 	for _, want := range []string{
 		"PENDING", "awaiting activation",
 		"owner (unchanged -- registering never switches it)",
-		"agent-comms agent activate --id builder",
+		"agent-comms agent activate --id claude-builder",
 	} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("registration receipt is missing %q:\n%s", want, plain)
@@ -215,7 +215,7 @@ func TestAgentRegisterExplainsPendingActivation(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	if err := Run([]string{"agent", "register", "--project", project, "--id", "builder2", "--json"}, &stdout, &stderr); err != nil {
+	if err := Run([]string{"agent", "register", "--project", project, "--id", "claude-builder2", "--json"}, &stdout, &stderr); err != nil {
 		t.Fatal(err)
 	}
 	var envelope struct {
@@ -644,14 +644,14 @@ func TestAgentListHumanOutputIsATableNotIndentedJSON(t *testing.T) {
 		}
 	}
 	run(true, "init", "--non-interactive", "--owner", "owner", "--mode", "personal")
-	run(true, "agent", "register", "--id", "builder")
-	run(true, "agent", "activate", "--id", "builder", "--role", "AGENT", "--scope", "src", "--actor", "owner")
+	run(true, "agent", "register", "--id", "claude-builder")
+	run(true, "agent", "activate", "--id", "claude-builder", "--role", "AGENT", "--scope", "src", "--actor", "owner")
 
 	run(false, "agent", "list")
 	if strings.HasPrefix(strings.TrimSpace(out.String()), "{") {
 		t.Fatalf("expected table output, not JSON, without --json: %s", out.String())
 	}
-	if !strings.Contains(out.String(), "ID") || !strings.Contains(out.String(), "builder") ||
+	if !strings.Contains(out.String(), "ID") || !strings.Contains(out.String(), "claude-builder") ||
 		!strings.Contains(out.String(), "ACTIVE") {
 		t.Fatalf("expected a table with builder's row, got: %s", out.String())
 	}
@@ -687,12 +687,12 @@ func TestAgentSwitchRoleIsSelfServiceThroughTheRealCLI(t *testing.T) {
 		}
 	}
 	run("init", "--non-interactive", "--owner", "owner", "--mode", "personal")
-	run("agent", "register", "--id", "builder")
-	run("agent", "activate", "--id", "builder", "--role", "Backend-Designer", "--scope", "src", "--actor", "owner")
+	run("agent", "register", "--id", "claude-builder")
+	run("agent", "activate", "--id", "claude-builder", "--role", "Backend-Designer", "--scope", "src", "--actor", "owner")
 
 	// Self-service: no --actor owner/orchestrator elevation needed, unlike
 	// agent activate above -- builder switches its own role directly.
-	run("agent", "switch-role", "--role", "Frontend-Architect", "--actor", "builder")
+	run("agent", "switch-role", "--role", "Frontend-Architect", "--actor", "claude-builder")
 
 	run("agent", "list")
 	if !bytes.Contains(out.Bytes(), []byte(`"role":"Frontend-Architect"`)) {
@@ -722,8 +722,8 @@ func TestTUIResolvesOwnerWhenLegacyActorIsAmbiguous(t *testing.T) {
 	}
 	out.Reset()
 	errBuf.Reset()
-	if err := Run([]string{"agent", "register", "--id", "helper", "--principal-type", "AGENT",
-		"--project", d, "--actor", "helper", "--json"}, &out, &errBuf); err != nil {
+	if err := Run([]string{"agent", "register", "--id", "claude-helper", "--principal-type", "AGENT",
+		"--project", d, "--actor", "claude-helper", "--json"}, &out, &errBuf); err != nil {
 		t.Fatalf("registering a second local identity failed: %v\n%s", err, errBuf.String())
 	}
 
@@ -1033,7 +1033,7 @@ func TestWriteRefusesAmbiguousLegacyActorAcrossMultipleProfiles(t *testing.T) {
 	// (just "owner") would still be safe.
 	out.Reset()
 	errBuf.Reset()
-	if err := Run([]string{"agent", "register", "--id", "helper", "--principal-type", "AGENT", "--project", d, "--actor", "helper", "--json"}, &out, &errBuf); err != nil {
+	if err := Run([]string{"agent", "register", "--id", "claude-helper", "--principal-type", "AGENT", "--project", d, "--actor", "claude-helper", "--json"}, &out, &errBuf); err != nil {
 		t.Fatalf("registering a second local identity failed: %v\n%s", err, errBuf.String())
 	}
 
@@ -1160,19 +1160,19 @@ func TestHostLabelResolvesActorAcrossInvocations(t *testing.T) {
 		}
 	}
 	run("init", "--non-interactive", "--owner", "owner", "--mode", "personal")
-	run("agent", "register", "--id", "AXIOM")
+	run("agent", "register", "--id", "claude-axiom")
 	run("profile", "current")
-	if !bytes.Contains(out.Bytes(), []byte(`"actor":"AXIOM"`)) ||
+	if !bytes.Contains(out.Bytes(), []byte(`"actor":"claude-axiom"`)) ||
 		!bytes.Contains(out.Bytes(), []byte(`"source":"host_binding"`)) {
 		t.Fatalf("profile.current did not explain the host-bound actor: %s", out.String())
 	}
-	run("agent", "activate", "--id", "AXIOM", "--actor", "owner", "--role", "AGENT", "--scope", "src")
+	run("agent", "activate", "--id", "claude-axiom", "--actor", "owner", "--role", "AGENT", "--scope", "src")
 	run("message", "post", "--id", "msg1", "--kind", "FYI", "--to", "owner", "--subject", "test", "--body", "hello")
-	if !bytes.Contains(out.Bytes(), []byte(`"actor":"AXIOM"`)) {
+	if !bytes.Contains(out.Bytes(), []byte(`"actor":"claude-axiom"`)) {
 		t.Fatalf("message.post did not resolve to the host-labeled profile's actor: %s", out.String())
 	}
 	run("history")
-	if !bytes.Contains(out.Bytes(), []byte(`"actor":"AXIOM"`)) || !bytes.Contains(out.Bytes(), []byte(`"type":"message.post"`)) {
+	if !bytes.Contains(out.Bytes(), []byte(`"actor":"claude-axiom"`)) || !bytes.Contains(out.Bytes(), []byte(`"type":"message.post"`)) {
 		t.Fatalf("history did not show message.post authored by the resolved actor: %s", out.String())
 	}
 }
@@ -1266,7 +1266,7 @@ func TestDoctorWarnsWhenOwnerHasNoElevatedKeyAndClearsOnceRegistered(t *testing.
 	// doctor deliberately never starts the daemon itself (PersistentPreRunE
 	// skips ensureDaemon for it); a warm-up command that does start it is
 	// needed first, same as TestDoctorReportsRuntimeAndBootstrapProblems.
-	if e := Run([]string{"agent", "register", "--project", project, "--id", "builder", "--json"}, &out, &stderr); e != nil {
+	if e := Run([]string{"agent", "register", "--project", project, "--id", "claude-builder", "--json"}, &out, &stderr); e != nil {
 		t.Fatalf("agent register: %v\n%s", e, stderr.String())
 	}
 	out.Reset()
@@ -1311,7 +1311,7 @@ func TestAgentDeleteCLIRequiresReasonAndAllowsIDReuse(t *testing.T) {
 		}
 	}
 	must("init", "--non-interactive", "--owner", "owner", "--mode", "personal")
-	must("agent", "register", "--actor", "owner", "--id", "candidate")
+	must("agent", "register", "--actor", "owner", "--id", "claude-candidate")
 	var originalRegistration struct {
 		Result struct {
 			KeyFingerprint string `json:"key_fingerprint"`
@@ -1320,22 +1320,22 @@ func TestAgentDeleteCLIRequiresReasonAndAllowsIDReuse(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &originalRegistration); err != nil {
 		t.Fatal(err)
 	}
-	must("agent", "activate", "--actor", "owner", "--id", "candidate", "--role", "AGENT", "--scope", "src")
-	must("agent", "revoke", "--actor", "owner", "--id", "candidate", "--reason", "retired")
+	must("agent", "activate", "--actor", "owner", "--id", "claude-candidate", "--role", "AGENT", "--scope", "src")
+	must("agent", "revoke", "--actor", "owner", "--id", "claude-candidate", "--reason", "retired")
 
-	if err := run("agent", "delete", "--actor", "owner", "--id", "candidate"); err == nil {
+	if err := run("agent", "delete", "--actor", "owner", "--id", "claude-candidate"); err == nil {
 		t.Fatal("expected agent delete without --reason to be rejected")
 	}
-	must("agent", "delete", "--actor", "owner", "--id", "candidate", "--reason", "remove retired identity")
+	must("agent", "delete", "--actor", "owner", "--id", "claude-candidate", "--reason", "remove retired identity")
 	if !bytes.Contains(out.Bytes(), []byte(`"type":"agent.delete"`)) ||
 		!bytes.Contains(out.Bytes(), []byte(`"key_fingerprint":"`)) {
 		t.Fatalf("agent.delete output did not include the event and signing-key fingerprint: %s", out.String())
 	}
 	must("agent", "list", "--actor", "owner")
-	if bytes.Contains(out.Bytes(), []byte(`"candidate"`)) {
+	if bytes.Contains(out.Bytes(), []byte(`"claude-candidate"`)) {
 		t.Fatalf("deleted candidate remained in agent list: %s", out.String())
 	}
-	must("agent", "register", "--actor", "owner", "--id", "candidate", "--display-name", "Replacement")
+	must("agent", "register", "--actor", "owner", "--id", "claude-candidate", "--display-name", "Replacement")
 	var replacementRegistration struct {
 		Result struct {
 			KeyFingerprint string `json:"key_fingerprint"`
@@ -1384,15 +1384,15 @@ func TestAgentDeleteCLIRefusesElevatedSigningWithoutInteractiveTerminal(t *testi
 		}
 	}
 	must("init", "--non-interactive", "--owner", "owner", "--mode", "personal")
-	must("agent", "register", "--actor", "owner", "--id", "candidate")
-	must("agent", "activate", "--actor", "owner", "--id", "candidate", "--role", "AGENT", "--scope", "src")
-	must("agent", "revoke", "--actor", "owner", "--id", "candidate", "--reason", "retired")
+	must("agent", "register", "--actor", "owner", "--id", "claude-candidate")
+	must("agent", "activate", "--actor", "owner", "--id", "claude-candidate", "--role", "AGENT", "--scope", "src")
+	must("agent", "revoke", "--actor", "owner", "--id", "claude-candidate", "--reason", "retired")
 
 	instance := service.New(project)
 	if _, err := instance.ElevateKey("owner", "correct passphrase"); err != nil {
 		t.Fatalf("register elevated key: %v", err)
 	}
-	err := run("agent", "delete", "--actor", "owner", "--id", "candidate", "--reason", "remove retired identity")
+	err := run("agent", "delete", "--actor", "owner", "--id", "claude-candidate", "--reason", "remove retired identity")
 	if err == nil {
 		t.Fatal("expected elevated deletion to refuse without an interactive terminal")
 	}
@@ -1424,19 +1424,19 @@ func TestAgentRegisterCLIEnforcesSponsorshipRule(t *testing.T) {
 
 	// The project owner (an active HUMAN principal by construction) may
 	// register on behalf of a different id.
-	must("agent", "register", "--actor", "owner", "--id", "lead")
-	grantOrchestratorCLI(t, must, "owner", "lead")
+	must("agent", "register", "--actor", "owner", "--id", "claude-lead")
+	grantOrchestratorCLI(t, must, "owner", "claude-lead")
 
 	// An active ORCHESTRATOR-role agent principal may also sponsor a
 	// registration on behalf of a different id.
-	must("agent", "register", "--actor", "lead", "--id", "sponsored-agent")
+	must("agent", "register", "--actor", "claude-lead", "--id", "claude-sponsored-agent")
 
-	must("agent", "register", "--actor", "owner", "--id", "reviewer")
-	must("agent", "activate", "--actor", "owner", "--id", "reviewer", "--role", "AGENT", "--scope", "src")
+	must("agent", "register", "--actor", "owner", "--id", "claude-reviewer")
+	must("agent", "activate", "--actor", "owner", "--id", "claude-reviewer", "--role", "AGENT", "--scope", "src")
 
 	// A plain, active AGENT-role principal must be rejected when
 	// registering a different id.
-	if e := run("agent", "register", "--actor", "reviewer", "--id", "someone-else"); e == nil {
+	if e := run("agent", "register", "--actor", "claude-reviewer", "--id", "someone-else"); e == nil {
 		t.Fatal("expected a plain agent's sponsorship attempt to be rejected")
 	} else if code := errorCode(e); code != "AUTHORIZATION" {
 		t.Fatalf("expected AUTHORIZATION, got %s: %v", code, e)
@@ -1448,7 +1448,7 @@ func TestAgentRegisterCLIEnforcesSponsorshipRule(t *testing.T) {
 	}
 
 	// Self-registration never requires sponsorship, regardless of role.
-	must("agent", "register", "--actor", "fresh-self", "--id", "fresh-self")
+	must("agent", "register", "--actor", "claude-fresh-self", "--id", "claude-fresh-self")
 }
 
 // TestAgentActivateCLIRequiresHumanToGrantOrchestratorRole guards the same
@@ -1477,11 +1477,11 @@ func TestAgentActivateCLIRequiresHumanToGrantOrchestratorRole(t *testing.T) {
 		}
 	}
 	must("init", "--non-interactive", "--owner", "owner", "--mode", "personal")
-	must("agent", "register", "--actor", "agent-lead", "--id", "agent-lead")
-	grantOrchestratorCLI(t, must, "owner", "agent-lead")
-	must("agent", "register", "--actor", "candidate", "--id", "candidate")
+	must("agent", "register", "--actor", "claude-agent-lead", "--id", "claude-agent-lead")
+	grantOrchestratorCLI(t, must, "owner", "claude-agent-lead")
+	must("agent", "register", "--actor", "claude-candidate", "--id", "claude-candidate")
 
-	if e := run("agent", "activate", "--actor", "agent-lead", "--id", "candidate", "--role", "ORCHESTRATOR", "--scope", "src"); e == nil {
+	if e := run("agent", "activate", "--actor", "claude-agent-lead", "--id", "claude-candidate", "--role", "ORCHESTRATOR", "--scope", "src"); e == nil {
 		t.Fatal("expected an agent-principal orchestrator's grant to be rejected")
 	} else if code := errorCode(e); code != "AUTHORIZATION" {
 		t.Fatalf("expected AUTHORIZATION, got %s: %v", code, e)
@@ -1498,11 +1498,11 @@ func TestAgentActivateCLIRequiresHumanToGrantOrchestratorRole(t *testing.T) {
 	if e := json.Unmarshal(out.Bytes(), &envelope); e != nil {
 		t.Fatal(e)
 	}
-	if envelope.Result.Agents["candidate"].Role == "ORCHESTRATOR" {
+	if envelope.Result.Agents["claude-candidate"].Role == "ORCHESTRATOR" {
 		t.Fatal("candidate must not have been granted the orchestrator role")
 	}
 
-	grantOrchestratorCLI(t, must, "owner", "candidate")
+	grantOrchestratorCLI(t, must, "owner", "claude-candidate")
 }
 
 // TestAgentRevokeCLIRejectsAgentOrchestratorRevokingAnotherOrchestrator is
@@ -1527,18 +1527,18 @@ func TestAgentRevokeCLIRejectsAgentOrchestratorRevokingAnotherOrchestrator(t *te
 		}
 	}
 	must("init", "--non-interactive", "--owner", "owner", "--mode", "personal")
-	must("agent", "register", "--actor", "agent-lead", "--id", "agent-lead")
-	grantOrchestratorCLI(t, must, "owner", "agent-lead")
-	must("agent", "register", "--actor", "other-orchestrator", "--id", "other-orchestrator")
-	grantOrchestratorCLI(t, must, "owner", "other-orchestrator")
+	must("agent", "register", "--actor", "claude-agent-lead", "--id", "claude-agent-lead")
+	grantOrchestratorCLI(t, must, "owner", "claude-agent-lead")
+	must("agent", "register", "--actor", "claude-other-orchestrator", "--id", "claude-other-orchestrator")
+	grantOrchestratorCLI(t, must, "owner", "claude-other-orchestrator")
 
-	if e := run("agent", "revoke", "--actor", "agent-lead", "--id", "other-orchestrator"); e == nil {
+	if e := run("agent", "revoke", "--actor", "claude-agent-lead", "--id", "claude-other-orchestrator"); e == nil {
 		t.Fatal("expected an agent-principal orchestrator's revoke to be rejected")
 	} else if code := errorCode(e); code != "AUTHORIZATION" {
 		t.Fatalf("expected AUTHORIZATION, got %s: %v", code, e)
 	}
 
-	must("agent", "revoke", "--actor", "owner", "--id", "other-orchestrator", "--reason", "human-approved removal")
+	must("agent", "revoke", "--actor", "owner", "--id", "claude-other-orchestrator", "--reason", "human-approved removal")
 	must("status")
 	var envelope struct {
 		Result struct {
@@ -1550,15 +1550,15 @@ func TestAgentRevokeCLIRejectsAgentOrchestratorRevokingAnotherOrchestrator(t *te
 	if e := json.Unmarshal(out.Bytes(), &envelope); e != nil {
 		t.Fatal(e)
 	}
-	if envelope.Result.Agents["other-orchestrator"].Status != "REVOKED" {
-		t.Fatalf("other-orchestrator was not revoked: %+v", envelope.Result.Agents["other-orchestrator"])
+	if envelope.Result.Agents["claude-other-orchestrator"].Status != "REVOKED" {
+		t.Fatalf("other-orchestrator was not revoked: %+v", envelope.Result.Agents["claude-other-orchestrator"])
 	}
 
 	if e := run("agent", "revoke", "--actor", "owner", "--id", "owner"); e == nil {
 		t.Fatal("expected revoking the owner to be rejected")
 	}
 
-	if e := run("agent", "activate", "--actor", "owner", "--id", "other-orchestrator", "--role", "AGENT", "--scope", "src"); e == nil {
+	if e := run("agent", "activate", "--actor", "owner", "--id", "claude-other-orchestrator", "--role", "AGENT", "--scope", "src"); e == nil {
 		t.Fatal("expected reactivating a revoked principal to be rejected")
 	}
 }
@@ -1579,7 +1579,7 @@ func TestDoctorReportsRuntimeAndBootstrapProblems(t *testing.T) {
 	}
 	out.Reset()
 	err.Reset()
-	if e := Run([]string{"agent", "register", "--project", d, "--id", "builder", "--json"}, &out, &err); e != nil {
+	if e := Run([]string{"agent", "register", "--project", d, "--id", "claude-builder", "--json"}, &out, &err); e != nil {
 		t.Fatal(e)
 	}
 	svc := service.New(d)
@@ -1627,22 +1627,22 @@ func TestInvocationAndRuntimeCLIWorkflow(t *testing.T) {
 		}
 	}
 	run("init", "--non-interactive", "--owner", "owner", "--mode", "personal")
-	run("agent", "register", "--id", "builder")
-	run("agent", "activate", "--id", "builder", "--role", "AGENT", "--scope", "src", "--actor", "owner")
-	run("runtime", "register", "--actor", "builder", "--id", "runtime-builder",
-		"--agent", "builder", "--connector", "MCP", "--max-concurrent", "1")
-	run("runtime", "heartbeat", "--actor", "builder", "--id", "runtime-builder")
-	run("invocation", "policy", "set", "--agent", "builder", "--mode", "AUTOMATIC", "--actor", "owner")
-	run("invocation", "request", "--id", "inv-cli", "--to", "builder",
+	run("agent", "register", "--id", "claude-builder")
+	run("agent", "activate", "--id", "claude-builder", "--role", "AGENT", "--scope", "src", "--actor", "owner")
+	run("runtime", "register", "--actor", "claude-builder", "--id", "runtime-builder",
+		"--agent", "claude-builder", "--connector", "MCP", "--max-concurrent", "1")
+	run("runtime", "heartbeat", "--actor", "claude-builder", "--id", "runtime-builder")
+	run("invocation", "policy", "set", "--agent", "claude-builder", "--mode", "AUTOMATIC", "--actor", "owner")
+	run("invocation", "request", "--id", "inv-cli", "--to", "claude-builder",
 		"--instruction", "Review the CLI workflow", "--priority", "URGENT", "--actor", "owner")
-	run("invocation", "next", "--actor", "builder", "--runtime", "runtime-builder")
+	run("invocation", "next", "--actor", "claude-builder", "--runtime", "runtime-builder")
 	if !bytes.Contains(out.Bytes(), []byte(`"found":true`)) ||
 		!bytes.Contains(out.Bytes(), []byte(`"id":"inv-cli"`)) {
 		t.Fatalf("CLI did not return the pending invocation: %s", out.String())
 	}
-	run("invocation", "claim", "--actor", "builder", "--id", "inv-cli", "--runtime", "runtime-builder")
-	run("invocation", "start", "--actor", "builder", "--id", "inv-cli", "--summary", "started")
-	run("invocation", "complete", "--actor", "builder", "--id", "inv-cli", "--summary", "done")
+	run("invocation", "claim", "--actor", "claude-builder", "--id", "inv-cli", "--runtime", "runtime-builder")
+	run("invocation", "start", "--actor", "claude-builder", "--id", "inv-cli", "--summary", "started")
+	run("invocation", "complete", "--actor", "claude-builder", "--id", "inv-cli", "--summary", "done")
 	run("invocation", "list", "--status", "COMPLETED")
 	if !bytes.Contains(out.Bytes(), []byte(`"status":"COMPLETED"`)) {
 		t.Fatalf("CLI did not return the completed invocation: %s", out.String())
@@ -1683,10 +1683,10 @@ func TestTaskLockCreatesAndClaimsInOneStep(t *testing.T) {
 		}
 	}
 	run("init", "--non-interactive", "--owner", "owner", "--mode", "personal")
-	run("agent", "register", "--id", "builder")
-	run("agent", "activate", "--id", "builder", "--role", "AGENT", "--scope", "src", "--actor", "owner")
+	run("agent", "register", "--id", "claude-builder")
+	run("agent", "activate", "--id", "claude-builder", "--role", "AGENT", "--scope", "src", "--actor", "owner")
 
-	run("task", "lock", "--actor", "builder", "--worktree", worktree, "--note", "fixing a bug")
+	run("task", "lock", "--actor", "claude-builder", "--worktree", worktree, "--note", "fixing a bug")
 	if !bytes.Contains(out.Bytes(), []byte(`"type":"task.claim"`)) {
 		t.Fatalf("expected task lock to emit a task.claim event, got: %s", out.String())
 	}
@@ -1755,20 +1755,20 @@ func TestTaskLockConflictsOnlyForTheSameWorktree(t *testing.T) {
 		}
 	}
 	must("init", "--non-interactive", "--owner", "owner", "--mode", "personal")
-	for _, id := range []string{"agent-a", "agent-b", "agent-c"} {
+	for _, id := range []string{"claude-agent-a", "claude-agent-b", "claude-agent-c"} {
 		must("agent", "register", "--id", id)
 		must("agent", "activate", "--id", id, "--role", "AGENT", "--scope", "src", "--actor", "owner")
 	}
 
-	must("task", "lock", "--actor", "agent-a", "--worktree", sharedWorktree, "--note", "agent-a working")
+	must("task", "lock", "--actor", "claude-agent-a", "--worktree", sharedWorktree, "--note", "agent-a working")
 
-	if err := run("task", "lock", "--actor", "agent-b", "--worktree", sharedWorktree, "--note", "agent-b same dir"); err == nil {
+	if err := run("task", "lock", "--actor", "claude-agent-b", "--worktree", sharedWorktree, "--note", "agent-b same dir"); err == nil {
 		t.Fatalf("expected agent-b locking the same worktree agent-a already holds to fail, got success: %s", out.String())
 	} else if !strings.Contains(err.Error(), "already leased") {
 		t.Fatalf("expected an 'already leased' worktree-conflict error, got: %v", err)
 	}
 
-	if err := run("task", "lock", "--actor", "agent-c", "--worktree", otherWorktree, "--note", "agent-c different dir"); err != nil {
+	if err := run("task", "lock", "--actor", "claude-agent-c", "--worktree", otherWorktree, "--note", "agent-c different dir"); err != nil {
 		t.Fatalf("expected agent-c locking a different worktree to succeed despite sharing agent-a/b's scope, got: %v\n%s", err, stderr.String())
 	}
 }
@@ -1907,10 +1907,10 @@ func TestInvocationRequestWithoutRegisteredSessionIsUnaffected(t *testing.T) {
 		}
 	}
 	run("init", "--non-interactive", "--owner", "owner", "--mode", "personal")
-	run("agent", "register", "--id", "builder")
-	run("agent", "activate", "--id", "builder", "--role", "AGENT", "--scope", "src", "--actor", "owner")
-	run("invocation", "policy", "set", "--agent", "builder", "--mode", "AUTOMATIC", "--actor", "owner")
-	run("invocation", "request", "--id", "inv-headless", "--to", "builder", "--instruction", "say hi", "--actor", "owner")
+	run("agent", "register", "--id", "claude-builder")
+	run("agent", "activate", "--id", "claude-builder", "--role", "AGENT", "--scope", "src", "--actor", "owner")
+	run("invocation", "policy", "set", "--agent", "claude-builder", "--mode", "AUTOMATIC", "--actor", "owner")
+	run("invocation", "request", "--id", "inv-headless", "--to", "claude-builder", "--instruction", "say hi", "--actor", "owner")
 	if bytes.Contains(out.Bytes(), []byte(`"warnings"`)) {
 		t.Fatalf("expected no warnings when the target has no registered interactive session: %s", out.String())
 	}
@@ -1963,16 +1963,16 @@ func TestInvocationRedeliverRejectsNonPendingInvocation(t *testing.T) {
 		}
 	}
 	run("init", "--non-interactive", "--owner", "owner", "--mode", "personal")
-	run("agent", "register", "--id", "builder")
-	run("agent", "activate", "--id", "builder", "--role", "AGENT", "--scope", "src", "--actor", "owner")
-	run("runtime", "register", "--actor", "builder", "--id", "runtime-builder",
-		"--agent", "builder", "--connector", "MCP", "--max-concurrent", "1")
-	run("runtime", "heartbeat", "--actor", "builder", "--id", "runtime-builder")
-	run("invocation", "policy", "set", "--agent", "builder", "--mode", "AUTOMATIC", "--actor", "owner")
-	run("invocation", "request", "--id", "inv-done", "--to", "builder", "--instruction", "say hi", "--actor", "owner")
-	run("invocation", "claim", "--actor", "builder", "--id", "inv-done", "--runtime", "runtime-builder")
-	run("invocation", "start", "--actor", "builder", "--id", "inv-done", "--summary", "started")
-	run("invocation", "complete", "--actor", "builder", "--id", "inv-done", "--summary", "done")
+	run("agent", "register", "--id", "claude-builder")
+	run("agent", "activate", "--id", "claude-builder", "--role", "AGENT", "--scope", "src", "--actor", "owner")
+	run("runtime", "register", "--actor", "claude-builder", "--id", "runtime-builder",
+		"--agent", "claude-builder", "--connector", "MCP", "--max-concurrent", "1")
+	run("runtime", "heartbeat", "--actor", "claude-builder", "--id", "runtime-builder")
+	run("invocation", "policy", "set", "--agent", "claude-builder", "--mode", "AUTOMATIC", "--actor", "owner")
+	run("invocation", "request", "--id", "inv-done", "--to", "claude-builder", "--instruction", "say hi", "--actor", "owner")
+	run("invocation", "claim", "--actor", "claude-builder", "--id", "inv-done", "--runtime", "runtime-builder")
+	run("invocation", "start", "--actor", "claude-builder", "--id", "inv-done", "--summary", "started")
+	run("invocation", "complete", "--actor", "claude-builder", "--id", "inv-done", "--summary", "done")
 
 	out.Reset()
 	stderr.Reset()
@@ -2080,10 +2080,10 @@ func TestInvocationRedeliverReachesSessionMissedByRequest(t *testing.T) {
 func TestPinInteractiveServeArgsAppliesAnExistingBinding(t *testing.T) {
 	t.Setenv("AGENT_COMMS_CONFIG_DIR", t.TempDir())
 	root := t.TempDir()
-	if err := sessionbind.Save(root, "HENRY", "pinned-session-id", "claude"); err != nil {
+	if err := sessionbind.Save(root, "claude-henry", "pinned-session-id", "claude"); err != nil {
 		t.Fatal(err)
 	}
-	got := pinInteractiveServeArgs(root, "HENRY", []string{"claude", "--dangerously-skip-permissions", "--continue"})
+	got := pinInteractiveServeArgs(root, "claude-henry", []string{"claude", "--dangerously-skip-permissions", "--continue"})
 	want := []string{"claude", "--dangerously-skip-permissions", "--resume", "pinned-session-id"}
 	if len(got) != len(want) {
 		t.Fatalf("got %v, want %v", got, want)
@@ -2098,7 +2098,7 @@ func TestPinInteractiveServeArgsAppliesAnExistingBinding(t *testing.T) {
 func TestPinInteractiveServeArgsNoOpWithoutAnyBinding(t *testing.T) {
 	root := t.TempDir()
 	in := []string{"claude", "--continue"}
-	got := pinInteractiveServeArgs(root, "HENRY", in)
+	got := pinInteractiveServeArgs(root, "claude-henry", in)
 	if len(got) != len(in) {
 		t.Fatalf("expected args untouched with no binding on record, got %v", got)
 	}
@@ -2116,7 +2116,7 @@ func TestPinInteractiveServeArgsOnlyAppliesTheMatchingRuntimesBinding(t *testing
 		t.Fatal(err)
 	}
 	in := []string{"claude", "--continue"}
-	got := pinInteractiveServeArgs(root, "HENRY", in)
+	got := pinInteractiveServeArgs(root, "claude-henry", in)
 	if len(got) != len(in) {
 		t.Fatalf("expected HENRY's args untouched by HULK's binding, got %v", got)
 	}

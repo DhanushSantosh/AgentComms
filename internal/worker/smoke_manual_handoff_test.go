@@ -19,33 +19,33 @@ import (
 func handoffWorkerService(t *testing.T, instruction, expectedResult string) (*service.Service, string) {
 	t.Helper()
 	instance, root := testsupport.StartPersonalProject(t)
-	if _, err := instance.Register("AXIOM", "AXIOM", model.PrincipalAgent); err != nil {
+	if _, err := instance.Register("claude-axiom", "claude-axiom", model.PrincipalAgent); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := instance.Register("DAMON", "DAMON", model.PrincipalAgent); err != nil {
+	if _, err := instance.Register("claude-damon", "claude-damon", model.PrincipalAgent); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := instance.Execute("owner", "agent.activate", "AXIOM",
+	if _, err := instance.Execute("owner", "agent.activate", "claude-axiom",
 		model.AgentActivated{Role: model.Role("MEMBER"), Scopes: []string{"src"}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := instance.Execute("AXIOM", "runtime.register", "runtime-axiom",
-		model.RuntimeRegistered{AgentID: "AXIOM", Connector: "MCP", MaxConcurrent: 1}); err != nil {
+	if _, err := instance.Execute("claude-axiom", "runtime.register", "runtime-axiom",
+		model.RuntimeRegistered{AgentID: "claude-axiom", Connector: "MCP", MaxConcurrent: 1}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := instance.Execute("owner", "agent.activate", "DAMON",
+	if _, err := instance.Execute("owner", "agent.activate", "claude-damon",
 		model.AgentActivated{Role: model.Role("MEMBER"), Scopes: []string{"src"}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := instance.Execute("owner", "invocation.policy.update", "DAMON",
+	if _, err := instance.Execute("owner", "invocation.policy.update", "claude-damon",
 		model.InvocationPolicyUpdated{
-			Mode: "TRUSTED", TrustedActors: []string{"AXIOM"},
+			Mode: "TRUSTED", TrustedActors: []string{"claude-axiom"},
 		}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := instance.Execute("owner", "invocation.request", "inv-worker",
 		model.InvocationRequested{
-			Target: "AXIOM", Instruction: instruction,
+			Target: "claude-axiom", Instruction: instruction,
 			ExpectedResult: expectedResult, Priority: "NORMAL",
 		}); err != nil {
 		t.Fatal(err)
@@ -67,7 +67,7 @@ func runHandoffSmoke(t *testing.T, adapter string, timeout time.Duration) {
 	}
 	instance, root := handoffWorkerService(t, handoffInstruction, "Delegate to DAMON")
 	worker, err := New(Config{
-		Service: instance, Actor: "AXIOM", RuntimeID: "runtime-axiom",
+		Service: instance, Actor: "claude-axiom", RuntimeID: "runtime-axiom",
 		Adapter: adapter, WorkDir: root,
 		ListenWait: time.Second, ExecutionTimeout: timeout, Once: true,
 	})
@@ -95,7 +95,7 @@ func runHandoffSmoke(t *testing.T, adapter string, timeout time.Duration) {
 		}
 		t.Logf("follow-up invocation %s: target=%s requestedBy=%s instruction=%q status=%s",
 			id, inv.Target, inv.RequestedBy, inv.Instruction, inv.Status)
-		if inv.RequestedBy == "AXIOM" && inv.Target == "DAMON" {
+		if inv.RequestedBy == "claude-axiom" && inv.Target == "claude-damon" {
 			foundHandoff = true
 		}
 	}
@@ -131,7 +131,7 @@ func TestManualSmokeOpenCodeACPExecuteDenied(t *testing.T) {
 		` command, not just reading files.`
 	instance, root := handoffWorkerService(t, instruction, "Report the command's output")
 	worker, err := New(Config{
-		Service: instance, Actor: "AXIOM", RuntimeID: "runtime-axiom",
+		Service: instance, Actor: "claude-axiom", RuntimeID: "runtime-axiom",
 		Adapter: "opencode-acp", WorkDir: root,
 		ListenWait: time.Second, ExecutionTimeout: 90 * time.Second, Once: true,
 	})

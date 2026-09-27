@@ -9,13 +9,13 @@ import (
 
 func TestProjectSettingsRequireElevatedActorAndControlLease(t *testing.T) {
 	instance := setup(t)
-	activate(t, instance, "builder", model.PrincipalAgent)
+	activate(t, instance, "claude-builder", model.PrincipalAgent)
 
 	payload := model.ProjectSettingsUpdated{
 		DefaultLease: "90m", StaleGrace: "30m", ActiveRetention: "720h",
 		SummaryLimit: 2048, ArtifactLimitBytes: 8 * 1024 * 1024, RequireReview: true,
 	}
-	if _, err := instance.Execute("builder", "project.settings.update", "project", payload); err == nil {
+	if _, err := instance.Execute("claude-builder", "project.settings.update", "project", payload); err == nil {
 		t.Fatal("agent changed governed project policy")
 	}
 	if _, err := instance.Execute("owner", "project.settings.update", "project", payload); err != nil {
@@ -26,7 +26,7 @@ func TestProjectSettingsRequireElevatedActorAndControlLease(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := instance.Execute("builder", "task.claim", "task-settings", model.TaskClaimed{}); err != nil {
+	if _, err := instance.Execute("claude-builder", "task.claim", "task-settings", model.TaskClaimed{}); err != nil {
 		t.Fatal(err)
 	}
 	state, err := instance.State()

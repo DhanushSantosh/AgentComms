@@ -10,13 +10,13 @@ import (
 
 func TestRequiresElevatedKeyClassifiesOrchestratorGrant(t *testing.T) {
 	st := model.State{}
-	if RequiresElevatedKey(st, "owner", "agent.activate", "candidate", model.AgentActivated{Role: model.RoleOrchestrator}) != true {
+	if RequiresElevatedKey(st, "owner", "agent.activate", "claude-candidate", model.AgentActivated{Role: model.RoleOrchestrator}) != true {
 		t.Fatal("expected an ORCHESTRATOR grant to require the elevated key")
 	}
-	if RequiresElevatedKey(st, "owner", "agent.activate", "candidate", model.AgentActivated{Role: model.Role("MEMBER")}) != false {
+	if RequiresElevatedKey(st, "owner", "agent.activate", "claude-candidate", model.AgentActivated{Role: model.Role("MEMBER")}) != false {
 		t.Fatal("expected a plain AGENT-role activation not to require the elevated key")
 	}
-	if RequiresElevatedKey(st, "owner", "agent.activate", "candidate", "not-a-payload") != false {
+	if RequiresElevatedKey(st, "owner", "agent.activate", "claude-candidate", "not-a-payload") != false {
 		t.Fatal("expected a malformed payload to fail closed to false, not panic")
 	}
 }
@@ -72,10 +72,10 @@ func TestRequiresElevatedKeyClassifiesAgentDeletion(t *testing.T) {
 
 func TestAgentDeleteRequiresRevokedTargetAndHumanActor(t *testing.T) {
 	humanOwner := humanAgent("owner")
-	agentLead := agentOrchestrator("agent-lead")
+	agentLead := agentOrchestrator("claude-agent-lead")
 	activeTarget := model.Agent{ID: "target", Status: "ACTIVE", Role: model.Role("MEMBER"), PrincipalType: model.PrincipalAgent}
 	st := model.State{Agents: map[string]model.Agent{
-		"owner": humanOwner, "agent-lead": agentLead, "target": activeTarget,
+		"owner": humanOwner, "claude-agent-lead": agentLead, "target": activeTarget,
 	}}
 	if _, err := ValidateTransition(st, "owner", "agent.delete", "target",
 		model.AgentDeleted{Reason: "cleanup"}, time.Now()); err == nil {
@@ -91,7 +91,7 @@ func TestAgentDeleteRequiresRevokedTargetAndHumanActor(t *testing.T) {
 	revokedTarget := activeTarget
 	revokedTarget.Status = "REVOKED"
 	st.Agents["target"] = revokedTarget
-	if _, err := ValidateTransition(st, "agent-lead", "agent.delete", "target",
+	if _, err := ValidateTransition(st, "claude-agent-lead", "agent.delete", "target",
 		model.AgentDeleted{Reason: "cleanup"}, time.Now()); err == nil {
 		t.Fatal("expected an agent principal to be rejected deleting a principal")
 	}
@@ -249,10 +249,10 @@ func TestAgentSuspendSelfBypassesHumanGate(t *testing.T) {
 // this transition already required.
 func TestAgentSuspendOfPlainAgentNeedsOnlyOrdinaryElevation(t *testing.T) {
 	st := model.State{Agents: map[string]model.Agent{
-		"agent-orch": agentOrchestrator("agent-orch"),
-		"bystander":  {ID: "bystander", Status: "ACTIVE", Role: model.Role("MEMBER"), PrincipalType: model.PrincipalAgent},
+		"agent-orch":       agentOrchestrator("agent-orch"),
+		"claude-bystander": {ID: "claude-bystander", Status: "ACTIVE", Role: model.Role("MEMBER"), PrincipalType: model.PrincipalAgent},
 	}}
-	if _, err := ValidateTransition(st, "agent-orch", "agent.suspend", "bystander", model.TaskStatus{}, time.Now()); err != nil {
+	if _, err := ValidateTransition(st, "agent-orch", "agent.suspend", "claude-bystander", model.TaskStatus{}, time.Now()); err != nil {
 		t.Fatalf("expected an agent-principal orchestrator to suspend a plain agent: %v", err)
 	}
 }
@@ -280,9 +280,9 @@ func TestAgentRotateKeyRejectsCrossActorTarget(t *testing.T) {
 // interface has ever used, is unaffected.
 func TestAgentRotateKeySelfStillWorks(t *testing.T) {
 	st := model.State{Agents: map[string]model.Agent{
-		"bystander": {ID: "bystander", Status: "ACTIVE", Role: model.Role("MEMBER"), PrincipalType: model.PrincipalAgent},
+		"claude-bystander": {ID: "claude-bystander", Status: "ACTIVE", Role: model.Role("MEMBER"), PrincipalType: model.PrincipalAgent},
 	}}
-	if _, err := ValidateTransition(st, "bystander", "agent.rotate-key", "bystander",
+	if _, err := ValidateTransition(st, "claude-bystander", "agent.rotate-key", "claude-bystander",
 		model.AgentKeyRotated{PublicKey: "new-key"}, time.Now()); err != nil {
 		t.Fatalf("expected self key rotation to still succeed: %v", err)
 	}
@@ -291,19 +291,19 @@ func TestAgentRotateKeySelfStillWorks(t *testing.T) {
 func TestInvocationRequestNormalizesConsumerRoutingFromPolicy(t *testing.T) {
 	state := model.State{
 		Agents: map[string]model.Agent{
-			"owner":   humanAgent("owner"),
-			"builder": {ID: "builder", Status: "ACTIVE", Role: model.Role("MEMBER"), PrincipalType: model.PrincipalAgent},
+			"owner":          humanAgent("owner"),
+			"claude-builder": {ID: "claude-builder", Status: "ACTIVE", Role: model.Role("MEMBER"), PrincipalType: model.PrincipalAgent},
 		},
 		AgentRuntimes: map[string]model.AgentRuntime{
 			"builder-interactive": {
-				ID: "builder-interactive", AgentID: "builder",
+				ID: "builder-interactive", AgentID: "claude-builder",
 				Kind: model.RuntimeKindInteractive, Connector: "INTERACTIVE",
 				HostID: "host", Status: "OFFLINE", MaxConcurrent: 1,
 			},
 		},
 		InvocationPolicies: map[string]model.InvocationPolicy{
-			"builder": {
-				AgentID: "builder", Mode: "AUTOMATIC",
+			"claude-builder": {
+				AgentID: "claude-builder", Mode: "AUTOMATIC",
 				DefaultConsumerMode:           model.ConsumerModeInteractiveOnly,
 				AllowedConsumerModes:          []model.ConsumerMode{model.ConsumerModeInteractiveOnly},
 				PreferredInteractiveRuntimeID: "builder-interactive",
@@ -311,7 +311,7 @@ func TestInvocationRequestNormalizesConsumerRoutingFromPolicy(t *testing.T) {
 		},
 	}
 	normalized, err := ValidateTransition(state, "owner", "invocation.request", "invocation",
-		model.InvocationRequested{Target: "builder", Instruction: "Review the change"}, time.Now().UTC())
+		model.InvocationRequested{Target: "claude-builder", Instruction: "Review the change"}, time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -326,45 +326,45 @@ func TestInvocationClaimEnforcesKindPreferredRuntimeAndCapacity(t *testing.T) {
 	now := time.Now().UTC()
 	state := model.State{
 		Agents: map[string]model.Agent{
-			"builder": {ID: "builder", Status: "ACTIVE", Role: model.Role("MEMBER"), PrincipalType: model.PrincipalAgent},
+			"claude-builder": {ID: "claude-builder", Status: "ACTIVE", Role: model.Role("MEMBER"), PrincipalType: model.PrincipalAgent},
 		},
 		Invocations: map[string]model.Invocation{
 			"invocation": {
-				ID: "invocation", Target: "builder", RequestedBy: "owner", Status: "PENDING",
+				ID: "invocation", Target: "claude-builder", RequestedBy: "owner", Status: "PENDING",
 				ConsumerMode: model.ConsumerModeInteractiveOnly, PreferredRuntimeID: "interactive",
 			},
 		},
 		AgentRuntimes: map[string]model.AgentRuntime{
 			"worker": {
-				ID: "worker", AgentID: "builder", Kind: model.RuntimeKindWorker,
+				ID: "worker", AgentID: "claude-builder", Kind: model.RuntimeKindWorker,
 				Connector: "MCP", Status: "ONLINE", Health: "HEALTHY", MaxConcurrent: 1,
 			},
 			"other-interactive": {
-				ID: "other-interactive", AgentID: "builder", Kind: model.RuntimeKindInteractive,
+				ID: "other-interactive", AgentID: "claude-builder", Kind: model.RuntimeKindInteractive,
 				Connector: "INTERACTIVE", HostID: "host", EndpointID: "other-endpoint",
 				Status: "ONLINE", Health: "HEALTHY", MaxConcurrent: 1,
 			},
 			"interactive": {
-				ID: "interactive", AgentID: "builder", Kind: model.RuntimeKindInteractive,
+				ID: "interactive", AgentID: "claude-builder", Kind: model.RuntimeKindInteractive,
 				Connector: "INTERACTIVE", HostID: "host", EndpointID: "endpoint",
 				Status: "ONLINE", Health: "HEALTHY", MaxConcurrent: 1,
 			},
 		},
 	}
 	for _, runtimeID := range []string{"worker", "other-interactive"} {
-		if _, err := ValidateTransition(state, "builder", "invocation.claim", "invocation",
+		if _, err := ValidateTransition(state, "claude-builder", "invocation.claim", "invocation",
 			model.InvocationClaimed{RuntimeID: runtimeID}, now); err == nil {
 			t.Fatalf("ineligible runtime %s claimed the invocation", runtimeID)
 		}
 	}
-	if _, err := ValidateTransition(state, "builder", "invocation.claim", "invocation",
+	if _, err := ValidateTransition(state, "claude-builder", "invocation.claim", "invocation",
 		model.InvocationClaimed{RuntimeID: "interactive"}, now); err != nil {
 		t.Fatalf("preferred interactive runtime could not claim: %v", err)
 	}
 	state.Invocations["active"] = model.Invocation{
-		ID: "active", Target: "builder", RuntimeID: "interactive", Status: "RUNNING",
+		ID: "active", Target: "claude-builder", RuntimeID: "interactive", Status: "RUNNING",
 	}
-	if _, err := ValidateTransition(state, "builder", "invocation.claim", "invocation",
+	if _, err := ValidateTransition(state, "claude-builder", "invocation.claim", "invocation",
 		model.InvocationClaimed{RuntimeID: "interactive"}, now); err == nil {
 		t.Fatal("capacity-exhausted runtime claimed another invocation")
 	}
@@ -376,18 +376,18 @@ func TestDeliveryAttemptAndEvidenceAreStrictlyBound(t *testing.T) {
 	attemptUntil := now.Add(time.Minute)
 	state := model.State{
 		Agents: map[string]model.Agent{
-			"owner":   humanAgent("owner"),
-			"builder": {ID: "builder", Status: "ACTIVE", Role: model.Role("MEMBER"), PrincipalType: model.PrincipalAgent},
+			"owner":          humanAgent("owner"),
+			"claude-builder": {ID: "claude-builder", Status: "ACTIVE", Role: model.Role("MEMBER"), PrincipalType: model.PrincipalAgent},
 		},
 		Invocations: map[string]model.Invocation{
 			"invocation": {
-				ID: "invocation", Target: "builder", RequestedBy: "owner",
+				ID: "invocation", Target: "claude-builder", RequestedBy: "owner",
 				Status: "PENDING", ConsumerMode: model.ConsumerModeInteractiveOnly,
 			},
 		},
 		AgentRuntimes: map[string]model.AgentRuntime{
 			"interactive": {
-				ID: "interactive", AgentID: "builder", Kind: model.RuntimeKindInteractive,
+				ID: "interactive", AgentID: "claude-builder", Kind: model.RuntimeKindInteractive,
 				Connector: "INTERACTIVE", HostID: "host", EndpointID: "endpoint",
 				Status: "ONLINE", Health: "HEALTHY", MaxConcurrent: 1,
 			},
@@ -433,11 +433,11 @@ func TestRuntimeConfigureRequiresInactiveOfflineRuntime(t *testing.T) {
 	now := time.Now().UTC()
 	state := model.State{
 		Agents: map[string]model.Agent{
-			"builder": {ID: "builder", Status: "ACTIVE", Role: model.Role("MEMBER"), PrincipalType: model.PrincipalAgent},
+			"claude-builder": {ID: "claude-builder", Status: "ACTIVE", Role: model.Role("MEMBER"), PrincipalType: model.PrincipalAgent},
 		},
 		AgentRuntimes: map[string]model.AgentRuntime{
 			"runtime": {
-				ID: "runtime", AgentID: "builder", Kind: model.RuntimeKindWorker,
+				ID: "runtime", AgentID: "claude-builder", Kind: model.RuntimeKindWorker,
 				Connector: "MCP", Status: "ONLINE", Health: "HEALTHY", MaxConcurrent: 1,
 			},
 		},
@@ -446,7 +446,7 @@ func TestRuntimeConfigureRequiresInactiveOfflineRuntime(t *testing.T) {
 	configure := model.RuntimeConfigured{
 		Kind: model.RuntimeKindWorker, Connector: "MCP", MaxConcurrent: 1,
 	}
-	if _, err := ValidateTransition(state, "builder", "runtime.configure", "runtime", configure, now); err == nil {
+	if _, err := ValidateTransition(state, "claude-builder", "runtime.configure", "runtime", configure, now); err == nil {
 		t.Fatal("online runtime was reconfigured")
 	}
 	runtimeState := state.AgentRuntimes["runtime"]
@@ -454,13 +454,13 @@ func TestRuntimeConfigureRequiresInactiveOfflineRuntime(t *testing.T) {
 	runtimeState.Health = "UNKNOWN"
 	state.AgentRuntimes["runtime"] = runtimeState
 	state.Invocations["active"] = model.Invocation{
-		ID: "active", Target: "builder", RuntimeID: "runtime", Status: "WAITING",
+		ID: "active", Target: "claude-builder", RuntimeID: "runtime", Status: "WAITING",
 	}
-	if _, err := ValidateTransition(state, "builder", "runtime.configure", "runtime", configure, now); err == nil {
+	if _, err := ValidateTransition(state, "claude-builder", "runtime.configure", "runtime", configure, now); err == nil {
 		t.Fatal("runtime with an authoritative active assignment was reconfigured")
 	}
 	delete(state.Invocations, "active")
-	if _, err := ValidateTransition(state, "builder", "runtime.configure", "runtime", configure, now); err != nil {
+	if _, err := ValidateTransition(state, "claude-builder", "runtime.configure", "runtime", configure, now); err != nil {
 		t.Fatalf("inactive offline runtime could not be repaired: %v", err)
 	}
 }
@@ -641,10 +641,10 @@ func TestRequiresElevatedKeyClassifiesSwitchRoleToOrchestrator(t *testing.T) {
 // internal/personalauthority/engine.go and internal/authority/postgres.go.
 func TestAgentActivateNeverGrantsOwnerOutsideBootstrap(t *testing.T) {
 	st := model.State{Agents: map[string]model.Agent{
-		"owner":     humanAgent("owner"),
-		"candidate": {ID: "candidate", Status: "PENDING", PrincipalType: model.PrincipalAgent},
+		"owner":            humanAgent("owner"),
+		"claude-candidate": {ID: "claude-candidate", Status: "PENDING", PrincipalType: model.PrincipalAgent},
 	}}
-	if _, err := ValidateTransition(st, "owner", "agent.activate", "candidate",
+	if _, err := ValidateTransition(st, "owner", "agent.activate", "claude-candidate",
 		model.AgentActivated{Role: model.RoleOwner}, time.Now()); err == nil {
 		t.Fatal("expected agent.activate to reject OWNER as a target outside the bootstrap event")
 	}

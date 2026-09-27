@@ -33,7 +33,7 @@ func TestOpenCodeLiveAdapterRejectsBypassPermissions(t *testing.T) {
 func TestOpenCodeLiveAdapterDoesNotRequireExecutable(t *testing.T) {
 	instance, root := workerService(t)
 	worker, err := New(Config{
-		Service: instance, Actor: "AXIOM", RuntimeID: "runtime-axiom",
+		Service: instance, Actor: "claude-axiom", RuntimeID: "runtime-axiom",
 		Adapter: "opencode-live", WorkDir: root,
 		ListenWait: time.Second, ExecutionTimeout: time.Minute, Once: true,
 	})

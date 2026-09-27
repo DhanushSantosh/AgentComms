@@ -92,16 +92,16 @@ func TestElevatedActorIsDistinctFromPrimary(t *testing.T) {
 
 func TestFindProfileByProjectAndHost(t *testing.T) {
 	profiles := map[string]Profile{
-		"p1:AXIOM": {Name: "p1:AXIOM", ProjectID: "p1", Actor: "AXIOM", HostLabel: "claude"},
-		"p1:DAMON": {Name: "p1:DAMON", ProjectID: "p1", Actor: "DAMON", HostLabel: "codex"},
-		"p2:HENRY": {Name: "p2:HENRY", ProjectID: "p2", Actor: "HENRY", HostLabel: "claude"},
+		"p1:claude-axiom": {Name: "p1:claude-axiom", ProjectID: "p1", Actor: "claude-axiom", HostLabel: "claude"},
+		"p1:claude-damon": {Name: "p1:claude-damon", ProjectID: "p1", Actor: "claude-damon", HostLabel: "codex"},
+		"p2:claude-henry": {Name: "p2:claude-henry", ProjectID: "p2", Actor: "claude-henry", HostLabel: "claude"},
 	}
 	actor, ok := FindProfileByProjectAndHost(profiles, "p1", "claude")
-	if !ok || actor != "AXIOM" {
+	if !ok || actor != "claude-axiom" {
 		t.Fatalf("expected AXIOM, got %q ok=%v", actor, ok)
 	}
 	actor, ok = FindProfileByProjectAndHost(profiles, "p1", "codex")
-	if !ok || actor != "DAMON" {
+	if !ok || actor != "claude-damon" {
 		t.Fatalf("expected DAMON, got %q ok=%v", actor, ok)
 	}
 	if _, ok = FindProfileByProjectAndHost(profiles, "p1", "opencode"); ok {
@@ -119,8 +119,8 @@ func TestFindProfileByProjectAndHost(t *testing.T) {
 // resolution behavior instead of silently binding to the wrong identity.
 func TestFindProfileByProjectAndHostAmbiguous(t *testing.T) {
 	profiles := map[string]Profile{
-		"p1:AXIOM": {Name: "p1:AXIOM", ProjectID: "p1", Actor: "AXIOM", HostLabel: "claude"},
-		"p1:PRISM": {Name: "p1:PRISM", ProjectID: "p1", Actor: "PRISM", HostLabel: "claude"},
+		"p1:claude-axiom": {Name: "p1:claude-axiom", ProjectID: "p1", Actor: "claude-axiom", HostLabel: "claude"},
+		"p1:PRISM":        {Name: "p1:PRISM", ProjectID: "p1", Actor: "PRISM", HostLabel: "claude"},
 	}
 	if _, ok := FindProfileByProjectAndHost(profiles, "p1", "claude"); ok {
 		t.Fatal("expected ambiguous multi-match to return ok=false")
@@ -134,7 +134,7 @@ func TestResolveActorPrecedenceAndProjectIsolation(t *testing.T) {
 			"session-A": {Profile: "project:SESSIONACTOR", SetAt: time.Now()},
 		},
 		Profiles: map[string]Profile{
-			"project:AXIOM":        {Name: "project:AXIOM", ProjectID: "project", Actor: "AXIOM", HostLabel: "claude"},
+			"project:claude-axiom": {Name: "project:claude-axiom", ProjectID: "project", Actor: "claude-axiom", HostLabel: "claude"},
 			"other:WRONG":          {Name: "other:WRONG", ProjectID: "other", Actor: "WRONG"},
 			"project:SESSIONACTOR": {Name: "project:SESSIONACTOR", ProjectID: "project", Actor: "SESSIONACTOR"},
 		},
@@ -148,18 +148,18 @@ func TestResolveActorPrecedenceAndProjectIsolation(t *testing.T) {
 		{
 			name: "explicit actor overrides every indirect source",
 			request: ActorResolutionRequest{
-				ProjectID: "project", ProjectOwner: "owner", ExplicitActor: "DAMON",
-				ExplicitProfile: "project:AXIOM", EnvironmentActor: "ENV", HostLabel: "claude", UserConfig: config,
+				ProjectID: "project", ProjectOwner: "owner", ExplicitActor: "claude-damon",
+				ExplicitProfile: "project:claude-axiom", EnvironmentActor: "ENV", HostLabel: "claude", UserConfig: config,
 			},
-			actor: "DAMON", source: ActorSourceFlag,
+			actor: "claude-damon", source: ActorSourceFlag,
 		},
 		{
 			name: "explicit profile overrides environment",
 			request: ActorResolutionRequest{
-				ProjectID: "project", ProjectOwner: "owner", ExplicitProfile: "project:AXIOM",
+				ProjectID: "project", ProjectOwner: "owner", ExplicitProfile: "project:claude-axiom",
 				EnvironmentActor: "ENV", HostLabel: "claude", UserConfig: config,
 			},
-			actor: "AXIOM", source: ActorSourceProfileFlag,
+			actor: "claude-axiom", source: ActorSourceProfileFlag,
 		},
 		{
 			name: "environment overrides host binding",
@@ -174,7 +174,7 @@ func TestResolveActorPrecedenceAndProjectIsolation(t *testing.T) {
 			request: ActorResolutionRequest{
 				ProjectID: "project", ProjectOwner: "owner", HostLabel: "claude", UserConfig: config,
 			},
-			actor: "AXIOM", source: ActorSourceHostBinding,
+			actor: "claude-axiom", source: ActorSourceHostBinding,
 		},
 		{
 			name: "cross-project active profile never leaks",
@@ -292,8 +292,8 @@ func TestResolveActorRejectsAmbiguousHostBinding(t *testing.T) {
 	_, err := ResolveActor(ActorResolutionRequest{
 		ProjectID: "project", ProjectOwner: "owner", HostLabel: "claude",
 		UserConfig: UserConfig{Profiles: map[string]Profile{
-			"project:AXIOM": {Name: "project:AXIOM", ProjectID: "project", Actor: "AXIOM", HostLabel: "claude"},
-			"project:PRISM": {Name: "project:PRISM", ProjectID: "project", Actor: "PRISM", HostLabel: "claude"},
+			"project:claude-axiom": {Name: "project:claude-axiom", ProjectID: "project", Actor: "claude-axiom", HostLabel: "claude"},
+			"project:PRISM":        {Name: "project:PRISM", ProjectID: "project", Actor: "PRISM", HostLabel: "claude"},
 		}},
 	})
 	if err == nil {
@@ -303,9 +303,9 @@ func TestResolveActorRejectsAmbiguousHostBinding(t *testing.T) {
 
 func TestResolveActorRejectsProfileFromAnotherProject(t *testing.T) {
 	_, err := ResolveActor(ActorResolutionRequest{
-		ProjectID: "project", ProjectOwner: "owner", ExplicitProfile: "other:AXIOM",
+		ProjectID: "project", ProjectOwner: "owner", ExplicitProfile: "other:claude-axiom",
 		UserConfig: UserConfig{Profiles: map[string]Profile{
-			"other:AXIOM": {Name: "other:AXIOM", ProjectID: "other", Actor: "AXIOM"},
+			"other:claude-axiom": {Name: "other:claude-axiom", ProjectID: "other", Actor: "claude-axiom"},
 		}},
 	})
 	if err == nil {

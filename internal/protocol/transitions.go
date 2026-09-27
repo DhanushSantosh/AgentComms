@@ -466,6 +466,20 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 		if _, exists := st.Agents[id]; exists {
 			return nil, errors.New("principal already exists")
 		}
+		// RFC 0039: an AGENT's actor ID names the runtime behind it, so
+		// "which provider produced this event" is answerable from the
+		// identity that appears in every event, table and log line. HUMAN
+		// principals are exempt -- a person is not a provider.
+		//
+		// Enforced here rather than in the CLI because this validator is
+		// shared by CLI, MCP, TUI and both authority backends. Replay is
+		// unaffected: projection.ApplyEvent does not call this, so
+		// principals registered before this rule keep projecting.
+		if registered.PrincipalType == model.PrincipalAgent {
+			if err := model.ValidateAgentActorID(id); err != nil {
+				return nil, err
+			}
+		}
 	}
 	if typ != "agent.register" {
 		a, x := active(st, actor)

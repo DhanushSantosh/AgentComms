@@ -48,14 +48,14 @@ func waitForDeliveryStatus(
 
 func TestInvocationLifecycle(t *testing.T) {
 	instance := setupWithLocalConnector(t)
-	activate(t, instance, "builder", model.PrincipalAgent)
+	activate(t, instance, "claude-builder", model.PrincipalAgent)
 	deadline := time.Now().UTC().Add(time.Hour)
 
 	must(t, instance, "owner", "invocation.request", "inv-1", model.InvocationRequested{
-		Target: "builder", Instruction: "Review the current task state",
+		Target: "claude-builder", Instruction: "Review the current task state",
 		ExpectedResult: "Post a concise review", Priority: "high", Deadline: &deadline,
 	})
-	registerOnlineDeliverableWorker(t, instance, "builder", "runtime-1")
+	registerOnlineDeliverableWorker(t, instance, "claude-builder", "runtime-1")
 	// setupWithLocalConnector runs a real daemon (testsupport.StartPersonalProject),
 	// whose delivery coordinator retries dispatch for pending invocations every
 	// 500ms (internal/daemon/run.go's deliveryCoordinatorInterval) -- confirmed
@@ -87,20 +87,20 @@ func TestInvocationLifecycle(t *testing.T) {
 			t.Fatalf("explicit delivery-attempt failed (%v) and no delivery attempt exists to fall back to", err)
 		}
 	}
-	must(t, instance, "builder", "invocation.claim", "inv-1", model.InvocationClaimed{
+	must(t, instance, "claude-builder", "invocation.claim", "inv-1", model.InvocationClaimed{
 		RuntimeID: "runtime-1",
 	})
-	must(t, instance, "builder", "invocation.start", "inv-1", model.InvocationProgress{
+	must(t, instance, "claude-builder", "invocation.start", "inv-1", model.InvocationProgress{
 		Summary: "Review started",
 	})
 	nextAttempt := time.Now().UTC().Add(10 * time.Minute)
-	must(t, instance, "builder", "invocation.wait", "inv-1", model.InvocationWaiting{
+	must(t, instance, "claude-builder", "invocation.wait", "inv-1", model.InvocationWaiting{
 		Reason: "Waiting for test results", NextAttemptAt: &nextAttempt,
 	})
-	must(t, instance, "builder", "invocation.resume", "inv-1", model.InvocationProgress{
+	must(t, instance, "claude-builder", "invocation.resume", "inv-1", model.InvocationProgress{
 		Summary: "Test results received",
 	})
-	must(t, instance, "builder", "invocation.complete", "inv-1", model.InvocationCompleted{
+	must(t, instance, "claude-builder", "invocation.complete", "inv-1", model.InvocationCompleted{
 		Summary: "Review completed successfully",
 	})
 
@@ -124,11 +124,11 @@ func TestInvocationLifecycle(t *testing.T) {
 
 func TestInvocationClaimIsExclusive(t *testing.T) {
 	instance := setupWithLocalConnector(t)
-	activate(t, instance, "builder", model.PrincipalAgent)
-	registerOnlineWorker(t, instance, "builder", "runtime-a", 1)
-	registerOnlineWorker(t, instance, "builder", "runtime-b", 1)
+	activate(t, instance, "claude-builder", model.PrincipalAgent)
+	registerOnlineWorker(t, instance, "claude-builder", "runtime-a", 1)
+	registerOnlineWorker(t, instance, "claude-builder", "runtime-b", 1)
 	must(t, instance, "owner", "invocation.request", "inv-exclusive", model.InvocationRequested{
-		Target: "builder", Instruction: "Perform one exclusive action",
+		Target: "claude-builder", Instruction: "Perform one exclusive action",
 	})
 
 	start := make(chan struct{})
@@ -139,7 +139,7 @@ func TestInvocationClaimIsExclusive(t *testing.T) {
 		go func(runtimeID string) {
 			defer wait.Done()
 			<-start
-			_, err := instance.Execute("builder", "invocation.claim", "inv-exclusive", model.InvocationClaimed{
+			_, err := instance.Execute("claude-builder", "invocation.claim", "inv-exclusive", model.InvocationClaimed{
 				RuntimeID: runtimeID,
 			})
 			results <- err
@@ -169,11 +169,11 @@ func TestInvocationClaimIsExclusive(t *testing.T) {
 
 func TestInvocationNotificationReservationIsExclusive(t *testing.T) {
 	instance := setupWithLocalConnector(t)
-	activate(t, instance, "builder", model.PrincipalAgent)
+	activate(t, instance, "claude-builder", model.PrincipalAgent)
 	must(t, instance, "owner", "invocation.request", "inv-notify", model.InvocationRequested{
-		Target: "builder", Instruction: "Wake one runtime",
+		Target: "claude-builder", Instruction: "Wake one runtime",
 	})
-	registerOnlineDeliverableWorker(t, instance, "builder", "runtime-notify")
+	registerOnlineDeliverableWorker(t, instance, "claude-builder", "runtime-notify")
 	start := make(chan struct{})
 	results := make(chan error, 2)
 	var wait sync.WaitGroup
@@ -229,11 +229,11 @@ func TestInvocationNotificationReservationIsExclusive(t *testing.T) {
 
 func TestInvocationDeliveryFailureDoesNotTerminateObligation(t *testing.T) {
 	instance := setupWithLocalConnector(t)
-	activate(t, instance, "builder", model.PrincipalAgent)
+	activate(t, instance, "claude-builder", model.PrincipalAgent)
 	must(t, instance, "owner", "invocation.request", "inv-dead", model.InvocationRequested{
-		Target: "builder", Instruction: "Wake the builder",
+		Target: "claude-builder", Instruction: "Wake the builder",
 	})
-	registerOnlineDeliverableWorker(t, instance, "builder", "runtime-dead")
+	registerOnlineDeliverableWorker(t, instance, "claude-builder", "runtime-dead")
 	if err := os.WriteFile(os.Getenv("AGENT_COMMS_TEST_CONNECTOR_OUTCOME"),
 		[]byte("failure"), 0o600); err != nil {
 		t.Fatal(err)
@@ -256,11 +256,11 @@ func TestInvocationDeliveryFailureDoesNotTerminateObligation(t *testing.T) {
 
 func TestFailedRedeliveryPreservesEarlierSuccessfulEvidence(t *testing.T) {
 	instance := setupWithLocalConnector(t)
-	activate(t, instance, "builder", model.PrincipalAgent)
+	activate(t, instance, "claude-builder", model.PrincipalAgent)
 	must(t, instance, "owner", "invocation.request", "inv-preserve", model.InvocationRequested{
-		Target: "builder", Instruction: "Wake the builder",
+		Target: "claude-builder", Instruction: "Wake the builder",
 	})
-	registerOnlineDeliverableWorker(t, instance, "builder", "runtime-delivery")
+	registerOnlineDeliverableWorker(t, instance, "claude-builder", "runtime-delivery")
 	// setupWithLocalConnector runs a real daemon whose delivery coordinator
 	// retries dispatch for PENDING invocations every 500ms (see
 	// TestInvocationLifecycle's identical comment) -- once "runtime-delivery"
@@ -322,15 +322,15 @@ func TestFailedRedeliveryPreservesEarlierSuccessfulEvidence(t *testing.T) {
 
 func TestInvocationRequesterCanCancelActiveWork(t *testing.T) {
 	instance := setup(t)
-	activate(t, instance, "builder", model.PrincipalAgent)
-	activate(t, instance, "requester", model.PrincipalAgent)
-	must(t, instance, "owner", "invocation.policy.update", "builder", model.InvocationPolicyUpdated{
+	activate(t, instance, "claude-builder", model.PrincipalAgent)
+	activate(t, instance, "claude-requester", model.PrincipalAgent)
+	must(t, instance, "owner", "invocation.policy.update", "claude-builder", model.InvocationPolicyUpdated{
 		Mode: "AUTOMATIC",
 	})
-	must(t, instance, "requester", "invocation.request", "inv-cancel", model.InvocationRequested{
-		Target: "builder", Instruction: "Work that is no longer needed",
+	must(t, instance, "claude-requester", "invocation.request", "inv-cancel", model.InvocationRequested{
+		Target: "claude-builder", Instruction: "Work that is no longer needed",
 	})
-	must(t, instance, "requester", "invocation.cancel", "inv-cancel", model.InvocationRejected{
+	must(t, instance, "claude-requester", "invocation.cancel", "inv-cancel", model.InvocationRejected{
 		Reason: "superseded by a newer request",
 	})
 	state, err := instance.State()
@@ -340,7 +340,7 @@ func TestInvocationRequesterCanCancelActiveWork(t *testing.T) {
 	if state.Invocations["inv-cancel"].Status != "CANCELLED" {
 		t.Fatalf("invocation was not cancelled: %+v", state.Invocations["inv-cancel"])
 	}
-	if _, err = instance.Execute("builder", "invocation.claim", "inv-cancel",
+	if _, err = instance.Execute("claude-builder", "invocation.claim", "inv-cancel",
 		model.InvocationClaimed{RuntimeID: "runtime"}); err == nil {
 		t.Fatal("cancelled invocation was claimable")
 	}

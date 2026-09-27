@@ -80,8 +80,8 @@ func TestDispatcherRecordsRetryableFailure(t *testing.T) {
 func TestNonDeliveryConnectorsCannotManufactureSuccess(t *testing.T) {
 	envelope := InvocationEnvelope{
 		ProjectID:  "project",
-		Invocation: model.Invocation{ID: "invocation", Target: "builder"},
-		Runtime:    model.AgentRuntime{ID: "runtime", AgentID: "builder"},
+		Invocation: model.Invocation{ID: "invocation", Target: "claude-builder"},
+		Runtime:    model.AgentRuntime{ID: "runtime", AgentID: "claude-builder"},
 	}
 	for _, connector := range []string{"MANUAL", "MCP"} {
 		t.Run(connector, func(t *testing.T) {
@@ -104,8 +104,8 @@ func TestLocalProcessConnectorReceivesBoundedEnvelope(t *testing.T) {
 		Timeout: 5 * time.Second,
 	}
 	envelope := InvocationEnvelope{
-		ProjectID: "project", Invocation: model.Invocation{ID: "inv-process", Target: "builder"},
-		Runtime: model.AgentRuntime{ID: "runtime-process", AgentID: "builder"},
+		ProjectID: "project", Invocation: model.Invocation{ID: "inv-process", Target: "claude-builder"},
+		Runtime: model.AgentRuntime{ID: "runtime-process", AgentID: "claude-builder"},
 	}
 	if err := launchConnector(context.Background(), config, envelope); err != nil {
 		t.Fatal(err)
@@ -150,8 +150,8 @@ func TestWebhookConnectorPushesInvocation(t *testing.T) {
 	}
 	envelope := InvocationEnvelope{
 		ProjectID:  "project",
-		Invocation: model.Invocation{ID: "inv-webhook", Target: "builder"},
-		Runtime:    model.AgentRuntime{ID: "runtime-webhook", AgentID: "builder"},
+		Invocation: model.Invocation{ID: "inv-webhook", Target: "claude-builder"},
+		Runtime:    model.AgentRuntime{ID: "runtime-webhook", AgentID: "claude-builder"},
 	}
 	if err := launchConnector(context.Background(), config, envelope); err != nil {
 		t.Fatal(err)
@@ -177,7 +177,7 @@ func TestWebhookConnectorRejectsInsecureRemoteEndpoint(t *testing.T) {
 
 func TestLoadConnectorConfigsRequiresPrivateFileAndAbsoluteExecutable(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "connectors.json")
-	config := `{"connectors":{"builder":{"type":"LOCAL_PROCESS","executable":"relative-agent","timeout":"5s"}}}`
+	config := `{"connectors":{"claude-builder":{"type":"LOCAL_PROCESS","executable":"relative-agent","timeout":"5s"}}}`
 	if err := os.WriteFile(path, []byte(config), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -189,7 +189,7 @@ func TestLoadConnectorConfigsRequiresPrivateFileAndAbsoluteExecutable(t *testing
 		t.Fatal(err)
 	}
 	raw, err := json.Marshal(map[string]any{"connectors": map[string]any{
-		"builder": map[string]any{"type": "LOCAL_PROCESS", "executable": executable, "timeout": "5s"},
+		"claude-builder": map[string]any{"type": "LOCAL_PROCESS", "executable": executable, "timeout": "5s"},
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -212,8 +212,8 @@ func TestLoadConnectorConfigsRequiresPrivateFileAndAbsoluteExecutable(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded["builder"].Executable != executable {
-		t.Fatalf("unexpected connector config: %+v", loaded["builder"])
+	if loaded["claude-builder"].Executable != executable {
+		t.Fatalf("unexpected connector config: %+v", loaded["claude-builder"])
 	}
 }
 
@@ -278,14 +278,14 @@ func dispatcherState() model.State {
 	return model.State{
 		Invocations: map[string]model.Invocation{
 			"inv-1": {
-				ID: "inv-1", Target: "builder", Status: "PENDING", Priority: "NORMAL",
+				ID: "inv-1", Target: "claude-builder", Status: "PENDING", Priority: "NORMAL",
 				ConsumerMode: model.ConsumerModeWorkerOnly,
 			},
 		},
 		InvocationDeliveries: map[string]model.InvocationDelivery{},
 		AgentRuntimes: map[string]model.AgentRuntime{
 			"runtime-1": {
-				ID: "runtime-1", AgentID: "builder", Kind: model.RuntimeKindWorker,
+				ID: "runtime-1", AgentID: "claude-builder", Kind: model.RuntimeKindWorker,
 				Connector: "LOCAL_PROCESS", ConfigReference: "runtime-local",
 				Status: "OFFLINE", MaxConcurrent: 1,
 			},

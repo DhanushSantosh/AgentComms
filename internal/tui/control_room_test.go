@@ -12,13 +12,13 @@ import (
 
 func TestControlRoomRendersWorkforceAndOperationalViews(t *testing.T) {
 	instance := newTestService(t)
-	registerAgent(t, instance, "builder", model.Role("MEMBER"), "src")
-	if _, err := instance.Execute("builder", "runtime.register", "runtime-builder",
-		model.RuntimeRegistered{AgentID: "builder", Connector: "MANUAL", MaxConcurrent: 1}); err != nil {
+	registerAgent(t, instance, "claude-builder", model.Role("MEMBER"), "src")
+	if _, err := instance.Execute("claude-builder", "runtime.register", "runtime-builder",
+		model.RuntimeRegistered{AgentID: "claude-builder", Connector: "MANUAL", MaxConcurrent: 1}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := instance.Execute("owner", "invocation.request", "inv-control",
-		model.InvocationRequested{Target: "builder", Instruction: "Review control room"}); err != nil {
+		model.InvocationRequested{Target: "claude-builder", Instruction: "Review control room"}); err != nil {
 		t.Fatal(err)
 	}
 	rendered, err := RenderForTest(instance, "owner", 140, 40)
@@ -54,11 +54,11 @@ func TestWorkforceSignalIsStableAcrossMultipleRuntimeRecords(t *testing.T) {
 	m := Model{
 		state: model.State{
 			Agents: map[string]model.Agent{
-				"HENRY": {ID: "HENRY", DisplayName: "HENRY", Role: model.Role("MEMBER"), PrincipalType: model.PrincipalAgent},
+				"claude-henry": {ID: "claude-henry", DisplayName: "claude-henry", Role: model.Role("MEMBER"), PrincipalType: model.PrincipalAgent},
 			},
 			AgentRuntimes: map[string]model.AgentRuntime{
-				"henry-test": {ID: "henry-test", AgentID: "HENRY", Status: "REVOKED", Health: "UNKNOWN", RegisteredAt: older, LastSeenAt: older},
-				"HENRY":      {ID: "HENRY", AgentID: "HENRY", Status: "ONLINE", Health: "HEALTHY", RegisteredAt: newer, LastSeenAt: newer},
+				"henry-test":   {ID: "henry-test", AgentID: "claude-henry", Status: "REVOKED", Health: "UNKNOWN", RegisteredAt: older, LastSeenAt: older},
+				"claude-henry": {ID: "claude-henry", AgentID: "claude-henry", Status: "ONLINE", Health: "HEALTHY", RegisteredAt: newer, LastSeenAt: newer},
 			},
 		},
 	}
@@ -80,13 +80,13 @@ func TestWorkforceFallsBackToAgentIDWhenDisplayNameIsBlank(t *testing.T) {
 	m := Model{
 		state: model.State{
 			Agents: map[string]model.Agent{
-				"PETER": {ID: "PETER", DisplayName: "", Role: model.Role("MEMBER"), PrincipalType: model.PrincipalAgent},
+				"claude-peter": {ID: "claude-peter", DisplayName: "", Role: model.Role("MEMBER"), PrincipalType: model.PrincipalAgent},
 			},
 		},
 	}
 	out := m.workforce(colors(false), 100)
-	if !strings.Contains(out, "PETER") {
-		t.Fatalf("expected the blank-display-name agent to fall back to its ID %q, got:\n%s", "PETER", out)
+	if !strings.Contains(out, "claude-peter") {
+		t.Fatalf("expected the blank-display-name agent to fall back to its ID %q, got:\n%s", "claude-peter", out)
 	}
 }
 
@@ -96,10 +96,10 @@ func TestWorkforceFallsBackToAgentIDWhenDisplayNameIsBlank(t *testing.T) {
 // diagnosing a project required leaving the TUI entirely.
 func TestAuditHealthSurfacesDoctorFindings(t *testing.T) {
 	instance := newTestService(t)
-	// "builder" is one of doctor's own TEST_LIKE_RUNTIME triggers
+	// "claude-builder" is one of doctor's own TEST_LIKE_RUNTIME triggers
 	// (internal/doctor.Findings), so this is a real, already-present finding
 	// rather than fabricated state.
-	registerAgent(t, instance, "builder", model.Role("MEMBER"), "src")
+	registerAgent(t, instance, "claude-builder", model.Role("MEMBER"), "src")
 	view, err := New(instance, "owner")
 	if err != nil {
 		t.Fatal(err)
@@ -184,25 +184,25 @@ func TestCommandPaletteShowsInputAndMatchingCommands(t *testing.T) {
 
 func TestInvocationRowActionsFollowStateAndAuthority(t *testing.T) {
 	state := model.State{Agents: map[string]model.Agent{
-		"builder": {ID: "builder", Role: model.Role("MEMBER"), Status: "ACTIVE"},
-		"owner":   {ID: "owner", Role: model.RoleOwner, Status: "ACTIVE"},
+		"claude-builder": {ID: "claude-builder", Role: model.Role("MEMBER"), Status: "ACTIVE"},
+		"owner":          {ID: "owner", Role: model.RoleOwner, Status: "ACTIVE"},
 	}}
 	cases := []struct {
 		status string
 		actor  string
 		want   []string
 	}{
-		{"PENDING", "builder", []string{"claim", "reject", "redeliver"}},
-		{"CLAIMED", "builder", []string{"start", "reject"}},
-		{"RUNNING", "builder", []string{"wait", "complete"}},
-		{"WAITING", "builder", []string{"resume", "complete"}},
+		{"PENDING", "claude-builder", []string{"claim", "reject", "redeliver"}},
+		{"CLAIMED", "claude-builder", []string{"start", "reject"}},
+		{"RUNNING", "claude-builder", []string{"wait", "complete"}},
+		{"WAITING", "claude-builder", []string{"resume", "complete"}},
 		{"PENDING", "owner", []string{"redeliver", "cancel"}},
 		{"COMPLETED", "owner", nil},
 	}
 	for _, testCase := range cases {
 		state.Invocations = map[string]model.Invocation{
 			"inv": {
-				ID: "inv", Target: "builder", RequestedBy: "owner",
+				ID: "inv", Target: "claude-builder", RequestedBy: "owner",
 				Status: testCase.status,
 			},
 		}
@@ -223,11 +223,11 @@ func TestInvocationRowActionsFollowStateAndAuthority(t *testing.T) {
 func TestRuntimeRowActionsExposeDrainResumeAndRevoke(t *testing.T) {
 	state := model.State{
 		Agents: map[string]model.Agent{
-			"owner":   {ID: "owner", Role: model.RoleOwner, Status: "ACTIVE"},
-			"builder": {ID: "builder", Role: model.Role("MEMBER"), Status: "ACTIVE"},
+			"owner":          {ID: "owner", Role: model.RoleOwner, Status: "ACTIVE"},
+			"claude-builder": {ID: "claude-builder", Role: model.Role("MEMBER"), Status: "ACTIVE"},
 		},
 		AgentRuntimes: map[string]model.AgentRuntime{
-			"runtime": {ID: "runtime", AgentID: "builder", Status: "ONLINE"},
+			"runtime": {ID: "runtime", AgentID: "claude-builder", Status: "ONLINE"},
 		},
 	}
 	actions := runtimeRowSource{}.Actions("runtime", state, "owner")
@@ -237,7 +237,7 @@ func TestRuntimeRowActionsExposeDrainResumeAndRevoke(t *testing.T) {
 	runtime := state.AgentRuntimes["runtime"]
 	runtime.Status = "DRAINING"
 	state.AgentRuntimes["runtime"] = runtime
-	actions = runtimeRowSource{}.Actions("runtime", state, "builder")
+	actions = runtimeRowSource{}.Actions("runtime", state, "claude-builder")
 	if len(actions) != 2 || actions[0].Label != "resume" || actions[1].Label != "configure" {
 		t.Fatalf("draining runtime actions=%v", actions)
 	}
@@ -245,7 +245,7 @@ func TestRuntimeRowActionsExposeDrainResumeAndRevoke(t *testing.T) {
 
 func TestControlRoomCreatesInvocationThroughGuidedForm(t *testing.T) {
 	instance := newTestService(t)
-	registerAgent(t, instance, "builder", model.Role("MEMBER"), "src")
+	registerAgent(t, instance, "claude-builder", model.Role("MEMBER"), "src")
 	view, err := New(instance, "owner")
 	if err != nil {
 		t.Fatal(err)
@@ -259,7 +259,7 @@ func TestControlRoomCreatesInvocationThroughGuidedForm(t *testing.T) {
 	view.rowFocus = true
 	next, _ := view.openCreateForm()
 	view = next.(Model)
-	values := []string{"inv-tui", "builder", "Review this layer", "Post findings", "HIGH", "", "", "src"}
+	values := []string{"inv-tui", "claude-builder", "Review this layer", "Post findings", "HIGH", "", "", "src"}
 	for index, value := range values {
 		view.inputs[index].SetValue(value)
 	}

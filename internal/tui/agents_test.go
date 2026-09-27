@@ -34,12 +34,12 @@ func TestAgentActionsForStates(t *testing.T) {
 		role  model.Role
 		want  []string
 	}{
-		{"pending non-elevated sees nothing", model.Agent{Status: "PENDING"}, "builder", "watcher", model.Role("MEMBER"), nil},
-		{"pending elevated sees activate rename and revoke", model.Agent{Status: "PENDING"}, "builder", "owner", model.RoleOwner, []string{"activate", "rename", "revoke"}},
-		{"active elevated sees change role suspend rename and revoke", model.Agent{Status: "ACTIVE"}, "builder", "owner", model.RoleOwner, []string{"change role", "suspend", "rename", "revoke"}},
-		{"active non-elevated sees nothing", model.Agent{Status: "ACTIVE"}, "builder", "watcher", model.Role("MEMBER"), nil},
-		{"suspended elevated sees rename and revoke", model.Agent{Status: "SUSPENDED"}, "builder", "owner", model.RoleOwner, []string{"rename", "revoke"}},
-		{"revoked offers only delete", model.Agent{Status: "REVOKED"}, "builder", "owner", model.RoleOwner, []string{"delete"}},
+		{"pending non-elevated sees nothing", model.Agent{Status: "PENDING"}, "claude-builder", "watcher", model.Role("MEMBER"), nil},
+		{"pending elevated sees activate rename and revoke", model.Agent{Status: "PENDING"}, "claude-builder", "owner", model.RoleOwner, []string{"activate", "rename", "revoke"}},
+		{"active elevated sees change role suspend rename and revoke", model.Agent{Status: "ACTIVE"}, "claude-builder", "owner", model.RoleOwner, []string{"change role", "suspend", "rename", "revoke"}},
+		{"active non-elevated sees nothing", model.Agent{Status: "ACTIVE"}, "claude-builder", "watcher", model.Role("MEMBER"), nil},
+		{"suspended elevated sees rename and revoke", model.Agent{Status: "SUSPENDED"}, "claude-builder", "owner", model.RoleOwner, []string{"rename", "revoke"}},
+		{"revoked offers only delete", model.Agent{Status: "REVOKED"}, "claude-builder", "owner", model.RoleOwner, []string{"delete"}},
 		// change role is still offered on the owner's own row here (the TUI
 		// shows what MIGHT be allowed, exactly like suspend/revoke already
 		// do for an OWNER target) -- ValidateTransition itself is what
@@ -75,9 +75,9 @@ func enterAgentsView(t *testing.T, m Model) Model {
 // translate tea.MouseWheelMsg itself (rowlist.go).
 func TestMouseWheelScrollsRowSelection(t *testing.T) {
 	s := newTestService(t)
-	registerAgent(t, s, "alpha", model.Role("MEMBER"), "src")
-	registerAgent(t, s, "beta", model.Role("MEMBER"), "src")
-	registerAgent(t, s, "gamma", model.Role("MEMBER"), "src")
+	registerAgent(t, s, "claude-alpha", model.Role("MEMBER"), "src")
+	registerAgent(t, s, "claude-beta", model.Role("MEMBER"), "src")
+	registerAgent(t, s, "claude-gamma", model.Role("MEMBER"), "src")
 
 	m, e := New(s, "owner")
 	if e != nil {
@@ -109,9 +109,9 @@ func click(x, y int) tea.MouseClickMsg {
 // consistent with itself.
 func TestMouseClickSelectsRow(t *testing.T) {
 	s := newTestService(t)
-	registerAgent(t, s, "alpha", model.Role("MEMBER"), "src")
-	registerAgent(t, s, "beta", model.Role("MEMBER"), "src")
-	registerAgent(t, s, "gamma", model.Role("MEMBER"), "src")
+	registerAgent(t, s, "claude-alpha", model.Role("MEMBER"), "src")
+	registerAgent(t, s, "claude-beta", model.Role("MEMBER"), "src")
+	registerAgent(t, s, "claude-gamma", model.Role("MEMBER"), "src")
 
 	m, e := New(s, "owner")
 	if e != nil {
@@ -151,7 +151,7 @@ func TestMouseClickSelectsRow(t *testing.T) {
 func TestMouseClickSelectsRowAfterScrolling(t *testing.T) {
 	s := newTestService(t)
 	for i := 0; i < 15; i++ {
-		registerAgent(t, s, fmt.Sprintf("agent-%02d", i), model.Role("MEMBER"), "src")
+		registerAgent(t, s, fmt.Sprintf("claude-agent-%02d", i), model.Role("MEMBER"), "src")
 	}
 
 	m, e := New(s, "owner")
@@ -204,7 +204,7 @@ func TestMouseClickSelectsRowAfterScrolling(t *testing.T) {
 func TestRowListCursorAlwaysStaysVisibleWhileScrolling(t *testing.T) {
 	s := newTestService(t)
 	for i := 0; i < 30; i++ {
-		registerAgent(t, s, fmt.Sprintf("agent-%02d", i), model.Role("MEMBER"), "src")
+		registerAgent(t, s, fmt.Sprintf("claude-agent-%02d", i), model.Role("MEMBER"), "src")
 	}
 
 	m, e := New(s, "owner")
@@ -250,7 +250,7 @@ func TestRowListCursorAlwaysStaysVisibleWhileScrolling(t *testing.T) {
 // now means that instead.
 func TestDoubleClickRowTogglesInspect(t *testing.T) {
 	s := newTestService(t)
-	if _, e := s.Register("candidate", "candidate", model.PrincipalAgent); e != nil {
+	if _, e := s.Register("claude-candidate", "claude-candidate", model.PrincipalAgent); e != nil {
 		t.Fatal(e)
 	}
 
@@ -297,7 +297,7 @@ func TestDoubleClickRowTogglesInspect(t *testing.T) {
 // enough apart in time, must not be treated as a double-click.
 func TestDoubleClickRequiresTheSameCellWithinTheWindow(t *testing.T) {
 	s := newTestService(t)
-	if _, e := s.Register("candidate", "candidate", model.PrincipalAgent); e != nil {
+	if _, e := s.Register("claude-candidate", "claude-candidate", model.PrincipalAgent); e != nil {
 		t.Fatal(e)
 	}
 
@@ -324,7 +324,7 @@ func TestDoubleClickRequiresTheSameCellWithinTheWindow(t *testing.T) {
 // after the sidebar-click fix ("not the other tabs").
 func TestHubTabClickSwitchesView(t *testing.T) {
 	s := newTestService(t)
-	registerAgent(t, s, "builder", model.Role("MEMBER"), "src")
+	registerAgent(t, s, "claude-builder", model.Role("MEMBER"), "src")
 
 	m, e := New(s, "owner")
 	if e != nil {
@@ -387,7 +387,7 @@ func hubClickPosition(t *testing.T, m Model, hubIndex int) (x, y int) {
 // must actually switch each time, not get stuck on the first one clicked.
 func TestSidebarClickSwitchesHubsRepeatedly(t *testing.T) {
 	s := newTestService(t)
-	registerAgent(t, s, "builder", model.Role("MEMBER"), "src")
+	registerAgent(t, s, "claude-builder", model.Role("MEMBER"), "src")
 
 	m, e := New(s, "owner")
 	if e != nil {
@@ -418,7 +418,7 @@ func TestSidebarClickSwitchesHubsRepeatedly(t *testing.T) {
 
 func TestSidebarClickOpensAndFocusesHub(t *testing.T) {
 	s := newTestService(t)
-	registerAgent(t, s, "builder", model.Role("MEMBER"), "src")
+	registerAgent(t, s, "claude-builder", model.Role("MEMBER"), "src")
 
 	m, e := New(s, "owner")
 	if e != nil {
@@ -507,7 +507,7 @@ func TestRegisterThenActivateAgent(t *testing.T) {
 	if m.form != "agent.register" || len(m.inputs) != 3 {
 		t.Fatalf("expected agent.register form with 3 fields, got form=%q inputs=%d", m.form, len(m.inputs))
 	}
-	m.inputs[0].SetValue("builder")
+	m.inputs[0].SetValue("claude-builder")
 	m.inputs[2].SetValue("AGENT")
 	m.formFocus = len(m.inputs) - 1
 	m = pressKey(t, m, keyEnter())
@@ -519,10 +519,10 @@ func TestRegisterThenActivateAgent(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if st.Agents["builder"].Status != "PENDING" {
-		t.Fatalf("status = %q, want PENDING", st.Agents["builder"].Status)
+	if st.Agents["claude-builder"].Status != "PENDING" {
+		t.Fatalf("status = %q, want PENDING", st.Agents["claude-builder"].Status)
 	}
-	if id := m.agentList.SelectedID(m.state, m.actor); id != "builder" {
+	if id := m.agentList.SelectedID(m.state, m.actor); id != "claude-builder" {
 		t.Fatalf("selected id = %q, want builder", id)
 	}
 
@@ -542,8 +542,8 @@ func TestRegisterThenActivateAgent(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if st.Agents["builder"].Status != "ACTIVE" {
-		t.Fatalf("status = %q, want ACTIVE", st.Agents["builder"].Status)
+	if st.Agents["claude-builder"].Status != "ACTIVE" {
+		t.Fatalf("status = %q, want ACTIVE", st.Agents["claude-builder"].Status)
 	}
 }
 
@@ -556,7 +556,7 @@ func TestRegisterThenActivateAgent(t *testing.T) {
 // only the passphrase already typed into the activate form.
 func TestActivateOrchestratorChainsApprovalWhenNoneExists(t *testing.T) {
 	s := newTestService(t)
-	if _, e := s.Register("candidate", "candidate", model.PrincipalAgent); e != nil {
+	if _, e := s.Register("claude-candidate", "claude-candidate", model.PrincipalAgent); e != nil {
 		t.Fatal(e)
 	}
 	if _, e := s.ElevateKey("owner", "correct passphrase"); e != nil {
@@ -596,13 +596,13 @@ func TestActivateOrchestratorChainsApprovalWhenNoneExists(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if state.Agents["candidate"].Role != model.RoleOrchestrator {
-		t.Fatalf("expected candidate to be ORCHESTRATOR, got %+v", state.Agents["candidate"])
+	if state.Agents["claude-candidate"].Role != model.RoleOrchestrator {
+		t.Fatalf("expected candidate to be ORCHESTRATOR, got %+v", state.Agents["claude-candidate"])
 	}
 	// RFC 0023: the approval the chain created and approved is CONSUMED, not
 	// left APPROVED, the moment it authorizes the grant above -- it can
 	// never satisfy a future grant a second time.
-	approval, ok := state.Approvals[protocol.OrchestratorGrantApprovalID("candidate")]
+	approval, ok := state.Approvals[protocol.OrchestratorGrantApprovalID("claude-candidate")]
 	if !ok || approval.Status != "CONSUMED" || approval.Tier != "HUMAN" {
 		t.Fatalf("expected a CONSUMED HUMAN-tier approval record, got %+v (found=%v)", approval, ok)
 	}
@@ -617,7 +617,7 @@ func TestActivateOrchestratorChainsApprovalWhenNoneExists(t *testing.T) {
 // nothing but the form field itself can be supplying it.
 func TestActivateOrchestratorThroughMaskedPassphraseField(t *testing.T) {
 	s := newTestService(t)
-	if _, e := s.Register("candidate", "candidate", model.PrincipalAgent); e != nil {
+	if _, e := s.Register("claude-candidate", "claude-candidate", model.PrincipalAgent); e != nil {
 		t.Fatal(e)
 	}
 	if _, e := s.ElevateKey("owner", "correct passphrase"); e != nil {
@@ -627,10 +627,10 @@ func TestActivateOrchestratorThroughMaskedPassphraseField(t *testing.T) {
 	// Pre-approve the orchestrator grant (a separate, deliberate human step
 	// in real usage) using the elevated key directly, so the TUI portion of
 	// this test only has to exercise the activate-with-passphrase path.
-	approvalID := protocol.OrchestratorGrantApprovalID("candidate")
+	approvalID := protocol.OrchestratorGrantApprovalID("claude-candidate")
 	s.PassphrasePrompt = func(string) (string, error) { return "correct passphrase", nil }
 	if _, e := s.Execute("owner", "approval.request", approvalID, model.ApprovalRequested{
-		Tier: "HUMAN", Action: protocol.OrchestratorGrantApprovalAction("candidate"), Reason: "test fixture",
+		Tier: "HUMAN", Action: protocol.OrchestratorGrantApprovalAction("claude-candidate"), Reason: "test fixture",
 	}); e != nil {
 		t.Fatal(e)
 	}
@@ -644,7 +644,7 @@ func TestActivateOrchestratorThroughMaskedPassphraseField(t *testing.T) {
 		t.Fatal(e)
 	}
 	m = enterAgentsView(t, m)
-	if id := m.agentList.SelectedID(m.state, m.actor); id != "candidate" {
+	if id := m.agentList.SelectedID(m.state, m.actor); id != "claude-candidate" {
 		t.Fatalf("selected id = %q, want candidate", id)
 	}
 	m = pressKey(t, m, keyText("a"))
@@ -679,21 +679,21 @@ func TestActivateOrchestratorThroughMaskedPassphraseField(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if state.Agents["candidate"].Role != model.RoleOrchestrator {
-		t.Fatalf("expected candidate to be ORCHESTRATOR, got %+v", state.Agents["candidate"])
+	if state.Agents["claude-candidate"].Role != model.RoleOrchestrator {
+		t.Fatalf("expected candidate to be ORCHESTRATOR, got %+v", state.Agents["claude-candidate"])
 	}
 }
 
 func TestSuspendRequiresConfirm(t *testing.T) {
 	s := newTestService(t)
-	registerAgent(t, s, "builder", model.Role("MEMBER"), "src")
+	registerAgent(t, s, "claude-builder", model.Role("MEMBER"), "src")
 
 	m, e := New(s, "owner")
 	if e != nil {
 		t.Fatal(e)
 	}
 	m = enterAgentsView(t, m)
-	if id := m.agentList.SelectedID(m.state, m.actor); id != "builder" {
+	if id := m.agentList.SelectedID(m.state, m.actor); id != "claude-builder" {
 		t.Fatalf("selected id = %q, want builder", id)
 	}
 	m = pressKey(t, m, keyText("s"))
@@ -709,21 +709,21 @@ func TestSuspendRequiresConfirm(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if st.Agents["builder"].Status != "SUSPENDED" {
-		t.Fatalf("status = %q, want SUSPENDED", st.Agents["builder"].Status)
+	if st.Agents["claude-builder"].Status != "SUSPENDED" {
+		t.Fatalf("status = %q, want SUSPENDED", st.Agents["claude-builder"].Status)
 	}
 }
 
 func TestRevokeRequiresConfirm(t *testing.T) {
 	s := newTestService(t)
-	registerAgent(t, s, "builder", model.Role("MEMBER"), "src")
+	registerAgent(t, s, "claude-builder", model.Role("MEMBER"), "src")
 
 	m, e := New(s, "owner")
 	if e != nil {
 		t.Fatal(e)
 	}
 	m = enterAgentsView(t, m)
-	if id := m.agentList.SelectedID(m.state, m.actor); id != "builder" {
+	if id := m.agentList.SelectedID(m.state, m.actor); id != "claude-builder" {
 		t.Fatalf("selected id = %q, want builder", id)
 	}
 	m = pressKey(t, m, keyText("x"))
@@ -739,24 +739,24 @@ func TestRevokeRequiresConfirm(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if st.Agents["builder"].Status != "REVOKED" {
-		t.Fatalf("status = %q, want REVOKED", st.Agents["builder"].Status)
+	if st.Agents["claude-builder"].Status != "REVOKED" {
+		t.Fatalf("status = %q, want REVOKED", st.Agents["claude-builder"].Status)
 	}
 }
 
 func TestRotateKeyOnlyOnOwnRow(t *testing.T) {
 	s := newTestService(t)
-	registerAgent(t, s, "builder", model.Role("MEMBER"), "src")
+	registerAgent(t, s, "claude-builder", model.Role("MEMBER"), "src")
 
 	m, e := New(s, "owner")
 	if e != nil {
 		t.Fatal(e)
 	}
 	m = enterAgentsView(t, m)
-	if id := m.agentList.SelectedID(m.state, m.actor); id != "builder" {
+	if id := m.agentList.SelectedID(m.state, m.actor); id != "claude-builder" {
 		t.Fatalf("selected id = %q, want builder", id)
 	}
-	for _, a := range m.agentList.Actions("builder", m.state, m.actor) {
+	for _, a := range m.agentList.Actions("claude-builder", m.state, m.actor) {
 		if a.Label == "rotate key" {
 			t.Fatal("rotate key should not appear on another principal's row")
 		}
@@ -774,14 +774,14 @@ func TestRotateKeyOnlyOnOwnRow(t *testing.T) {
 
 func TestRenameAgent(t *testing.T) {
 	s := newTestService(t)
-	registerAgent(t, s, "builder", model.Role("MEMBER"), "src")
+	registerAgent(t, s, "claude-builder", model.Role("MEMBER"), "src")
 
 	m, e := New(s, "owner")
 	if e != nil {
 		t.Fatal(e)
 	}
 	m = enterAgentsView(t, m)
-	if id := m.agentList.SelectedID(m.state, m.actor); id != "builder" {
+	if id := m.agentList.SelectedID(m.state, m.actor); id != "claude-builder" {
 		t.Fatalf("selected id = %q, want builder", id)
 	}
 	m = pressKey(t, m, keyText("e"))
@@ -798,24 +798,24 @@ func TestRenameAgent(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if st.Agents["builder"].DisplayName != "Builder Bot" {
-		t.Fatalf("display name = %q, want Builder Bot", st.Agents["builder"].DisplayName)
+	if st.Agents["claude-builder"].DisplayName != "Builder Bot" {
+		t.Fatalf("display name = %q, want Builder Bot", st.Agents["claude-builder"].DisplayName)
 	}
 }
 
 func TestDeleteRequiresRevokedStatusAndReason(t *testing.T) {
 	s := newTestService(t)
-	registerAgent(t, s, "builder", model.Role("MEMBER"), "src")
+	registerAgent(t, s, "claude-builder", model.Role("MEMBER"), "src")
 
 	m, e := New(s, "owner")
 	if e != nil {
 		t.Fatal(e)
 	}
 	m = enterAgentsView(t, m)
-	if id := m.agentList.SelectedID(m.state, m.actor); id != "builder" {
+	if id := m.agentList.SelectedID(m.state, m.actor); id != "claude-builder" {
 		t.Fatalf("selected id = %q, want builder", id)
 	}
-	for _, a := range m.agentList.Actions("builder", m.state, m.actor) {
+	for _, a := range m.agentList.Actions("claude-builder", m.state, m.actor) {
 		if a.Label == "delete" {
 			t.Fatal("delete should not be offered before the agent is revoked")
 		}
@@ -827,7 +827,7 @@ func TestDeleteRequiresRevokedStatusAndReason(t *testing.T) {
 	}
 
 	m.rowFocus = true
-	if id := m.agentList.SelectedID(m.state, m.actor); id != "builder" {
+	if id := m.agentList.SelectedID(m.state, m.actor); id != "claude-builder" {
 		t.Fatalf("selected id = %q, want builder", id)
 	}
 	m = pressKey(t, m, keyText("d"))
@@ -861,7 +861,7 @@ func TestDeleteRequiresRevokedStatusAndReason(t *testing.T) {
 // actors expecting the switch to give them elevated standing.
 func TestActorSwitchFormShowsRoleNextToEachCandidate(t *testing.T) {
 	s := newTestService(t)
-	registerAgent(t, s, "builder", model.Role("MEMBER"), "src")
+	registerAgent(t, s, "claude-builder", model.Role("MEMBER"), "src")
 
 	m, e := New(s, "owner")
 	if e != nil {
@@ -882,7 +882,7 @@ func TestActorSwitchFormShowsRoleNextToEachCandidate(t *testing.T) {
 
 func TestActorSwitchChangesActorAndRejectsUnknown(t *testing.T) {
 	s := newTestService(t)
-	registerAgent(t, s, "builder", model.Role("MEMBER"), "src")
+	registerAgent(t, s, "claude-builder", model.Role("MEMBER"), "src")
 
 	m, e := New(s, "owner")
 	if e != nil {
@@ -903,10 +903,10 @@ func TestActorSwitchChangesActorAndRejectsUnknown(t *testing.T) {
 		t.Fatalf("actor changed unexpectedly to %q", m.actor)
 	}
 
-	m.inputs[0].SetValue("builder")
+	m.inputs[0].SetValue("claude-builder")
 	m = pressKey(t, m, keyEnter())
-	if m.actor != "builder" {
-		t.Fatalf("actor = %q, want builder", m.actor)
+	if m.actor != "claude-builder" {
+		t.Fatalf("actor = %q, want claude-builder", m.actor)
 	}
 }
 
@@ -919,7 +919,7 @@ func TestActorSwitchChangesActorAndRejectsUnknown(t *testing.T) {
 // elevation check rejected them downstream.
 func TestCommandRailShowsActiveActorID(t *testing.T) {
 	s := newTestService(t)
-	registerAgent(t, s, "builder", model.Role("MEMBER"), "src")
+	registerAgent(t, s, "claude-builder", model.Role("MEMBER"), "src")
 	m, e := New(s, "owner")
 	if e != nil {
 		t.Fatal(e)
@@ -931,14 +931,14 @@ func TestCommandRailShowsActiveActorID(t *testing.T) {
 	}
 
 	m = pressKey(t, m, keyText("a"))
-	m.inputs[0].SetValue("builder")
+	m.inputs[0].SetValue("claude-builder")
 	m.formFocus = 0
 	m = pressKey(t, m, keyEnter())
-	if m.actor != "builder" {
-		t.Fatalf("actor = %q, want builder", m.actor)
+	if m.actor != "claude-builder" {
+		t.Fatalf("actor = %q, want claude-builder", m.actor)
 	}
 	rail = m.commandRail(p, 200)
-	if !strings.Contains(rail, "builder") {
+	if !strings.Contains(rail, "claude-builder") {
 		t.Fatalf("command rail after switching = %q, want it to name the new active actor (builder)", rail)
 	}
 }
@@ -956,20 +956,20 @@ func TestCommandRailShowsActiveActorID(t *testing.T) {
 // (refreshState vs. refresh) once, at this one real-world trigger.
 func TestActorSwitchNoticeSurvivesTheFollowingRefresh(t *testing.T) {
 	s := newTestService(t)
-	registerAgent(t, s, "builder", model.Role("MEMBER"), "src")
+	registerAgent(t, s, "claude-builder", model.Role("MEMBER"), "src")
 
 	m, e := New(s, "owner")
 	if e != nil {
 		t.Fatal(e)
 	}
 	m = pressKey(t, m, keyText("a"))
-	m.inputs[0].SetValue("builder")
+	m.inputs[0].SetValue("claude-builder")
 	m.formFocus = 0
 	m = pressKey(t, m, keyEnter())
-	if m.actor != "builder" {
-		t.Fatalf("actor = %q, want builder", m.actor)
+	if m.actor != "claude-builder" {
+		t.Fatalf("actor = %q, want claude-builder", m.actor)
 	}
-	if m.notice != "Switched to builder" {
+	if m.notice != "Switched to claude-builder" {
 		t.Fatalf("notice = %q, want the actor-switch confirmation to survive the refresh that follows it", m.notice)
 	}
 }
@@ -1111,7 +1111,7 @@ func TestBodyPrefixMatchesActualRender(t *testing.T) {
 // rather than trusting the formula by inspection alone.
 func TestRowTableTopYMatchesActualRender(t *testing.T) {
 	s := newTestService(t)
-	registerAgent(t, s, "alpha", model.Role("MEMBER"), "src")
+	registerAgent(t, s, "claude-alpha", model.Role("MEMBER"), "src")
 
 	m, e := New(s, "owner")
 	if e != nil {
@@ -1146,13 +1146,13 @@ func TestRowTableTopYMatchesActualRender(t *testing.T) {
 // over from before the rebind.
 func TestChangeRoleKeyActuallyOpensTheForm(t *testing.T) {
 	s := newTestService(t)
-	registerAgent(t, s, "builder", model.Role("MEMBER"), "src")
+	registerAgent(t, s, "claude-builder", model.Role("MEMBER"), "src")
 	m, err := New(s, "owner")
 	if err != nil {
 		t.Fatal(err)
 	}
 	m = enterAgentsView(t, m)
-	if id := m.agentList.SelectedID(m.state, m.actor); id != "builder" {
+	if id := m.agentList.SelectedID(m.state, m.actor); id != "claude-builder" {
 		t.Fatalf("selected id = %q, want builder", id)
 	}
 	m = pressKey(t, m, keyText("r"))

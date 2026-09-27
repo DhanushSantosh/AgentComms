@@ -11,13 +11,13 @@ import (
 
 func TestRuntimeRegistrationPresenceAndLifecycle(t *testing.T) {
 	instance := setup(t)
-	activate(t, instance, "builder", model.PrincipalAgent)
+	activate(t, instance, "claude-builder", model.PrincipalAgent)
 
-	must(t, instance, "builder", "runtime.register", "runtime-1", model.RuntimeRegistered{
-		AgentID: "builder", Connector: "mcp", ConfigReference: "profiles/builder-mcp",
+	must(t, instance, "claude-builder", "runtime.register", "runtime-1", model.RuntimeRegistered{
+		AgentID: "claude-builder", Connector: "mcp", ConfigReference: "profiles/builder-mcp",
 		MaxConcurrent: 2, Scopes: []string{"src"}, Capabilities: []string{"review"},
 	})
-	must(t, instance, "builder", "runtime.heartbeat", "runtime-1", model.RuntimeHeartbeat{
+	must(t, instance, "claude-builder", "runtime.heartbeat", "runtime-1", model.RuntimeHeartbeat{
 		Health: "healthy",
 	})
 	state, err := instance.State()
@@ -44,7 +44,7 @@ func TestRuntimeRegistrationPresenceAndLifecycle(t *testing.T) {
 	if state.AgentRuntimes["runtime-1"].Status != "REVOKED" {
 		t.Fatalf("runtime was not revoked: %+v", state.AgentRuntimes["runtime-1"])
 	}
-	if _, err = instance.Execute("builder", "runtime.heartbeat", "runtime-1",
+	if _, err = instance.Execute("claude-builder", "runtime.heartbeat", "runtime-1",
 		model.RuntimeHeartbeat{Health: "HEALTHY"}); err == nil {
 		t.Fatal("revoked runtime accepted a heartbeat")
 	}
@@ -52,34 +52,34 @@ func TestRuntimeRegistrationPresenceAndLifecycle(t *testing.T) {
 
 func TestInvocationPolicyControlsAgentToAgentRequests(t *testing.T) {
 	instance := setup(t)
-	activate(t, instance, "builder", model.PrincipalAgent)
-	activate(t, instance, "alpha", model.PrincipalAgent)
-	activate(t, instance, "beta", model.PrincipalAgent)
+	activate(t, instance, "claude-builder", model.PrincipalAgent)
+	activate(t, instance, "claude-alpha", model.PrincipalAgent)
+	activate(t, instance, "claude-beta", model.PrincipalAgent)
 
-	if _, err := instance.Execute("alpha", "invocation.request", "manual-denied", model.InvocationRequested{
-		Target: "builder", Instruction: "Run without approval",
+	if _, err := instance.Execute("claude-alpha", "invocation.request", "manual-denied", model.InvocationRequested{
+		Target: "claude-builder", Instruction: "Run without approval",
 	}); err == nil {
 		t.Fatal("unapproved invocation bypassed the default manual policy")
 	}
 
-	must(t, instance, "owner", "invocation.policy.update", "builder", model.InvocationPolicyUpdated{
-		Mode: "TRUSTED", TrustedActors: []string{"alpha"}, AllowedScopes: []string{"src"},
+	must(t, instance, "owner", "invocation.policy.update", "claude-builder", model.InvocationPolicyUpdated{
+		Mode: "TRUSTED", TrustedActors: []string{"claude-alpha"}, AllowedScopes: []string{"src"},
 		RequireHumanForSensitive: true,
 	})
-	must(t, instance, "alpha", "invocation.request", "trusted-allowed", model.InvocationRequested{
-		Target: "builder", Instruction: "Review the source tree",
+	must(t, instance, "claude-alpha", "invocation.request", "trusted-allowed", model.InvocationRequested{
+		Target: "claude-builder", Instruction: "Review the source tree",
 	})
-	if _, err := instance.Execute("beta", "invocation.request", "trusted-denied", model.InvocationRequested{
-		Target: "builder", Instruction: "Review the source tree",
+	if _, err := instance.Execute("claude-beta", "invocation.request", "trusted-denied", model.InvocationRequested{
+		Target: "claude-builder", Instruction: "Review the source tree",
 	}); err == nil {
 		t.Fatal("untrusted actor bypassed a trusted invocation policy")
 	}
 
-	must(t, instance, "owner", "invocation.policy.update", "builder", model.InvocationPolicyUpdated{
+	must(t, instance, "owner", "invocation.policy.update", "claude-builder", model.InvocationPolicyUpdated{
 		Mode: "DISABLED",
 	})
-	if _, err := instance.Execute("alpha", "invocation.request", "disabled-denied", model.InvocationRequested{
-		Target: "builder", Instruction: "Run while disabled",
+	if _, err := instance.Execute("claude-alpha", "invocation.request", "disabled-denied", model.InvocationRequested{
+		Target: "claude-builder", Instruction: "Run while disabled",
 	}); err == nil {
 		t.Fatal("disabled invocation policy accepted a request")
 	}
@@ -87,9 +87,9 @@ func TestInvocationPolicyControlsAgentToAgentRequests(t *testing.T) {
 
 func TestRuntimeConfigReferenceRejectsSecretMaterial(t *testing.T) {
 	instance := setup(t)
-	activate(t, instance, "builder", model.PrincipalAgent)
-	if _, err := instance.Execute("builder", "runtime.register", "runtime-secret", model.RuntimeRegistered{
-		AgentID: "builder", Connector: "WEBHOOK",
+	activate(t, instance, "claude-builder", model.PrincipalAgent)
+	if _, err := instance.Execute("claude-builder", "runtime.register", "runtime-secret", model.RuntimeRegistered{
+		AgentID: "claude-builder", Connector: "WEBHOOK",
 		ConfigReference: "https://example.invalid?token=plaintext", MaxConcurrent: 1,
 	}); err == nil {
 		t.Fatal("runtime registration persisted apparent secret material")
@@ -98,21 +98,21 @@ func TestRuntimeConfigReferenceRejectsSecretMaterial(t *testing.T) {
 
 func TestNextInvocationPrioritizesUrgencyThenAgeAndHonorsCapacity(t *testing.T) {
 	instance := setup(t)
-	activate(t, instance, "builder", model.PrincipalAgent)
+	activate(t, instance, "claude-builder", model.PrincipalAgent)
 	must(t, instance, "owner", "runtime.register", "runtime-queue", model.RuntimeRegistered{
-		AgentID: "builder", Connector: "MCP", MaxConcurrent: 1,
+		AgentID: "claude-builder", Connector: "MCP", MaxConcurrent: 1,
 	})
-	must(t, instance, "builder", "runtime.heartbeat", "runtime-queue", model.RuntimeHeartbeat{
+	must(t, instance, "claude-builder", "runtime.heartbeat", "runtime-queue", model.RuntimeHeartbeat{
 		Health: "HEALTHY",
 	})
 	must(t, instance, "owner", "invocation.request", "normal", model.InvocationRequested{
-		Target: "builder", Instruction: "Normal work", Priority: "NORMAL",
+		Target: "claude-builder", Instruction: "Normal work", Priority: "NORMAL",
 	})
 	must(t, instance, "owner", "invocation.request", "urgent", model.InvocationRequested{
-		Target: "builder", Instruction: "Urgent work", Priority: "URGENT",
+		Target: "claude-builder", Instruction: "Urgent work", Priority: "URGENT",
 	})
 
-	next, found, err := instance.NextInvocation("builder", "runtime-queue")
+	next, found, err := instance.NextInvocation("claude-builder", "runtime-queue")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,19 +120,19 @@ func TestNextInvocationPrioritizesUrgencyThenAgeAndHonorsCapacity(t *testing.T) 
 		t.Fatalf("next invocation=%+v found=%t, want urgent", next, found)
 	}
 
-	must(t, instance, "builder", "invocation.claim", "urgent", model.InvocationClaimed{RuntimeID: "runtime-queue"})
-	if _, found, err = instance.NextInvocation("builder", "runtime-queue"); err != nil || found {
+	must(t, instance, "claude-builder", "invocation.claim", "urgent", model.InvocationClaimed{RuntimeID: "runtime-queue"})
+	if _, found, err = instance.NextInvocation("claude-builder", "runtime-queue"); err != nil || found {
 		t.Fatalf("capacity-bound runtime returned work: found=%t err=%v", found, err)
 	}
 }
 
 func TestListenInvocationReceivesNewWorkWithoutPolling(t *testing.T) {
 	instance := setup(t)
-	activate(t, instance, "builder", model.PrincipalAgent)
+	activate(t, instance, "claude-builder", model.PrincipalAgent)
 	must(t, instance, "owner", "runtime.register", "runtime-listener", model.RuntimeRegistered{
-		AgentID: "builder", Connector: "MCP", MaxConcurrent: 1,
+		AgentID: "claude-builder", Connector: "MCP", MaxConcurrent: 1,
 	})
-	must(t, instance, "builder", "runtime.heartbeat", "runtime-listener", model.RuntimeHeartbeat{
+	must(t, instance, "claude-builder", "runtime.heartbeat", "runtime-listener", model.RuntimeHeartbeat{
 		Health: "HEALTHY",
 	})
 	type result struct {
@@ -142,12 +142,12 @@ func TestListenInvocationReceivesNewWorkWithoutPolling(t *testing.T) {
 	}
 	delivered := make(chan result, 1)
 	go func() {
-		invocation, found, err := instance.ListenInvocation("builder", "runtime-listener", time.Second)
+		invocation, found, err := instance.ListenInvocation("claude-builder", "runtime-listener", time.Second)
 		delivered <- result{invocation: invocation, found: found, err: err}
 	}()
 	time.Sleep(50 * time.Millisecond)
 	must(t, instance, "owner", "invocation.request", "pushed", model.InvocationRequested{
-		Target: "builder", Instruction: "Act on pushed work", Priority: "HIGH",
+		Target: "claude-builder", Instruction: "Act on pushed work", Priority: "HIGH",
 	})
 	select {
 	case received := <-delivered:
@@ -161,50 +161,50 @@ func TestListenInvocationReceivesNewWorkWithoutPolling(t *testing.T) {
 
 func TestInvocationPolicyEnforcesScopesAndSensitiveApproval(t *testing.T) {
 	instance := setup(t)
-	activate(t, instance, "builder", model.PrincipalAgent)
-	activate(t, instance, "alpha", model.PrincipalAgent)
-	must(t, instance, "owner", "invocation.policy.update", "builder", model.InvocationPolicyUpdated{
+	activate(t, instance, "claude-builder", model.PrincipalAgent)
+	activate(t, instance, "claude-alpha", model.PrincipalAgent)
+	must(t, instance, "owner", "invocation.policy.update", "claude-builder", model.InvocationPolicyUpdated{
 		Mode: "AUTOMATIC", AllowedScopes: []string{"src/api"}, RequireHumanForSensitive: true,
 	})
-	if _, err := instance.Execute("alpha", "invocation.request", "scope-denied", model.InvocationRequested{
-		Target: "builder", Instruction: "Modify a UI file", Scopes: []string{"src/ui"},
+	if _, err := instance.Execute("claude-alpha", "invocation.request", "scope-denied", model.InvocationRequested{
+		Target: "claude-builder", Instruction: "Modify a UI file", Scopes: []string{"src/ui"},
 	}); err == nil {
 		t.Fatal("invocation exceeded the target policy scopes")
 	}
-	must(t, instance, "alpha", "invocation.request", "scope-allowed", model.InvocationRequested{
-		Target: "builder", Instruction: "Review an API file", Scopes: []string{"src/api"},
+	must(t, instance, "claude-alpha", "invocation.request", "scope-allowed", model.InvocationRequested{
+		Target: "claude-builder", Instruction: "Review an API file", Scopes: []string{"src/api"},
 	})
 	must(t, instance, "owner", "task.create", "sensitive-task", model.TaskCreated{
 		Title: "Sensitive change", Repository: "local", Branch: "sensitive",
 		Resources: []string{"src/api"}, Risk: "HIGH",
 	})
-	if _, err := instance.Execute("alpha", "invocation.request", "sensitive-denied", model.InvocationRequested{
-		Target: "builder", TaskID: "sensitive-task", Instruction: "Perform sensitive work",
+	if _, err := instance.Execute("claude-alpha", "invocation.request", "sensitive-denied", model.InvocationRequested{
+		Target: "claude-builder", TaskID: "sensitive-task", Instruction: "Perform sensitive work",
 	}); err == nil {
 		t.Fatal("sensitive invocation bypassed human approval")
 	}
-	approvedPayload := model.InvocationRequested{Target: "builder", TaskID: "sensitive-task", Instruction: "Perform sensitive work"}
-	if _, err := instance.RequestApprovalForOperation("alpha", "approve-sensitive", "HUMAN", "invocation.request", "sensitive-approved", approvedPayload, "approved by user", time.Hour); err != nil {
+	approvedPayload := model.InvocationRequested{Target: "claude-builder", TaskID: "sensitive-task", Instruction: "Perform sensitive work"}
+	if _, err := instance.RequestApprovalForOperation("claude-alpha", "approve-sensitive", "HUMAN", "invocation.request", "sensitive-approved", approvedPayload, "approved by user", time.Hour); err != nil {
 		t.Fatalf("request bound sensitive approval: %v", err)
 	}
 	must(t, instance, "owner", "approval.approve", "approve-sensitive", model.ApprovalResponse{})
-	must(t, instance, "alpha", "invocation.request", "sensitive-approved", approvedPayload)
+	must(t, instance, "claude-alpha", "invocation.request", "sensitive-approved", approvedPayload)
 }
 
 func TestPayloadBoundContractApprovalEndToEnd(t *testing.T) {
 	instance := setup(t)
-	activate(t, instance, "alpha", model.PrincipalAgent)
+	activate(t, instance, "claude-alpha", model.PrincipalAgent)
 	payload := model.MessagePosted{Kind: "CONTRACT", To: []string{"owner"}, Subject: "reviewed terms", Body: "exact body"}
-	if _, err := instance.RequestApprovalForOperation("alpha", "approve-contract", "ORCHESTRATOR", "message.post", "contract-1", payload, "review exact contract", time.Hour); err != nil {
+	if _, err := instance.RequestApprovalForOperation("claude-alpha", "approve-contract", "ORCHESTRATOR", "message.post", "contract-1", payload, "review exact contract", time.Hour); err != nil {
 		t.Fatalf("request bound contract approval: %v", err)
 	}
 	must(t, instance, "owner", "approval.approve", "approve-contract", model.ApprovalResponse{})
 	changed := payload
 	changed.Body = "changed after approval"
-	if _, err := instance.Execute("alpha", "message.post", "contract-1", changed); err == nil {
+	if _, err := instance.Execute("claude-alpha", "message.post", "contract-1", changed); err == nil {
 		t.Fatal("changed contract content used a bound approval")
 	}
-	must(t, instance, "alpha", "message.post", "contract-1", payload)
+	must(t, instance, "claude-alpha", "message.post", "contract-1", payload)
 	state, err := instance.State()
 	if err != nil {
 		t.Fatal(err)
@@ -248,26 +248,26 @@ func TestSummarizeInvocationDeliveryUsesOneTruthAcrossAdapters(t *testing.T) {
 	state := model.State{
 		Invocations: map[string]model.Invocation{
 			"interactive": {
-				ID: "interactive", Target: "builder",
+				ID: "interactive", Target: "claude-builder",
 				ConsumerMode: model.ConsumerModeInteractiveOnly,
 			},
 			"either": {
-				ID: "either", Target: "builder",
+				ID: "either", Target: "claude-builder",
 				ConsumerMode: model.ConsumerModeEither,
 			},
 			"delivered": {
-				ID: "delivered", Target: "builder",
+				ID: "delivered", Target: "claude-builder",
 				ConsumerMode: model.ConsumerModeInteractiveOnly,
 			},
 		},
 		AgentRuntimes: map[string]model.AgentRuntime{
 			"interactive-a": {
-				ID: "interactive-a", AgentID: "builder",
+				ID: "interactive-a", AgentID: "claude-builder",
 				Kind: model.RuntimeKindInteractive, Connector: "INTERACTIVE",
 				HostID: "local-host", Status: "ONLINE",
 			},
 			"interactive-b": {
-				ID: "interactive-b", AgentID: "builder",
+				ID: "interactive-b", AgentID: "claude-builder",
 				Kind: model.RuntimeKindInteractive, Connector: "INTERACTIVE",
 				HostID: "local-host", Status: "ONLINE",
 			},
@@ -305,10 +305,10 @@ func TestSummarizeInvocationDeliveryUsesOneTruthAcrossAdapters(t *testing.T) {
 
 func TestRuntimeDeletion(t *testing.T) {
 	instance := setup(t)
-	activate(t, instance, "builder", model.PrincipalAgent)
+	activate(t, instance, "claude-builder", model.PrincipalAgent)
 
-	must(t, instance, "builder", "runtime.register", "runtime-to-delete", model.RuntimeRegistered{
-		AgentID: "builder", Connector: "mcp", MaxConcurrent: 1,
+	must(t, instance, "claude-builder", "runtime.register", "runtime-to-delete", model.RuntimeRegistered{
+		AgentID: "claude-builder", Connector: "mcp", MaxConcurrent: 1,
 	})
 	if _, err := instance.Execute("owner", "runtime.delete", "runtime-to-delete", model.RuntimeStatusChanged{Reason: "too early"}); err == nil {
 		t.Fatal("unrevoked runtime was deleted")

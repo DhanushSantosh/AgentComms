@@ -262,7 +262,7 @@ func TestServeExportsActorToChildEnvironment(t *testing.T) {
 		ControlFD:   int(fd),
 		Stdin:       strings.NewReader(""),
 		Stdout:      stdout,
-		Actor:       "DAMON",
+		Actor:       "claude-damon",
 	})
 	if err != nil {
 		t.Fatal(err)

@@ -13,7 +13,7 @@ import (
 )
 
 // elevatedKeyFixture bootstraps a project with a single HUMAN owner and one
-// pending "candidate" agent, wired up so the caller can drive
+// pending "claude-candidate" agent, wired up so the caller can drive
 // agent.activate(ORCHESTRATOR) / approval.approve(HUMAN) scenarios directly
 // against the engine -- this is the layer that actually verifies
 // signatures, which is what the elevated-key feature is meant to gate.
@@ -46,8 +46,8 @@ func newElevatedKeyFixture(t *testing.T) *elevatedKeyFixture {
 	f.register("owner", f.owner, model.PrincipalHuman)
 	f.mustMutate("owner", f.owner, "agent.activate", "owner",
 		model.AgentActivated{Role: model.RoleOwner, Capabilities: []string{"*"}, Scopes: []string{"*"}})
-	f.register("candidate", f.candidate, model.PrincipalAgent)
-	f.mustMutate("owner", f.owner, "agent.activate", "candidate",
+	f.register("claude-candidate", f.candidate, model.PrincipalAgent)
+	f.mustMutate("owner", f.owner, "agent.activate", "claude-candidate",
 		model.AgentActivated{Role: model.Role("MEMBER"), Scopes: []string{"src"}})
 	return f
 }
@@ -105,8 +105,8 @@ func (f *elevatedKeyFixture) grantOrchestratorApproval(target string) {
 
 func TestOrchestratorGrantFallsBackToPrimaryKeyWhenNoElevatedKeyRegistered(t *testing.T) {
 	f := newElevatedKeyFixture(t)
-	f.grantOrchestratorApproval("candidate")
-	if _, _, err := f.mutate("owner", f.owner, "agent.activate", "candidate",
+	f.grantOrchestratorApproval("claude-candidate")
+	if _, _, err := f.mutate("owner", f.owner, "agent.activate", "claude-candidate",
 		model.AgentActivated{Role: model.RoleOrchestrator, Scopes: []string{"src"}}); err != nil {
 		t.Fatalf("expected the grant to succeed against the primary key when no elevated key is registered: %v", err)
 	}
@@ -114,7 +114,7 @@ func TestOrchestratorGrantFallsBackToPrimaryKeyWhenNoElevatedKeyRegistered(t *te
 
 func TestOrchestratorGrantRejectsPrimaryKeySignatureOnceElevatedKeyRegistered(t *testing.T) {
 	f := newElevatedKeyFixture(t)
-	f.grantOrchestratorApproval("candidate")
+	f.grantOrchestratorApproval("claude-candidate")
 	elevated, err := controlplane.GenerateSigner()
 	if err != nil {
 		t.Fatal(err)
@@ -125,12 +125,12 @@ func TestOrchestratorGrantRejectsPrimaryKeySignatureOnceElevatedKeyRegistered(t 
 	// This is the regression test that matters: once an elevated key is on
 	// record, a command signed with the everyday primary key must be
 	// rejected outright as an integrity failure, not silently accepted.
-	if _, _, err = f.mutate("owner", f.owner, "agent.activate", "candidate",
+	if _, _, err = f.mutate("owner", f.owner, "agent.activate", "claude-candidate",
 		model.AgentActivated{Role: model.RoleOrchestrator, Scopes: []string{"src"}}); err == nil {
 		t.Fatal("expected a primary-key signature to be rejected once an elevated key is registered")
 	}
 
-	if _, _, err = f.mutate("owner", elevated, "agent.activate", "candidate",
+	if _, _, err = f.mutate("owner", elevated, "agent.activate", "claude-candidate",
 		model.AgentActivated{Role: model.RoleOrchestrator, Scopes: []string{"src"}}); err != nil {
 		t.Fatalf("expected the elevated-key signature to be accepted: %v", err)
 	}
@@ -138,8 +138,8 @@ func TestOrchestratorGrantRejectsPrimaryKeySignatureOnceElevatedKeyRegistered(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if state.Agents["candidate"].Role != model.RoleOrchestrator {
-		t.Fatalf("expected candidate to end up ORCHESTRATOR: %+v", state.Agents["candidate"])
+	if state.Agents["claude-candidate"].Role != model.RoleOrchestrator {
+		t.Fatalf("expected candidate to end up ORCHESTRATOR: %+v", state.Agents["claude-candidate"])
 	}
 }
 
@@ -188,28 +188,28 @@ func TestOrchestratorTierApprovalStillUsesPrimaryKeyEvenWithElevatedKeyRegistere
 // place, and had the identical credential-only weakness until now.
 func TestRevokeOfOrchestratorRejectsPrimaryKeySignatureOnceElevatedKeyRegistered(t *testing.T) {
 	f := newElevatedKeyFixture(t)
-	f.grantOrchestratorApproval("candidate")
+	f.grantOrchestratorApproval("claude-candidate")
 	elevated, err := controlplane.GenerateSigner()
 	if err != nil {
 		t.Fatal(err)
 	}
 	f.mustMutate("owner", f.owner, "agent.elevate-key", "owner",
 		model.AgentElevatedKeyRegistered{PublicKey: elevated.PublicKey()})
-	f.mustMutate("owner", elevated, "agent.activate", "candidate",
+	f.mustMutate("owner", elevated, "agent.activate", "claude-candidate",
 		model.AgentActivated{Role: model.RoleOrchestrator, Scopes: []string{"src"}})
 
-	if _, _, err = f.mutate("owner", f.owner, "agent.revoke", "candidate", model.RuntimeStatusChanged{}); err == nil {
+	if _, _, err = f.mutate("owner", f.owner, "agent.revoke", "claude-candidate", model.RuntimeStatusChanged{}); err == nil {
 		t.Fatal("expected a primary-key signature to be rejected revoking an orchestrator once an elevated key is registered")
 	}
-	if _, _, err = f.mutate("owner", elevated, "agent.revoke", "candidate", model.RuntimeStatusChanged{}); err != nil {
+	if _, _, err = f.mutate("owner", elevated, "agent.revoke", "claude-candidate", model.RuntimeStatusChanged{}); err != nil {
 		t.Fatalf("expected the elevated-key signature to be accepted: %v", err)
 	}
 	state, _, err := f.engine.State(context.Background(), f.projectID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if state.Agents["candidate"].Status != "REVOKED" {
-		t.Fatalf("expected candidate to be revoked: %+v", state.Agents["candidate"])
+	if state.Agents["claude-candidate"].Status != "REVOKED" {
+		t.Fatalf("expected candidate to be revoked: %+v", state.Agents["claude-candidate"])
 	}
 }
 
@@ -224,7 +224,7 @@ func TestRevokeOfPlainAgentStillUsesPrimaryKeyEvenWithElevatedKeyRegistered(t *t
 	}
 	f.mustMutate("owner", f.owner, "agent.elevate-key", "owner",
 		model.AgentElevatedKeyRegistered{PublicKey: elevated.PublicKey()})
-	if _, _, err = f.mutate("owner", f.owner, "agent.revoke", "candidate", model.RuntimeStatusChanged{}); err != nil {
+	if _, _, err = f.mutate("owner", f.owner, "agent.revoke", "claude-candidate", model.RuntimeStatusChanged{}); err != nil {
 		t.Fatalf("expected revoking a plain agent to still verify against the primary key: %v", err)
 	}
 }
@@ -235,17 +235,17 @@ func TestRevokeOfPlainAgentStillUsesPrimaryKeyEvenWithElevatedKeyRegistered(t *t
 // since self-revocation is not an escalation.
 func TestSelfRevokeOfOrchestratorBypassesElevatedKeyRequirement(t *testing.T) {
 	f := newElevatedKeyFixture(t)
-	f.grantOrchestratorApproval("candidate")
+	f.grantOrchestratorApproval("claude-candidate")
 	elevated, err := controlplane.GenerateSigner()
 	if err != nil {
 		t.Fatal(err)
 	}
 	f.mustMutate("owner", f.owner, "agent.elevate-key", "owner",
 		model.AgentElevatedKeyRegistered{PublicKey: elevated.PublicKey()})
-	f.mustMutate("owner", elevated, "agent.activate", "candidate",
+	f.mustMutate("owner", elevated, "agent.activate", "claude-candidate",
 		model.AgentActivated{Role: model.RoleOrchestrator, Scopes: []string{"src"}})
 
-	if _, _, err = f.mutate("candidate", f.candidate, "agent.revoke", "candidate", model.RuntimeStatusChanged{}); err != nil {
+	if _, _, err = f.mutate("claude-candidate", f.candidate, "agent.revoke", "claude-candidate", model.RuntimeStatusChanged{}); err != nil {
 		t.Fatalf("expected self-revocation to bypass the elevated-key requirement: %v", err)
 	}
 }
@@ -258,14 +258,14 @@ func TestDeleteRequiresElevatedKeyAndAllowsIdentityReuse(t *testing.T) {
 	}
 	f.mustMutate("owner", f.owner, "agent.elevate-key", "owner",
 		model.AgentElevatedKeyRegistered{PublicKey: elevated.PublicKey()})
-	f.mustMutate("owner", f.owner, "agent.revoke", "candidate",
+	f.mustMutate("owner", f.owner, "agent.revoke", "claude-candidate",
 		model.RuntimeStatusChanged{Reason: "retired"})
 
-	if _, _, err = f.mutate("owner", f.owner, "agent.delete", "candidate",
+	if _, _, err = f.mutate("owner", f.owner, "agent.delete", "claude-candidate",
 		model.AgentDeleted{Reason: "remove retired identity"}); err == nil {
 		t.Fatal("expected a primary-key signature to be rejected deleting a principal once an elevated key is registered")
 	}
-	deleteEvent, _, err := f.mutate("owner", elevated, "agent.delete", "candidate",
+	deleteEvent, _, err := f.mutate("owner", elevated, "agent.delete", "claude-candidate",
 		model.AgentDeleted{Reason: "remove retired identity"})
 	if err != nil {
 		t.Fatalf("expected elevated-key deletion to succeed: %v", err)
@@ -277,7 +277,7 @@ func TestDeleteRequiresElevatedKeyAndAllowsIdentityReuse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, exists := state.Agents["candidate"]; exists {
+	if _, exists := state.Agents["claude-candidate"]; exists {
 		t.Fatal("deleted principal remained in the current projection")
 	}
 
@@ -285,7 +285,7 @@ func TestDeleteRequiresElevatedKeyAndAllowsIdentityReuse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	registerEvent := f.mustMutate("candidate", replacement, "agent.register", "candidate",
+	registerEvent := f.mustMutate("claude-candidate", replacement, "agent.register", "claude-candidate",
 		model.AgentRegistered{PublicKey: replacement.PublicKey(), PrincipalType: model.PrincipalAgent, DisplayName: "replacement"})
 	if registerEvent.ActorKeyFingerprint != identity.Fingerprint(replacement.PublicKey()) {
 		t.Fatalf("replacement registration fingerprint=%q want replacement key fingerprint", registerEvent.ActorKeyFingerprint)
@@ -302,7 +302,7 @@ func TestDeleteRequiresElevatedKeyAndAllowsIdentityReuse(t *testing.T) {
 	seenOriginal := false
 	originalFingerprint := identity.Fingerprint(f.candidate.PublicKey())
 	for _, record := range page.Items {
-		if record.Event.Type == "agent.register" && record.Event.Actor == "candidate" &&
+		if record.Event.Type == "agent.register" && record.Event.Actor == "claude-candidate" &&
 			record.Event.ActorKeyFingerprint == originalFingerprint {
 			seenOriginal = true
 		}

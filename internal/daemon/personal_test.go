@@ -55,7 +55,7 @@ func TestPersonalDaemonCommitsAndServesAuthoritativeLocalState(t *testing.T) {
 	results := make(chan int, 2)
 	var writers sync.WaitGroup
 	for agentID, signer := range map[string]*controlplane.Signer{
-		"alpha": mustSigner(t), "beta": mustSigner(t),
+		"claude-alpha": mustSigner(t), "claude-beta": mustSigner(t),
 	} {
 		command = signedCommand(t, signer, "project", agentID, "agent.register", agentID,
 			model.AgentRegistered{PublicKey: signer.PublicKey(), PrincipalType: model.PrincipalAgent, DisplayName: agentID}, "register-"+agentID)

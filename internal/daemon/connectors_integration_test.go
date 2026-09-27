@@ -42,7 +42,7 @@ func TestPostgresToCacheToLocalConnectorDelivery(t *testing.T) {
 	}
 	owner, _ := controlplane.GenerateSigner()
 	builder, _ := controlplane.GenerateSigner()
-	signers := map[string]*controlplane.Signer{"owner": owner, "builder": builder}
+	signers := map[string]*controlplane.Signer{"owner": owner, "claude-builder": builder}
 	cache, err := localcache.Open(filepath.Join(t.TempDir(), "cache.db"), serviceSigner.PublicKey())
 	if err != nil {
 		t.Fatal(err)
@@ -79,17 +79,17 @@ func TestPostgresToCacheToLocalConnectorDelivery(t *testing.T) {
 		{"owner", "agent.activate", "owner", model.AgentActivated{
 			Role: model.RoleOwner, Scopes: []string{"*"}, Capabilities: []string{"*"},
 		}},
-		{"builder", "agent.register", "builder", model.AgentRegistered{
+		{"claude-builder", "agent.register", "claude-builder", model.AgentRegistered{
 			PublicKey: builder.PublicKey(), PrincipalType: model.PrincipalAgent,
 		}},
-		{"owner", "agent.activate", "builder", model.AgentActivated{
+		{"owner", "agent.activate", "claude-builder", model.AgentActivated{
 			Role: model.Role("MEMBER"), Scopes: []string{"src"},
 		}},
-		{"builder", "runtime.register", "runtime-builder", model.RuntimeRegistered{
-			AgentID: "builder", Connector: "LOCAL_PROCESS", ConfigReference: "builder-local", MaxConcurrent: 1,
+		{"claude-builder", "runtime.register", "runtime-builder", model.RuntimeRegistered{
+			AgentID: "claude-builder", Connector: "LOCAL_PROCESS", ConfigReference: "builder-local", MaxConcurrent: 1,
 		}},
 		{"owner", "invocation.request", "inv-deliver", model.InvocationRequested{
-			Target: "builder", Instruction: "Run connector integration", Scopes: []string{"src"},
+			Target: "claude-builder", Instruction: "Run connector integration", Scopes: []string{"src"},
 		}},
 	} {
 		if err = submit(context.Background(), projectID, seed.actor, seed.eventType, seed.entityID, seed.payload); err != nil {

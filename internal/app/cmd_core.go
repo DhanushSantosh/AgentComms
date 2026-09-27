@@ -309,7 +309,7 @@ func (c *cli) initCmd() *cobra.Command {
 		}
 		result := map[string]any{
 			"project": root, "runtime": filepath.Join(root, store.Runtime), "owner": owner,
-			"next":         []string{"agent-comms tui", "agent-comms agent register --id reviewer --principal-type AGENT"},
+			"next":         []string{"agent-comms tui", "agent-comms agent register --id claude-reviewer --principal-type AGENT"},
 			"runtime_mode": initialized.RuntimeMode, "daemon_endpoint": initialized.DaemonEndpoint,
 		}
 		if initialized.Database != "" {

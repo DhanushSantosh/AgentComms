@@ -2,7 +2,7 @@
 
 ## Status and owners
 
-**Proposed, 2026-09-27.** Requested by the project owner; drafted by
+**Accepted and implemented, 2026-09-27.** Requested by the project owner; drafted by
 claude-main. Changes the public `agent register` contract, so it requires
 review before implementation.
 
@@ -167,8 +167,23 @@ Two fixes, and they compose:
    shares. Truncating a common prefix is the worst of both: it costs
    characters and conveys nothing.
 
-Whichever is chosen, it belongs in this RFC rather than as follow-up: a
-naming rule that makes the primary UI unreadable is not finished.
+Both were done, and a third case turned up that only appeared once the
+rename was applied to real fixtures:
+
+- The workforce table already preferred `DisplayName` and fell back to the
+  ID, so the truncation only ever bit agents without a display name. That
+  fallback now elides the middle (`truncateMiddle`), keeping the provider
+  and the tail that distinguishes one agent from another.
+- The inbox FROM column was the worse case: at 10 characters, *every*
+  agent of a provider rendered as `claude-…`, which does not read as a
+  truncated name but as a single sender. Widened to 13/16 — `claude-henry`
+  is 12 — taking the space from SUBJECT, which is the flexible column.
+- Pre-truncating the cell value was tried first and was wrong: the table
+  truncates cells itself, so the value arrived as `claud…e…`, two elisions
+  for one name. Column width, not cell content, is the right lever.
+
+A naming rule that makes the primary UI unreadable is not finished, and
+this one is not finished until those are in — which they now are.
 
 ## Unresolved questions
 

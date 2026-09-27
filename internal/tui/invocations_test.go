@@ -65,7 +65,7 @@ func TestInvocationDeliveryDetailsRendersPipelineForNotifiedInvocation(t *testin
 		Agents: view.state.Agents,
 		Invocations: map[string]model.Invocation{
 			"inv-pipeline": {
-				ID: "inv-pipeline", Target: "builder", RequestedBy: "owner",
+				ID: "inv-pipeline", Target: "claude-builder", RequestedBy: "owner",
 				Instruction: "Review this", Status: "CLAIMED", ClaimedAt: &claimedAt,
 			},
 		},

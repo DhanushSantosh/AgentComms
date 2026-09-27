@@ -27,7 +27,7 @@ func TestClaudeLiveDefaultsPermissionMode(t *testing.T) {
 func TestClaudeLiveIsRegisteredWithoutExecutableRequirement(t *testing.T) {
 	instance, root := workerService(t)
 	worker, err := New(Config{
-		Service: instance, Actor: "AXIOM", RuntimeID: "runtime-axiom",
+		Service: instance, Actor: "claude-axiom", RuntimeID: "runtime-axiom",
 		SessionID: testClaudeLiveSession, Adapter: "claude-live", WorkDir: root,
 		ClaudeBudgetUSD: 1, ListenWait: time.Second, ExecutionTimeout: time.Minute, Once: true,
 	})
