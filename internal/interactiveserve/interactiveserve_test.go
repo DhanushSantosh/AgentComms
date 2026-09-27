@@ -44,9 +44,9 @@ func TestSocketPathIsIndependentOfProcessTempDirectory(t *testing.T) {
 	firstTempDirectory := t.TempDir()
 	secondTempDirectory := t.TempDir()
 	t.Setenv("TMPDIR", firstTempDirectory)
-	first := SocketPath("/projects/shared", "claude-damon")
+	first := SocketPath("/projects/shared", "DAMON")
 	t.Setenv("TMPDIR", secondTempDirectory)
-	second := SocketPath("/projects/shared", "claude-damon")
+	second := SocketPath("/projects/shared", "DAMON")
 	if first != second {
 		t.Fatalf("TMPDIR changed the shared socket path: %q vs %q", first, second)
 	}
@@ -87,7 +87,7 @@ func TestNotifyInvocationCrossesDifferentTempDirectoryEnvironments(t *testing.T)
 	secondTempDirectory := t.TempDir()
 	projectRoot := t.TempDir()
 	t.Setenv("TMPDIR", firstTempDirectory)
-	sockPath := SocketPath(projectRoot, "claude-damon")
+	sockPath := SocketPath(projectRoot, "DAMON")
 	listener := listenTestSocket(t, sockPath)
 	socketDirectoryInfo, err := os.Stat(filepath.Dir(sockPath))
 	if err != nil {
@@ -105,7 +105,7 @@ func TestNotifyInvocationCrossesDifferentTempDirectoryEnvironments(t *testing.T)
 	t.Setenv("TMPDIR", secondTempDirectory)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if _, err := NotifyInvocationWithEvidence(ctx, projectRoot, "claude-damon", "claude-damon", "inv-cross-tmpdir", "PRICE"); err != nil {
+	if _, err := NotifyInvocationWithEvidence(ctx, projectRoot, "DAMON", "DAMON", "inv-cross-tmpdir", "PRICE"); err != nil {
 		t.Fatalf("delivery failed across different TMPDIR environments: %v", err)
 	}
 }
