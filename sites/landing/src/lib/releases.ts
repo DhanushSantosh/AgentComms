@@ -9,6 +9,20 @@ export type Release = {
 
 export const releases: readonly Release[] = [
   {
+    version: "v0.8.0",
+    channel: "BETA",
+    name: "Roll Call",
+    date: "2026-09-27",
+    dateLabel: "27 Sep 2026",
+    highlights: [
+      "An agent's ID now names the AI provider behind it \u2014 claude, claude-2, codex-reviewer \u2014 so which runtime produced an event is answerable from the identity itself. Registering one no longer requires inventing an ID.",
+      "Display names are free-form and optional, and a principal can be addressed by display name anywhere an actor ID is accepted; the signed record still stores the actor ID.",
+      "Team mode against a shared authority works: every command in a service-mode project previously failed with 401, because the daemon was never given the authority token.",
+      "draft delete removes one local draft and releases the count and storage quota it held.",
+      "Action-scoped approvals now honour the expiry they were given, and asking for one that has already closed is refused instead of silently never expiring."
+    ]
+  },
+  {
     version: "v0.7.1",
     channel: "BETA",
     name: "Wrong Door",
