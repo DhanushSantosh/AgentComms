@@ -284,10 +284,14 @@ func TestMessagePostAcceptsADisplayNameAndRecordsTheActorID(t *testing.T) {
 	if err := run("init", "--non-interactive", "--owner", "owner"); err != nil {
 		t.Fatal(err)
 	}
-	if err := run("agent", "register", "--provider", "claude", "--display-name", "Atlas"); err != nil {
+	// --actor is explicit throughout: once this project has more than one
+	// locally-registered identity, the machine-wide active-profile default
+	// is ambiguous and the CLI rightly refuses to sign. Leaving it implicit
+	// made this pass locally and fail in CI, where the profile state differs.
+	if err := run("agent", "register", "--actor", "owner", "--provider", "claude", "--display-name", "Atlas"); err != nil {
 		t.Fatalf("register: %v (%s)", err, stderr.String())
 	}
-	if err := run("agent", "activate", "--id", "claude", "--role", "Engineer", "--scope", "*"); err != nil {
+	if err := run("agent", "activate", "--actor", "owner", "--id", "claude", "--role", "Engineer", "--scope", "*"); err != nil {
 		t.Fatalf("activate: %v (%s)", err, stderr.String())
 	}
 

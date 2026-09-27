@@ -2410,36 +2410,36 @@ func TestAgentRegisterDerivesTheIDFromTheProvider(t *testing.T) {
 	}
 
 	// No --id: the first agent of a provider takes the bare provider name.
-	if err := run("agent", "register", "--provider", "claude"); err != nil {
+	if err := run("agent", "register", "--actor", "owner", "--provider", "claude"); err != nil {
 		t.Fatalf("register with only --provider: %v (%s)", err, stderr.String())
 	}
 	if !strings.Contains(stdout.String(), `"claude"`) {
 		t.Fatalf("expected the derived ID to be \"claude\":\n%s", stdout.String())
 	}
 	// The second falls to claude-2 rather than colliding.
-	if err := run("agent", "register", "--provider", "claude"); err != nil {
+	if err := run("agent", "register", "--actor", "owner", "--provider", "claude"); err != nil {
 		t.Fatalf("second register: %v (%s)", err, stderr.String())
 	}
 	if !strings.Contains(stdout.String(), "claude-2") {
 		t.Fatalf("expected the second agent to be claude-2:\n%s", stdout.String())
 	}
 	// An explicit conforming --id still works, with or without --provider.
-	if err := run("agent", "register", "--id", "codex-reviewer"); err != nil {
+	if err := run("agent", "register", "--actor", "owner", "--id", "codex-reviewer"); err != nil {
 		t.Fatalf("explicit --id: %v (%s)", err, stderr.String())
 	}
 	// Contradiction is refused rather than silently resolved: preferring
 	// one flag would make the other a lie in the receipt.
-	if err := run("agent", "register", "--id", "codex-other", "--provider", "claude"); err == nil {
+	if err := run("agent", "register", "--actor", "owner", "--id", "codex-other", "--provider", "claude"); err == nil {
 		t.Fatal("an --id naming codex with --provider claude must be refused")
 	}
 	// An unknown provider names the ones that exist.
-	if err := run("agent", "register", "--provider", "nosuchmodel"); err == nil {
+	if err := run("agent", "register", "--actor", "owner", "--provider", "nosuchmodel"); err == nil {
 		t.Fatal("an unknown provider must be refused")
 	} else if !strings.Contains(err.Error(), "claude") {
 		t.Errorf("the error should list known providers, got: %v", err)
 	}
 	// Neither flag: say what is needed instead of a bare validation error.
-	if err := run("agent", "register"); err == nil {
+	if err := run("agent", "register", "--actor", "owner"); err == nil {
 		t.Fatal("registering an AGENT with neither --id nor --provider must be refused")
 	} else if !strings.Contains(err.Error(), "--provider") {
 		t.Errorf("the error should ask for --provider, got: %v", err)
