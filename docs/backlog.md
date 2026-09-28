@@ -479,6 +479,24 @@ kept:
   this is a governance surface as well as a plumbing change. Until then the
   set is fixed, which is at least consistent everywhere.
 
+## Stabilization areas not yet started
+
+Moved here 2026-09-28 from `docs/stabilization.md`, which had become one
+part live invariants, one part a finished August work log, and one part
+this -- forward-looking items that belong where open work is tracked.
+None has been started; none is scheduled.
+
+1. Extend stable error codes and action-precondition explanations through
+   the TUI and worker status surfaces.
+2. Exercise delivery-coordinator recovery and cache lag under sustained
+   multi-runtime load.
+3. Audit every list/search/history surface for bounded results and
+   consistent cursor semantics.
+4. Reduce TUI action ambiguity by showing why an action is available,
+   disabled, awaiting approval, or blocked by connectivity.
+5. Add contract tests that run equivalent workflows through CLI and MCP and
+   compare authoritative outcomes.
+
 ## Remote and hosted participants
 
 - **Cloud/hosted agents as team-mode participants — attempted 2026-09-27,
