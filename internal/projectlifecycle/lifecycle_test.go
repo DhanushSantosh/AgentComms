@@ -692,9 +692,26 @@ func TestInspectFailsOnCorruptConfig(t *testing.T) {
 
 func TestConcurrentReconcileIsSerializedAndConsistent(t *testing.T) {
 	root := newUpgradableFixture(t)
-	options := Options{Root: root, Version: "0.2.0", BuildID: "new-build", Apply: true, Approved: true, Timeout: 5 * time.Second, StopDaemon: false}
 
 	const workers = 4
+	// The timeout has to cover the whole queue, not one turn at it: this
+	// test exists to prove the workers serialize, so the last one waits for
+	// every worker ahead of it. A flat 5s was calibrated on a machine where
+	// the whole thing takes 0.18s, and it failed on windows-latest, where
+	// the same test takes 9.32s and this package takes 68s against 0.7s
+	// locally -- roughly 100x slower for filesystem-heavy work. At that
+	// speed the last worker needs ~7s and had 5.
+	//
+	// Scaling with `workers` keeps the budget honest if the count changes,
+	// and the generous per-worker figure is headroom for that runner, not
+	// slack for a real regression: a genuine deadlock still fails, just
+	// after 60s instead of 5.
+	const perWorkerBudget = 15 * time.Second
+	options := Options{
+		Root: root, Version: "0.2.0", BuildID: "new-build",
+		Apply: true, Approved: true, Timeout: workers * perWorkerBudget, StopDaemon: false,
+	}
+
 	var wg sync.WaitGroup
 	results := make([]error, workers)
 	for i := 0; i < workers; i++ {

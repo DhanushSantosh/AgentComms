@@ -448,6 +448,24 @@ kept:
   **Do not "fix" this by raising a timeout again.** 40s was already
   exhausted, and the per-probe cap was already corrected once. A longer
   wait would only lengthen the failure.
+  **Measured root cause of the family (2026-09-28).** windows-latest is
+  roughly **100x slower than a local Linux machine for filesystem-heavy
+  work**, not marginally slower. `TestConcurrentReconcileIsSerializedAndConsistent`
+  takes 0.18s locally and 9.32s there; `internal/projectlifecycle` takes
+  0.7s locally and 68s there. That single fact explains the whole family:
+  every fixed timeout in this codebase was calibrated on a machine two
+  orders of magnitude faster, so each one is a latent Windows flake, and
+  they surface in whatever order the runner happens to be slowest.
+  The implication for future work is a rule, not a patch: **a timeout that
+  bounds work proportional to N must scale with N**, and any constant
+  chosen by watching a local run needs roughly 100x headroom before it is
+  safe on that runner. The concurrent-reconcile test was fixed that way --
+  its budget is now `workers * perWorkerBudget` rather than a flat value
+  that silently assumed one turn at the lock.
+  Not every member of the family is a timeout, though: the daemon failure
+  above reported the named pipe was never created at all, which no amount
+  of waiting fixes. Read the next occurrence's inlined log before assuming
+  slowness.
 
 - **`ensureDaemon` gives each health probe 300ms but the whole wait 40s, so a
   slow-but-healthy daemon is reported as never ready — fixed
