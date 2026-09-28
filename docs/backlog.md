@@ -420,6 +420,35 @@ kept:
   integration tests. Not urgent — the indirect coverage is real — but a gap
   worth closing with direct unit tests for the highest-value paths.
 
+- **Windows CI daemon-startup flakiness — instrumented 2026-09-28, root
+  cause still unknown.** Six CI failures over three days, five on
+  `windows-latest`, mostly clustered on "daemon did not become ready":
+  `TestEnsureDaemonReplacesIncompatibleDaemon`,
+  `TestEnsureDaemon...AfterSlowFixtureStart`,
+  `TestCodexACPAdapterDoesNotRequireExecutable`,
+  `TestTakeoverTerminatesALiveProcess`,
+  `TestMutationCommandPlainOutputIsAConciseReceipt`, plus one
+  `TestRunWithColorProfileTrueColorSurvivesToOutput` and one Linux
+  Coverage-floor step that exited 1 after 89s with no output at all. Every
+  one passed on re-run with no change to the tree.
+  **Why it stayed unknown for so long.** The failure message said "inspect
+  `<configDir>/daemon.log`" — a file CI destroys with the runner. Five
+  failures produced a pointer to evidence nobody could ever read.
+  **What is now instrumented.** `ensureDaemon` inlines the tail of
+  daemon.log in the error rather than naming its path, and says explicitly
+  when the log is empty or unreadable, which itself indicates the process
+  never started. CI uploads any non-empty daemon.log as an artifact on
+  failure. The error already reports probe count and elapsed time.
+  **The one real clue so far.** The most recent failure read: `398 probes
+  over 40.084s, last error: ... open \\.\pipe\agent-comms-<id>: The system
+  cannot find the file specified`. The named pipe was never created, so
+  this is not the slow-but-healthy case fixed earlier — the daemon process
+  did not start, or exited before binding. The next occurrence should say
+  why.
+  **Do not "fix" this by raising a timeout again.** 40s was already
+  exhausted, and the per-probe cap was already corrected once. A longer
+  wait would only lengthen the failure.
+
 - **`ensureDaemon` gives each health probe 300ms but the whole wait 40s, so a
   slow-but-healthy daemon is reported as never ready — fixed
   2026-09-24.** CI run 35908564798 on `0ccbb23` failed `windows-latest` with

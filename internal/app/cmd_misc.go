@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -401,9 +402,56 @@ func ensureDaemon(projectRoot string, cfg store.Config) error {
 		detail = fmt.Sprintf("%d probes over %s, last error: %v",
 			probes, time.Since(started).Round(time.Millisecond), lastHealthErr)
 	}
+	// Carry the daemon's own last words, not just a path to them. On CI the
+	// runner is destroyed with the log still on it, which is why five
+	// Windows "daemon did not become ready" failures in a row produced no
+	// evidence about *why* -- the message named a file nobody could ever
+	// read. A real user is barely better off: on Windows the log sits under
+	// %LOCALAPPDATA% behind a hashed directory name.
+	logPath := filepath.Join(configDir, "daemon.log")
+	if tail := tailFile(logPath, 2048); tail != "" {
+		return &controlplane.Error{
+			Code: controlplane.CodeUnavailable,
+			Message: "local daemon did not become ready (" + detail + "); last lines of " +
+				logPath + ":\n" + tail,
+		}
+	}
 	return &controlplane.Error{
 		Code: controlplane.CodeUnavailable,
-		Message: "local daemon did not become ready (" + detail + "); inspect " +
-			filepath.Join(configDir, "daemon.log"),
+		Message: "local daemon did not become ready (" + detail + "); " + logPath +
+			" is empty or unreadable, which itself suggests the process never started",
 	}
+}
+
+// tailFile returns roughly the last max bytes of path, trimmed to whole
+// lines, or "" if nothing can be read. Best effort by design: this runs on
+// a path that has already failed, and a diagnostic that can itself fail is
+// worse than no diagnostic.
+func tailFile(path string, max int64) string {
+	file, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer file.Close()
+	info, statErr := file.Stat()
+	if statErr != nil || info.Size() == 0 {
+		return ""
+	}
+	if info.Size() > max {
+		if _, seekErr := file.Seek(-max, io.SeekEnd); seekErr != nil {
+			return ""
+		}
+	}
+	data, readErr := io.ReadAll(file)
+	if readErr != nil || len(data) == 0 {
+		return ""
+	}
+	text := string(data)
+	// A mid-line start reads as corruption; drop the partial first line.
+	if info.Size() > max {
+		if cut := strings.IndexByte(text, '\n'); cut >= 0 && cut+1 < len(text) {
+			text = text[cut+1:]
+		}
+	}
+	return strings.TrimRight(text, "\n")
 }

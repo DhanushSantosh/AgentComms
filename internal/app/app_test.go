@@ -2524,3 +2524,53 @@ func TestDoctorAdvertisesRepairOnlyForCodesItCanActuallyRepair(t *testing.T) {
 		}
 	}
 }
+
+// Five consecutive Windows CI failures reported "local daemon did not
+// become ready ... inspect <path>/daemon.log" and produced no evidence,
+// because the runner is destroyed with the log still on it. The failure has
+// to carry the daemon's own last words, not a path to them.
+func TestTailFileCarriesTheEvidenceRatherThanAPathToIt(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "daemon.log")
+
+	if got := tailFile(filepath.Join(dir, "absent.log"), 2048); got != "" {
+		t.Errorf("a missing file must yield nothing, got %q", got)
+	}
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := tailFile(path, 2048); got != "" {
+		t.Errorf("an empty file must yield nothing, got %q", got)
+	}
+
+	if err := os.WriteFile(path, []byte("first line\nsecond line\nlast line\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := tailFile(path, 2048)
+	if !strings.Contains(got, "last line") {
+		t.Errorf("the tail must include the final line, got %q", got)
+	}
+	if strings.HasSuffix(got, "\n") {
+		t.Errorf("trailing newline should be trimmed, got %q", got)
+	}
+
+	// Over the cap: keep the end, and never start mid-line, which reads as
+	// corruption in an error message.
+	var big strings.Builder
+	for i := range 500 {
+		fmt.Fprintf(&big, "line %03d padded out to make this comfortably long\n", i)
+	}
+	if err := os.WriteFile(path, []byte(big.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got = tailFile(path, 256)
+	if !strings.Contains(got, "line 499") {
+		t.Errorf("must keep the end of a large log, got %q", got)
+	}
+	if len(got) > 256 {
+		t.Errorf("must respect the cap, got %d bytes", len(got))
+	}
+	if !strings.HasPrefix(got, "line ") {
+		t.Errorf("must not begin mid-line, got %q", got)
+	}
+}
