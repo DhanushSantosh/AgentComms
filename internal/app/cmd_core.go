@@ -387,7 +387,7 @@ func (c *cli) initCmd() *cobra.Command {
 	return cmd
 }
 func (c *cli) doctorCmd() *cobra.Command {
-	var explain bool
+	var explain, fix bool
 	cmd := &cobra.Command{Use: "doctor", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		// projectOptional (RFC 0027 section 12): no initialized project in
 		// this directory. Report that as a finding rather than erroring.
@@ -414,8 +414,14 @@ func (c *cli) doctorCmd() *cobra.Command {
 		if e != nil {
 			return e
 		}
+		// Fix comes from the same table doctor.Findings uses, so a
+		// lifecycle finding appended here is as repairable as one computed
+		// there -- the two must not disagree about what --fix can do.
 		add := func(severity, code, message, guidance string) {
-			findings = append(findings, doctor.Finding{Severity: severity, Code: code, Message: message, Guidance: guidance})
+			findings = append(findings, doctor.Finding{
+				Severity: severity, Code: code, Message: message,
+				Guidance: guidance, Fix: doctor.FixableCodes[code],
+			})
 		}
 		lifecycle, _, lifecycleErr := projectlifecycle.Inspect(c.svc.Store.Root, Version, buildinfo.ResolvedBuildID())
 		if lifecycleErr != nil {
@@ -424,6 +430,78 @@ func (c *cli) doctorCmd() *cobra.Command {
 			add("WARNING", "PROJECT_UPGRADE_AVAILABLE",
 				fmt.Sprintf("project has %d lifecycle action(s); interrupted=%t", len(lifecycle.Actions), lifecycle.Interrupted),
 				"Run `agent-comms project upgrade`; it plans, backs up, resumes, and verifies the project in one operation.")
+		}
+		// --fix: doctor repairs what it can rather than only naming it.
+		// The one remediation is the project lifecycle, which regenerates
+		// managed files and records the current toolkit -- exactly what is
+		// left undone when `update` reconciles projects with the
+		// pre-update binary and skips any project that already requires
+		// the newer one.
+		var fixed []string
+		var fixErrs []string
+		if fix {
+			fixable := 0
+			for _, finding := range findings {
+				if finding.Fixable() {
+					fixable++
+				}
+			}
+			switch {
+			case fixable == 0:
+				// nothing to do; fall through and report as usual
+			case lifecycle.RequiresConfirmation:
+				// Confirmation-required migrations are exactly the ones a
+				// human must look at. Refuse rather than approve on their
+				// behalf under a command they ran to *diagnose*.
+				fixErrs = append(fixErrs, "project has confirmation-required migrations; run `agent-comms project upgrade --yes` after reviewing `agent-comms project upgrade plan`")
+			default:
+				before := findings
+				result, reconcileErr := projectlifecycle.Reconcile(cmd.Context(), projectlifecycle.Options{
+					Root: c.svc.Store.Root, Version: Version, BuildID: buildinfo.ResolvedBuildID(),
+					Apply: true, Timeout: c.timeout, StopDaemon: true,
+				})
+				if reconcileErr != nil {
+					fixErrs = append(fixErrs, reconcileErr.Error())
+				} else {
+					if result.Changed {
+						fixed = append(fixed, fmt.Sprintf("reconciled the project lifecycle (%d action(s))", len(result.Plan.Actions)))
+					}
+					// Recompute so the report reflects reality after the
+					// repair, not the state that prompted it.
+					refreshed, refreshErr := doctor.Findings(cmd.Context(), c.svc)
+					if refreshErr != nil {
+						fixErrs = append(fixErrs, refreshErr.Error())
+					} else {
+						findings = refreshed
+						if lifecycleAfter, _, lifecycleAfterErr := projectlifecycle.Inspect(c.svc.Store.Root, Version, buildinfo.ResolvedBuildID()); lifecycleAfterErr != nil {
+							findings = append(findings, doctor.Finding{Severity: "ERROR", Code: "PROJECT_LIFECYCLE_INVALID", Message: lifecycleAfterErr.Error(), Guidance: "Run `agent-comms project upgrade plan` and repair the reported compatibility problem.", Fix: doctor.FixableCodes["PROJECT_LIFECYCLE_INVALID"]})
+						} else {
+							lifecycle = lifecycleAfter
+							if len(lifecycle.Actions) > 0 || lifecycle.Interrupted {
+								findings = append(findings, doctor.Finding{Severity: "WARNING", Code: "PROJECT_UPGRADE_AVAILABLE", Message: fmt.Sprintf("project has %d lifecycle action(s); interrupted=%t", len(lifecycle.Actions), lifecycle.Interrupted), Guidance: "Run `agent-comms project upgrade`; it plans, backs up, resumes, and verifies the project in one operation.", Fix: doctor.FixableCodes["PROJECT_UPGRADE_AVAILABLE"]})
+							}
+						}
+						cleared := len(before) - len(findings)
+						if cleared > 0 {
+							fixed = append(fixed, fmt.Sprintf("cleared %d finding(s)", cleared))
+						}
+					}
+				}
+			}
+		}
+		// An integrity check that failed only because the local daemon is not
+		// running is the most common thing doctor reports and the least
+		// worth reporting: starting it is what every other command does
+		// implicitly. Repair it and re-verify rather than telling the
+		// reader their project is unhealthy when nothing is wrong with it.
+		if fix && verify != nil && strings.Contains(verify.Error(), "local daemon is unavailable") {
+			if daemonErr := ensureDaemon(c.svc.Store.Root, cfg); daemonErr != nil {
+				fixErrs = append(fixErrs, "start local daemon: "+daemonErr.Error())
+			} else if verify = c.svc.Verify(0, 0); verify == nil {
+				fixed = append(fixed, "started the local daemon and re-verified the chain")
+			} else {
+				fixErrs = append(fixErrs, "daemon started but integrity still fails: "+verify.Error())
+			}
 		}
 		r := map[string]any{"integrity": verify == nil, "schema_version": cfg.SchemaVersion, "binary_version": Version, "binary_build_id": buildinfo.ResolvedBuildID(), "runtime_toolkit_version": cfg.ToolkitVersion, "runtime_toolkit_build_id": cfg.ToolkitBuildID, "project_format_version": cfg.ProjectFormatVersion, "managed_files_version": cfg.ManagedFilesVersion, "runtime": filepath.Join(c.svc.Store.Root, store.Runtime), "telemetry": false, "healthy": len(findings) == 0, "findings": findings, "project_lifecycle": lifecycle}
 		if cfg.RuntimeMode == "service" || cfg.RuntimeMode == "personal" {
@@ -447,9 +525,13 @@ func (c *cli) doctorCmd() *cobra.Command {
 			status = cliui.StatusWarning
 		}
 		findingSummary := "None"
+		fixableRemaining := 0
 		if len(findings) > 0 {
 			items := make([]string, 0, len(findings))
 			for _, finding := range findings {
+				if finding.Fixable() {
+					fixableRemaining++
+				}
 				detail := fmt.Sprintf("%s %s — %s", finding.Severity, finding.Code, finding.Message)
 				if finding.Guidance != "" {
 					detail += " Remedy: " + finding.Guidance
@@ -458,6 +540,13 @@ func (c *cli) doctorCmd() *cobra.Command {
 			}
 			findingSummary = strings.Join(items, "; ")
 		}
+		r["fixable"] = fixableRemaining
+		if fix {
+			r["fixed"] = fixed
+			if len(fixErrs) > 0 {
+				r["fix_errors"] = fixErrs
+			}
+		}
 		integrityStatus := "verified"
 		if verify != nil {
 			integrityStatus = "failed: " + verify.Error()
@@ -465,16 +554,17 @@ func (c *cli) doctorCmd() *cobra.Command {
 		return c.emitDocument("doctor", r, cliui.Document{
 			Title:  "Project health",
 			Status: status,
-			Fields: []cliui.Field{
+			Fields: append([]cliui.Field{
 				{Label: "Integrity", Value: integrityStatus},
 				{Label: "Findings", Value: findingSummary},
 				{Label: "Runtime mode", Value: cfg.RuntimeMode},
 				{Label: "Schema", Value: cfg.SchemaVersion},
 				{Label: "Binary", Value: Version + " (" + buildinfo.ResolvedBuildID() + ")"},
-			},
+			}, doctorFixFields(fix, fixed, fixErrs, fixableRemaining)...),
 		})
 	}}
 	cmd.Flags().BoolVar(&explain, "explain-config", false, "show configuration precedence and resolved values")
+	cmd.Flags().BoolVar(&fix, "fix", false, "repair the findings that can be repaired without a human decision")
 	return cmd
 }
 func (c *cli) verifyCmd() *cobra.Command {
@@ -797,4 +887,32 @@ func payloadStatus(c *cli, domain, sub string, f func(string) any) *cobra.Comman
 	cmd.Flags().String("id", "", "entity ID")
 	_ = cmd.MarkFlagRequired("id")
 	return cmd
+}
+
+// doctorFixFields renders what --fix did, or -- when it was not passed --
+// that it is available. A diagnostic that knows how to repair something
+// should say so at the point the problem is reported, not leave the reader
+// to discover the flag.
+func doctorFixFields(fix bool, fixed, fixErrs []string, fixableRemaining int) []cliui.Field {
+	var fields []cliui.Field
+	if fix {
+		applied := "nothing to repair"
+		if len(fixed) > 0 {
+			applied = strings.Join(fixed, "; ")
+		}
+		fields = append(fields, cliui.Field{Label: "Repaired", Value: applied})
+		if len(fixErrs) > 0 {
+			fields = append(fields, cliui.Field{Label: "Could not repair", Value: strings.Join(fixErrs, "; ")})
+		}
+	}
+	if fixableRemaining > 0 {
+		value := fmt.Sprintf("%d finding(s) can be repaired automatically -- run `agent-comms doctor --fix`", fixableRemaining)
+		if fix {
+			// Still fixable after a --fix pass means the repair did not
+			// clear them; say that rather than inviting the same command.
+			value = fmt.Sprintf("%d finding(s) remain repairable but did not clear; they need a look", fixableRemaining)
+		}
+		fields = append(fields, cliui.Field{Label: "Auto-repair", Value: value})
+	}
+	return fields
 }

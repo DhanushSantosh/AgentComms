@@ -68,7 +68,19 @@ TUI, agent controls, command palette, and resilient local control plane.
 7. Approve the protected GitHub `release` environment.
 8. Automation builds and publishes binaries, checksums, SBOMs, provenance, and keyless Cosign bundles.
 9. Verify a clean install and signature from the published assets.
-10. Merge `main`'s new tip back into `dev` (a fast-forward or simple merge
+10. Re-run the `deploy-sites` workflow (`gh workflow run deploy-sites --ref dev`).
+   The landing site is a static export, so its download page resolves the
+   latest release **at build time** — and every build before this point ran
+   while the new tag did not yet exist, so the deployed page still advertises
+   the *previous* version. Nothing in the push-triggered path fixes this: the
+   release publishes after the last `sites/**` push. Confirmed live cutting
+   v0.8.0 (2026-09-27): `deploy-sites` last ran at 16:21, the release
+   published at 16:54, and the download page served v0.7.1 until the workflow
+   was dispatched by hand. Check the live page afterwards rather than
+   assuming — the landing releases feed and the docs changelog come from
+   committed source and are already correct, so the download page is the
+   only surface that can be stale.
+11. Merge `main`'s new tip back into `dev` (a fast-forward or simple merge
    commit, not a rebase). Skipping this leaves `dev` missing the commit
    GitHub created when merging the release PR, which makes the *next*
    release PR show as behind its base and can fail its own DCO signoff

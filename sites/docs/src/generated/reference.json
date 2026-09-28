@@ -2391,6 +2391,12 @@
           "type": "bool"
         },
         {
+          "name": "fix",
+          "usage": "repair the findings that can be repaired without a human decision",
+          "default": "false",
+          "type": "bool"
+        },
+        {
           "name": "json",
           "usage": "emit a versioned JSON envelope",
           "default": "false",

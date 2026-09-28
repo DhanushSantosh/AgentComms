@@ -18,12 +18,43 @@ import (
 	"github.com/DhanushSantosh/AgentComms/internal/store"
 )
 
-// Finding mirrors the shape `agent-comms doctor --json` has always emitted.
+// Finding mirrors the shape `agent-comms doctor --json` has always emitted,
+// plus Fix: what `doctor --fix` would do about it, empty when nothing can be
+// done automatically.
 type Finding struct {
 	Severity string `json:"severity"`
 	Code     string `json:"code"`
 	Message  string `json:"message"`
 	Guidance string `json:"guidance"`
+	Fix      string `json:"fix,omitempty"`
+}
+
+// Fixable reports whether `doctor --fix` can resolve this finding without a
+// human decision.
+func (f Finding) Fixable() bool { return f.Fix != "" }
+
+// reconcileFix is the one remediation doctor performs: re-running the
+// project lifecycle, which regenerates managed files and records the
+// current toolkit against the project.
+//
+// Deliberately the only one. Every other finding needs something doctor
+// must not decide on its own -- a stale lease needs an orchestrator to
+// judge whether the work was abandoned, an elevated key needs a passphrase
+// only the owner has, an invalid connector config needs a human to say what
+// it should have said. Guessing at those would turn a diagnostic into a
+// second incident.
+const reconcileFix = "run the project lifecycle (same as `agent-comms project upgrade`)"
+
+// FixableCodes are the findings reconcileFix resolves. Kept as a set so the
+// CLI, the TUI and the tests agree on one answer rather than each deciding
+// for itself.
+var FixableCodes = map[string]string{
+	"MANAGED_BOOTSTRAP_MISSING":       reconcileFix,
+	"AGENT_INSTRUCTIONS_MISSING":      reconcileFix,
+	"BINARY_RUNTIME_VERSION_MISMATCH": reconcileFix,
+	"RUNTIME_VERSION_UNKNOWN":         reconcileFix,
+	"PROJECT_UPGRADE_AVAILABLE":       reconcileFix,
+	"PROJECT_LIFECYCLE_INVALID":       reconcileFix,
 }
 
 // Findings computes every runtime/bootstrap/state finding doctor reports,
@@ -40,7 +71,10 @@ func Findings(ctx context.Context, svc *service.Service) ([]Finding, error) {
 	}
 	var findings []Finding
 	add := func(severity, code, message, guidance string) {
-		findings = append(findings, Finding{severity, code, message, guidance})
+		findings = append(findings, Finding{
+			Severity: severity, Code: code, Message: message,
+			Guidance: guidance, Fix: FixableCodes[code],
+		})
 	}
 	if cfg.SchemaVersion != model.SchemaVersion {
 		add("ERROR", "RUNTIME_SCHEMA_MISMATCH", fmt.Sprintf("binary expects schema %s but runtime is %s", model.SchemaVersion, cfg.SchemaVersion), "Use the Agent Comms version that created this project or initialize a new project.")

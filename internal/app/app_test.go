@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/DhanushSantosh/AgentComms/internal/doctor"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -2443,5 +2444,83 @@ func TestAgentRegisterDerivesTheIDFromTheProvider(t *testing.T) {
 		t.Fatal("registering an AGENT with neither --id nor --provider must be refused")
 	} else if !strings.Contains(err.Error(), "--provider") {
 		t.Errorf("the error should ask for --provider, got: %v", err)
+	}
+}
+
+// doctor should repair what it can rather than only naming it. The case
+// this exists for: `update` reconciles known projects with the pre-update
+// binary, so a project that already requires the newer toolkit is skipped
+// and left with managed files unreconciled.
+func TestDoctorFixRepairsManagedFilesAndLeavesJudgementCallsAlone(t *testing.T) {
+	project := t.TempDir()
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
+	cleanupProjectDaemon(t, project)
+	var stdout, stderr bytes.Buffer
+	run := func(args ...string) error {
+		stdout.Reset()
+		stderr.Reset()
+		return Run(append(args, "--project", project, "--json"), &stdout, &stderr)
+	}
+	if err := run("init", "--non-interactive", "--owner", "owner"); err != nil {
+		t.Fatal(err)
+	}
+
+	instructions := filepath.Join(project, ".agent-comms", "AGENT_INSTRUCTIONS.md")
+	if err := os.Remove(instructions); err != nil {
+		t.Fatal(err)
+	}
+
+	// Without --fix, doctor reports the finding AND that it is repairable,
+	// so the reader does not have to discover the flag.
+	if err := run("doctor"); err != nil {
+		t.Fatalf("doctor: %v (%s)", err, stderr.String())
+	}
+	before := stdout.String()
+	if !strings.Contains(before, "AGENT_INSTRUCTIONS_MISSING") {
+		t.Fatalf("expected the missing-instructions finding:\n%s", before)
+	}
+	if !strings.Contains(before, `"fixable"`) {
+		t.Fatalf("doctor should report how many findings are repairable:\n%s", before)
+	}
+
+	// With --fix, it repairs and the file comes back.
+	if err := run("doctor", "--fix"); err != nil {
+		t.Fatalf("doctor --fix: %v (%s)", err, stderr.String())
+	}
+	after := stdout.String()
+	if _, statErr := os.Stat(instructions); statErr != nil {
+		t.Fatalf("--fix should have restored %s: %v", instructions, statErr)
+	}
+	if strings.Contains(after, "AGENT_INSTRUCTIONS_MISSING") {
+		t.Errorf("the repaired finding should be gone from the post-fix report:\n%s", after)
+	}
+	if !strings.Contains(after, `"fixed"`) {
+		t.Errorf("--fix should report what it did:\n%s", after)
+	}
+	// NO_ELEVATED_KEY needs a passphrase only the owner has. doctor must
+	// not pretend it can fix that, before or after --fix.
+	if !strings.Contains(after, "NO_ELEVATED_KEY") {
+		t.Errorf("a judgement-call finding must survive --fix:\n%s", after)
+	}
+}
+
+// Every code doctor advertises as repairable must actually be one the
+// remediation addresses; a Fix string on a finding nothing repairs would
+// promise a repair that never happens.
+func TestDoctorAdvertisesRepairOnlyForCodesItCanActuallyRepair(t *testing.T) {
+	for code, fix := range doctor.FixableCodes {
+		if strings.TrimSpace(fix) == "" {
+			t.Errorf("%s is listed as fixable with an empty description", code)
+		}
+	}
+	for _, judgement := range []string{
+		"STALE_LEASE", "NO_ELEVATED_KEY", "TEST_LIKE_RUNTIME",
+		"CONNECTOR_CONFIG_INVALID", "RUNTIME_CONFIG_INVALID",
+		"REVOKED_AGENT_HAS_OPEN_WORK", "RUNTIME_SCHEMA_MISMATCH",
+	} {
+		if _, claimed := doctor.FixableCodes[judgement]; claimed {
+			t.Errorf("%s needs a human decision and must not be advertised as auto-repairable", judgement)
+		}
 	}
 }
