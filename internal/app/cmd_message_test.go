@@ -403,3 +403,59 @@ func TestDisplayNamesResolveForTaskAndInvocationTargetsToo(t *testing.T) {
 		t.Error("an unresolvable invocation target must be refused")
 	}
 }
+
+// The three principal-reference sites codex-main's review of 1b7aa4c found
+// still unresolved, plus the regression the previous fix introduced.
+func TestRemainingPrincipalReferenceSitesResolveDisplayNames(t *testing.T) {
+	project := t.TempDir()
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
+	cleanupProjectDaemon(t, project)
+	var stdout, stderr bytes.Buffer
+	run := func(args ...string) error {
+		stdout.Reset()
+		stderr.Reset()
+		return Run(append(args, "--project", project, "--json"), &stdout, &stderr)
+	}
+	if err := run("init", "--non-interactive", "--owner", "owner"); err != nil {
+		t.Fatal(err)
+	}
+	if err := run("agent", "register", "--actor", "owner", "--provider", "claude", "--display-name", "Atlas"); err != nil {
+		t.Fatalf("register: %v (%s)", err, stderr.String())
+	}
+	if err := run("agent", "activate", "--actor", "owner", "--id", "claude", "--role", "Engineer", "--scope", "*"); err != nil {
+		t.Fatalf("activate: %v (%s)", err, stderr.String())
+	}
+
+	// --actor by display name: the command must run as claude, not fail.
+	if err := run("task", "create", "--actor", "Atlas", "--id", "t1", "--title", "T", "--branch", "main", "--resource", "src"); err != nil {
+		t.Errorf("--actor should accept a display name: %v (%s)", err, stderr.String())
+	}
+	if strings.Contains(stdout.String(), `"actor":"Atlas"`) {
+		t.Errorf("the event must record the actor ID, not the display name:\n%s", stdout.String())
+	}
+
+	// handoff by display name, and --accept must ignore --to entirely
+	// rather than resolving a flag it discards.
+	if err := run("task", "claim", "--actor", "owner", "--id", "t1"); err != nil {
+		t.Fatalf("claim: %v (%s)", err, stderr.String())
+	}
+	if err := run("task", "handoff", "--actor", "owner", "--id", "t1", "--to", "Atlas", "--summary", "over to you"); err != nil {
+		t.Errorf("handoff should accept a display name: %v (%s)", err, stderr.String())
+	}
+	if err := run("task", "handoff", "--actor", "Atlas", "--id", "t1", "--accept", "--to", "no-such-principal", "--summary", "mine"); err != nil {
+		t.Errorf("--accept ignores --to, so a bad name there must not reject it: %v (%s)", err, stderr.String())
+	}
+
+	// invocation list --to by display name must find the invocation whose
+	// stored Target is the canonical ID, not silently return nothing.
+	if err := run("invocation", "request", "--actor", "owner", "--to", "Atlas", "--instruction", "do it"); err != nil {
+		t.Fatalf("invocation request: %v (%s)", err, stderr.String())
+	}
+	if err := run("invocation", "list", "--to", "Atlas"); err != nil {
+		t.Fatalf("invocation list: %v (%s)", err, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "inv-") {
+		t.Errorf("filtering by display name must match the canonical target:\n%s", stdout.String())
+	}
+}

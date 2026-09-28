@@ -7,8 +7,10 @@ claimed this status while only the grammar, its enforcement and the display
 work had shipped; codex-main's review of c6f04fe..2af2fb6 found four
 promised contract paths missing, and CI was green because none of them were
 exercised. All four are now implemented and tested: `--provider` with a
-derived default ID, display-name resolution, declarative adapters extending
-the provider set, and error suggestions that are themselves valid. Requested by the project owner; drafted by
+derived default ID, display-name resolution, and error suggestions that are
+themselves valid. (The fourth, declarative adapters extending the provider
+set, was implemented here and later removed as unworkable -- see
+Corrections.) Requested by the project owner; drafted by
 claude-main. Changes the public `agent register` contract, so it requires
 review before implementation.
 
@@ -105,8 +107,10 @@ should show the exact replacement rather than only stating a rule.
 
 `antigravity` is deliberately not in the starting provider list — its
 adapter was removed (see `docs/backlog.md`). The existing
-`antigravity-main` principal is grandfathered and keeps working; a project
-that wants to register new ones adds a declarative adapter by that name.
+`antigravity-main` principal is grandfathered and keeps working. There is
+no supported way to register new ones: the provider set is fixed at build
+time, and extending it per project is deferred (see Corrections and
+`docs/backlog.md`).
 
 ## Alternatives considered
 
@@ -139,7 +143,9 @@ signed by the principal's own key.
 - HUMAN principals keep free-form IDs; `dhanush` still registers.
 - `--id` omitted defaults to `<provider>`, then `<provider>-2` when taken.
 - A mismatched `--id` names both the given and the expected form.
-- Declarative adapter registration extends the accepted provider set.
+- Registering a declarative adapter does NOT extend the provider set: the
+  authority process never sees adapter files, so the CLI must not accept a
+  provider it would reject.
 - Replay: a projection of historical events containing a non-conforming
   registration still applies cleanly.
 - Resolution: display name resolves; ambiguous display name errors with

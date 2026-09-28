@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/DhanushSantosh/AgentComms/internal/model"
 	"io"
 	"os"
 	"os/exec"
@@ -349,6 +350,25 @@ func (c *cli) root() *cobra.Command {
 				return nil
 			}
 			if scope == projectUserOnly {
+				// `update` is about to replace this executable, so
+				// reconciling projects here would do it with the binary on
+				// its way out. That is not merely wasted work: a project
+				// whose recorded minimum toolkit is already the incoming
+				// version is refused by the outgoing one
+				// (projectlifecycle.Inspect), and the resulting "skipped
+				// lifecycle inspection ... requires toolkit X, running Y"
+				// warnings are flushed at the end of the command -- after
+				// the update succeeded -- reading as though reconciliation
+				// failed when it had not yet been attempted.
+				//
+				// update does its own reconciliation properly, by re-execing
+				// the freshly installed binary (handoffProjectUpgrade runs
+				// `<installed> project upgrade --all-known`). Skipping here
+				// leaves exactly one reconcile pass, performed by the
+				// version that will actually be running afterwards.
+				if cmd.CommandPath() == "agent-comms update" {
+					return nil
+				}
 				warnings, e := c.reconcileUserInstallation(cmd.Context(), "")
 				c.pendingWarnings = append(c.pendingWarnings, warnings...)
 				return e
@@ -453,6 +473,24 @@ func (c *cli) root() *cobra.Command {
 				return e
 			}
 			c.actor = c.actorResolution.Actor
+			// RFC 0039 section 4: --actor may name a principal by display
+			// name. Resolved here rather than in identity.ResolveActor,
+			// which has no access to project state and must stay usable
+			// before a service exists. Only an explicit flag is resolved:
+			// every other source already yields a canonical ID, and
+			// re-resolving them would let a display name collide with the
+			// profile machinery. A reference that resolves to nothing is
+			// left alone so the existing "unknown actor" paths report it,
+			// rather than turning an unregistered actor into a resolution
+			// error.
+			if c.actorResolution.Source == identity.ActorSourceFlag && c.svc != nil {
+				if state, stateErr := c.svc.State(); stateErr == nil {
+					if resolved, resolveErr := model.ResolvePrincipal(state.Agents, c.actor); resolveErr == nil {
+						c.actor = resolved
+						c.actorResolution.Actor = resolved
+					}
+				}
+			}
 			// Refuse to sign anything under an actor this ambiguously resolved
 			// -- see RFC 0017. Only ActorSourceActiveProfile (the legacy,
 			// machine-wide fallback used when no recognized provider session

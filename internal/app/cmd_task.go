@@ -124,14 +124,18 @@ func (c *cli) taskCmd() *cobra.Command {
 		id, _ := cmd.Flags().GetString("id")
 		accept, _ := cmd.Flags().GetBool("accept")
 		typ := "task.handoff"
-		resolvedHandTo, resolveErr := c.resolvePrincipal(handTo)
-		if resolveErr != nil {
-			return resolveErr
-		}
-		var p any = model.TaskHandoff{To: resolvedHandTo, Summary: handSummary}
+		var p any
 		if accept {
+			// --accept ignores --to entirely, so resolving it here would
+			// let an irrelevant bad name reject a valid acceptance.
 			typ = "task.handoff.accept"
 			p = model.TaskStatus{Summary: handSummary}
+		} else {
+			resolvedHandTo, resolveErr := c.resolvePrincipal(handTo)
+			if resolveErr != nil {
+				return resolveErr
+			}
+			p = model.TaskHandoff{To: resolvedHandTo, Summary: handSummary}
 		}
 		v, e := c.svc.Execute(c.actor, typ, id, p)
 		if e != nil {

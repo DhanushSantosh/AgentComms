@@ -196,6 +196,13 @@ func (c *cli) invocationCmd() *cobra.Command {
 		}
 		status, _ := cmd.Flags().GetString("status")
 		targetFilter, _ := cmd.Flags().GetString("to")
+		// Invocation.Target holds the canonical actor ID, so comparing the
+		// raw flag made a display-name filter match nothing at all -- and
+		// silently, which is worse than refusing it.
+		targetFilter, filterErr := c.resolvePrincipal(targetFilter)
+		if filterErr != nil {
+			return filterErr
+		}
 		result := map[string]model.Invocation{}
 		for id, invocation := range state.Invocations {
 			if status != "" && invocation.Status != strings.ToUpper(status) {
