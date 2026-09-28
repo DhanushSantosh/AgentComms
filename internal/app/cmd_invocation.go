@@ -92,8 +92,12 @@ func (c *cli) invocationCmd() *cobra.Command {
 			value := time.Now().UTC().Add(expiresIn)
 			deadline = &value
 		}
+		resolvedTarget, resolveErr := c.resolvePrincipal(target)
+		if resolveErr != nil {
+			return resolveErr
+		}
 		payload := model.InvocationRequested{
-			Target: target, MessageID: messageID, TaskID: taskID, Instruction: instruction,
+			Target: resolvedTarget, MessageID: messageID, TaskID: taskID, Instruction: instruction,
 			ExpectedResult: expectedResult, Scopes: invocationScopes, Priority: priority,
 			ConsumerMode:       model.ConsumerMode(strings.ToUpper(consumerMode)),
 			PreferredRuntimeID: preferredRuntimeID, Deadline: deadline,
@@ -153,7 +157,10 @@ func (c *cli) invocationCmd() *cobra.Command {
 			Status: status,
 			Fields: []cliui.Field{
 				{Label: "Invocation", Value: id},
-				{Label: "Target", Value: target},
+				// The resolved ID, not the raw flag: if the caller typed a
+				// display name, the receipt should show the identity the
+				// event actually records.
+				{Label: "Target", Value: resolvedTarget},
 				{Label: "Priority", Value: priority},
 				{Label: "Consumer", Value: resolvedConsumer},
 				{Label: "Delivery", Value: delivery},

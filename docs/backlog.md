@@ -453,6 +453,32 @@ kept:
   and benefits too: at 300ms a slow-but-healthy running daemon could be
   misjudged as absent and needlessly killed and respawned.
 
+## Project-scoped custom providers
+
+- **Extending RFC 0039's provider set per project — attempted 2026-09-28,
+  removed, deferred.** `claude`, `codex` and `opencode` are fixed at build
+  time (`internal/model/provider.go`). An attempt to let a declarative
+  adapter (`.agent-comms/adapters/<name>.json`) add its own name was
+  implemented and then removed: adapters load in the **CLI** process, while
+  agent IDs are validated in `ValidateTransition` inside the **authority**
+  process. Verified by running it — with an adapter declared, the CLI
+  accepted `--provider housecat` and the daemon rejected the command,
+  reporting only the three built-ins.
+  **Why the obvious fix was rejected.** Loading adapters in the daemon
+  repairs personal mode only. In team mode the authority is a remote
+  service with no access to the project's files, so the two runtime modes
+  would disagree about which identities are registrable — and it would add
+  a write to a package-level map concurrent with the reads validation
+  performs.
+  **What a real design needs.** The accepted provider set has to be
+  something every process derives identically, which for this project means
+  signed project state rather than a local file — `model.ProjectSettings`
+  is the natural home, reached through `project.settings.update`, so
+  widening which identities an authority accepts is itself a governed,
+  audited act. Note there is no `project settings` CLI command today, so
+  this is a governance surface as well as a plumbing change. Until then the
+  set is fixed, which is at least consistent everywhere.
+
 ## Remote and hosted participants
 
 - **Cloud/hosted agents as team-mode participants — attempted 2026-09-27,

@@ -22,31 +22,32 @@ var builtInProviders = map[string]bool{
 	"opencode": true,
 }
 
-// extraProviders holds providers contributed by declarative adapters, so a
-// project can add its own runtime without a code change -- the same escape
-// hatch the adapter system already offers. Registration happens at startup,
-// before any command is validated.
-var extraProviders = map[string]bool{}
-
-// RegisterProvider adds a provider name to the accepted set. Names are
-// lower-cased; blank names are ignored rather than creating an entry that
-// could never match.
-func RegisterProvider(name string) {
-	name = strings.ToLower(strings.TrimSpace(name))
-	if name == "" || builtInProviders[name] {
-		return
-	}
-	extraProviders[name] = true
-}
+// The set is fixed at build time, deliberately.
+//
+// It was briefly extensible: registering a declarative adapter called a
+// RegisterProvider that mutated a package-level map. That does not work and
+// cannot be made to work this way. Provider validity is enforced in
+// ValidateTransition, which runs inside the authority process -- the local
+// daemon in personal mode, a remote service in team mode -- while adapter
+// files are loaded by the CLI process. Verified end to end: with an adapter
+// declared, the CLI accepted `--provider housecat` and the daemon rejected
+// the resulting command, reporting only the three built-ins. Loading
+// adapters in the daemon too would paper over it in personal mode, leave
+// team mode broken (a remote authority has no access to the project's
+// files), and introduce a write to this map concurrent with the reads
+// validation performs.
+//
+// The deeper objection is that it is the wrong shape for this project: a
+// local JSON file would silently widen which identities a *signed*
+// authority accepts. If project-scoped providers are wanted, they belong in
+// signed project state, so every process reaches the same answer. See
+// docs/backlog.md, "Project-scoped custom providers".
 
 // KnownProviders lists every accepted provider, sorted, for error messages
 // and help text.
 func KnownProviders() []string {
-	names := make([]string, 0, len(builtInProviders)+len(extraProviders))
+	names := make([]string, 0, len(builtInProviders))
 	for name := range builtInProviders {
-		names = append(names, name)
-	}
-	for name := range extraProviders {
 		names = append(names, name)
 	}
 	sort.Strings(names)
@@ -55,8 +56,7 @@ func KnownProviders() []string {
 
 // IsKnownProvider reports whether name is an accepted provider.
 func IsKnownProvider(name string) bool {
-	name = strings.ToLower(strings.TrimSpace(name))
-	return builtInProviders[name] || extraProviders[name]
+	return builtInProviders[strings.ToLower(strings.TrimSpace(name))]
 }
 
 // actorSuffix matches the optional part after "<provider>-". Lower case so

@@ -118,29 +118,21 @@ func TestRegisterDeclarativeAdapterAcceptsAgy(t *testing.T) {
 	}
 }
 
-// RFC 0039's escape hatch: adding a runtime via a declarative adapter must
-// also make agent IDs for that runtime registrable. Without this wiring the
-// hatch is documented but absent -- you can add the adapter and still be
-// unable to register an agent for it, which is exactly the dead end
-// antigravity-main was pointed at.
-func TestRegisteringADeclarativeAdapterMakesItsProviderValid(t *testing.T) {
+// Registering a declarative adapter must NOT widen RFC 0039's provider
+// set. Adapters load in the CLI process while agent IDs are validated in
+// the authority process, so a provider registered here would be accepted by
+// the CLI and rejected by the daemon -- verified end to end before this was
+// removed. The set is fixed at build time so every process agrees.
+func TestRegisteringADeclarativeAdapterDoesNotWidenTheProviderSet(t *testing.T) {
 	const name = "housecat"
-	if model.IsKnownProvider(name) {
-		t.Fatalf("%q must not already be a provider for this test to mean anything", name)
-	}
-	if err := model.ValidateAgentActorID(name + "-main"); err == nil {
-		t.Fatalf("%s-main should be invalid before the adapter exists", name)
-	}
-
 	t.Cleanup(func() { delete(adapters, name) })
 	if err := RegisterDeclarativeAdapter(DeclarativeSpec{Name: name, ExecutableName: "housecat"}); err != nil {
 		t.Fatal(err)
 	}
-
-	if !model.IsKnownProvider(name) {
-		t.Fatalf("registering the adapter should have made %q a provider", name)
+	if model.IsKnownProvider(name) {
+		t.Fatalf("%q must not become a provider: the authority process would still reject it", name)
 	}
-	if err := model.ValidateAgentActorID(name + "-main"); err != nil {
-		t.Errorf("%s-main should be registrable once its adapter exists: %v", name, err)
+	if err := model.ValidateAgentActorID(name + "-main"); err == nil {
+		t.Fatalf("%s-main must stay invalid, or the CLI accepts what the daemon refuses", name)
 	}
 }

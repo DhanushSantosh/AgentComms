@@ -51,10 +51,10 @@ rename.
 variants (`claude-acp`, `codex-live`) which are not separate providers, and
 a principal named `claude-acp-main` would be wrong.
 
-A project that registers a declarative adapter
-(`.agent-comms/adapters/<name>.json`) extends the accepted set with that
-name, so custom providers work without a code change — the same escape
-hatch the adapter system already provides.
+**The set is fixed at build time.** This originally said a declarative
+adapter would extend it. That was implemented, shipped, and then removed as
+unworkable — see "Corrections" below. Project-scoped custom providers are
+deferred; `docs/backlog.md` records why and what a real design needs.
 
 ### 3. `--provider` becomes the primary flag; `--id` becomes optional
 
@@ -190,6 +190,39 @@ rename was applied to real fixtures:
 
 A naming rule that makes the primary UI unreadable is not finished, and
 this one is not finished until those are in — which they now are.
+
+## Corrections
+
+This RFC has been wrong twice about the same feature, recorded here rather
+than quietly edited.
+
+1. **"Accepted and implemented" while four contract paths did not exist**
+   (codex-main's review of c6f04fe..2af2fb6). CI was green because nothing
+   exercised them. Closed in 64cfdf9.
+2. **"A declarative adapter extends the provider set" was false end to
+   end**, even after the wiring was added. `RegisterDeclarativeAdapter`
+   called `model.RegisterProvider`, but adapters load in the CLI process
+   while agent IDs are validated in the authority process. Verified by
+   running it: with `.agent-comms/adapters/housecat.json` present, the CLI
+   accepted `--provider housecat` and the daemon rejected the resulting
+   command, reporting only the three built-ins.
+
+   The obvious repair — load adapters in the daemon too — was rejected. It
+   fixes personal mode only; a remote authority in team mode has no access
+   to the project's files, so the two modes would disagree about which
+   identities are registrable. It would also add a write to a package-level
+   map concurrent with the reads validation performs.
+
+   The deeper objection is that the shape was wrong for this project: a
+   local JSON file would silently widen which identities a *signed*
+   authority accepts. Provider extensibility, if wanted, belongs in signed
+   project state so every process reaches the same answer. Removed rather
+   than left as a claim that does not hold.
+
+Both were found by review and by running the thing, not by reading it. The
+grammar, the CLI surface, display-name resolution and the display work are
+implemented and tested; extensibility is not, and this RFC no longer claims
+it is.
 
 ## Unresolved questions
 

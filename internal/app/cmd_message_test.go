@@ -355,3 +355,51 @@ func TestApprovalRequestRefusesANegativeExpiry(t *testing.T) {
 		t.Fatalf("omitting --expires-in must still be accepted: %v (%s)", err, stderr.String())
 	}
 }
+
+// RFC 0039 section 4 names four places a principal can be referenced:
+// --to, --actor, task ownership and invocation targets. The first
+// implementation only did message recipients, which codex-main caught by
+// grepping for the resolver rather than trusting the RFC.
+func TestDisplayNamesResolveForTaskAndInvocationTargetsToo(t *testing.T) {
+	project := t.TempDir()
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
+	cleanupProjectDaemon(t, project)
+	var stdout, stderr bytes.Buffer
+	run := func(args ...string) error {
+		stdout.Reset()
+		stderr.Reset()
+		return Run(append(args, "--project", project, "--json"), &stdout, &stderr)
+	}
+	if err := run("init", "--non-interactive", "--owner", "owner"); err != nil {
+		t.Fatal(err)
+	}
+	if err := run("agent", "register", "--actor", "owner", "--provider", "claude", "--display-name", "Atlas"); err != nil {
+		t.Fatalf("register: %v (%s)", err, stderr.String())
+	}
+	if err := run("agent", "activate", "--actor", "owner", "--id", "claude", "--role", "Engineer", "--scope", "*"); err != nil {
+		t.Fatalf("activate: %v (%s)", err, stderr.String())
+	}
+	if err := run("task", "create", "--actor", "owner", "--id", "t1", "--title", "T", "--branch", "main", "--resource", "src"); err != nil {
+		t.Fatalf("task create: %v (%s)", err, stderr.String())
+	}
+
+	if err := run("task", "offer", "--actor", "owner", "--id", "t1", "--to", "Atlas"); err != nil {
+		t.Errorf("task offer should accept a display name: %v (%s)", err, stderr.String())
+	}
+	if err := run("invocation", "request", "--actor", "owner", "--to", "Atlas", "--instruction", "do it"); err != nil {
+		t.Errorf("invocation request should accept a display name: %v (%s)", err, stderr.String())
+	}
+	// The receipt must show the identity actually recorded, not the label
+	// the caller typed.
+	if strings.Contains(stdout.String(), `"target":"Atlas"`) {
+		t.Errorf("the invocation must record the actor ID, not the display name:\n%s", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), `"target":"claude"`) {
+		t.Errorf("expected the resolved target in the event:\n%s", stdout.String())
+	}
+	// An unresolvable reference is refused at each site.
+	if err := run("invocation", "request", "--actor", "owner", "--to", "Nobody", "--instruction", "x"); err == nil {
+		t.Error("an unresolvable invocation target must be refused")
+	}
+}
