@@ -2672,6 +2672,33 @@ func TestLifecycleUnresolvedJudgesTheLifecycleFindingsOnly(t *testing.T) {
 	}
 }
 
+func TestLifecycleFindingsUseOneClassification(t *testing.T) {
+	if got := lifecycleFindings(projectlifecycle.Plan{}, nil); len(got) != 0 {
+		t.Fatalf("healthy lifecycle: got findings %+v", got)
+	}
+	invalid := lifecycleFindings(projectlifecycle.Plan{}, errors.New("invalid project"))
+	if len(invalid) != 1 || invalid[0].Code != "PROJECT_LIFECYCLE_INVALID" || !invalid[0].Fixable() {
+		t.Fatalf("invalid lifecycle: got findings %+v", invalid)
+	}
+	upgrade := lifecycleFindings(projectlifecycle.Plan{Interrupted: true}, nil)
+	if len(upgrade) != 1 || upgrade[0].Code != "PROJECT_UPGRADE_AVAILABLE" || !upgrade[0].Fixable() {
+		t.Fatalf("interrupted lifecycle: got findings %+v", upgrade)
+	}
+}
+
+func TestConflictDoesNotCreditUnrelatedClearedFindings(t *testing.T) {
+	before := []doctor.Finding{{Code: "PROJECT_UPGRADE_AVAILABLE", Fix: "reconcile"}, {Code: "STALE_LEASE"}}
+	if got := clearedFindingSummary(before, before[:1], false); got != "" {
+		t.Fatalf("a lock conflict did not repair the stale lease: %q", got)
+	}
+	if got := clearedFindingSummary(before, before[:1], true); got != "" {
+		t.Fatalf("an unrelated stale lease clearing is not a lifecycle repair: %q", got)
+	}
+	if got := clearedFindingSummary(before, before[1:], true); got != "cleared 1 finding(s)" {
+		t.Fatalf("a completed reconciliation should report the fixable finding it cleared: %q", got)
+	}
+}
+
 // TestIsLifecycleConflictOnlyMatchesTheLock guards the widening that
 // would make every lifecycle failure look like a transient one worth
 // re-inspecting past.

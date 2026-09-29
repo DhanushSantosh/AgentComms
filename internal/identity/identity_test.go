@@ -435,3 +435,19 @@ func TestHostIDIsRandomStableAndPrivate(t *testing.T) {
 		t.Fatalf("host ID permissions=%#o, want 0600", info.Mode().Perm())
 	}
 }
+
+func TestLoadUserConfigIgnoresLegacyTheme(t *testing.T) {
+	configDir := t.TempDir()
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", configDir)
+	legacy := []byte(`{"theme":"dark","update_channel":"stable","profiles":{}}`)
+	if err := os.WriteFile(filepath.Join(configDir, "config.json"), legacy, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	config, err := LoadUserConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.UpdateChannel != "stable" || config.Profiles == nil {
+		t.Fatalf("legacy theme must not prevent reading other settings: %+v", config)
+	}
+}

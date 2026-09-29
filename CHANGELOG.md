@@ -5,6 +5,16 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 
 ## [Unreleased]
 
+**Breaking**
+- `config theme` and the TUI theme toggle were removed. The TUI now uses one
+  palette and the terminal's own background; older user-config `theme` values
+  are ignored. See RFC 0040.
+
+**Added**
+- `doctor --fix` can reconcile fixable project-lifecycle findings and recover
+  an unavailable local daemon without deciding confirmation-required or
+  judgment-based repairs. See RFC 0040.
+
 ## [0.8.0] - 2026-09-27 — “Roll Call”
 
 *Agents now say which runtime they are. An agent's ID names its provider —
@@ -52,8 +62,9 @@ were given.*
   shown. A principal can be addressed by display name anywhere an actor ID
   is accepted; resolution prefers the actor ID, matches display names
   case-insensitively, and refuses an ambiguous name rather than guessing.
-  Events always record the canonical actor ID. Registering a declarative
-  adapter adds its name to the accepted provider set. See RFC 0039.
+  Events always record the canonical actor ID. The accepted provider set is
+  fixed at build time; a declarative worker adapter does not extend it. See
+  RFC 0039's Corrections section.
 - `draft delete --id` removes one non-authoritative local draft, releasing
   its count and storage quota without deleting drafts from other projects.
 - The TUI Drafts panel can delete a selected draft with confirmation, and its

@@ -19,7 +19,7 @@ import (
 // overview strip advertised "[n] create" on a view where openCreateForm
 // has no case at all, so the key did nothing. Deriving every contextual
 // hint from the same source the key handler reads (a row's own Actions,
-// createHintLabels) is what keeps that from coming back.
+// createForms) is what keeps that from coming back.
 
 type keyHint struct{ key, label string }
 
@@ -45,12 +45,13 @@ func (m Model) contextHints() []keyHint {
 			{"[g]", "agents"}, {"[r]", "runtimes"},
 		}
 	case "Drafts":
+		create := keyHint{"[n]", createForms[view].label}
 		if !entered {
-			return []keyHint{{"[enter]", "select a draft"}, {"[n]", "save draft"}}
+			return []keyHint{{"[enter]", "select a draft"}, create}
 		}
 		return []keyHint{
 			{"[↑/↓]", "select"}, {"[pgup/pgdn]", "page"},
-			{"[d]", "delete selected"}, {"[n]", "save draft"},
+			{"[d]", "delete selected"}, create,
 		}
 	}
 	mutable := m
@@ -78,31 +79,10 @@ func (m Model) contextHints() []keyHint {
 		hints = append(hints, keyHint{"[" + act.Key + "]", act.Label})
 	}
 	hints = append(hints, keyHint{"[i]", "inspect"})
-	if label, ok := createHintLabels[view]; ok {
-		hints = append(hints, keyHint{"[n]", label})
+	if form, ok := createForms[view]; ok {
+		hints = append(hints, keyHint{"[n]", form.label})
 	}
 	return hints
-}
-
-// createHintLabels names what "n" creates, per view. Must stay in step
-// with openCreateForm's own switch (rowlist.go) -- a view missing here
-// silently loses its "new" hint, and a view listed here that
-// openCreateForm doesn't handle advertises a dead key, which is the exact
-// defect the overview's old hardcoded strip carried.
-// TestCreateHintLabelsMatchOpenCreateForm holds the two together.
-var createHintLabels = map[string]string{
-	"Tasks":                 "new task",
-	"My work":               "new task",
-	"Inbox":                 "new message",
-	"Approvals":             "new approval",
-	"Agents":                "register agent",
-	"Invocations":           "new invocation",
-	"Runtimes":              "register runtime",
-	"Documents":             "new document",
-	"Contracts & decisions": "new decision",
-	"Artifacts":             "add artifact",
-	"Drafts":                "save draft",
-	"Environment":           "set env key",
 }
 
 // globalHints are the keys every view honors. They render in the sidebar

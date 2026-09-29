@@ -90,7 +90,7 @@ func (m Model) updateSettings(message tea.Msg) (tea.Model, tea.Cmd) {
 
 // enterSettingsDomain runs whatever "e"/"enter" (keyboard) or a double-click
 // (mouse) both mean for the given domain index -- opening its form, moving
-// into its own row-focused view, or toggling the local theme. Shared so
+// into its own row-focused view. Shared so
 // the two input paths can never disagree about what a domain does.
 func (m Model) enterSettingsDomain(index int) (tea.Model, tea.Cmd) {
 	switch index {

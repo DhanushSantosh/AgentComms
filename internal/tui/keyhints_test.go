@@ -92,13 +92,9 @@ func TestEnteredRowViewShowsItsRowActions(t *testing.T) {
 	}
 }
 
-// TestCreateHintLabelsMatchOpenCreateForm holds the bar's "[n] new ..."
-// labels to the views openCreateForm actually handles. Without it the two
-// drift silently in both directions: a view missing from the map loses a
-// working key from the bar, and a view listed there that openCreateForm
-// ignores advertises a dead one -- exactly what the overview's old
-// hardcoded "[n] create" did.
-func TestCreateHintLabelsMatchOpenCreateForm(t *testing.T) {
+// TestCreateFormsOpenWhatTheyAdvertise checks the shared hint/opener table,
+// including views where [n] must have no effect.
+func TestCreateFormsOpenWhatTheyAdvertise(t *testing.T) {
 	s := newTestService(t)
 	for _, name := range views {
 		m, err := New(s, "owner")
@@ -108,9 +104,12 @@ func TestCreateHintLabelsMatchOpenCreateForm(t *testing.T) {
 		m.openView(name)
 		next, _ := m.openCreateForm()
 		opened := next.(Model).form != ""
-		_, labelled := createHintLabels[name]
+		spec, labelled := createForms[name]
 		if opened != labelled {
-			t.Errorf("%s: openCreateForm opens a form = %v, createHintLabels has it = %v", name, opened, labelled)
+			t.Errorf("%s: openCreateForm opens a form = %v, createForms has it = %v", name, opened, labelled)
+		}
+		if labelled && (spec.label == "" || (!spec.task && (spec.form == nil || spec.command == ""))) {
+			t.Errorf("%s: incomplete create form specification: %+v", name, spec)
 		}
 	}
 }

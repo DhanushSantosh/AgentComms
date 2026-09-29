@@ -387,32 +387,40 @@ func (m *Model) activeRowList() *RowList {
 	}
 	return nil
 }
+
+// createForms drives both the [n] hint and its action. A view cannot gain a
+// visible create shortcut without also having an opener, or vice versa.
+type createFormSpec struct {
+	label   string
+	form    *ActionForm
+	command string
+	task    bool
+}
+
+var createForms = map[string]createFormSpec{
+	"Tasks":                 {label: "new task", task: true},
+	"My work":               {label: "new task", task: true},
+	"Inbox":                 {label: "new message", form: messagePostForm, command: "message.post"},
+	"Approvals":             {label: "new approval", form: approvalRequestForm, command: "approval.request"},
+	"Agents":                {label: "register agent", form: agentRegisterForm, command: "agent.register"},
+	"Invocations":           {label: "new invocation", form: invocationRequestForm, command: "invocation.request"},
+	"Runtimes":              {label: "register runtime", form: runtimeRegisterForm, command: "runtime.register"},
+	"Documents":             {label: "new document", form: documentCreateForm, command: "document.create"},
+	"Contracts & decisions": {label: "new decision", form: decisionCreateForm, command: "document.create"},
+	"Artifacts":             {label: "add artifact", form: artifactAddForm, command: "artifact.add"},
+	"Drafts":                {label: "save draft", form: draftSaveForm, command: "draft.save"},
+	"Environment":           {label: "set env key", form: envSetForm, command: "env.set"},
+}
+
 func (m Model) openCreateForm() (tea.Model, tea.Cmd) {
-	switch views[m.view] {
-	case "Tasks", "My work":
-		return m.openTaskForm()
-	case "Inbox":
-		return m.openActionForm(messagePostForm, "message.post", "")
-	case "Approvals":
-		return m.openActionForm(approvalRequestForm, "approval.request", "")
-	case "Agents":
-		return m.openActionForm(agentRegisterForm, "agent.register", "")
-	case "Invocations":
-		return m.openActionForm(invocationRequestForm, "invocation.request", "")
-	case "Runtimes":
-		return m.openActionForm(runtimeRegisterForm, "runtime.register", "")
-	case "Documents":
-		return m.openActionForm(documentCreateForm, "document.create", "")
-	case "Contracts & decisions":
-		return m.openActionForm(decisionCreateForm, "document.create", "")
-	case "Artifacts":
-		return m.openActionForm(artifactAddForm, "artifact.add", "")
-	case "Drafts":
-		return m.openActionForm(draftSaveForm, "draft.save", "")
-	case "Environment":
-		return m.openActionForm(envSetForm, "env.set", "")
+	spec, ok := createForms[views[m.view]]
+	if !ok {
+		return m, nil
 	}
-	return m, nil
+	if spec.task {
+		return m.openTaskForm()
+	}
+	return m.openActionForm(spec.form, spec.command, "")
 }
 
 func (m Model) updateRowList(msg tea.Msg) (tea.Model, tea.Cmd) {

@@ -3,8 +3,8 @@
 ## Status
 
 **Accepted, 2026-09-05.** The project owner accepted this while reviewing
-[UX-04 of the release UX audit](research/2026-09-05-release-ux-audit.md)
-(`docs/research/2026-09-05-release-ux-audit.md`), per `docs/rfcs/README.md`.
+[UX-04 of the historical release UX audit](https://github.com/DhanushSantosh/AgentComms/blob/1b7aa4cde3def4f6a0d90b40c46ff559b4c63088/docs/research/2026-09-05-release-ux-audit.md),
+per `docs/rfcs/README.md`.
 
 Adds a new public command, so it requires review.
 
@@ -15,8 +15,7 @@ subject and body directly. RFC 0027 added a uniform `show` to every other
 domain that previously only had `list` (`task show`, `agent show`,
 `approval show`, `decision show`) but did not cover messages -- an
 oversight, not a deliberate exclusion; nothing in RFC 0027 argues messages
-should be different. UX-04 (`docs/research/2026-09-05-release-ux-audit.md`)
-reproduced the resulting gap: a user has to already know to pass
+should be different. UX-04 reproduced the resulting gap: a user has to already know to pass
 `--details` or `--json` to `inbox` to read a message's body at all.
 
 Desired outcome: `message show --id <id>` exists, built on the same

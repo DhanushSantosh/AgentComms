@@ -3,8 +3,8 @@
 ## Status
 
 **Accepted, 2026-09-05.** The project owner accepted this while reviewing
-[UX-07 of the release UX audit](research/2026-09-05-release-ux-audit.md)
-(`docs/research/2026-09-05-release-ux-audit.md`), per `docs/rfcs/README.md`.
+[UX-07 of the historical release UX audit](https://github.com/DhanushSantosh/AgentComms/blob/1b7aa4cde3def4f6a0d90b40c46ff559b4c63088/docs/research/2026-09-05-release-ux-audit.md),
+per `docs/rfcs/README.md`.
 
 Changes `document create`'s machine-visible JSON response and adds a new
 public command, so it requires review.

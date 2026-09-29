@@ -414,23 +414,8 @@ func (c *cli) doctorCmd() *cobra.Command {
 		if e != nil {
 			return e
 		}
-		// Fix comes from the same table doctor.Findings uses, so a
-		// lifecycle finding appended here is as repairable as one computed
-		// there -- the two must not disagree about what --fix can do.
-		add := func(severity, code, message, guidance string) {
-			findings = append(findings, doctor.Finding{
-				Severity: severity, Code: code, Message: message,
-				Guidance: guidance, Fix: doctor.FixableCodes[code],
-			})
-		}
 		lifecycle, _, lifecycleErr := projectlifecycle.Inspect(c.svc.Store.Root, Version, buildinfo.ResolvedBuildID())
-		if lifecycleErr != nil {
-			add("ERROR", "PROJECT_LIFECYCLE_INVALID", lifecycleErr.Error(), "Run `agent-comms project upgrade plan` and repair the reported compatibility problem.")
-		} else if len(lifecycle.Actions) > 0 || lifecycle.Interrupted {
-			add("WARNING", "PROJECT_UPGRADE_AVAILABLE",
-				fmt.Sprintf("project has %d lifecycle action(s); interrupted=%t", len(lifecycle.Actions), lifecycle.Interrupted),
-				"Run `agent-comms project upgrade`; it plans, backs up, resumes, and verifies the project in one operation.")
-		}
+		findings = append(findings, lifecycleFindings(lifecycle, lifecycleErr)...)
 		// --fix: doctor repairs what it can rather than only naming it.
 		// The one remediation is the project lifecycle, which regenerates
 		// managed files and records the current toolkit -- exactly what is
@@ -489,17 +474,13 @@ func (c *cli) doctorCmd() *cobra.Command {
 					break
 				}
 				findings = refreshed
-				if lifecycleAfter, _, lifecycleAfterErr := projectlifecycle.Inspect(c.svc.Store.Root, Version, buildinfo.ResolvedBuildID()); lifecycleAfterErr != nil {
-					findings = append(findings, doctor.Finding{Severity: "ERROR", Code: "PROJECT_LIFECYCLE_INVALID", Message: lifecycleAfterErr.Error(), Guidance: "Run `agent-comms project upgrade plan` and repair the reported compatibility problem.", Fix: doctor.FixableCodes["PROJECT_LIFECYCLE_INVALID"]})
-				} else {
+				lifecycleAfter, _, lifecycleAfterErr := projectlifecycle.Inspect(c.svc.Store.Root, Version, buildinfo.ResolvedBuildID())
+				findings = append(findings, lifecycleFindings(lifecycleAfter, lifecycleAfterErr)...)
+				if lifecycleAfterErr == nil {
 					lifecycle = lifecycleAfter
-					if len(lifecycle.Actions) > 0 || lifecycle.Interrupted {
-						findings = append(findings, doctor.Finding{Severity: "WARNING", Code: "PROJECT_UPGRADE_AVAILABLE", Message: fmt.Sprintf("project has %d lifecycle action(s); interrupted=%t", len(lifecycle.Actions), lifecycle.Interrupted), Guidance: "Run `agent-comms project upgrade`; it plans, backs up, resumes, and verifies the project in one operation.", Fix: doctor.FixableCodes["PROJECT_UPGRADE_AVAILABLE"]})
-					}
 				}
-				cleared := len(before) - len(findings)
-				if cleared > 0 {
-					fixed = append(fixed, fmt.Sprintf("cleared %d finding(s)", cleared))
+				if summary := clearedFindingSummary(before, findings, reconcileErr == nil && result.Changed); summary != "" {
+					fixed = append(fixed, summary)
 				}
 				if conflict {
 					// Judged on the lifecycle findings themselves, not on
@@ -946,6 +927,52 @@ func lifecycleUnresolved(findings []doctor.Finding) bool {
 		}
 	}
 	return false
+}
+
+// lifecycleFindings is shared by the first inspection and the post-fix
+// inspection, so they assign the same code, remedy and fixability to a
+// lifecycle problem regardless of when it is observed.
+func lifecycleFindings(plan projectlifecycle.Plan, inspectErr error) []doctor.Finding {
+	if inspectErr != nil {
+		return []doctor.Finding{{
+			Severity: "ERROR", Code: "PROJECT_LIFECYCLE_INVALID",
+			Message:  inspectErr.Error(),
+			Guidance: "Run `agent-comms project upgrade plan` and repair the reported compatibility problem.",
+			Fix:      doctor.FixableCodes["PROJECT_LIFECYCLE_INVALID"],
+		}}
+	}
+	if len(plan.Actions) > 0 || plan.Interrupted {
+		return []doctor.Finding{{
+			Severity: "WARNING", Code: "PROJECT_UPGRADE_AVAILABLE",
+			Message:  fmt.Sprintf("project has %d lifecycle action(s); interrupted=%t", len(plan.Actions), plan.Interrupted),
+			Guidance: "Run `agent-comms project upgrade`; it plans, backs up, resumes, and verifies the project in one operation.",
+			Fix:      doctor.FixableCodes["PROJECT_UPGRADE_AVAILABLE"],
+		}}
+	}
+	return nil
+}
+
+// Unrelated findings may disappear during reinspection. Credit this --fix
+// run only for fixable findings that cleared after an actual reconciliation.
+func clearedFindingSummary(before, after []doctor.Finding, reconciled bool) string {
+	if !reconciled {
+		return ""
+	}
+	cleared := 0
+	for _, finding := range before {
+		if finding.Fixable() {
+			cleared++
+		}
+	}
+	for _, finding := range after {
+		if finding.Fixable() {
+			cleared--
+		}
+	}
+	if cleared <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("cleared %d finding(s)", cleared)
 }
 
 // isLifecycleConflict reports whether err is the lifecycle package's
