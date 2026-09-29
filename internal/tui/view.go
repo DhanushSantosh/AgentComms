@@ -165,10 +165,29 @@ func (m Model) View() tea.View {
 // breathing room would silently shift every row, tab and field
 // hit-test by two columns; the sidebar's own right padding and the
 // body pane's left padding already provide the gap on either side.
+// It is inset by ruleInset lines at each end rather than run edge to
+// edge: both panes carry a line of padding at the top and bottom, so a
+// full-height rule stuck out past the content it divides at both ends.
+// The block stays exactly height lines tall -- the inset rows are blank,
+// not missing -- because JoinHorizontal aligns the three columns by
+// their own heights.
 func verticalRule(p palette, height int) string {
-	return lipgloss.NewStyle().Foreground(p.muted).
-		Render(strings.TrimSuffix(strings.Repeat("│\n", max(1, height)), "\n"))
+	height = max(1, height)
+	rows := make([]string, height)
+	for i := range rows {
+		rows[i] = " "
+		if i >= ruleInset && i < height-ruleInset {
+			rows[i] = "│"
+		}
+	}
+	return lipgloss.NewStyle().Foreground(p.muted).Render(strings.Join(rows, "\n"))
 }
+
+// ruleInset is how many lines the divider gives up at each end, matching
+// the one line of padding the sidebar and the body pane each carry.
+// bodyLayout floors the pane at 4 lines, so there are always at least
+// two left to draw.
+const ruleInset = 1
 
 func (m Model) sidebarWidth() int {
 	if m.width < 60 {

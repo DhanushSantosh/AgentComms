@@ -154,14 +154,22 @@ func TestSidebarAndBodyAreSeparatedByARule(t *testing.T) {
 	for _, size := range [][2]int{{140, 38}, {104, 20}, {60, 20}, {40, 14}} {
 		m.width, m.height = size[0], size[1]
 		column := m.sidebarWidth()
-		for i, line := range strings.Split(m.View().Content, "\n") {
+		lines := strings.Split(m.View().Content, "\n")
+		for i, line := range lines {
 			runes := []rune(ansi.Strip(line))
 			if len(runes) <= column {
 				t.Errorf("%dx%d line %d is too short to hold the divider: %q", size[0], size[1], i, string(runes))
 				continue
 			}
-			if runes[column] != '│' {
-				t.Errorf("%dx%d line %d: column %d is %q, want the divider", size[0], size[1], i, column, string(runes[column]))
+			// Inset by ruleInset at each end, matching the padding both
+			// panes carry, so the rule divides the content rather than
+			// sticking out past it.
+			want := '│'
+			if i < ruleInset || i >= len(lines)-ruleInset {
+				want = ' '
+			}
+			if runes[column] != want {
+				t.Errorf("%dx%d line %d: column %d is %q, want %q", size[0], size[1], i, column, string(runes[column]), string(want))
 			}
 		}
 	}
