@@ -432,6 +432,25 @@ func TestMain(testingMain *testing.M) {
 
 var testDaemonRuns sync.Map // project root -> daemon.Run completion channel
 
+// testDaemonShutdownBudget is how long cleanup waits for the test daemon
+// to finish and release its SQLite files before t.TempDir() tries to
+// delete them. Windows gets four times as long, and not as a guess: the
+// same filesystem-heavy work this package does runs about two orders of
+// magnitude slower on windows-latest than locally (measured earlier in
+// this repo: a 0.18s test at 9.32s, a 0.7s package at 68s), and on
+// Windows a still-open handle makes RemoveAll fail outright rather than
+// unlinking the file underneath the holder as POSIX does. 15s was
+// calibrated on a fast machine and produced exactly that failure --
+// "test daemon did not release its database before tempdir cleanup"
+// followed by a RemoveAll sharing violation -- on three different tests
+// across two CI runs.
+func testDaemonShutdownBudget() time.Duration {
+	if runtime.GOOS == "windows" {
+		return 60 * time.Second
+	}
+	return 15 * time.Second
+}
+
 func cleanupProjectDaemon(t *testing.T, projectRoot string) {
 	t.Helper()
 	t.Cleanup(func() {
@@ -456,7 +475,7 @@ func cleanupProjectDaemon(t *testing.T, projectRoot string) {
 			t.Errorf("prepare daemon cleanup: %v", err)
 			return
 		}
-		deadline := time.Now().Add(15 * time.Second)
+		deadline := time.Now().Add(testDaemonShutdownBudget())
 		for time.Now().Before(deadline) {
 			select {
 			case <-done:
