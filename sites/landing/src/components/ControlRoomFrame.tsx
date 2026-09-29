@@ -118,7 +118,7 @@ export function ControlRoomFrame() {
         </div>
         <p className="tui-control-outcome" role="status" aria-live="polite" data-control-outcome>One attention item needs a human decision.</p>
         <div className="tui-footer">
-          <span>[g] agents</span><span>[i] invocations</span><span>[n] create</span><span>[r] refresh</span><span>[/] commands</span>
+          <span>[g] agents</span><span>[i] invocations</span><span>[pgup/pgdn] scroll</span><span>↑↓ hub</span><span>/ cmds</span><span>q quit</span>
         </div>
       </div>
     </div>

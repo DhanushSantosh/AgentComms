@@ -273,3 +273,126 @@ func TestPaletteAcceptsUnicodeInput(t *testing.T) {
 		t.Fatalf("expected backspace to remove exactly one rune, got query=%q", m.query)
 	}
 }
+
+// TestPaletteWithNoInputListsEveryCommand: opening the palette used to
+// show six rows and stop -- paletteMatches hard-capped at 6, so the other
+// twenty-two commands and views were undiscoverable from the one surface
+// built to discover them. An empty query now means "everything".
+func TestPaletteWithNoInputListsEveryCommand(t *testing.T) {
+	s := newTestService(t)
+	m, err := New(s, "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.palette = true
+	matches := m.paletteMatches()
+	if want := len(paletteCommands()) + len(views); len(matches) != want {
+		t.Fatalf("empty query listed %d commands, want all %d", len(matches), want)
+	}
+	labels := map[string]bool{}
+	for _, match := range matches {
+		labels[match.label] = true
+	}
+	for _, cmd := range paletteCommands() {
+		if !labels[cmd.label] {
+			t.Errorf("command %q missing from the empty-query list", cmd.label)
+		}
+	}
+	for _, name := range views {
+		if !labels[name] {
+			t.Errorf("view %q missing from the empty-query list", name)
+		}
+	}
+}
+
+// TestPaletteFilteredListIsNotCappedEither: the same cap silently hid
+// matches past the sixth for a typed query too -- "new" matches all ten
+// named commands, and four of them could never be reached.
+func TestPaletteFilteredListIsNotCappedEither(t *testing.T) {
+	s := newTestService(t)
+	m, err := New(s, "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.palette = true
+	m.query = "new"
+	if got := len(m.paletteMatches()); got < len(paletteCommands()) {
+		t.Fatalf(`query "new" listed %d matches, want at least the %d named commands`, got, len(paletteCommands()))
+	}
+}
+
+// TestPalettePanelNeverOutgrowsTheTerminal: listing everything only helps
+// if the panel still fits the screen. paletteLayout windows the list;
+// this proves the rendered panel never exceeds the terminal's own height
+// at any size, with the full (empty-query) list open.
+func TestPalettePanelNeverOutgrowsTheTerminal(t *testing.T) {
+	s := newTestService(t)
+	m, err := New(s, "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.palette = true
+	// From 16 lines up: below that the panel's own frame (border,
+	// padding, title, query box, footer) is already taller than the
+	// terminal no matter how small the match window gets.
+	for _, height := range []int{16, 18, 20, 24, 30, 45, 60} {
+		m.width, m.height = 100, height
+		panel, _ := m.paletteLayout(colors(m.highContrast))
+		if got := lipgloss.Height(panel); got > height {
+			t.Errorf("height %d: palette panel renders %d lines", height, got)
+		}
+	}
+}
+
+// TestPaletteWindowFollowsTheSelection: a windowed list must scroll to
+// whatever is selected, or Down past the window's edge would highlight a
+// row nobody can see (and click hit-testing would hand the click to the
+// wrong match).
+func TestPaletteWindowFollowsTheSelection(t *testing.T) {
+	s := newTestService(t)
+	m, err := New(s, "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.width, m.height = 100, 26
+	m.palette = true
+	total := len(m.paletteMatches())
+	visible := paletteVisibleCount(m.height)
+	if total <= visible {
+		t.Fatalf("test needs a list taller than the window: %d matches, %d visible", total, visible)
+	}
+	m.paletteSelected = total - 1
+	_, matchLine := m.paletteLayout(colors(m.highContrast))
+	if matchLine[total-1] < 0 {
+		t.Fatal("the selected match scrolled out of the rendered window")
+	}
+	if matchLine[0] >= 0 {
+		t.Fatal("expected the window to have scrolled off the first match")
+	}
+	m.paletteSelected = 0
+	_, matchLine = m.paletteLayout(colors(m.highContrast))
+	if matchLine[0] < 0 {
+		t.Fatal("expected the first match to be visible when it is selected")
+	}
+}
+
+// TestPaletteClickIgnoresScrolledOutMatches: off-window matches carry -1
+// in matchLine, and a click above the panel produces a negative relative
+// Y -- without an explicit guard the two meet and a stray click applies
+// a command the user cannot even see.
+func TestPaletteClickIgnoresScrolledOutMatches(t *testing.T) {
+	s := newTestService(t)
+	m, err := New(s, "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.width, m.height = 100, 26
+	m.palette = true
+	m.paletteSelected = len(m.paletteMatches()) - 1
+	p := colors(m.highContrast)
+	panel, _ := m.paletteLayout(p)
+	top := centerOffset(m.height, lipgloss.Height(panel))
+	if _, ok := m.paletteMatchAt(p, m.width/2, top-1); ok {
+		t.Fatal("a click above the panel must not resolve to a scrolled-out match")
+	}
+}

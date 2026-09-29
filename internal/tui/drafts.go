@@ -162,15 +162,9 @@ func (m Model) draftsView(p palette) string {
 		line := marker + d.ID + " · " + d.Kind + " · " + d.UpdatedAt.Local().Format("2006-01-02 15:04:05")
 		rows = append(rows, lipgloss.NewStyle().Foreground(p.text).Inline(true).Render(ansi.Truncate(line, width, "…")))
 	}
-	draftFooterParts := []string{
-		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[n]") + " " + lipgloss.NewStyle().Foreground(p.muted).Render("save draft"),
-		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[d]") + " " + lipgloss.NewStyle().Foreground(p.muted).Render("delete selected"),
-		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[r]") + " " + lipgloss.NewStyle().Foreground(p.muted).Render("refresh"),
-	}
-	if !m.rowFocus {
-		rows = append(rows, lipgloss.NewStyle().Foreground(p.muted).Inline(true).Render(
-			ansi.Truncate("Press [enter] to select a draft.", width, "…")))
-	}
-	rows = append(rows, "", ansi.Truncate(strings.Join(draftFooterParts, " · "), width, "…"))
+	// Drafts' own key footer moved to keyhints.go's shared bar, which
+	// renders the same keys (plus the global ones) at the foot of every
+	// view, and states the "not entered yet" case there too rather than
+	// as a sentence in the middle of the list.
 	return strings.Join(rows, "\n")
 }

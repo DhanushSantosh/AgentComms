@@ -74,7 +74,7 @@ func (m Model) bodyLayout(p palette) (paneW, paneH, innerW, innerH int) {
 	paneW = max(10, m.width-sidebarW-3)
 	paneH = max(4, m.height)
 	innerW = max(6, paneW-4)
-	innerH = max(1, paneH-m.bodyPrefixHeight(p)-1)
+	innerH = max(1, paneH-m.bodyPrefixHeight(p)-m.bodySuffixHeight(p)-1)
 	return
 }
 func (m Model) View() tea.View {
@@ -144,12 +144,14 @@ func (m Model) renderSidebar(p palette, w, h int) (view string, hubLine []int) {
 				Render("└ "+truncate(views[m.view], max(8, w-5))), "")
 		}
 	}
-	rows = append(rows,
-		"",
-		lipgloss.NewStyle().Foreground(p.muted).Render("↑↓ hub  ←→ tab"),
-		lipgloss.NewStyle().Foreground(p.muted).Render("Enter open  Esc back"),
-		lipgloss.NewStyle().Foreground(p.muted).Render("[/] commands"),
-	)
+	// The global keys, from the same mode-aware list keyhints.go builds
+	// (globalHints) rather than three hardcoded lines that only ever
+	// described navigation mode -- inside a focused tab ↑↓ moves rows,
+	// not hubs, and this used to keep insisting otherwise.
+	rows = append(rows, "")
+	for _, line := range packHints(m.globalHints(), max(4, w-2)) {
+		rows = append(rows, lipgloss.NewStyle().Foreground(p.muted).Render(line))
+	}
 	// Padding(1) costs 2 more lines (top+bottom) than rows itself. Unlike
 	// the body's row lists, the sidebar has no scrolling concept of its
 	// own -- it's meant to show the whole nav hierarchy at a glance -- so
@@ -204,7 +206,17 @@ func (m Model) renderBody(p palette, w, h int) string {
 	header := lipgloss.NewStyle().Foreground(p.text).Bold(true).Render(title)
 	meta := m.commandRail(p, contentW)
 	tabs, _ := m.renderHubTabs(p, contentW)
-	pane := lipgloss.NewStyle().Width(w).Height(h).Padding(1, 2).Background(p.panel).Foreground(p.text)
+	// No Background/Foreground of its own: the body pane keeps the
+	// terminal's real colors. It used to paint itself p.panel (a dark
+	// grey) over the whole right-hand side, which fought every terminal
+	// theme that wasn't that exact shade -- on a light profile it was a
+	// grey slab, and on a dark one a second, slightly-off background
+	// beside the terminal's own. Every element inside still sets its own
+	// semantic color (cyan/amber/red/muted), so nothing loses meaning;
+	// only the slab goes. The sidebar and the command palette keep their
+	// fills deliberately -- they are chrome over the content, not the
+	// content surface itself.
+	pane := lipgloss.NewStyle().Width(w).Height(h).Padding(1, 2)
 	if m.form != "" {
 		content := m.renderForm(p)
 		return pane.Render(meta + "\n" + tabs + "\n\n" + header + "\n\n" + content)
@@ -318,7 +330,20 @@ func (m Model) renderBody(p palette, w, h int) string {
 			content += "\n" + scrollInfo
 		}
 	}
-	return pane.Render(meta + "\n" + tabs + "\n\n" + header + "\n\n" + content)
+	body := meta + "\n" + tabs + "\n\n" + header + "\n\n" + content
+	// The key bar is pinned to the foot of the pane rather than left
+	// floating directly under whatever the content happened to be: padding
+	// content out to contentH first keeps it in the same place on every
+	// view and every refresh. contentH is exactly the room bodyLayout
+	// reserved for content (bodySuffixHeight already held back this bar's
+	// own lines), so the pad can never push the body past the terminal.
+	if bar := m.bodySuffix(p); bar != "" {
+		if pad := contentH - lipgloss.Height(content); pad > 0 {
+			body += strings.Repeat("\n", pad)
+		}
+		body += "\n" + bar
+	}
+	return pane.Render(body)
 }
 
 func (m Model) commandRail(p palette, width int) string {
@@ -530,15 +555,10 @@ func (m Model) overview(p palette) string {
 		top = lipgloss.JoinHorizontal(lipgloss.Top, workforce, "  ", attention)
 	}
 	activity := m.section(p, "LIVE ACTIVITY", "append-only project history", m.chain(p), contentWidth)
-	keyParts := []string{
-		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[g]") + " " + lipgloss.NewStyle().Foreground(p.muted).Render("agents"),
-		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[i]") + " " + lipgloss.NewStyle().Foreground(p.muted).Render("invocations"),
-		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[n]") + " " + lipgloss.NewStyle().Foreground(p.muted).Render("create"),
-		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[r]") + " " + lipgloss.NewStyle().Foreground(p.muted).Render("refresh"),
-		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[/]") + " " + lipgloss.NewStyle().Foreground(p.muted).Render("commands"),
-	}
-	keys := strings.Join(keyParts, " · ")
-	return lipgloss.NewStyle().Foreground(p.cyan).Render(status) + "\n\n" + top + "\n\n" + activity + "\n\n" + keys
+	// No key strip of its own any more: keyhints.go's bar renders the
+	// overview's real keys (and the global ones) at the foot of the pane,
+	// on every view rather than only this one.
+	return lipgloss.NewStyle().Foreground(p.cyan).Render(status) + "\n\n" + top + "\n\n" + activity
 }
 
 func (m Model) section(p palette, title, subtitle, body string, width int) string {
@@ -787,6 +807,40 @@ func (m Model) archive(p palette) string {
 // since View() has no way to hand this to the Update() call that handles
 // a click). matchLine[i] is the row offset within the returned panel
 // string (0-based, before centering) of paletteMatches()'s i-th entry.
+// paletteVisibleCount is how many match rows the palette panel can show
+// at this terminal height: everything else it renders (border, padding,
+// title, subtitle, the query box and its label, the matches heading, the
+// scroll line and the footer, plus their blanks) comes to
+// paletteChromeHeight lines. One row is the floor -- below roughly 16
+// lines the panel's own frame is already taller than the terminal, and
+// no window size fixes that; the honest choice there is the smallest
+// possible list rather than a larger one that overflows further.
+func paletteVisibleCount(height int) int {
+	return max(1, height-paletteChromeHeight)
+}
+
+// paletteChromeHeight counts the scroll line too, which only renders when
+// the list is actually windowed -- deliberately conservative by that one
+// line in the case where everything fits.
+const paletteChromeHeight = 15
+
+// paletteWindow is the slice of matches to render for a list that doesn't
+// fit: the selection kept roughly centered, clamped so the window never
+// runs off either end.
+func paletteWindow(total, selected, visible int) (start, end int) {
+	if total <= visible {
+		return 0, total
+	}
+	start = selected - visible/2
+	if start < 0 {
+		start = 0
+	}
+	if start+visible > total {
+		start = total - visible
+	}
+	return start, start + visible
+}
+
 func (m Model) paletteLayout(p palette) (panel string, matchLine []int) {
 	width := min(68, max(36, m.width-8))
 	rows := []string{
@@ -802,13 +856,27 @@ func (m Model) paletteLayout(p palette) (panel string, matchLine []int) {
 	if len(matches) == 0 {
 		rows = append(rows, lipgloss.NewStyle().Foreground(p.amber).Render("No matching command"))
 	} else {
-		rows = append(rows, lipgloss.NewStyle().Foreground(p.muted).Render("Matches"))
-		matchLine = make([]int, len(matches))
+		heading := "Matches"
+		if strings.TrimSpace(m.query) == "" {
+			heading = fmt.Sprintf("All commands (%d)", len(matches))
+		}
+		rows = append(rows, lipgloss.NewStyle().Foreground(p.muted).Render(heading))
 		// UX-11: highlight (and, in updatePalette, actually apply) the
 		// keyboard-selected row, not always index 0 -- previously Up/Down
 		// had no effect on either the highlight or what Enter did.
 		selected := m.paletteSelectedIndex()
-		for index, match := range matches {
+		start, end := paletteWindow(len(matches), selected, paletteVisibleCount(m.height))
+		// -1 for every match outside the window: matchLine is indexed by
+		// match, not by row, so paletteMatchAt can still map a click on
+		// the third *visible* row to the right match while the list is
+		// scrolled. paletteMatchAt skips the negatives (a click above the
+		// panel produces a negative relative Y, which would otherwise
+		// match one of them).
+		matchLine = make([]int, len(matches))
+		for i := range matchLine {
+			matchLine[i] = -1
+		}
+		for index := start; index < end; index++ {
 			marker := "  "
 			style := lipgloss.NewStyle().Foreground(p.text)
 			if index == selected {
@@ -816,7 +884,11 @@ func (m Model) paletteLayout(p palette) (panel string, matchLine []int) {
 				style = style.Foreground(p.cyan).Bold(true)
 			}
 			matchLine[index] = len(rows)
-			rows = append(rows, style.Render(marker+match.label))
+			rows = append(rows, style.Render(marker+matches[index].label))
+		}
+		if start > 0 || end < len(matches) {
+			rows = append(rows, lipgloss.NewStyle().Foreground(p.muted).Render(
+				fmt.Sprintf("  showing %d-%d of %d  ↑/↓ scroll", start+1, end, len(matches))))
 		}
 	}
 	paletteFooter := strings.Join([]string{
@@ -873,10 +945,13 @@ func (m Model) paletteSelectedIndex() int {
 func (m Model) paletteMatches() []paletteMatch {
 	query := strings.ToLower(strings.TrimSpace(m.query))
 	var matches []paletteMatch
+	// Every match, not the first six: with an empty query this is the
+	// app's full command list, which is what the palette is for -- the
+	// old cap meant opening it showed six "new ..." commands and no way
+	// to discover the other twenty-two, and even a typed query silently
+	// hid matches past the sixth. paletteLayout scrolls whatever doesn't
+	// fit the screen instead of dropping it.
 	for _, cmd := range paletteCommands() {
-		if len(matches) >= 6 {
-			break
-		}
 		names := append([]string{cmd.label}, cmd.aliases...)
 		hit := query == ""
 		for _, name := range names {
@@ -895,9 +970,6 @@ func (m Model) paletteMatches() []paletteMatch {
 		}})
 	}
 	for _, name := range views {
-		if len(matches) >= 6 {
-			break
-		}
 		if query != "" && !strings.Contains(strings.ToLower(name), query) {
 			continue
 		}

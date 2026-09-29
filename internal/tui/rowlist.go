@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"fmt"
 	"strings"
 	"time"
 
@@ -135,7 +134,14 @@ func newRowList(source RowSource) RowList {
 // between View itself and syncActiveRowListDimensions (mouse.go) so the
 // persisted height used for scroll math can never drift from what's
 // actually rendered.
-func visibleRowCount(h int) int { return max(0, h-4) }
+// visibleRowCount is how many data rows fit in h lines of pane: h less
+// the table's own header row, and one spare line so a rounding error
+// upward can never render past the pane. It was h-4 while RowList.View
+// also rendered a blank line and a key footer of its own; those moved to
+// the shared key bar (keyhints.go), whose height bodyLayout now reserves
+// separately, so counting them here as well would leave two rows of the
+// table permanently invisible.
+func visibleRowCount(h int) int { return max(0, h-2) }
 
 func (r *RowList) Refresh(st model.State, actor string) {
 	r.clampToRowCount(len(r.source.Rows(st, actor, r.mine)))
@@ -347,42 +353,13 @@ func (r RowList) View(p palette, st model.State, actor string, w, h int) string 
 	for i := top; i < end; i++ {
 		lines = append(lines, renderTableRow(cols, rows[i], styles, i == r.cursor))
 	}
-	id := r.source.RowID(r.cursor, st, actor, r.mine)
-	navParts := []string{
-		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[↑/↓]") + " " + lipgloss.NewStyle().Foreground(p.muted).Render("select"),
-		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[i]") + " " + lipgloss.NewStyle().Foreground(p.muted).Render("inspect"),
-		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[esc]") + " " + lipgloss.NewStyle().Foreground(p.muted).Render("back"),
-	}
-	parts := []string{strings.Join(navParts, " · ")}
-	actions := r.source.Actions(id, st, actor)
-	hiddenCount := 0
-	for _, act := range actions {
-		hint := lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("["+act.Key+"]") +
-			" " + lipgloss.NewStyle().Foreground(p.muted).Render(act.Label)
-		candidate := strings.Join(append(parts, hint), " · ")
-		if lipgloss.Width(candidate) <= w {
-			parts = append(parts, hint)
-		} else {
-			hiddenCount++
-		}
-	}
-	if hiddenCount > 0 {
-		moreHint := lipgloss.NewStyle().Foreground(p.muted).Render(fmt.Sprintf("+%d more", hiddenCount))
-		candidate := strings.Join(append(parts, moreHint), " · ")
-		if lipgloss.Width(candidate) <= w {
-			parts = append(parts, moreHint)
-		}
-	}
-	// ansi.Truncate, not a bare join: parts always includes the base
-	// "[↑/↓] select · [i] inspect · [esc] back" trio unconditionally --
-	// only the per-action hints after it are already width-aware -- so at
-	// a narrow enough w that trio alone still overflowed w and wrapped
-	// onto extra physical lines lipgloss's default (non-Inline) wrapping
-	// added silently. RowList.View's own line-count contract (1 header +
-	// visibleRowCount(h) rows + this footer) assumes exactly one line
-	// here; wrapping broke it the same way an unclamped data cell once did.
-	footer := ansi.Truncate(strings.Join(parts, " · "), w, "…")
-	return strings.Join(lines, "\n") + "\n\n" + footer
+	// No key footer here any more: the selected row's actions, [i]
+	// inspect and the navigation keys all render in keyhints.go's bar at
+	// the foot of the pane, alongside the global keys and in the same
+	// place on every view -- this footer only ever covered row-list views,
+	// and its own width budget quietly dropped actions behind "+N more"
+	// while the views without a row list showed nothing at all.
+	return strings.Join(lines, "\n")
 }
 
 func (m *Model) activeRowList() *RowList {

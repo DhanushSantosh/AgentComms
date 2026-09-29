@@ -160,7 +160,10 @@ func TestDraftRowsStaySingleLineAtNarrowWidths(t *testing.T) {
 		view.openView("Drafts")
 		view = pressKey(t, view, keyEnter())
 		lines := strings.Split(view.draftsView(colors(view.highContrast)), "\n")
-		if len(lines) != len(view.drafts)+3 {
+		// +1, not +3: the column header, and nothing else. The blank
+		// line and key footer draftsView used to append moved into the
+		// shared key bar at the foot of the pane (keyhints.go).
+		if len(lines) != len(view.drafts)+1 {
 			t.Fatalf("width %d: expected one physical line per draft, got %d lines: %q", terminalWidth, len(lines), lines)
 		}
 		for i, line := range lines {

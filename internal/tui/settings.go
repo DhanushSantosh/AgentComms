@@ -246,25 +246,10 @@ func (m Model) projectSettings(p palette, width, height int) string {
 	} else {
 		content = m.settingsSelectedDomain(p) + "\n\n" + m.settingsControl(p, width)
 	}
-	footerParts := []string{
-		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[↑/↓]") + " " + lipgloss.NewStyle().Foreground(p.muted).Render("domain"),
-		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[e/enter]") + " " + lipgloss.NewStyle().Foreground(p.muted).Render("manage"),
-		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[g]") + " " + lipgloss.NewStyle().Foreground(p.muted).Render("agents"),
-		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[r]") + " " + lipgloss.NewStyle().Foreground(p.muted).Render("runtimes"),
-		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[h]") + " " + lipgloss.NewStyle().Foreground(p.muted).Render("contrast"),
-		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[esc]") + " " + lipgloss.NewStyle().Foreground(p.muted).Render("back"),
-	}
-	parts := []string{}
-	for _, part := range footerParts {
-		candidate := strings.Join(append(parts, part), " · ")
-		if lipgloss.Width(candidate) <= width {
-			parts = append(parts, part)
-		} else {
-			break
-		}
-	}
-	footer := strings.Join(parts, " · ")
-	return content + "\n\n" + footer
+	// Project settings' own key footer moved to keyhints.go's shared bar,
+	// which renders these same keys next to the global ones at the foot of
+	// every view instead of only this one.
+	return content
 }
 
 func (m Model) settingsDomainRail(p palette, width int) string {

@@ -88,13 +88,24 @@ func (m Model) updatePalette(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
-	if _, ok := msg.(tea.MouseWheelMsg); ok {
-		// Deliberately swallowed, not scrolled -- paletteMatches caps at
-		// 6 rows, never taller than the panel, so there's nothing to
-		// scroll here. Letting a wheel event reach whatever's underneath
-		// while composing a query would be exactly the kind of
-		// background-changes-while-typing surprise this whole fix
-		// removes for clicks and keystrokes too.
+	if wheel, ok := msg.(tea.MouseWheelMsg); ok {
+		// Moves the palette's own selection, which is what scrolls its
+		// window (paletteWindow keeps the selection in view). The match
+		// list is the app's whole command set now, not a capped six, so
+		// there genuinely is something to scroll. Never passed through to
+		// whatever is underneath: a background that changes while you
+		// compose a query is the same surprise this handler already rules
+		// out for clicks and keystrokes.
+		switch wheel.Button {
+		case tea.MouseWheelUp:
+			if m.paletteSelected > 0 {
+				m.paletteSelected--
+			}
+		case tea.MouseWheelDown:
+			if n := len(m.paletteMatches()); m.paletteSelected < n-1 {
+				m.paletteSelected++
+			}
+		}
 		return m, nil
 	}
 	key, ok := msg.(tea.KeyPressMsg)

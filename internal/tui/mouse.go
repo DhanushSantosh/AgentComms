@@ -327,7 +327,11 @@ func (m Model) paletteMatchAt(p palette, x, y int) (index int, ok bool) {
 	}
 	relativeY := y - top
 	for i, line := range matchLine {
-		if relativeY == line {
+		// line < 0 marks a match scrolled out of the panel's window: not
+		// on screen, so not clickable. Skipped explicitly because a click
+		// above the panel gives a negative relativeY, which would
+		// otherwise "hit" the first off-window match.
+		if line >= 0 && relativeY == line {
 			return i, true
 		}
 	}
