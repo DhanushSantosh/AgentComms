@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 func TestTruncateMiddleKeepsWhatDistinguishesProviderScopedIDs(t *testing.T) {
@@ -135,5 +136,59 @@ func TestExpiredToastLeavesTheRailAlone(t *testing.T) {
 	m.toastExpiresAt = time.Now().Add(-time.Second)
 	if got := m.commandRail(p, 120); got != quiet {
 		t.Fatalf("an expired toast still changed the rail:\n%q\n%q", got, quiet)
+	}
+}
+
+// TestSidebarAndBodyAreSeparatedByARule: the two panes used to be
+// divided by a blank column, which on a transparent TUI read as a gap
+// in the layout rather than an edge. The rule has to be exactly one
+// column, on every row, at exactly sidebarWidth() -- every click-to-cell
+// translation in mouse.go is written against that offset, so a wider
+// divider would shift every row, tab and field hit-test.
+func TestSidebarAndBodyAreSeparatedByARule(t *testing.T) {
+	s := newTestService(t)
+	m, err := New(s, "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, size := range [][2]int{{140, 38}, {104, 20}, {60, 20}, {40, 14}} {
+		m.width, m.height = size[0], size[1]
+		column := m.sidebarWidth()
+		for i, line := range strings.Split(m.View().Content, "\n") {
+			runes := []rune(ansi.Strip(line))
+			if len(runes) <= column {
+				t.Errorf("%dx%d line %d is too short to hold the divider: %q", size[0], size[1], i, string(runes))
+				continue
+			}
+			if runes[column] != '│' {
+				t.Errorf("%dx%d line %d: column %d is %q, want the divider", size[0], size[1], i, column, string(runes[column]))
+			}
+		}
+	}
+}
+
+// TestEveryViewFitsTheTerminal is the regression test for a scroll
+// window that counted logical lines while the pane rendered physical
+// ones: at a narrow width a line of prose wraps, so Overview (and every
+// other non-table view through the same branch) rendered past the
+// bottom of the screen -- 21 lines into a 20-line terminal, 16 into 14
+// -- with no way to scroll to what fell off. TestSmallTerminalNever-
+// RendersMoreLinesThanItHas covers the same rule for the two row-list
+// views it enters; this one sweeps every view, which is how the gap
+// survived.
+func TestEveryViewFitsTheTerminal(t *testing.T) {
+	s := newTestService(t)
+	m, err := New(s, "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, size := range [][2]int{{140, 38}, {104, 20}, {80, 24}, {60, 20}, {40, 14}} {
+		for _, name := range views {
+			m.width, m.height = size[0], size[1]
+			m.openView(name)
+			if got := lipgloss.Height(m.View().Content); got > size[1] {
+				t.Errorf("%s at %dx%d renders %d lines", name, size[0], size[1], got)
+			}
+		}
 	}
 }

@@ -208,7 +208,7 @@ func (m Model) hubTabAt(p palette, x, y int) (view string, ok bool) {
 		return "", false
 	}
 	_, tabRange := m.renderHubTabs(p, contentW)
-	relativeX := x - m.sidebarWidth() - 1 // sidebar + JoinHorizontal's " " separator
+	relativeX := x - m.sidebarWidth() - 1 // sidebar + the one-column divider
 	hub := navigationHubs[m.activeHubIndex()]
 	for i, r := range tabRange {
 		if relativeX >= r[0] && relativeX < r[1] {

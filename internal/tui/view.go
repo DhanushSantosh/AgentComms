@@ -58,6 +58,44 @@ func colors() palette {
 // bodyLayout itself -- bodyLayout's own innerH now depends on
 // bodyPrefixHeight's measurement, and bodyPrefixHeight depending back on
 // bodyLayout would be a cycle.
+// wrappedHeight reports how many physical terminal lines s occupies once
+// the body pane wraps it at width -- lipgloss.Height alone counts "\n"s,
+// which undercounts every line long enough to wrap and is what let the
+// page-level scroll window render past the bottom of a narrow terminal.
+func wrappedHeight(s string, width int) int {
+	if width <= 0 {
+		return lipgloss.Height(s)
+	}
+	return lipgloss.Height(lipgloss.NewStyle().Width(width).Render(s))
+}
+
+// clampHeight cuts s to at most maxLines physical lines at this width,
+// on a logical-line boundary wherever it can. A first line that is
+// already taller than the whole budget is truncated to one line instead,
+// since returning it whole would defeat the point.
+func clampHeight(s string, width, maxLines int) string {
+	if maxLines <= 0 {
+		return ""
+	}
+	lines := strings.Split(s, "\n")
+	used, kept := 0, 0
+	for _, line := range lines {
+		height := wrappedHeight(line, width)
+		if used+height > maxLines {
+			break
+		}
+		used += height
+		kept++
+	}
+	switch kept {
+	case len(lines):
+		return s
+	case 0:
+		return ansi.Truncate(lines[0], max(1, width), "…")
+	}
+	return strings.Join(lines[:kept], "\n")
+}
+
 func (m Model) contentWidth() int {
 	paneW := max(10, m.width-m.sidebarWidth()-3)
 	return max(6, paneW-4)
@@ -105,7 +143,7 @@ func (m Model) View() tea.View {
 	paneW, paneH, _, _ := m.bodyLayout(p)
 	side, _ := m.renderSidebar(p, sidebarW, paneH)
 	body := m.renderBody(p, paneW, paneH)
-	screen := lipgloss.JoinHorizontal(lipgloss.Top, side, " ", body)
+	screen := lipgloss.JoinHorizontal(lipgloss.Top, side, verticalRule(p, paneH), body)
 	screen = lipgloss.NewStyle().MaxWidth(m.width).Render(screen)
 	if m.palette {
 		screen = m.renderPalette(p, screen)
@@ -119,6 +157,19 @@ func (m Model) View() tea.View {
 	v.WindowTitle = "Agent Comms · Project Control"
 	return v
 }
+
+// verticalRule is the divider between the sidebar and the body: exactly
+// one column wide, because that is what the blank separator it replaced
+// occupied and every click-to-cell translation in mouse.go is written
+// against that one column (sidebarWidth() + 1). Widening it for
+// breathing room would silently shift every row, tab and field
+// hit-test by two columns; the sidebar's own right padding and the
+// body pane's left padding already provide the gap on either side.
+func verticalRule(p palette, height int) string {
+	return lipgloss.NewStyle().Foreground(p.muted).
+		Render(strings.TrimSuffix(strings.Repeat("│\n", max(1, height)), "\n"))
+}
+
 func (m Model) sidebarWidth() int {
 	if m.width < 60 {
 		return 14
@@ -147,6 +198,18 @@ func (m Model) sidebarWidth() int {
 // this plain one.
 const sidebarTitleText = "● AGENT COMMS"
 
+// sidebarRenderedHeight is how many physical lines these rows occupy in
+// a sidebar w columns wide -- its own Padding(1) leaves w-2 for content,
+// and anything longer wraps. Counting len(rows) instead is what let a
+// single wrapped row push the sidebar past the bottom of the screen.
+func sidebarRenderedHeight(rows []string, w int) int {
+	total := 0
+	for _, row := range rows {
+		total += wrappedHeight(row, max(1, w-2))
+	}
+	return total
+}
+
 func (m Model) renderSidebar(p palette, w, h int) (view string, hubLine []int) {
 	titleStyle := lipgloss.NewStyle().Foreground(p.cyan).Bold(true)
 	title := titleStyle.Render(sidebarTitleText)
@@ -165,8 +228,15 @@ func (m Model) renderSidebar(p palette, w, h int) (view string, hubLine []int) {
 		hubLine[i] = len(rows)
 		rows = append(rows, style.Render(marker+hub.Name), "")
 		if i == activeHub {
+			// w-6, not w-5: the sidebar's outer Padding(1) takes a
+			// column on each side (2), this line's own PaddingLeft
+			// takes 2 more, and "└ " another 2. At w=21 the old budget
+			// let "Project settings" render 20 columns wide inside 19
+			// usable ones, so it wrapped -- and since the fit check
+			// below counted rows rather than rendered lines, the whole
+			// sidebar then came out one line taller than the terminal.
 			rows = append(rows, lipgloss.NewStyle().Foreground(p.text).PaddingLeft(2).
-				Render("└ "+truncate(views[m.view], max(8, w-5))), "")
+				Render("└ "+truncate(views[m.view], max(8, w-6))), "")
 		}
 	}
 	// The global keys, from the same mode-aware list keyhints.go builds
@@ -177,7 +247,10 @@ func (m Model) renderSidebar(p palette, w, h int) (view string, hubLine []int) {
 	for _, line := range packHints(m.globalHints(), max(4, w-2)) {
 		rows = append(rows, lipgloss.NewStyle().Foreground(p.muted).Render(line))
 	}
-	// Padding(1) costs 2 more lines (top+bottom) than rows itself. Unlike
+	// Padding(1) costs 2 more lines (top+bottom) than the rows themselves,
+	// and a row wider than the column costs more than one line of its
+	// own -- which is why the check measures rendered height rather than
+	// counting the slice. Unlike
 	// the body's row lists, the sidebar has no scrolling concept of its
 	// own -- it's meant to show the whole nav hierarchy at a glance -- so
 	// when the comfortable layout above doesn't fit a small terminal, drop
@@ -188,7 +261,7 @@ func (m Model) renderSidebar(p palette, w, h int) (view string, hubLine []int) {
 	// own bottom rows past the real screen with nothing able to scroll to
 	// them, the same "content exists but nothing reaches it" failure this
 	// pass through bodyLayout's floors exists to eliminate.
-	if len(rows)+2 > h {
+	if sidebarRenderedHeight(rows, w)+2 > h {
 		rows = []string{titleStyle.Render(truncate(sidebarTitleText, max(4, w-2)))}
 		hubLine = make([]int, len(navigationHubs))
 		for i, hub := range navigationHubs {
@@ -339,27 +412,76 @@ func (m Model) renderBody(p palette, w, h int) string {
 		// for row-list views instead (that "-4" is a different, legitimate
 		// one: RowList.View's own header + footer rows, neither of which
 		// bodyPrefixHeight measures).
+		//
+		// Every count below is in PHYSICAL lines, measured through
+		// wrappedHeight, not in the "\n"-separated logical lines this
+		// used to count. At a narrow enough contentW a single logical
+		// line of prose wraps onto two or three physical ones, so a
+		// window of availH logical lines rendered past the bottom of the
+		// terminal by however many wrapped -- confirmed by rendering
+		// Overview at 60x20 and 40x14 and counting: 21 and 16 physical
+		// lines for 20 and 14 rows of terminal. The last line or two sat
+		// below the screen edge with no way to scroll to them, which is
+		// the exact failure this whole branch exists to prevent.
+		heights := make([]int, len(lines))
+		total := 0
+		for i, line := range lines {
+			heights[i] = wrappedHeight(line, contentW)
+			total += heights[i]
+		}
 		availH := max(0, contentH)
-		if len(lines) > availH {
+		if total > availH {
 			// One line of availH's own budget goes to the scroll indicator
 			// appended below the window -- reserved only here, since it's
 			// only ever added when scrolling is actually needed.
 			windowH := max(1, availH-1)
-			maxScroll := len(lines) - windowH
+			// maxScroll is the first line of the last window that still
+			// fits, found by filling backwards from the end: with
+			// variable-height lines it is no longer len(lines)-windowH.
+			maxScroll, filled := len(lines), 0
+			for i := len(lines) - 1; i >= 0; i-- {
+				if filled+heights[i] > windowH {
+					break
+				}
+				filled += heights[i]
+				maxScroll = i
+			}
 			if m.scrollOffset > maxScroll {
 				m.scrollOffset = maxScroll
 			}
 			if m.scrollOffset < 0 {
 				m.scrollOffset = 0
 			}
-			end := min(len(lines), m.scrollOffset+windowH)
+			end, used := m.scrollOffset, 0
+			for end < len(lines) && used+heights[end] <= windowH {
+				used += heights[end]
+				end++
+			}
+			if end == m.scrollOffset {
+				// One line taller than the whole window on its own: show
+				// it anyway anyway rather than an empty pane, and let the
+				// pane clip it.
+				end = m.scrollOffset + 1
+			}
 			content = strings.Join(lines[m.scrollOffset:end], "\n")
-			scrollInfo := lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render(
+			// Truncated, not just styled: at a narrow contentW this
+			// indicator is itself long enough to wrap, and the single
+			// line reserved for it above would not have covered that.
+			scrollInfo := lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render(ansi.Truncate(
 				fmt.Sprintf(" ⇡⇣ Scroll %d-%d of %d (PgUp/PgDn/Wheel)", m.scrollOffset+1, end, len(lines)),
+				contentW, "…"),
 			)
 			content += "\n" + scrollInfo
 		}
 	}
+	// Last word on height, for every view including the table ones the
+	// scroll branch above skips: whatever the body ends up holding --
+	// a row list plus its detail pane, a settings box, an inspector, an
+	// error line -- it is cut to the room bodyLayout measured rather
+	// than allowed to run off the bottom of the terminal. Project
+	// settings and Contracts & decisions each did exactly that at 80x24,
+	// one line past the edge, where nothing could scroll to it.
+	content = clampHeight(content, contentW, contentH)
 	body := meta + "\n" + tabs + "\n\n" + header + "\n\n" + content
 	// The key bar is pinned to the foot of the pane rather than left
 	// floating directly under whatever the content happened to be: padding
@@ -368,7 +490,7 @@ func (m Model) renderBody(p palette, w, h int) string {
 	// reserved for content (bodySuffixHeight already held back this bar's
 	// own lines), so the pad can never push the body past the terminal.
 	if bar := m.bodySuffix(p); bar != "" {
-		if pad := contentH - lipgloss.Height(content); pad > 0 {
+		if pad := contentH - wrappedHeight(content, contentW); pad > 0 {
 			body += strings.Repeat("\n", pad)
 		}
 		body += "\n" + bar
