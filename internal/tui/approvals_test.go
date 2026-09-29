@@ -59,7 +59,7 @@ func TestExpiredApprovedApprovalIsMarkedUnusable(t *testing.T) {
 	m.view = 5 // Approvals
 	m.state.Approvals[a.ID] = a
 	m.approvalList.Refresh(m.state, m.actor)
-	inspector := m.renderInspector(colors(false), 100)
+	inspector := m.renderInspector(colors(), 100)
 	for _, want := range []string{"EXPIRED", "Recorded as APPROVED", "can no longer authorize"} {
 		if !strings.Contains(inspector, want) {
 			t.Fatalf("inspector missing %q: %s", want, inspector)

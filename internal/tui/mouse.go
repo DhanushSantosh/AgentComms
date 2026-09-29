@@ -39,7 +39,7 @@ func (m *Model) syncActiveRowListDimensions() {
 	if list == nil {
 		return
 	}
-	w, h := m.rowListDimensions(colors(m.highContrast))
+	w, h := m.rowListDimensions(colors())
 	list.SetDimensions(w, visibleRowCount(h))
 }
 

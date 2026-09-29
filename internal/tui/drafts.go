@@ -72,7 +72,7 @@ func (m Model) updateDrafts(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	if click, ok := msg.(tea.MouseClickMsg); ok {
 		mouse := click.Mouse()
-		p := colors(m.highContrast)
+		p := colors()
 		_, _, _, contentH := m.bodyLayout(p)
 		bodyTop := m.bodyPrefixHeight(p)
 		if mouse.Button == tea.MouseLeft && mouse.X >= m.sidebarWidth()+1 &&
@@ -128,7 +128,7 @@ func (m Model) updateDrafts(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) draftPageSize() int {
-	_, _, _, contentH := m.bodyLayout(colors(m.highContrast))
+	_, _, _, contentH := m.bodyLayout(colors())
 	return max(1, contentH-1)
 }
 

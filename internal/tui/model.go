@@ -11,7 +11,6 @@ import (
 	"github.com/DhanushSantosh/AgentComms/internal/buildinfo"
 	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
 	"github.com/DhanushSantosh/AgentComms/internal/doctor"
-	"github.com/DhanushSantosh/AgentComms/internal/identity"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 	"github.com/DhanushSantosh/AgentComms/internal/projectlifecycle"
 	"github.com/DhanushSantosh/AgentComms/internal/service"
@@ -52,7 +51,6 @@ type Model struct {
 	// query changes, since the match list itself changes underneath it.
 	paletteSelected int
 	err             error
-	highContrast    bool
 	form            string
 	inputs          []textinput.Model
 	formFocus       int
@@ -152,10 +150,6 @@ func New(s *service.Service, actor string) (Model, error) {
 		}
 		owner = config.Owner
 	}
-	hc := false
-	if uc, err := identity.LoadUserConfig(); err == nil && uc.Theme == "high-contrast" {
-		hc = true
-	}
 	lifecycle, _, _ := projectlifecycle.Inspect(s.Store.Root, buildinfo.Version, buildinfo.ResolvedBuildID())
 	// findings deliberately NOT computed here: doctor.Findings dials every
 	// ONLINE interactive runtime's local PTY socket, which against a real
@@ -165,7 +159,7 @@ func New(s *service.Service, actor string) (Model, error) {
 	// for the matching reason it's excluded from the background tick too.
 	drafts, _ := s.Drafts(50)
 	return Model{
-		svc: s, state: st, actor: actor, projectID: projectID, width: 100, height: 30, highContrast: hc,
+		svc: s, state: st, actor: actor, projectID: projectID, width: 100, height: 30,
 		taskList: newRowList(taskRowSource{}), messageList: newRowList(messageRowSource{owner: owner}),
 		approvalList: newRowList(approvalRowSource{}), agentList: newRowList(agentRowSource{}),
 		invocationList: newRowList(invocationRowSource{}), runtimeList: newRowList(runtimeRowSource{root: s.Store.Root}),
@@ -247,7 +241,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if click, ok := msg.(tea.MouseClickMsg); ok {
 		mouse := click.Mouse()
 		if mouse.Button == tea.MouseLeft {
-			p := colors(m.highContrast)
+			p := colors()
 			if hub, ok := m.sidebarHubAt(p, mouse.X, mouse.Y); ok {
 				m.form, m.inputs, m.formSpec, m.confirm, m.rowFocus, m.settingsFocus = "", nil, nil, nil, false, false
 				m.openView(navigationHubs[hub].Views[0])
@@ -334,16 +328,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.refresh()
 		case "?":
 			m.notice = "↑/↓ navigate · → open · ← back · / commands · a switch actor · r refresh · q quit · agent-comms agent-instructions for the full guide"
-		case "h":
-			m.highContrast = !m.highContrast
-			theme := "auto"
-			if m.highContrast {
-				theme = "high-contrast"
-			}
-			if uc, err := identity.LoadUserConfig(); err == nil {
-				uc.Theme = theme
-				_ = identity.SaveUserConfig(uc)
-			}
 		case "n":
 			return m.openCreateForm()
 		case "a":

@@ -23,11 +23,25 @@ import (
 
 type palette struct{ ink, panel, cyan, amber, red, violet, muted, text color.Color }
 
-func colors(high bool) palette {
-	if high {
-		return palette{lipgloss.Color("#000000"), lipgloss.Color("#111111"), lipgloss.Color("#00FFFF"), lipgloss.Color("#FFFF00"), lipgloss.Color("#FF4444"), lipgloss.Color("#DD88FF"), lipgloss.Color("#BBBBBB"), lipgloss.Color("#FFFFFF")}
+// One palette, the high-contrast one. There used to be two -- a muted
+// default and this, toggled with "h" and remembered in user config --
+// which meant every surface had to be checked twice, the dim default was
+// what most people ever saw, and the accessible option was a preference
+// you had to know to go looking for. The remaining colors are chosen to
+// carry meaning (cyan = live/selected, amber = caution and identity, red
+// = failure, violet = secondary) against whatever background the
+// terminal itself provides; the body pane no longer paints one.
+func colors() palette {
+	return palette{
+		ink:    lipgloss.Color("#000000"),
+		panel:  lipgloss.Color("#111111"),
+		cyan:   lipgloss.Color("#00FFFF"),
+		amber:  lipgloss.Color("#FFFF00"),
+		red:    lipgloss.Color("#FF4444"),
+		violet: lipgloss.Color("#DD88FF"),
+		muted:  lipgloss.Color("#BBBBBB"),
+		text:   lipgloss.Color("#FFFFFF"),
 	}
-	return palette{lipgloss.Color("#071216"), lipgloss.Color("#0D2024"), lipgloss.Color("#56D6C9"), lipgloss.Color("#E8B85C"), lipgloss.Color("#F07167"), lipgloss.Color("#B9A7E8"), lipgloss.Color("#78918F"), lipgloss.Color("#D7E5E3")}
 }
 
 // contentWidth is the width-only half of bodyLayout, split out so
@@ -78,7 +92,7 @@ func (m Model) bodyLayout(p palette) (paneW, paneH, innerW, innerH int) {
 	return
 }
 func (m Model) View() tea.View {
-	p := colors(m.highContrast)
+	p := colors()
 	sidebarW := m.sidebarWidth()
 	paneW, paneH, _, _ := m.bodyLayout(p)
 	side, _ := m.renderSidebar(p, sidebarW, paneH)
@@ -278,8 +292,11 @@ func (m Model) renderBody(p palette, w, h int) string {
 	}
 	if m.err != nil {
 		content += "\n\n" + lipgloss.NewStyle().Foreground(p.red).MaxWidth(contentW).Render("Error: "+m.err.Error())
-	} else if m.toastMsg != "" && time.Now().Before(m.toastExpiresAt) {
-		content += "\n\n" + lipgloss.NewStyle().Foreground(p.ink).Background(p.cyan).Bold(true).MaxWidth(contentW).Render(" "+m.toastMsg+" ")
+		// No toast branch here: the same toast already renders in the
+		// command rail, beside the actor. Printing it in both places put
+		// one notification on screen twice, once at the top and once
+		// floating under the content -- confirmed live on a real commit
+		// notification.
 	} else if m.notice != "" {
 		content += "\n\n" + lipgloss.NewStyle().Foreground(p.cyan).MaxWidth(contentW).Render("Notice: "+m.notice)
 	}
@@ -346,21 +363,22 @@ func (m Model) renderBody(p palette, w, h int) string {
 	return pane.Render(body)
 }
 
+// railToastMinWidth is the narrowest a toast badge may be squeezed to
+// before the rail drops it entirely: below this it is a couple of
+// letters and an ellipsis, which says less than nothing while still
+// costing the actor its columns. The notification is not lost -- the
+// event it reports is in the chain, and the rail's own seq counter
+// moves with it.
+const railToastMinWidth = 12
+
 func (m Model) commandRail(p palette, width int) string {
 	sequence := max(m.state.Integrity.ServerSequence, m.state.Integrity.CacheSequence)
 	freshness := empty(m.state.Integrity.Connectivity, "LOCAL")
 	hub := navigationHubs[m.activeHubIndex()].Name
 	left := lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("LIVE")
-	switch {
-	case m.staleReads >= staleReadThreshold:
-		// Takes priority over an in-flight toast: reads have been failing,
-		// so no new toast could have fired recently anyway (toastMsg only
-		// ever gets set inside a *successful* refreshSilent) -- an old one
-		// still fading out is less urgent than "this data might be stale."
+	if m.staleReads >= staleReadThreshold {
 		left = lipgloss.NewStyle().Foreground(p.ink).Background(p.red).Bold(true).
 			Render(fmt.Sprintf("⚠ STALE (%d failed reads)", m.staleReads))
-	case m.toastMsg != "" && time.Now().Before(m.toastExpiresAt):
-		left = lipgloss.NewStyle().Foreground(p.ink).Background(p.cyan).Bold(true).Render(m.toastMsg)
 	}
 	detail := fmt.Sprintf("  %s / %s  ·  %s  ·  seq %d", hub, views[m.view], freshness, sequence)
 	authority := strings.ToLower(string(m.state.Agents[m.actor].Role))
@@ -371,15 +389,53 @@ func (m Model) commandRail(p palette, width int) string {
 	// CLI command. That's exactly what let a wrong actor-switch go
 	// unnoticed until an elevation check rejected it downstream.
 	right := m.actor + " · " + empty(authority, "unknown")
-	leftLen := lipgloss.Width(left) + lipgloss.Width(detail)
 	rightLen := lipgloss.Width(right)
-	if leftLen+rightLen > width && width > 40 {
-		detail = fmt.Sprintf("  %s / %s", hub, views[m.view])
-		leftLen = lipgloss.Width(left) + lipgloss.Width(detail)
+	toast := ""
+	if m.toastMsg != "" && time.Now().Before(m.toastExpiresAt) {
+		toast = m.toastMsg
+	}
+	// Room left for a toast badge beside the actor, for a given detail
+	// string: the rail's own gap keeps one column, and the badge two more
+	// separating it from the actor.
+	toastRoom := func(detail string) int {
+		return width - lipgloss.Width(left) - lipgloss.Width(detail) - rightLen - 3
+	}
+	if width > 40 {
+		// The short detail is the fallback for two different squeezes:
+		// the rail not fitting at all, and a live toast having nowhere to
+		// go. Without the second, a *wider* terminal could show fewer
+		// notifications than a narrower one -- at 70 columns the long
+		// detail left the badge 9 columns and it was dropped, while at 56
+		// the first fallback had already fired and it fit.
+		short := fmt.Sprintf("  %s / %s", hub, views[m.view])
+		if lipgloss.Width(left)+lipgloss.Width(detail)+rightLen > width {
+			detail = short
+		} else if toast != "" && toastRoom(detail) < railToastMinWidth {
+			detail = short
+		}
+	}
+	leftLen := lipgloss.Width(left) + lipgloss.Width(detail)
+	// The toast sits immediately left of the actor, at the top right --
+	// one notification, in one place, where the eye already goes for
+	// "who am I and what just happened". It used to occupy the rail's
+	// LIVE/STALE slot on the far left *and* render again as a block under
+	// the content, so a single background-commit notification appeared
+	// twice on screen at opposite corners.
+	//
+	// Fitted into whatever room is left rather than simply prepended:
+	// this rail is truncated from the right end to hold it to one line,
+	// so an over-long toast would have pushed the actor off the screen
+	// instead of shortening itself.
+	rendered := lipgloss.NewStyle().Foreground(p.amber).Render(right)
+	if room := toastRoom(detail); toast != "" && room >= railToastMinWidth {
+		badge := lipgloss.NewStyle().Foreground(p.ink).Background(p.cyan).Bold(true).
+			Render(" " + ansi.Truncate(toast, room-2, "…") + " ")
+		rendered = badge + "  " + rendered
+		rightLen = lipgloss.Width(rendered)
 	}
 	gap := max(1, width-leftLen-rightLen)
 	rail := left + lipgloss.NewStyle().Foreground(p.muted).Render(detail) +
-		strings.Repeat(" ", gap) + lipgloss.NewStyle().Foreground(p.amber).Render(right)
+		strings.Repeat(" ", gap) + rendered
 	// gap floors at 1: below the width>40 threshold the shortened-detail
 	// fallback above never kicks in, so at a narrow enough width
 	// leftLen+rightLen alone can already exceed width and the assembled
@@ -843,20 +899,26 @@ func paletteWindow(total, selected, visible int) (start, end int) {
 
 func (m Model) paletteLayout(p palette) (panel string, matchLine []int) {
 	width := min(68, max(36, m.width-8))
+	// An empty box said nothing about what to do with it; the list below
+	// is long enough now that "type" is not the only useful answer.
+	placeholder := ""
+	if m.query == "" {
+		placeholder = lipgloss.NewStyle().Foreground(p.muted).Render(" type to filter")
+	}
 	rows := []string{
 		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("COMMANDS"),
 		lipgloss.NewStyle().Foreground(p.muted).Render("Go to a workspace or start an action."),
 		"",
 		lipgloss.NewStyle().Foreground(p.muted).Render("Command"),
 		lipgloss.NewStyle().Width(width-6).Background(p.panel).Foreground(p.text).
-			Padding(0, 1).Render("> " + m.query + "█"),
+			Padding(0, 1).Render("> " + m.query + "█" + placeholder),
 		"",
 	}
 	matches := m.paletteMatches()
 	if len(matches) == 0 {
 		rows = append(rows, lipgloss.NewStyle().Foreground(p.amber).Render("No matching command"))
 	} else {
-		heading := "Matches"
+		heading := fmt.Sprintf("Matches (%d)", len(matches))
 		if strings.TrimSpace(m.query) == "" {
 			heading = fmt.Sprintf("All commands (%d)", len(matches))
 		}
@@ -876,26 +938,47 @@ func (m Model) paletteLayout(p palette) (panel string, matchLine []int) {
 		for i := range matchLine {
 			matchLine[i] = -1
 		}
+		// rowWidth is the panel's interior: Width(width) less its border
+		// (1 column each side) and Padding(1, 2) (2 more each side). The
+		// query box above already renders at exactly this width, which is
+		// what makes the selected row's fill line up with it.
+		rowWidth := width - 6
 		for index := start; index < end; index++ {
 			marker := "  "
-			style := lipgloss.NewStyle().Foreground(p.text)
 			if index == selected {
 				marker = "› "
-				style = style.Foreground(p.cyan).Bold(true)
+			}
+			// The selected row is a filled bar across the whole panel,
+			// not cyan text with a small marker. It reads as "this is
+			// what Enter will open" at a glance, and matches how the row
+			// tables elsewhere in the app mark their cursor -- the
+			// palette was the one list where the selection was easy to
+			// lose track of while scrolling.
+			text, tag := marker+matches[index].label, matches[index].kind
+			pad := rowWidth - lipgloss.Width(text) - lipgloss.Width(tag)
+			if pad < 1 {
+				text = ansi.Truncate(text, max(1, rowWidth-lipgloss.Width(tag)-1), "…")
+				pad = max(1, rowWidth-lipgloss.Width(text)-lipgloss.Width(tag))
 			}
 			matchLine[index] = len(rows)
-			rows = append(rows, style.Render(marker+matches[index].label))
+			if index == selected {
+				rows = append(rows, lipgloss.NewStyle().Foreground(p.ink).Background(p.cyan).Bold(true).
+					Render(text+strings.Repeat(" ", pad)+tag))
+				continue
+			}
+			rows = append(rows, lipgloss.NewStyle().Foreground(p.text).Render(text)+
+				strings.Repeat(" ", pad)+lipgloss.NewStyle().Foreground(p.muted).Render(tag))
 		}
 		if start > 0 || end < len(matches) {
 			rows = append(rows, lipgloss.NewStyle().Foreground(p.muted).Render(
-				fmt.Sprintf("  showing %d-%d of %d  ↑/↓ scroll", start+1, end, len(matches))))
+				fmt.Sprintf("  showing %d-%d of %d", start+1, end, len(matches))))
 		}
 	}
-	paletteFooter := strings.Join([]string{
-		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[type]") + " " + lipgloss.NewStyle().Foreground(p.muted).Render("filter"),
-		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[enter/click]") + " " + lipgloss.NewStyle().Foreground(p.muted).Render("open"),
-		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[esc]") + " " + lipgloss.NewStyle().Foreground(p.muted).Render("close"),
-	}, " · ")
+	// ↑/↓ was missing entirely: the panel offered a selection cursor and
+	// never said what moved it.
+	paletteFooter := renderHintRow(p, []keyHint{
+		{"[↑/↓]", "choose"}, {"[enter]", "open"}, {"[type]", "filter"}, {"[esc]", "close"},
+	}, width-6)
 	rows = append(rows, "", paletteFooter)
 	panel = lipgloss.NewStyle().Width(width).Border(lipgloss.NormalBorder()).
 		BorderForeground(p.cyan).Background(p.ink).Foreground(p.text).Padding(1, 2).
@@ -922,6 +1005,13 @@ func (m Model) renderPalette(p palette, under string) string {
 // string in the first place (see updatePalette's "space" case).
 type paletteMatch struct {
 	label string
+	// kind is the right-aligned tag on the row: "action" for a named
+	// command that does something, "go to" for a bare view that only
+	// navigates. The two were indistinguishable in a single flat list --
+	// "new decision" and "Contracts & decisions" sat one above the other
+	// with nothing saying that one opens a form and the other just
+	// changes tab.
+	kind  string
 	apply func(Model) (tea.Model, tea.Cmd)
 }
 
@@ -964,7 +1054,7 @@ func (m Model) paletteMatches() []paletteMatch {
 			continue
 		}
 		cmd := cmd
-		matches = append(matches, paletteMatch{label: cmd.label, apply: func(value Model) (tea.Model, tea.Cmd) {
+		matches = append(matches, paletteMatch{label: cmd.label, kind: "action", apply: func(value Model) (tea.Model, tea.Cmd) {
 			value.openView(cmd.view)
 			return cmd.open(value)
 		}})
@@ -974,7 +1064,7 @@ func (m Model) paletteMatches() []paletteMatch {
 			continue
 		}
 		name := name
-		matches = append(matches, paletteMatch{label: name, apply: func(value Model) (tea.Model, tea.Cmd) {
+		matches = append(matches, paletteMatch{label: name, kind: "go to", apply: func(value Model) (tea.Model, tea.Cmd) {
 			value.openView(name)
 			value.focusCurrentView()
 			value.palette, value.query = false, ""

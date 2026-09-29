@@ -392,7 +392,7 @@ func TestActiveTabLooksDifferentWhenFocusedVsBrowsing(t *testing.T) {
 		t.Fatal(err)
 	}
 	m.width, m.height = 120, 30
-	p := colors(m.highContrast)
+	p := colors()
 
 	m.rowFocus, m.settingsFocus = false, false
 	browsing, _ := m.renderHubTabs(p, 100)

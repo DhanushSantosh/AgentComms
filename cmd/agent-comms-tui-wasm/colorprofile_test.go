@@ -35,11 +35,13 @@ func (b *syncBuf) String() string {
 }
 
 // cyanTrueColorSGR is the exact truecolor SGR escape lipgloss emits for
-// internal/tui/model.go's colors(false).cyan (#56D6C9 = rgb(86,214,201)) --
-// e.g. the "LIVE" label in commandRail. Its presence/absence in captured
+// internal/tui/view.go's colors().cyan (#00FFFF = rgb(0,255,255)) -- e.g.
+// the "LIVE" label in commandRail. Its presence/absence in captured
 // output is the test oracle for whether the color profile bubbletea
-// negotiated actually let color through, or stripped it.
-const cyanTrueColorSGR = "38;2;86;214;201"
+// negotiated actually let color through, or stripped it. It was
+// rgb(86,214,201) while the TUI still had a second, muted palette to
+// pick from; there is one palette now, the high-contrast one.
+const cyanTrueColorSGR = "38;2;0;255;255"
 
 // runTUIAndCapture bootstraps the same real demo service/model wasm_main.go
 // uses, runs it through tui.Run with the given extra options, feeds it a

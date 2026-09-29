@@ -437,7 +437,7 @@ func (m Model) updateRowList(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if click, ok := msg.(tea.MouseClickMsg); ok {
 		mouse := click.Mouse()
 		if mouse.Button == tea.MouseLeft {
-			p := colors(m.highContrast)
+			p := colors()
 			if row, ok := m.rowAtY(p, mouse.Y); ok {
 				// Recorded regardless of whether this turns out to be a
 				// double-click, so a third click starts a fresh window
@@ -472,7 +472,7 @@ func (m Model) updateRowList(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if !ok {
 		return m, nil
 	}
-	// esc/left/q/ctrl+c/​/​/ctrl+p/r/i/?/h/n below are reserved globally --
+	// esc/left/q/ctrl+c/​/​/ctrl+p/r/i/?/n below are reserved globally --
 	// matched here, in this explicit switch, before the default case ever
 	// gets a chance to check a row's own Actions() for a matching key. No
 	// RowAction anywhere in the app may use any of these as its own Key;
@@ -496,9 +496,6 @@ func (m Model) updateRowList(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "?":
 		m.notice = "↑/↓ select row · [key] contextual action · [i] inspect · [n] new · / commands · [esc] back · [q] quit"
-		return m, nil
-	case "h":
-		m.highContrast = !m.highContrast
 		return m, nil
 	case "n":
 		return m.openCreateForm()
@@ -548,7 +545,7 @@ func (m Model) updateConfirm(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// irreversible action (revoke, delete, an elevated-key-gated
 		// grant), so there is no default direction an ambiguous click ever
 		// resolves to.
-		if yes, ok := m.confirmChoiceAt(colors(m.highContrast), mouse.X, mouse.Y); ok {
+		if yes, ok := m.confirmChoiceAt(colors(), mouse.X, mouse.Y); ok {
 			return m.resolveConfirm(yes)
 		}
 		return m, nil

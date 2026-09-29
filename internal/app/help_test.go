@@ -19,7 +19,9 @@ func TestProjectIndependentCommandsRunWithoutAProject(t *testing.T) {
 	bare := t.TempDir()
 	for _, args := range [][]string{
 		{"config", "--project", bare, "--json"},
-		{"config", "theme", "dark", "--json"},
+		// `config theme` was the other user-scoped case here; it is gone
+		// along with the second palette it selected.
+		{"profile", "list", "--json"},
 		{"profile", "current", "--project", bare, "--json"},
 		{"doctor", "--project", bare, "--json"},
 		{"agent-instructions", "--project", bare, "--json"},

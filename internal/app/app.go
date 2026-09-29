@@ -306,8 +306,7 @@ func classifyProjectScope(cmd *cobra.Command) projectScope {
 		path == "agent-comms runtime verify-adapter":
 		return projectExempt
 	case path == "agent-comms update",
-		path == "agent-comms profile list", path == "agent-comms profile use",
-		path == "agent-comms config theme":
+		path == "agent-comms profile list", path == "agent-comms profile use":
 		return projectUserOnly
 	case name == "config", name == "doctor", name == "agent-instructions",
 		path == "agent-comms profile current":

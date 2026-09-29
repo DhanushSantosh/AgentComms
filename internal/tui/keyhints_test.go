@@ -125,7 +125,7 @@ func TestKeyBarIsDroppedRatherThanPushingContentOffScreen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := colors(m.highContrast)
+	p := colors()
 	m.width, m.height = 80, 8
 	if bar := m.bodySuffix(p); bar != "" {
 		t.Fatalf("expected no key bar on an 8-line terminal, got %q", bar)
@@ -187,7 +187,7 @@ func TestPackHintsNeverExceedsTheSidebarWidth(t *testing.T) {
 }
 
 func TestRenderHintRowStaysOnOneLine(t *testing.T) {
-	p := colors(false)
+	p := colors()
 	hints := []keyHint{{"[a]", "alpha"}, {"[b]", "bravo"}, {"[c]", "charlie"}, {"[d]", "delta"}}
 	for _, width := range []int{6, 10, 20, 40, 80} {
 		row := renderHintRow(p, hints, width)

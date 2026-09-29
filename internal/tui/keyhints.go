@@ -120,12 +120,12 @@ func (m Model) globalHints() []keyHint {
 	if m.rowFocus || m.settingsFocus {
 		return []keyHint{
 			{"↑↓", "rows"}, {"esc", "back"}, {"/", "cmds"},
-			{"r", "refresh"}, {"h", "theme"}, {"?", "help"}, {"q", "quit"},
+			{"r", "refresh"}, {"?", "help"}, {"q", "quit"},
 		}
 	}
 	return []keyHint{
 		{"↑↓", "hub"}, {"←→", "tab"}, {"⏎", "open"}, {"/", "cmds"},
-		{"r", "refresh"}, {"a", "actor"}, {"h", "theme"}, {"?", "help"}, {"q", "quit"},
+		{"r", "refresh"}, {"a", "actor"}, {"?", "help"}, {"q", "quit"},
 	}
 }
 

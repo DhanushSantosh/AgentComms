@@ -100,7 +100,7 @@ func TestSettingsSectionClickAndDoubleClick(t *testing.T) {
 		t.Fatal("expected entering Project settings to set settingsFocus")
 	}
 
-	p := colors(m.highContrast)
+	p := colors()
 	const wantDomain = 1 // "Agents & access"
 	var targetX, targetY int
 	found := false
@@ -163,7 +163,7 @@ func TestSettingsSectionClickAtNarrowWidths(t *testing.T) {
 		}
 	}
 	m.focusCurrentView()
-	p := colors(m.highContrast)
+	p := colors()
 
 	for wantDomain := range settingsSections {
 		var targetX, targetY int

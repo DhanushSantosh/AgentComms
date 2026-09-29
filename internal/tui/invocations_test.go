@@ -16,7 +16,7 @@ import (
 // "NOTIFIED" on the delivery, which would have never matched any real
 // delivery and always rendered a successful delivery as still pending.
 func TestDeliveryPipelineChipsMatchRealDeliveryStatusValues(t *testing.T) {
-	p := colors(false)
+	p := colors()
 	succeeded := deliveryPipelineChips(p, model.InvocationDelivery{
 		RuntimeID: "runtime-1", Status: "SUCCEEDED",
 		Evidence: []model.DeliveryEvidence{{Stage: "PTY_TEXT_ECHOED"}, {Stage: "PTY_ENTER_SENT"}},

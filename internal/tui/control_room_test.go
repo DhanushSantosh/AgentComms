@@ -62,7 +62,7 @@ func TestWorkforceSignalIsStableAcrossMultipleRuntimeRecords(t *testing.T) {
 			},
 		},
 	}
-	p := colors(false)
+	p := colors()
 	for i := 0; i < 50; i++ {
 		out := m.workforce(p, 100)
 		if !strings.Contains(out, "ONLINE") || strings.Contains(out, "REVOKED") {
@@ -84,7 +84,7 @@ func TestWorkforceFallsBackToAgentIDWhenDisplayNameIsBlank(t *testing.T) {
 			},
 		},
 	}
-	out := m.workforce(colors(false), 100)
+	out := m.workforce(colors(), 100)
 	if !strings.Contains(out, "claude-peter") {
 		t.Fatalf("expected the blank-display-name agent to fall back to its ID %q, got:\n%s", "claude-peter", out)
 	}

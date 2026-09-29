@@ -63,7 +63,7 @@ func paletteCommands() []paletteCommand {
 func (m Model) updatePalette(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if click, ok := msg.(tea.MouseClickMsg); ok {
 		if click.Mouse().Button == tea.MouseLeft {
-			p := colors(m.highContrast)
+			p := colors()
 			if index, ok := m.paletteMatchAt(p, click.Mouse().X, click.Mouse().Y); ok {
 				if matches := m.paletteMatches(); index < len(matches) {
 					return matches[index].apply(m)
@@ -130,14 +130,18 @@ func (m Model) updatePalette(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.paletteSelected++
 		}
 	case "enter":
-		// An empty query doing nothing (rather than applying whatever
-		// paletteMatches() lists first for an empty filter) matches the
-		// original behavior: an accidental Enter before typing anything
-		// should never silently open a form.
-		if strings.TrimSpace(m.query) != "" {
-			if matches := m.paletteMatches(); len(matches) > 0 {
-				return matches[m.paletteSelectedIndex()].apply(m)
-			}
+		// Applies whatever is highlighted, query or no query. This used
+		// to do nothing at all while the query was empty, on the grounds
+		// that "whatever paletteMatches() lists first for an empty
+		// filter" was arbitrary and an accidental Enter shouldn't open a
+		// form. That reasoning died with the six-match cap: an empty
+		// query now lists every command on purpose, with the selected
+		// row marked "›" and ↑/↓ moving it, so the palette was inviting
+		// people to pick a command and then refusing to open it --
+		// confirmed live, scrolling worked and nothing could be
+		// selected. Esc still backs out of anything Enter opens.
+		if matches := m.paletteMatches(); len(matches) > 0 {
+			return matches[m.paletteSelectedIndex()].apply(m)
 		}
 	case "backspace":
 		if len(m.query) > 0 {
@@ -181,7 +185,7 @@ func (m Model) updateForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if click, ok := msg.(tea.MouseClickMsg); ok {
 		mouse := click.Mouse()
 		if mouse.Button == tea.MouseLeft && len(m.inputs) > 0 {
-			if field, ok := m.formFieldAtY(colors(m.highContrast), mouse.Y); ok && field != m.formFocus {
+			if field, ok := m.formFieldAtY(colors(), mouse.Y); ok && field != m.formFocus {
 				m.inputs[m.formFocus].Blur()
 				m.formFocus = field
 				return m, m.inputs[m.formFocus].Focus()
