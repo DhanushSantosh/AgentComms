@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/DhanushSantosh/AgentComms/internal/buildinfo"
+	"github.com/DhanushSantosh/AgentComms/internal/cliui"
 	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
 	"github.com/DhanushSantosh/AgentComms/internal/daemon"
 	"github.com/DhanushSantosh/AgentComms/internal/daemonclient"
@@ -2572,5 +2573,79 @@ func TestTailFileCarriesTheEvidenceRatherThanAPathToIt(t *testing.T) {
 	}
 	if !strings.HasPrefix(got, "line ") {
 		t.Errorf("must not begin mid-line, got %q", got)
+	}
+}
+
+// TestDoctorFixReportsAFailedAttemptAsOne: "nothing to repair" is only
+// honest when nothing was attempted. `doctor --fix` printed it directly
+// above "Could not repair: ...", so the line a reader takes at face
+// value said there had been nothing wrong -- which is exactly how a
+// blocked repair got reported as a silent no-op.
+func TestDoctorFixReportsAFailedAttemptAsOne(t *testing.T) {
+	value := func(fields []cliui.Field, label string) string {
+		for _, field := range fields {
+			if field.Label == label {
+				return field.Value
+			}
+		}
+		return ""
+	}
+	if got := value(doctorFixFields(true, nil, nil, 0), "Repaired"); got != "nothing to repair" {
+		t.Errorf("with nothing attempted: got %q", got)
+	}
+	if got := value(doctorFixFields(true, []string{"reconciled the project lifecycle (1 action(s))"}, nil, 0), "Repaired"); got != "reconciled the project lifecycle (1 action(s))" {
+		t.Errorf("with a repair done: got %q", got)
+	}
+	failed := doctorFixFields(true, nil, []string{"project lifecycle is locked by another process"}, 1)
+	if got := value(failed, "Repaired"); strings.Contains(got, "nothing to repair") {
+		t.Errorf("with an attempt that failed, the report must not read as nothing having been wrong: %q", got)
+	}
+	if got := value(failed, "Could not repair"); got == "" {
+		t.Error("a failed attempt must still name its reason")
+	}
+}
+
+// TestLifecycleConflictOutcomeReadsTheResultRatherThanTheError: another
+// process holding the upgrade lock is, in practice, that process running
+// this very reconciliation -- usually a daemon that started against a
+// project whose recorded build ID just changed. Whether that is a
+// failure depends entirely on what the findings look like afterwards.
+func TestLifecycleConflictOutcomeReadsTheResultRatherThanTheError(t *testing.T) {
+	err := &projectlifecycle.Error{Code: projectlifecycle.CodeConflict, Message: "project lifecycle is locked by another process"}
+
+	repaired, failed := lifecycleConflictOutcome(err, 2)
+	if failed != "" {
+		t.Errorf("findings cleared while the other process held the lock; that is not a failure: %q", failed)
+	}
+	if !strings.Contains(repaired, "another process") {
+		t.Errorf("it should credit the run that actually did the work, got %q", repaired)
+	}
+
+	repaired, failed = lifecycleConflictOutcome(err, 0)
+	if repaired != "" {
+		t.Errorf("nothing cleared, so nothing was repaired: %q", repaired)
+	}
+	if !strings.Contains(failed, "re-run") {
+		t.Errorf("the reader's next move is to wait and re-run; say so: %q", failed)
+	}
+}
+
+// TestIsLifecycleConflictOnlyMatchesTheLock guards the widening that
+// would make every lifecycle failure look like a transient one worth
+// re-inspecting past.
+func TestIsLifecycleConflictOnlyMatchesTheLock(t *testing.T) {
+	if !isLifecycleConflict(&projectlifecycle.Error{Code: projectlifecycle.CodeConflict, Message: "locked"}) {
+		t.Error("a CONFLICT is the lock")
+	}
+	for _, other := range []projectlifecycle.ErrorCode{
+		projectlifecycle.CodeUpgradeFailed, projectlifecycle.CodeUpgradeRequired,
+		projectlifecycle.CodeProjectTooNew, projectlifecycle.CodeNotAProject,
+	} {
+		if isLifecycleConflict(&projectlifecycle.Error{Code: other, Message: "x"}) {
+			t.Errorf("%s is a real failure, not a lock contention", other)
+		}
+	}
+	if isLifecycleConflict(nil) || isLifecycleConflict(errors.New("boom")) {
+		t.Error("only the lifecycle package's own CONFLICT counts")
 	}
 }
