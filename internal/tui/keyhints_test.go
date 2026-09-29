@@ -148,6 +148,8 @@ func TestKeyBarIsDroppedRatherThanPushingContentOffScreen(t *testing.T) {
 // black card and backdrop. On a terminal with a background image each
 // one was a rectangle punched out of it. Colored badges (ink on cyan or
 // red) are the deliberate exception -- those are meaning, not chrome.
+// Unconditional: there is no terminal, light or dark, where the TUI
+// paints a surface of its own.
 func TestNothingPaintsItsOwnBackground(t *testing.T) {
 	s := newTestService(t)
 	registerAgent(t, s, "claude-builder", model.Role("MEMBER"), "src")

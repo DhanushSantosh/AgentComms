@@ -24,9 +24,14 @@ import (
 type palette struct{ ink, cyan, amber, red, violet, muted, text color.Color }
 
 // One palette, the high-contrast one. Nothing here paints a background
-// except an inverted badge (ink text on cyan or red) and the light-
-// terminal surface -- ink is a text color on a colored bar far more
-// often than it is a fill.
+// except an inverted badge (ink text on cyan or red); ink is a text
+// color on a colored bar, never a fill. Everything the TUI draws sits
+// on the terminal's own background, which is a deliberate trade: it
+// means the TUI never fights a terminal's theme or blanks out its
+// wallpaper, and it means these colors have to carry on their own. They
+// are picked for a dark background. A light one will wash out the muted
+// grey and the amber -- run the terminal dark, which is what the
+// transparency is for.
 // There used to be two -- a muted
 // default and this, toggled with "h" and remembered in user config --
 // which meant every surface had to be checked twice, the dim default was
@@ -106,13 +111,9 @@ func (m Model) View() tea.View {
 		screen = m.renderPalette(p, screen)
 	}
 	v := tea.NewView(screen)
-	if m.lightTerminal {
-		// Sets the terminal's own background and foreground for as long
-		// as the TUI runs (bubbletea resets both on exit), so the parts
-		// of the screen no styled cell covers are dark too.
-		v.BackgroundColor = p.ink
-		v.ForegroundColor = p.text
-	}
+	// BackgroundColor/ForegroundColor deliberately left nil: the TUI
+	// never sets the terminal's own colors, so what it draws sits on
+	// whatever is already there.
 	v.AltScreen = true
 	v.MouseMode = tea.MouseModeCellMotion
 	v.WindowTitle = "Agent Comms · Project Control"
@@ -213,14 +214,9 @@ func (m Model) renderSidebar(p palette, w, h int) (view string, hubLine []int) {
 	// No background fill: like the body pane, the sidebar shows whatever
 	// the terminal itself is. It used to paint p.ink over its whole
 	// column, which on a terminal with a background image was a black
-	// bar down the side of it. A light terminal is the one exception,
-	// for the same reason the body pane has one -- white-on-white is not
-	// a reading experience.
-	frame := lipgloss.NewStyle().Width(w).Height(h).Padding(1).Foreground(p.text)
-	if m.lightTerminal {
-		frame = frame.Background(p.ink)
-	}
-	return frame.Render(strings.Join(rows, "\n")), hubLine
+	// bar down the side of it.
+	return lipgloss.NewStyle().Width(w).Height(h).Padding(1).Foreground(p.text).
+		Render(strings.Join(rows, "\n")), hubLine
 }
 func (m Model) renderBody(p palette, w, h int) string {
 	// contentW, not w: meta/tabs render inside pane's own Padding(1, 2)
@@ -240,28 +236,14 @@ func (m Model) renderBody(p palette, w, h int) string {
 	header := lipgloss.NewStyle().Foreground(p.text).Bold(true).Render(title)
 	meta := m.commandRail(p, contentW)
 	tabs, _ := m.renderHubTabs(p, contentW)
-	// No Background/Foreground of its own on a dark terminal: the body
-	// pane keeps the terminal's real colors, wallpaper and all. It used
-	// to paint itself a dark grey (the palette's since-deleted "panel"
-	// color) over the whole right-hand
-	// side, which fought every terminal theme that wasn't that exact
-	// shade -- a grey slab on a light profile, and a second, slightly-off
-	// background beside the terminal's own on a dark one. Every element
-	// inside still sets its own semantic color (cyan/amber/red/muted), so
-	// nothing loses meaning; only the slab goes.
-	//
-	// On a light terminal it paints p.ink instead. The palette is built
-	// for a dark background -- white text, light-grey muted, pure-yellow
-	// amber -- so "inherit the terminal" there means unreadable, and a
-	// surface of its own is the honest answer. View() sets the same color
-	// on the screen as a whole, which covers the gaps this pane doesn't
-	// (the column between it and the sidebar); this stays belt-and-braces
-	// because that one goes through an OSC escape the terminal may
-	// ignore, while this is just cells.
+	// No Background of its own, ever: the body pane keeps the terminal's
+	// real colors, wallpaper and all. It used to paint itself a dark grey
+	// (the palette's since-deleted "panel" color) over the whole
+	// right-hand side, which fought every terminal theme that wasn't that
+	// exact shade. Every element inside still sets its own semantic color
+	// (cyan/amber/red/muted), so nothing loses meaning; only the slab
+	// goes. See colors() for the deliberate trade this makes.
 	pane := lipgloss.NewStyle().Width(w).Height(h).Padding(1, 2)
-	if m.lightTerminal {
-		pane = pane.Background(p.ink).Foreground(p.text)
-	}
 	if m.form != "" {
 		content := m.renderForm(p)
 		return pane.Render(meta + "\n" + tabs + "\n\n" + header + "\n\n" + content)
@@ -1015,12 +997,9 @@ func (m Model) paletteLayout(p palette) (panel string, matchLine []int) {
 	// from the screen. Filling it with p.ink made it a black card, which
 	// on a terminal with a background image is the one thing on screen
 	// that blanks it out.
-	card := lipgloss.NewStyle().Width(width).Border(lipgloss.NormalBorder()).
-		BorderForeground(p.cyan).Foreground(p.text).Padding(1, 2)
-	if m.lightTerminal {
-		card = card.Background(p.ink)
-	}
-	panel = card.Render(strings.Join(rows, "\n"))
+	panel = lipgloss.NewStyle().Width(width).Border(lipgloss.NormalBorder()).
+		BorderForeground(p.cyan).Foreground(p.text).Padding(1, 2).
+		Render(strings.Join(rows, "\n"))
 	return panel, matchLine
 }
 
