@@ -16,6 +16,19 @@ import (
 // rendered.
 func (m Model) rowListDimensions(p palette) (w, h int) {
 	_, _, innerW, innerH := m.bodyLayout(p)
+	// An open inspector takes its room from the table rather than being
+	// appended past the bottom of the pane. Without this, pressing [i]
+	// on a view whose rows already fill the height did nothing at all
+	// visible -- the inspector rendered below the last line the terminal
+	// has, so the one place the TUI shows a message's body, a task's
+	// summary or an approval's reason looked like a dead key. Confirmed
+	// live on a 40-message inbox.
+	if m.inspecting {
+		if inspector := m.renderInspector(p, innerW); inspector != "" {
+			// +1 for the blank line renderBody puts between the two.
+			innerH = max(1, innerH-wrappedHeight(inspector, innerW)-1)
+		}
+	}
 	switch views[m.view] {
 	case "Invocations":
 		return innerW, max(1, innerH-5)

@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"charm.land/lipgloss/v2"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 )
 
@@ -241,5 +242,56 @@ func TestRowCellsNeverWrapOntoAnExtraLine(t *testing.T) {
 				t.Fatalf("width %d: expected a single line containing both %q and DELIV(ERED), got:\n%s", width, want, strings.Join(lines, "\n"))
 			}
 		}
+	}
+}
+
+// TestInspectorStaysOnScreenWhenTheTableIsFull is the regression test for
+// the one place the TUI shows a message's body: the inspector used to be
+// appended below a row list that had already been given the pane's whole
+// height, so on any view with enough rows to fill the screen it rendered
+// past the last line the terminal has. [i] looked like a dead key, and
+// the body looked like something the TUI simply did not display --
+// confirmed live on a 40-message inbox. The table yields the room now.
+func TestInspectorStaysOnScreenWhenTheTableIsFull(t *testing.T) {
+	s := newTestService(t)
+	const body = "The body-preservation path drops trailing whitespace when a message is re-rendered."
+	for i := 0; i < 40; i++ {
+		id := "msg-" + string(rune('a'+i/26)) + string(rune('a'+i%26))
+		if _, e := s.Execute("owner", "message.post", id, model.MessagePosted{
+			Kind: "FYI", To: []string{"owner"}, Subject: "Subject " + id, Body: body,
+		}); e != nil {
+			t.Fatal(e)
+		}
+	}
+	m, e := New(s, "owner")
+	if e != nil {
+		t.Fatal(e)
+	}
+	m.width, m.height = 120, 30
+	m = enterInboxView(t, m)
+
+	before := m.View().Content
+	if strings.Contains(before, "INSPECTOR") {
+		t.Fatal("the inspector should be closed to begin with")
+	}
+	m = pressKey(t, m, keyText("i"))
+	if !m.inspecting {
+		t.Fatal("expected [i] to open the inspector")
+	}
+	after := m.View().Content
+	if !strings.Contains(after, "INSPECTOR") {
+		t.Fatal("[i] did nothing visible: the inspector rendered past the bottom of the screen")
+	}
+	// A fragment, not the whole body: the inspector wraps it across
+	// lines, so the full string is never contiguous on screen.
+	if !strings.Contains(inboxTestAnsi.ReplaceAllString(after, ""), "body-preservation path") {
+		t.Error("the inspector must show the message body")
+	}
+	// It cost the table rows rather than the terminal its last lines.
+	if got := lipgloss.Height(after); got > m.height {
+		t.Errorf("the screen renders %d lines into a %d-line terminal", got, m.height)
+	}
+	if rows := strings.Count(after, "Subject msg-"); rows == 0 {
+		t.Error("the table should still show rows alongside the inspector")
 	}
 }

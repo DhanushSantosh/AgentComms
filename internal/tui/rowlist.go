@@ -493,6 +493,11 @@ func (m Model) updateRowList(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "i":
 		m.inspecting = !m.inspecting
+		// The table's viewport just changed size (rowListDimensions
+		// gives the inspector its room), so the persisted height has to
+		// follow immediately -- the click-to-row math and scroll
+		// clamping both read it before the next keystroke would.
+		m.syncActiveRowListDimensions()
 		return m, nil
 	case "?":
 		m.notice = "↑/↓ select row · [key] contextual action · [i] inspect · [n] new · / commands · [esc] back · [q] quit"
