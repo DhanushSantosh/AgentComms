@@ -142,26 +142,42 @@ func TestKeyBarIsDroppedRatherThanPushingContentOffScreen(t *testing.T) {
 	}
 }
 
-// TestBodyPaneKeepsTheTerminalBackground is the regression test for the
-// dark grey slab: the body pane used to paint p.panel over the whole
-// right-hand side, which fought every terminal theme that wasn't that
-// shade. Checks the palette color's own 24-bit background escape appears
-// nowhere in an ordinary render.
-func TestBodyPaneKeepsTheTerminalBackground(t *testing.T) {
+// TestNothingPaintsItsOwnBackground is the regression test for every
+// filled surface the TUI used to draw over the terminal: the body pane's
+// dark-grey slab, the sidebar's black column, and the command palette's
+// black card and backdrop. On a terminal with a background image each
+// one was a rectangle punched out of it. Colored badges (ink on cyan or
+// red) are the deliberate exception -- those are meaning, not chrome.
+func TestNothingPaintsItsOwnBackground(t *testing.T) {
 	s := newTestService(t)
+	registerAgent(t, s, "claude-builder", model.Role("MEMBER"), "src")
 	m, err := New(s, "owner")
 	if err != nil {
 		t.Fatal(err)
 	}
 	m.width, m.height = 140, 40
-	// #0D2024, the low-contrast palette's panel fill.
-	const panelBackground = "48;2;13;32;36"
-	for _, name := range views {
-		m.openView(name)
-		if strings.Contains(m.View().Content, panelBackground) {
-			t.Fatalf("%s: body still paints its own panel background", name)
+	fills := map[string]string{
+		"black":          "48;2;0;0;0",    // the former sidebar and palette fill
+		"dark grey":      "48;2;17;17;17", // the former query-box fill
+		"low-contrast":   "48;2;13;32;36", // the body pane's original slab
+		"low-contrast 2": "48;2;7;18;22",  // and the sidebar's
+	}
+	check := func(what, rendered string) {
+		for name, escape := range fills {
+			if strings.Contains(rendered, escape) {
+				t.Errorf("%s: still paints a %s background", what, name)
+			}
 		}
 	}
+	for _, name := range views {
+		m.openView(name)
+		check(name, m.View().Content)
+	}
+	m.openView("Agents")
+	m.rowFocus = true
+	check("focused Agents", m.View().Content)
+	m.palette = true
+	check("command palette", m.View().Content)
 }
 
 func TestPackHintsNeverExceedsTheSidebarWidth(t *testing.T) {

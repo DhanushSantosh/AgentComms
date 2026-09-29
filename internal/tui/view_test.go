@@ -5,7 +5,9 @@ import (
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/DhanushSantosh/AgentComms/internal/model"
 )
 
 func TestTruncateMiddleKeepsWhatDistinguishesProviderScopedIDs(t *testing.T) {
@@ -135,5 +137,84 @@ func TestExpiredToastLeavesTheRailAlone(t *testing.T) {
 	m.toastExpiresAt = time.Now().Add(-time.Second)
 	if got := m.commandRail(p, 120); got != quiet {
 		t.Fatalf("an expired toast still changed the rail:\n%q\n%q", got, quiet)
+	}
+}
+
+// TestLightTerminalGetsItsOwnDarkSurface: the TUI has one palette and it
+// is built for a dark background -- white text, light-grey muted,
+// pure-yellow amber. The body pane paints no background of its own so a
+// dark terminal's theme shows through, which on a light terminal would
+// mean unreadable. There, and only there, it paints its own.
+func TestLightTerminalGetsItsOwnDarkSurface(t *testing.T) {
+	s := newTestService(t)
+	m, err := New(s, "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.width, m.height = 120, 30
+	p := colors()
+	// #000000, the ink the dark surface is painted in.
+	const inkBackground = "48;2;0;0;0"
+
+	if body := m.renderBody(p, 90, 30); strings.Contains(body, inkBackground) {
+		t.Error("a dark terminal must keep its own background in the body pane")
+	}
+	if m.View().BackgroundColor != nil {
+		t.Error("a dark terminal's own background must be left alone")
+	}
+
+	m = pressMsg(t, m, tea.BackgroundColorMsg{Color: lipgloss.Color("#FFFFFF")})
+	if !m.lightTerminal {
+		t.Fatal("expected a white terminal background to be detected as light")
+	}
+	if body := m.renderBody(p, 90, 30); !strings.Contains(body, inkBackground) {
+		t.Error("a light terminal must get a dark body pane")
+	}
+	// The sidebar and the palette card take the same surface, because
+	// the screen-level color below goes through an OSC escape the
+	// terminal is free to ignore.
+	if side, _ := m.renderSidebar(p, m.sidebarWidth(), 30); !strings.Contains(side, inkBackground) {
+		t.Error("a light terminal must get a dark sidebar")
+	}
+	if card, _ := m.paletteLayout(p); !strings.Contains(card, inkBackground) {
+		t.Error("a light terminal must get a dark palette card")
+	}
+	view := m.View()
+	if view.BackgroundColor != p.ink {
+		t.Errorf("expected the screen background set to ink, got %v", view.BackgroundColor)
+	}
+	if view.ForegroundColor != p.text {
+		t.Errorf("expected the screen foreground set to text, got %v", view.ForegroundColor)
+	}
+
+	// And back: a terminal that switches to a dark theme re-sends the
+	// answer, and the surface goes away again.
+	m = pressMsg(t, m, tea.BackgroundColorMsg{Color: lipgloss.Color("#000000")})
+	if m.lightTerminal {
+		t.Fatal("expected a black terminal background to be detected as dark")
+	}
+	if body := m.renderBody(p, 90, 30); strings.Contains(body, inkBackground) {
+		t.Error("switching back to a dark terminal must drop the painted surface")
+	}
+}
+
+// TestBackgroundAnswerIsNotSwallowedByAFocusedMode: terminals answer the
+// query whenever they get to it, which can be long after startup and in
+// any mode. Every mode-specific update function returns before the main
+// switch, so this has to be handled ahead of the dispatch.
+func TestBackgroundAnswerIsNotSwallowedByAFocusedMode(t *testing.T) {
+	s := newTestService(t)
+	registerAgent(t, s, "claude-builder", model.Role("MEMBER"), "src")
+	m, err := New(s, "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m = enterAgentsView(t, m)
+	m = pressMsg(t, m, tea.BackgroundColorMsg{Color: lipgloss.Color("#FFFFFF")})
+	if !m.lightTerminal {
+		t.Fatal("a focused row list swallowed the terminal's background answer")
+	}
+	if !m.rowFocus {
+		t.Fatal("handling the answer must not disturb the focused view")
 	}
 }

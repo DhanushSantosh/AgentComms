@@ -50,12 +50,23 @@ type Model struct {
 	// currently targets. Reset to 0 whenever the palette opens or the
 	// query changes, since the match list itself changes underneath it.
 	paletteSelected int
-	err             error
-	form            string
-	inputs          []textinput.Model
-	formFocus       int
-	formTaskID      string
-	formSpec        *ActionForm
+	// lightTerminal is set from the terminal's own answer to the
+	// background-color query Init() already sends. The one palette the
+	// TUI has is built for a dark background (white text, #BBBBBB muted,
+	// pure-yellow amber), and the body pane deliberately paints no
+	// background of its own so a dark terminal's own theme -- wallpaper
+	// and all -- shows through. On a light terminal that combination is
+	// unreadable, so there, and only there, the TUI paints its own dark
+	// surface. Defaults false: a terminal that never answers the query
+	// is treated as dark, which is the transparent behavior everything
+	// else assumes.
+	lightTerminal bool
+	err           error
+	form          string
+	inputs        []textinput.Model
+	formFocus     int
+	formTaskID    string
+	formSpec      *ActionForm
 	// formPrefill and formInitialValue are UX-12/codex-review follow-up:
 	// textinput.Model is single-line and unconditionally collapses
 	// newlines/tabs to spaces (bubbles' own runeutil sanitizer, applied by
@@ -187,6 +198,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = resize.Width
 		m.height = resize.Height
 		m.syncActiveRowListDimensions()
+		return m, nil
+	}
+	// Before mode dispatch, for the same reason the resize above is: the
+	// answer can arrive at any moment (terminals reply to the OSC query
+	// whenever they get to it, and a theme change re-sends it), and a
+	// form or focused row list would otherwise swallow it.
+	if bg, ok := msg.(tea.BackgroundColorMsg); ok {
+		m.lightTerminal = !bg.IsDark()
 		return m, nil
 	}
 	if snapMsg, ok := msg.(ptySnapshotMsg); ok {
