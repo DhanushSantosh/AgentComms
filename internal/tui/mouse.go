@@ -2,43 +2,27 @@ package tui
 
 import (
 	"math"
+	"strings"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // rowListDimensions returns the exact (w, h) the currently active row-list
-// view passes to RowList.View, mirroring renderBody's per-view adjustments
-// (Agents/Invocations/Runtimes/Contracts & decisions each reserve extra
-// lines for their own control bar or detail pane). Shared by renderBody
+// view passes to RowList.View, mirroring renderBody's bounded lower detail
+// pane when one exists. Shared by renderBody
 // itself and by syncActiveRowListDimensions, so the persisted table's real
 // viewport size -- fixed outside of View(), which can't persist state for
 // the next Update() to read -- can never drift from what's actually
 // rendered.
 func (m Model) rowListDimensions(p palette) (w, h int) {
 	_, _, innerW, innerH := m.bodyLayout(p)
-	// An open inspector takes its room from the table rather than being
-	// appended past the bottom of the pane. Without this, pressing [i]
-	// on a view whose rows already fill the height did nothing at all
-	// visible -- the inspector rendered below the last line the terminal
-	// has, so the one place the TUI shows a message's body, a task's
-	// summary or an approval's reason looked like a dead key. Confirmed
-	// live on a 40-message inbox.
-	if m.inspecting {
-		if inspector := m.renderInspector(p, innerW); inspector != "" {
-			// +1 for the blank line renderBody puts between the two.
-			innerH = max(1, innerH-wrappedHeight(inspector, innerW)-1)
-		}
+	if m.tableDetail(p, innerW) != "" && innerH > 2 {
+		// One blank separator plus a bounded detail viewport. A long body
+		// never gets to consume the neighboring table's entire height.
+		innerH -= m.tableDetailHeight(p, innerW, innerH) + 1
 	}
-	switch views[m.view] {
-	case "Invocations":
-		return innerW, max(1, innerH-5)
-	case "Runtimes":
-		return innerW, max(1, innerH-5)
-	case "Contracts & decisions":
-		return innerW, max(1, innerH-4)
-	default:
-		return innerW, innerH
-	}
+	return innerW, max(1, innerH)
 }
 
 // syncActiveRowListDimensions writes the real width/height onto the active
@@ -76,7 +60,11 @@ func (m Model) bodyPrefixHeight(p palette) int {
 		title = "PROJECT CONTROL"
 	}
 	header := lipgloss.NewStyle().Foreground(p.text).Bold(true).Render(title)
-	return 1 /* pane top padding */ + lipgloss.Height(meta) + lipgloss.Height(tabs) + 1 /* blank */ + lipgloss.Height(header) + 1 /* blank */
+	height := 1 /* pane top padding */ + lipgloss.Height(meta) + lipgloss.Height(tabs) + 1 /* blank */ + lipgloss.Height(header) + 1 /* blank */
+	if m.statusBanner(p, contentW) != "" {
+		height++
+	}
+	return height
 }
 
 // rowTableTopY returns the absolute screen row where the active row list's
@@ -143,10 +131,12 @@ func (m Model) formFieldAtY(p palette, y int) (field int, ok bool) {
 		return 0, false
 	}
 	top := m.bodyPrefixHeight(p)
+	_, _, contentW, contentH := m.bodyLayout(p)
+	visibleOffset := viewportStart(m.renderForm(p), contentW, contentH, m.scrollOffset)
 	rows, fieldLine := m.formRows(p)
 	maxW := m.formMaxWidth()
 	measure := lipgloss.NewStyle().MaxWidth(maxW)
-	line := top
+	line := top - visibleOffset
 	rowTop := make([]int, len(rows))
 	for i, row := range rows {
 		rowTop[i] = line
@@ -173,37 +163,43 @@ func (m Model) confirmChoiceAt(p palette, x, y int) (yes, ok bool) {
 	if m.confirm.localDraft {
 		yesLabel = draftConfirmYesLabel
 	}
-	rows := []string{
-		lipgloss.NewStyle().Foreground(p.amber).Bold(true).Render("REVIEW / Signed change"),
-		m.confirm.prompt,
-		"",
-		lipgloss.NewStyle().Foreground(p.muted).Render("This action becomes part of project history."),
+	_, _, contentW, contentH := m.bodyLayout(p)
+	// Use the same physical wrapping and viewport as renderBody. Counting
+	// logical rows here made clicks on a wrapped prompt sign the change while
+	// the visible button did nothing.
+	wrapped := strings.Split(ansi.Hardwrap(m.renderConfirm(p), contentW, true), "\n")
+	start := viewportStart(m.renderConfirm(p), contentW, contentH, m.scrollOffset)
+	visible := contentH
+	if len(wrapped) > contentH {
+		visible = max(1, contentH-1) // the last line is the scroll indicator
 	}
-	if m.confirm.localDraft {
-		rows[0] = lipgloss.NewStyle().Foreground(p.amber).Bold(true).Render("REVIEW / Local draft deletion")
-		rows[3] = lipgloss.NewStyle().Foreground(p.muted).Render("This deletes one local draft and frees its quota; it does not change project history.")
-	}
-	line := m.bodyPrefixHeight(p)
-	for _, row := range rows {
-		line += lipgloss.Height(row)
-	}
-	if y != line {
-		return false, false
-	}
-	// The button row starts after the sidebar, the " " JoinHorizontal
-	// separator, the confirm block's own BorderLeft (1 column), and its
-	// PaddingLeft(2).
-	textStart := m.sidebarWidth() + 1 + 1 + 2
-	relativeX := x - textStart
-	if relativeX < 0 {
-		return false, false
-	}
-	if relativeX < lipgloss.Width(yesLabel) {
-		return true, true
-	}
-	noStart := lipgloss.Width(yesLabel) + lipgloss.Width(confirmGap)
-	if relativeX >= noStart && relativeX < noStart+lipgloss.Width(confirmNoLabel) {
-		return false, true
+	screen := strings.Split(m.View().Content, "\n")
+	for _, choice := range []struct {
+		label string
+		yes   bool
+	}{{yesLabel, true}, {confirmNoLabel, false}} {
+		buttonRow := -1
+		for i, line := range wrapped {
+			if strings.Contains(ansi.Strip(line), choice.label) {
+				buttonRow = i // the actual button follows any prompt text
+			}
+		}
+		if buttonRow < start || buttonRow >= start+visible {
+			continue
+		}
+		row := m.bodyPrefixHeight(p) + buttonRow - start
+		if y != row || row < 0 || row >= len(screen) {
+			continue
+		}
+		plain := ansi.Strip(screen[row])
+		labelAt := strings.LastIndex(plain, choice.label)
+		if labelAt < 0 {
+			continue
+		}
+		left := ansi.StringWidth(plain[:labelAt])
+		if x >= left && x < left+ansi.StringWidth(choice.label) {
+			return choice.yes, true
+		}
 	}
 	return false, false
 }
@@ -251,7 +247,7 @@ func (m Model) hubTabAt(p palette, x, y int) (view string, ok bool) {
 // Confirmed live: at contentW=72 every domain past "Project policy"
 // resolved to the wrong index or nothing at all.
 func (m Model) settingsSectionAt(p palette, x, y int) (index int, ok bool) {
-	_, _, contentW, _ := m.bodyLayout(p)
+	_, _, contentW, contentH := m.bodyLayout(p)
 	if contentW < 72 {
 		return 0, false
 	}
@@ -262,8 +258,8 @@ func (m Model) settingsSectionAt(p palette, x, y int) (index int, ok bool) {
 	}
 	innerW := max(1, domainWidth-4) // Border(1) + Padding(1), each side
 	measure := lipgloss.NewStyle().Width(innerW)
-	line := m.bodyPrefixHeight(p) + 1 /* border top */ + 1         /* padding top */
-	line += lipgloss.Height(measure.Render("CONTROL DOMAINS")) + 1 /* blank */
+	line := m.bodyPrefixHeight(p) - viewportStart(m.projectSettings(p, contentW, contentH), contentW, contentH, m.scrollOffset) + 1 /* border top */ + 1 /* padding top */
+	line += lipgloss.Height(measure.Render("CONTROL DOMAINS")) + 1                                                                                       /* blank */
 	for i, section := range settingsSections {
 		marker := "  "
 		if i == m.settingsCursor {

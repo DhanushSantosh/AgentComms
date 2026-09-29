@@ -33,7 +33,7 @@ func (m Model) contextHints() []keyHint {
 	view := views[m.view]
 	switch view {
 	case "Overview":
-		return []keyHint{{"[g]", "agents"}, {"[i]", "invocations"}, {"[pgup/pgdn]", "scroll"}}
+		return []keyHint{{"[m]", "inbox"}, {"[g]", "agents"}, {"[i]", "invocations"}, {"[pgup/pgdn]", "scroll"}}
 	case "Blockers", "Audit & health", "Activity", "Archive search":
 		return []keyHint{{"[pgup/pgdn]", "scroll"}, {"[r]", "refresh"}}
 	case "Project settings":
@@ -42,7 +42,7 @@ func (m Model) contextHints() []keyHint {
 		}
 		return []keyHint{
 			{"[↑/↓]", "domain"}, {"[e/enter]", "manage"},
-			{"[g]", "agents"}, {"[r]", "runtimes"},
+			{"[pgup/pgdn]", "scroll"}, {"[g]", "agents"}, {"[r]", "runtimes"},
 		}
 	case "Drafts":
 		create := keyHint{"[n]", createForms[view].label}
@@ -79,6 +79,9 @@ func (m Model) contextHints() []keyHint {
 		hints = append(hints, keyHint{"[" + act.Key + "]", act.Label})
 	}
 	hints = append(hints, keyHint{"[i]", "inspect"})
+	if entered && m.tableDetail(colors(), m.contentWidth()) != "" {
+		hints = append(hints, keyHint{"[shift+pgup/pgdn]", "detail"})
+	}
 	if form, ok := createForms[view]; ok {
 		hints = append(hints, keyHint{"[n]", form.label})
 	}

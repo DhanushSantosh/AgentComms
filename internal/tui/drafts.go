@@ -116,10 +116,10 @@ func (m Model) updateDrafts(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		id := m.drafts[m.draftCursor].ID
-		m.confirm = &confirmState{
+		m.openConfirm(confirmState{
 			prompt: "Delete local draft " + fmt.Sprintf("%q", id) + "?",
 			id:     id, localDraft: true,
-		}
+		})
 	case "?":
 		m.notice = "↑/↓ select draft · [d] delete selected · [n] save draft · [r] refresh · [esc] back"
 	}

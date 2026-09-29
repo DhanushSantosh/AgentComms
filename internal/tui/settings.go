@@ -60,6 +60,10 @@ func (m Model) updateSettings(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	switch key.String() {
+	case "pgup":
+		m.scrollOffset = max(0, m.scrollOffset-5)
+	case "pgdown":
+		m.scrollOffset += 5
 	case "esc", "left":
 		m.settingsFocus = false
 	case "q", "ctrl+c":

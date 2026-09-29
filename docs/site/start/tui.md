@@ -4,7 +4,7 @@ description: Navigate the terminal interface, manage the project, and complete e
 section: Start here
 order: 5
 audience: Human operators
-lastVerified: 2026-09-24
+lastVerified: 2026-09-29
 related: [guide/agents, guide/governance, guide/maintenance, security/identity]
 ---
 
@@ -24,6 +24,9 @@ agent-comms tui
 | Enter | Open the selected section, record, or action. |
 | Tab / Shift+Tab | Move through fields inside a form. |
 | Escape | Close a form or return to the previous view. |
+| Page Up / Page Down | Scroll the current overview, information page, settings page, or long form. |
+| Shift+Page Up / Shift+Page Down | Scroll a table's lower inspector or delivery-detail pane without moving the selected row. |
+| `m` on the overview | Open the inbox to act on the message obligations summarized in Needs Attention. |
 | `?` | Show the current help surface. |
 
 The highlighted row and section marker are the authoritative navigation indicators. The sidebar's command label opens an action surface; it is not a slash-command text box.
@@ -34,15 +37,20 @@ The TUI exposes project overview and attention queues, tasks, inbox messages, ag
 
 Agent management includes registration, activation, suspension, revocation, deletion when eligible, role/scope updates, and runtime inspection. Invocation views expose consumer routing, preferred runtimes, delivery evidence, acknowledgement, lifecycle state, and explicit redelivery.
 
+The overview shows message readiness and execution-runtime presence separately.
+An active registered agent can exchange durable messages and receive an
+invocation request even when it has `NO RUNTIME`; an eligible online runtime
+is needed for automatic invocation delivery and execution claims. `PENDING`
+means the request exists, not that the agent has started work. Bounded panes
+show a position marker when more content can be scrolled into view. The
+overview previews the three highest-priority attention items with a count of
+the rest; the Inbox places messages needing your action before FYIs.
+
 Approval requests can specify an expiry duration for any approval action. It is optional for task takeover and shared-write, and required for bound contract and invocation approvals. The Approvals view shows and marks an elapsed expiry even when the recorded status remains APPROVED; an expired approval cannot authorize a new transition. An already-granted task lease is not revoked when its approval later expires.
 
 ## Real project states
 
-These captures come from the current TUI running against an isolated personal-mode project. The overview separates workforce state, urgent obligations, and append-only activity; the agents view keeps management actions beside the selected identity.
-
-![Current Agent Comms overview with workforce, attention, and activity panels](/tui-overview.png)
-
-![Current Agent Comms agents view with selection and management actions](/tui-agents.png)
+The live overview separates message readiness from runtime presence and previews the highest-priority items needing attention. Open the Inbox for the full action queue, or select an agent to inspect its identity and runtime details. The layout adapts to terminal size; use the on-screen scroll marker when a pane has more content than fits.
 
 ## Sensitive actions
 

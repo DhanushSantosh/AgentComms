@@ -182,6 +182,15 @@ func (m Model) openTaskForm() (tea.Model, tea.Cmd) {
 }
 
 func (m Model) updateForm(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if wheel, ok := msg.(tea.MouseWheelMsg); ok {
+		switch wheel.Button {
+		case tea.MouseWheelUp:
+			m.scrollOffset = max(0, m.scrollOffset-3)
+		case tea.MouseWheelDown:
+			m.scrollOffset += 3
+		}
+		return m, nil
+	}
 	if click, ok := msg.(tea.MouseClickMsg); ok {
 		mouse := click.Mouse()
 		if mouse.Button == tea.MouseLeft && len(m.inputs) > 0 {
@@ -194,6 +203,14 @@ func (m Model) updateForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if key, ok := msg.(tea.KeyPressMsg); ok {
+		switch key.String() {
+		case "pgup":
+			m.scrollOffset = max(0, m.scrollOffset-5)
+			return m, nil
+		case "pgdown":
+			m.scrollOffset += 5
+			return m, nil
+		}
 		if m.formSpec != nil && m.formFocus < len(m.formSpec.Fields) {
 			if options := m.formSpec.Fields[m.formFocus].Options; len(options) > 0 {
 				switch key.String() {
@@ -211,15 +228,18 @@ func (m Model) updateForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "tab", "down":
 			m.inputs[m.formFocus].Blur()
 			m.formFocus = (m.formFocus + 1) % len(m.inputs)
+			m.keepFormFocusVisible()
 			return m, m.inputs[m.formFocus].Focus()
 		case "shift+tab", "up":
 			m.inputs[m.formFocus].Blur()
 			m.formFocus = (m.formFocus - 1 + len(m.inputs)) % len(m.inputs)
+			m.keepFormFocusVisible()
 			return m, m.inputs[m.formFocus].Focus()
 		case "enter":
 			if m.formFocus < len(m.inputs)-1 {
 				m.inputs[m.formFocus].Blur()
 				m.formFocus++
+				m.keepFormFocusVisible()
 				return m, m.inputs[m.formFocus].Focus()
 			}
 			raw := make([]string, len(m.inputs))
@@ -287,7 +307,7 @@ func (m Model) updateForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.formSpec.ConfirmIf != nil {
 				if ok, prompt := m.formSpec.ConfirmIf(payload); ok {
 					m.form, m.inputs, m.formSpec = "", nil, nil
-					m.confirm = &confirmState{prompt: prompt, typ: typ, id: id, payload: payload, passphrase: passphrase}
+					m.openConfirm(confirmState{prompt: prompt, typ: typ, id: id, payload: payload, passphrase: passphrase})
 					return m, nil
 				}
 			}

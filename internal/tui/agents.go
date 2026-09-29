@@ -65,12 +65,12 @@ var activateForm = &ActionForm{
 		// canonicalizing the role, via the exact same comparison.
 		if strings.EqualFold(string(role), string(model.RoleOrchestrator)) && !hasApprovedOrchestratorGrant(m.state, id) {
 			m.form, m.inputs, m.formSpec = "", nil, nil
-			m.confirm = &confirmState{
+			m.openConfirm(confirmState{
 				prompt: "Granting " + id + " the Orchestrator role needs a HUMAN-tier approval first. " +
 					"Request and approve it now, then activate?",
 				typ: "agent.activate", id: id, payload: payload, passphrase: passphrase,
 				chainOrchestratorApproval: true,
-			}
+			})
 			return m, nil
 		}
 		_, err := m.svc.ExecuteWithPassphrase(m.actor, "agent.activate", id, payload, passphrase)
@@ -103,12 +103,12 @@ var switchRoleForm = &ActionForm{
 		payload := model.AgentRoleSwitched{Role: role}
 		if strings.EqualFold(string(role), string(model.RoleOrchestrator)) && !hasApprovedOrchestratorGrant(m.state, m.actor) {
 			m.form, m.inputs, m.formSpec = "", nil, nil
-			m.confirm = &confirmState{
+			m.openConfirm(confirmState{
 				prompt: "Switching yourself to the Orchestrator role needs a HUMAN-tier approval first. " +
 					"Request and approve it now, then switch?",
 				typ: "agent.switch-role", id: m.actor, payload: payload, passphrase: passphrase,
 				chainOrchestratorApproval: true,
-			}
+			})
 			return m, nil
 		}
 		_, err := m.svc.ExecuteWithPassphrase(m.actor, "agent.switch-role", m.actor, payload, passphrase)

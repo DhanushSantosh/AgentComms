@@ -39,6 +39,11 @@ func TestStaticRenderIsWellFormedAndPlaceholderClean(t *testing.T) {
 	}
 	assertSingleDisclaimer(t, rendered)
 	assertNoForbiddenLiterals(t, rendered)
+	for _, want := range []string{"Messaging does not require a runtime", "message inbox --unread", "NO RUNTIME", "receipt is not evidence"} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("static instructions missing communication guidance %q", want)
+		}
+	}
 }
 
 func TestSourceBranchesProduceDistinctText(t *testing.T) {

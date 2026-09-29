@@ -1,11 +1,35 @@
 package tui
 
 import (
+	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 
+	"charm.land/lipgloss/v2"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 )
+
+func TestRowListShowsBoundedScrollPosition(t *testing.T) {
+	messages := map[string]model.Message{}
+	for i := 0; i < 12; i++ {
+		id := fmt.Sprintf("msg-%02d", i)
+		messages[id] = model.Message{ID: id, Kind: "FYI", To: []string{"reviewer"}, Subject: id}
+	}
+	state := model.State{Messages: messages}
+	list := newRowList(messageRowSource{})
+	list.Refresh(state, "reviewer")
+	list.SetDimensions(60, visibleRowCount(5))
+	first := list.View(colors(), state, "reviewer", 60, 5)
+	if !strings.Contains(first, "↕ 1–3/12") || lipgloss.Height(first) > 5 {
+		t.Fatalf("list should show the first bounded window and position:\n%s", first)
+	}
+	list.SetCursor(11, 12)
+	last := list.View(colors(), state, "reviewer", 60, 5)
+	if !strings.Contains(last, "↕ 10–12/12") || !strings.Contains(last, "msg-00") {
+		t.Fatalf("list should reach the last bounded window:\n%s", last)
+	}
+}
 
 func labels(acts []RowAction) []string {
 	if len(acts) == 0 {

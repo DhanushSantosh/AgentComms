@@ -1,11 +1,13 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // TestPaletteOpenedFromRowFocusDoesNotLeakKeystrokes is the regression
@@ -208,6 +210,28 @@ func TestPaletteMatchClickAppliesIt(t *testing.T) {
 	}
 	if m.form != "task.create" {
 		t.Fatalf("expected clicking the first match (new task) to open its form, got form=%q", m.form)
+	}
+}
+
+func TestPaletteMatchCoordinatesPointToVisibleRowsAtAllSizes(t *testing.T) {
+	s := newTestService(t)
+	m, err := New(s, "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.palette = true
+	for _, size := range [][2]int{{120, 30}, {40, 14}, {30, 12}} {
+		m.width, m.height = size[0], size[1]
+		panel, lines := m.paletteLayout(colors())
+		physical := strings.Split(panel, "\n")
+		for index, line := range lines {
+			if line < 0 {
+				continue
+			}
+			if line >= len(physical) || !strings.Contains(ansi.Strip(physical[line]), m.paletteMatches()[index].label) && !strings.Contains(ansi.Strip(physical[line]), "…") {
+				t.Fatalf("%dx%d match %d points to nonmatch physical line %d", m.width, m.height, index, line)
+			}
+		}
 	}
 }
 

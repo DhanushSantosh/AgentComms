@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -353,6 +354,10 @@ func (r RowList) View(p palette, st model.State, actor string, w, h int) string 
 	for i := top; i < end; i++ {
 		lines = append(lines, renderTableRow(cols, rows[i], styles, i == r.cursor))
 	}
+	if h >= 2 && len(rows) > visibleRowCount(h) {
+		position := fmt.Sprintf("↕ %d–%d/%d · ↑↓ PgUp/PgDn", top+1, end, len(rows))
+		lines = append(lines, lipgloss.NewStyle().Foreground(p.cyan).Render(ansi.Truncate(position, w, "…")))
+	}
 	// No key footer here any more: the selected row's actions, [i]
 	// inspect and the navigation keys all render in keyhints.go's bar at
 	// the foot of the pane, alongside the global keys and in the same
@@ -434,11 +439,15 @@ func (m Model) updateRowList(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Mouse wheel scrolls the row cursor the same one row at a time that
 	// LineUp/LineDown (k/j, up/down) already do.
 	if wheel, ok := msg.(tea.MouseWheelMsg); ok {
+		selected := list.SelectedID(m.state, m.actor)
 		switch wheel.Button {
 		case tea.MouseWheelUp:
 			list.MoveCursor(-1, rowCount)
 		case tea.MouseWheelDown:
 			list.MoveCursor(1, rowCount)
+		}
+		if list.SelectedID(m.state, m.actor) != selected {
+			m.detailScrollOffset = 0
 		}
 		return m, nil
 	}
@@ -447,11 +456,15 @@ func (m Model) updateRowList(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if mouse.Button == tea.MouseLeft {
 			p := colors()
 			if row, ok := m.rowAtY(p, mouse.Y); ok {
+				selected := list.SelectedID(m.state, m.actor)
 				// Recorded regardless of whether this turns out to be a
 				// double-click, so a third click starts a fresh window
 				// rather than chaining into more double-clicks.
 				double := m.isDoubleClick(mouse.X, mouse.Y, time.Now())
 				list.SetCursor(row, rowCount)
+				if list.SelectedID(m.state, m.actor) != selected {
+					m.detailScrollOffset = 0
+				}
 				if double {
 					// [i] inspect, not actions[0]: firing the row's first
 					// action -- activate for a PENDING agent, drain for an
@@ -487,6 +500,12 @@ func (m Model) updateRowList(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// one already did ("r" for agent.go's actChangeRole) and was silently
 	// unreachable, always losing to refresh, until this comment existed.
 	switch k := key.String(); k {
+	case "shift+pgup":
+		m.detailScrollOffset = max(0, m.detailScrollOffset-5)
+		return m, nil
+	case "shift+pgdown":
+		m.detailScrollOffset += 5
+		return m, nil
 	case "esc", "left":
 		m.rowFocus = false
 		return m, nil
@@ -501,6 +520,7 @@ func (m Model) updateRowList(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "i":
 		m.inspecting = !m.inspecting
+		m.detailScrollOffset = 0
 		// The table's viewport just changed size (rowListDimensions
 		// gives the inspector its room), so the persisted height has to
 		// follow immediately -- the click-to-row math and scroll
@@ -543,10 +563,22 @@ func (m Model) updateRowList(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "end", "G":
 			list.SetCursor(rowCount-1, rowCount)
 		}
+		if list.SelectedID(m.state, m.actor) != id {
+			m.detailScrollOffset = 0
+		}
 	}
 	return m, nil
 }
 func (m Model) updateConfirm(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if wheel, ok := msg.(tea.MouseWheelMsg); ok {
+		switch wheel.Button {
+		case tea.MouseWheelUp:
+			m.scrollOffset = max(0, m.scrollOffset-3)
+		case tea.MouseWheelDown:
+			m.scrollOffset += 3
+		}
+		return m, nil
+	}
 	if click, ok := msg.(tea.MouseClickMsg); ok {
 		mouse := click.Mouse()
 		if mouse.Button != tea.MouseLeft {
@@ -568,6 +600,12 @@ func (m Model) updateConfirm(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	switch key.String() {
+	case "pgup":
+		m.scrollOffset = max(0, m.scrollOffset-5)
+		return m, nil
+	case "pgdown":
+		m.scrollOffset += 5
+		return m, nil
 	case "y", "Y", "enter":
 		return m.resolveConfirm(true)
 	case "n", "N", "esc":
@@ -613,27 +651,56 @@ const (
 	confirmGap           = "    "
 )
 
+func (m *Model) openConfirm(confirm confirmState) {
+	m.confirm = &confirm
+	m.scrollOffset = 0
+}
+
 func (m Model) renderConfirm(p palette) string {
+	yesLabel := confirmYesLabel
+	if m.confirm.localDraft {
+		yesLabel = draftConfirmYesLabel
+	}
+	buttons := yesLabel + confirmGap + confirmNoLabel
+	// Keep each choice intact when the two labels do not fit side by side.
+	// Otherwise the narrow terminal wraps "Go back" away from its [n/esc]
+	// prefix, leaving no whole visible target for a mouse click.
+	if ansi.StringWidth(buttons)+3 > m.contentWidth() {
+		buttons = yesLabel + "\n" + confirmNoLabel
+	}
 	if m.confirm.localDraft {
 		rows := []string{
 			lipgloss.NewStyle().Foreground(p.amber).Bold(true).Render("REVIEW / Local draft deletion"),
 			m.confirm.prompt,
 			"",
 			lipgloss.NewStyle().Foreground(p.muted).Render("This deletes one local draft and frees its quota; it does not change project history."),
-			lipgloss.NewStyle().Foreground(p.amber).Render(draftConfirmYesLabel + confirmGap + confirmNoLabel),
+			lipgloss.NewStyle().Foreground(p.amber).Render(buttons),
 		}
-		return lipgloss.NewStyle().BorderLeft(true).BorderStyle(lipgloss.ThickBorder()).
-			BorderForeground(p.amber).PaddingLeft(2).Render(strings.Join(rows, "\n"))
+		return m.confirmFrame(p).Render(strings.Join(rows, "\n"))
 	}
 	rows := []string{
 		lipgloss.NewStyle().Foreground(p.amber).Bold(true).Render("REVIEW / Signed change"),
 		m.confirm.prompt,
 		"",
 		lipgloss.NewStyle().Foreground(p.muted).Render("This action becomes part of project history."),
-		lipgloss.NewStyle().Foreground(p.amber).Render(confirmYesLabel + confirmGap + confirmNoLabel),
+		lipgloss.NewStyle().Foreground(p.amber).Render(buttons),
 	}
-	return lipgloss.NewStyle().BorderLeft(true).BorderStyle(lipgloss.ThickBorder()).
-		BorderForeground(p.amber).PaddingLeft(2).Render(strings.Join(rows, "\n"))
+	return m.confirmFrame(p).Render(strings.Join(rows, "\n"))
+}
+
+// confirmFrame is the bordered block both confirm variants render in. It is
+// given the content width explicitly. Without one, lipgloss pads every line
+// out to the widest -- a long prompt, 108 columns in the case that surfaced
+// this -- and scrollViewport's Hardwrap at contentW then split each padded
+// line into the text plus two or three lines of trailing spaces: a 6-line
+// dialog rendered as 18. At 70x24 that left "Sign and apply" on screen and
+// pushed "[n / esc] Go back" below the fold, the destructive choice shown
+// and the safe one hidden, and the wrapped prompt lost its left border.
+// With a width, lipgloss wraps inside the border itself, continuation lines
+// keep it, and the Hardwrap has nothing left to split.
+func (m Model) confirmFrame(p palette) lipgloss.Style {
+	return lipgloss.NewStyle().Width(m.contentWidth()).BorderLeft(true).
+		BorderStyle(lipgloss.ThickBorder()).BorderForeground(p.amber).PaddingLeft(2)
 }
 func (m Model) dispatchEvent(typ, id string, payload any) (tea.Model, tea.Cmd) {
 	return m.dispatchEventWithPassphrase(typ, id, payload, "")
@@ -708,7 +775,7 @@ func (m Model) triggerRowAction(act RowAction, id string) (tea.Model, tea.Cmd) {
 		if act.Payload != nil {
 			payload = act.Payload()
 		}
-		m.confirm = &confirmState{prompt: act.prompt(id), typ: act.EventType, id: id, payload: payload, onError: act.OnError}
+		m.openConfirm(confirmState{prompt: act.prompt(id), typ: act.EventType, id: id, payload: payload, onError: act.OnError})
 		return m, nil
 	}
 	return m.dispatchRowAction(act, id)
@@ -785,5 +852,6 @@ func (m Model) openActionForm(spec *ActionForm, typ, id string) (tea.Model, tea.
 		cmd = m.inputs[0].Focus()
 	}
 	m.form, m.formTaskID, m.formSpec, m.formFocus, m.palette, m.query = typ, id, spec, 0, false, ""
+	m.scrollOffset = 0
 	return m, cmd
 }

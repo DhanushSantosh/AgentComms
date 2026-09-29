@@ -108,6 +108,9 @@ type Model struct {
 	// after several failures, not the first one.
 	staleReads   int
 	scrollOffset int
+	// detailScrollOffset is independent of the row cursor: scrolling a
+	// long inspector or delivery pane must not move the selected table row.
+	detailScrollOffset int
 	// lastClickX/Y/At track the previous left click's exact cell and time,
 	// purely to recognize a second click on that same cell within
 	// doubleClickWindow as a double-click (see isDoubleClick) -- bubbletea
@@ -327,6 +330,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.openView("Overview")
 		case "g":
 			m.openView("Agents")
+		case "m":
+			m.openView("Inbox")
+			m.focusCurrentView()
 		case "i":
 			m.openView("Invocations")
 		case "r":
@@ -344,6 +350,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m *Model) openView(name string) {
 	m.scrollOffset = 0
+	m.detailScrollOffset = 0
 	for index, viewName := range views {
 		if viewName == name {
 			m.view = index

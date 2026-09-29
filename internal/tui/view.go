@@ -3,7 +3,6 @@ package tui
 import (
 	"fmt"
 	"image/color"
-	"sort"
 	"strings"
 	"time"
 
@@ -99,6 +98,22 @@ func clampHeight(s string, width, maxLines int) string {
 func (m Model) contentWidth() int {
 	paneW := max(10, m.width-m.sidebarWidth()-3)
 	return max(6, paneW-4)
+}
+
+// statusBanner pins action feedback above the scrollable content. A notice
+// appended after a full table was clipped before anyone could read it.
+// Forms render their own feedback inside their scrollable pane instead.
+func (m Model) statusBanner(p palette, width int) string {
+	if m.form != "" || m.confirm != nil {
+		return ""
+	}
+	if m.err != nil {
+		return lipgloss.NewStyle().Foreground(p.red).Render(ansi.Truncate("Error: "+m.err.Error(), width, "…"))
+	}
+	if m.notice != "" {
+		return lipgloss.NewStyle().Foreground(p.cyan).Render(ansi.Truncate("Notice: "+m.notice, width, "…"))
+	}
+	return ""
 }
 
 // bodyLayout returns the same pane/content dimensions View, renderBody, and
@@ -344,13 +359,19 @@ func (m Model) renderBody(p palette, w, h int) string {
 	// (cyan/amber/red/muted), so nothing loses meaning; only the slab
 	// goes. See colors() for the deliberate trade this makes.
 	pane := lipgloss.NewStyle().Width(w).Height(h).Padding(1, 2)
+	prefix := meta + "\n" + tabs + "\n\n" + header + "\n\n"
+	if banner := m.statusBanner(p, contentW); banner != "" {
+		prefix += banner + "\n"
+	}
 	if m.form != "" {
 		content := m.renderForm(p)
-		return pane.Render(meta + "\n" + tabs + "\n\n" + header + "\n\n" + content)
+		body := prefix + scrollViewport(p, content, contentW, contentH, m.scrollOffset, "PgUp/PgDn")
+		return pane.Render(clampHeight(body, contentW, max(1, h-2)))
 	}
 	if m.confirm != nil {
 		content := m.renderConfirm(p)
-		return pane.Render(meta + "\n" + tabs + "\n\n" + header + "\n\n" + content)
+		body := prefix + scrollViewport(p, content, contentW, contentH, m.scrollOffset, "PgUp/PgDn")
+		return pane.Render(clampHeight(body, contentW, max(1, h-2)))
 	}
 	wrap := lipgloss.NewStyle().MaxWidth(contentW)
 	content := ""
@@ -366,20 +387,15 @@ func (m Model) renderBody(p palette, w, h int) string {
 	case "Agents":
 		bodyContent = m.agentList.View(p, m.state, m.actor, listW, listH)
 	case "Invocations":
-		bodyContent = m.invocationList.View(p, m.state, m.actor, listW, listH) + "\n\n" +
-			m.invocationDeliveryDetails(p, contentW)
+		bodyContent = m.invocationList.View(p, m.state, m.actor, listW, listH)
 	case "Runtimes":
-		bodyContent = m.runtimeList.View(p, m.state, m.actor, listW, listH) + "\n\n" +
-			m.runtimeDetailPane(p, contentW)
+		bodyContent = m.runtimeList.View(p, m.state, m.actor, listW, listH)
 	case "Approvals":
 		bodyContent = m.approvalList.View(p, m.state, m.actor, listW, listH)
 	case "Documents":
 		bodyContent = m.documentList.View(p, m.state, m.actor, listW, listH)
 	case "Contracts & decisions":
 		bodyContent = m.decisionList.View(p, m.state, m.actor, listW, listH)
-		if contracts := decisionMessages(m.state); contracts != "" {
-			bodyContent += "\n\n" + wrap.Render(contracts)
-		}
 	case "Artifacts":
 		bodyContent = m.artifactList.View(p, m.state, m.actor, listW, listH)
 	case "Drafts":
@@ -398,22 +414,13 @@ func (m Model) renderBody(p palette, w, h int) string {
 		bodyContent = wrap.Render(m.archive(p))
 	}
 	content = bodyContent
-	if m.inspecting {
-		if inspector := m.renderInspector(p, contentW); inspector != "" {
-			content += "\n\n" + inspector
+	isTable := m.activeRowList() != nil
+	if isTable {
+		if detail := m.tableDetail(p, contentW); detail != "" && contentH > 2 {
+			detailH := m.tableDetailHeight(p, contentW, contentH)
+			content += "\n\n" + scrollViewport(p, detail, contentW, detailH, m.detailScrollOffset, "Shift+PgUp/PgDn")
 		}
 	}
-	if m.err != nil {
-		content += "\n\n" + lipgloss.NewStyle().Foreground(p.red).MaxWidth(contentW).Render("Error: "+m.err.Error())
-		// No toast branch here: the same toast already renders in the
-		// command rail, beside the actor. Printing it in both places put
-		// one notification on screen twice, once at the top and once
-		// floating under the content -- confirmed live on a real commit
-		// notification.
-	} else if m.notice != "" {
-		content += "\n\n" + lipgloss.NewStyle().Foreground(p.cyan).MaxWidth(contentW).Render("Notice: "+m.notice)
-	}
-	isTable := m.activeRowList() != nil
 	if !isTable {
 		lines := strings.Split(content, "\n")
 		// contentH directly, not contentH-4: contentH (bodyLayout's innerH)
@@ -509,7 +516,7 @@ func (m Model) renderBody(p palette, w, h int) string {
 	// settings and Contracts & decisions each did exactly that at 80x24,
 	// one line past the edge, where nothing could scroll to it.
 	content = clampHeight(content, contentW, contentH)
-	body := meta + "\n" + tabs + "\n\n" + header + "\n\n" + content
+	body := prefix + content
 	// The key bar is pinned to the foot of the pane rather than left
 	// floating directly under whatever the content happened to be: padding
 	// content out to contentH first keeps it in the same place on every
@@ -672,7 +679,7 @@ func (m Model) renderHubTabs(p palette, width int) (view string, tabRange [][2]i
 // measuring one row against this same width in isolation is exact, not an
 // approximation.
 func (m Model) formMaxWidth() int {
-	return max(40, m.width-m.sidebarWidth()-10)
+	return max(4, m.contentWidth())
 }
 
 // formRows builds renderForm's row content plus, per m.inputs index, which
@@ -739,6 +746,27 @@ func (m Model) renderForm(p palette) string {
 		Render(strings.Join(rows, "\n"))
 }
 
+func (m *Model) keepFormFocusVisible() {
+	if m.form == "" || m.formFocus < 0 {
+		return
+	}
+	p := colors()
+	rows, positions := m.formRows(p)
+	if m.formFocus >= len(positions) {
+		return
+	}
+	fieldTop := 0
+	for _, row := range rows[:positions[m.formFocus]] {
+		fieldTop += wrappedHeight(row, max(1, m.contentWidth()-3))
+	}
+	_, _, _, available := m.bodyLayout(p)
+	if fieldTop < m.scrollOffset {
+		m.scrollOffset = fieldTop
+	} else if fieldTop >= m.scrollOffset+max(1, available-1) {
+		m.scrollOffset = max(0, fieldTop-available+2)
+	}
+}
+
 // renderPickerField renders a picker field as "Label: ‹ value ›" instead of
 // a raw textinput.Model.View() (which would show a blinking text cursor
 // that's misleading here -- the value never accepts typed characters).
@@ -749,12 +777,88 @@ func renderPickerField(style lipgloss.Style, prompt, value string, focused bool)
 	return style.Render(prompt) + style.Render("‹ "+value+" ›")
 }
 
+// scrollViewport wraps styled text into physical terminal lines before
+// slicing it. The fixed height and one-line position indicator prevent a
+// long inspector, form, or detail pane from growing over adjacent UI.
+func scrollViewport(p palette, content string, width, height, offset int, keys string) string {
+	if height <= 0 || width <= 0 || content == "" {
+		return ""
+	}
+	wrapped := ansi.Hardwrap(content, width, true)
+	lines := strings.Split(wrapped, "\n")
+	if len(lines) <= height {
+		return wrapped
+	}
+	if height == 1 {
+		return ansi.Truncate(lines[viewportStart(content, width, height, offset)], width, "…")
+	}
+	window := height - 1
+	start := viewportStart(content, width, height, offset)
+	end := min(len(lines), start+window)
+	indicator := fmt.Sprintf("↕ %d–%d/%d · %s", start+1, end, len(lines), keys)
+	return strings.Join(lines[start:end], "\n") + "\n" +
+		lipgloss.NewStyle().Foreground(p.cyan).Render(ansi.Truncate(indicator, width, "…"))
+}
+
+func viewportStart(content string, width, height, offset int) int {
+	if width <= 0 || height <= 0 {
+		return 0
+	}
+	lines := strings.Split(ansi.Hardwrap(content, width, true), "\n")
+	if len(lines) <= height {
+		return 0
+	}
+	return min(max(0, offset), len(lines)-max(1, height-1))
+}
+
+// tableDetail is the lower pane shared by row-list views. Inspecting takes
+// precedence so the selected row's body is never pushed behind a secondary
+// delivery/contract panel.
+func (m Model) tableDetail(p palette, width int) string {
+	if m.inspecting {
+		return m.renderInspector(p, width)
+	}
+	switch views[m.view] {
+	case "Invocations":
+		return m.invocationDeliveryDetails(p, width)
+	case "Runtimes":
+		return m.runtimeDetailPane(p, width)
+	case "Contracts & decisions":
+		return decisionMessages(m.state)
+	default:
+		return ""
+	}
+}
+
+func (m Model) tableDetailHeight(p palette, width, contentHeight int) int {
+	if contentHeight <= 2 {
+		return 0
+	}
+	detail := m.tableDetail(p, width)
+	if detail == "" {
+		return 0
+	}
+	// Preserve a table header and at least one selected row while giving
+	// meaningful room to the detail. The detail itself scrolls separately.
+	return min(wrappedHeight(detail, width), min(max(3, contentHeight/2), contentHeight-3))
+}
+
 func (m Model) overview(p palette) string {
-	contentWidth := max(28, m.width-m.sidebarWidth()-7)
-	open, running := 0, 0
+	contentWidth := m.contentWidth()
+	open, running, ready, online, inboxActions := 0, 0, 0, 0, 0
 	for _, t := range m.state.Tasks {
 		if !t.Archived && t.Status != "COMPLETED" && t.Status != "CANCELLED" {
 			open++
+		}
+	}
+	for _, agent := range m.state.Agents {
+		if agent.Status == "ACTIVE" {
+			ready++
+		}
+	}
+	for _, runtime := range m.state.AgentRuntimes {
+		if runtime.Status == "ONLINE" && runtime.Health != "DEGRADED" {
+			online++
 		}
 	}
 	for _, invocation := range m.state.Invocations {
@@ -763,23 +867,32 @@ func (m Model) overview(p palette) string {
 			running++
 		}
 	}
+	for _, message := range m.state.Messages {
+		if len(messageActionsFor(message, m.actor)) > 0 {
+			inboxActions++
+		}
+	}
 	status := fmt.Sprintf(
-		"%d agents  ·  %d active tasks  ·  %d active invocations  ·  %d signed events",
-		len(m.state.Agents), open, running, m.state.Integrity.EventCount,
+		"%d agents  ·  %d can message  ·  %d online runtimes  ·  %d open tasks  ·  %d inbox actions  ·  %d running invocations",
+		len(m.state.Agents), ready, online, open, inboxActions, running,
 	)
+	if contentWidth < 78 {
+		status = fmt.Sprintf("%d agents · %d message-ready · %d runtimes online\n%d open tasks · %d inbox actions · %d running invocations",
+			len(m.state.Agents), ready, online, open, inboxActions, running)
+	}
 	workforceWidth := contentWidth
 	attentionWidth := contentWidth
 	if contentWidth >= 78 {
 		attentionWidth = max(25, contentWidth/3)
 		workforceWidth = contentWidth - attentionWidth - 2
 	}
-	workforce := m.section(p, "AGENT WORKFORCE", "signal / identity / current obligation", m.workforce(p, workforceWidth-4), workforceWidth)
-	attention := m.section(p, "ATTENTION", "items requiring intervention", m.attention(p), attentionWidth)
-	top := workforce + "\n\n" + attention
+	workforce := m.section(p, "TEAM", "Messaging is independent of runtime presence", m.workforce(p, workforceWidth-4), workforceWidth)
+	attention := m.section(p, "NEEDS ATTENTION", "Open work and delivery issues", m.attentionPreview(p, attentionWidth-4), attentionWidth)
+	top := attention + "\n\n" + workforce
 	if contentWidth >= 78 {
 		top = lipgloss.JoinHorizontal(lipgloss.Top, workforce, "  ", attention)
 	}
-	activity := m.section(p, "LIVE ACTIVITY", "append-only project history", m.chain(p), contentWidth)
+	activity := m.section(p, "RECENT EVENTS", fmt.Sprintf("%d signed events · durable project history", m.state.Integrity.EventCount), m.chain(p), contentWidth)
 	// No key strip of its own any more: keyhints.go's bar renders the
 	// overview's real keys (and the global ones) at the foot of the pane,
 	// on every view rather than only this one.
@@ -790,7 +903,7 @@ func (m Model) section(p palette, title, subtitle, body string, width int) strin
 	heading := lipgloss.NewStyle().Foreground(p.text).Bold(true).Render(title)
 	description := lipgloss.NewStyle().Foreground(p.muted).Render(subtitle)
 	return lipgloss.NewStyle().
-		Width(max(20, width)).
+		Width(max(4, width)).
 		Border(lipgloss.NormalBorder()).
 		BorderForeground(p.muted).
 		Padding(0, 1).
@@ -802,16 +915,20 @@ func (m Model) workforce(p palette, width int) string {
 		return lipgloss.NewStyle().Foreground(p.muted).Render("No agents registered.")
 	}
 	rows := []string{}
-	if width >= 54 {
+	if width >= 68 {
 		rows = append(rows, lipgloss.NewStyle().Foreground(p.muted).Render(
-			fmt.Sprintf("%-12s %-14s %-10s %s", "SIGNAL", "AGENT", "ROLE", "CURRENT WORK"),
+			fmt.Sprintf("%-9s %-13s %-14s %-10s %s", "MESSAGES", "RUNTIME", "AGENT", "ROLE", "CURRENT WORK"),
 		))
 	}
 	for _, agentID := range service.SortedKeys(m.state.Agents) {
 		agent := m.state.Agents[agentID]
-		signal := "○ OFFLINE"
+		messageStatus := "READY"
+		if agent.Status != "ACTIVE" {
+			messageStatus = agent.Status
+		}
+		signal := "NO RUNTIME"
 		if agent.PrincipalType == model.PrincipalHuman {
-			signal = "◆ CONTROL"
+			signal = "HUMAN"
 		}
 		// An agent can have more than one AgentRuntime record (e.g. a
 		// stale, revoked one left behind alongside the current live one --
@@ -822,12 +939,22 @@ func (m Model) workforce(p palette, width int) string {
 		// to make the displayed signal flip unpredictably between renders
 		// -- e.g. HENRY showing "● ONLINE" one moment and "○ REVOKED" the
 		// next for the exact same state, with no user action in between.
-		// Deterministic fix: among every runtime for this agent, keep the
-		// one most recently seen (falling back to registration time for a
-		// runtime that's never reported in), so the signal reflects
-		// reality -- the most current runtime -- the same way on every
-		// render.
+		// Prefer an eligible online runtime, then a degraded/draining one,
+		// before showing the latest inactive record. A newly registered
+		// but offline runtime must not hide another still-online route.
 		var current *model.AgentRuntime
+		rank := func(r model.AgentRuntime) int {
+			switch {
+			case r.Status == "ONLINE" && r.Health != "DEGRADED":
+				return 3
+			case r.Status == "ONLINE":
+				return 2
+			case r.Status == "DRAINING":
+				return 1
+			default:
+				return 0
+			}
+		}
 		currentAt := func(r model.AgentRuntime) time.Time {
 			if !r.LastSeenAt.IsZero() {
 				return r.LastSeenAt
@@ -839,32 +966,36 @@ func (m Model) workforce(p palette, width int) string {
 			if runtime.AgentID != agentID {
 				continue
 			}
-			if current == nil || currentAt(runtime).After(currentAt(*current)) {
+			if current == nil || rank(runtime) > rank(*current) ||
+				(rank(runtime) == rank(*current) && (currentAt(runtime).After(currentAt(*current)) ||
+					(currentAt(runtime).Equal(currentAt(*current)) && runtime.ID < current.ID))) {
 				runtime := runtime
 				current = &runtime
 			}
 		}
-		if current != nil {
+		if current != nil && agent.PrincipalType != model.PrincipalHuman {
 			switch {
 			case current.Health == "DEGRADED":
-				signal = "▲ DEGRADED"
+				signal = "DEGRADED"
 			case current.Status == "ONLINE":
-				signal = "● ONLINE"
+				signal = "ONLINE"
 			case current.Status == "DRAINING":
-				signal = "◐ DRAINING"
+				signal = "DRAINING"
 			default:
-				signal = "○ " + current.Status
+				signal = current.Status
 			}
 		}
-		work := "available"
-		for _, invocation := range m.state.Invocations {
+		work := "none"
+		for _, id := range service.SortedKeys(m.state.Invocations) {
+			invocation := m.state.Invocations[id]
 			if invocation.Target == agentID && (invocation.Status == "CLAIMED" || invocation.Status == "RUNNING" || invocation.Status == "WAITING") {
 				work = strings.ToLower(invocation.Status) + " · " + invocation.Instruction
 				break
 			}
 		}
-		if work == "available" {
-			for _, task := range m.state.Tasks {
+		if work == "none" {
+			for _, id := range service.SortedKeys(m.state.Tasks) {
+				task := m.state.Tasks[id]
 				if task.Owner == agentID && !task.Archived && task.Status != "COMPLETED" && task.Status != "CANCELLED" {
 					work = strings.ToLower(task.Status) + " · " + task.Title
 					break
@@ -890,33 +1021,43 @@ func (m Model) workforce(p palette, width int) string {
 		if name == "" {
 			name, truncateName = agentID, truncateMiddle
 		}
-		if width < 54 {
-			rows = append(rows, fmt.Sprintf("%-12s %s\n             %s", signal, name, truncate(work, width-13)))
+		if width < 68 {
+			rows = append(rows, truncate(fmt.Sprintf("%s · %s · %s", name, messageStatus, signal), width))
+			if work != "none" {
+				rows = append(rows, truncate("  "+work, width))
+			}
 			continue
 		}
 		rows = append(rows, fmt.Sprintf(
-			"%-12s %-14s %-10s %s",
-			signal, truncateName(name, 13), strings.ToLower(string(agent.Role)), truncate(work, max(10, width-42)),
+			"%-9s %-13s %-14s %-10s %s",
+			truncate(messageStatus, 9), truncate(signal, 13), truncateName(name, 13), truncate(strings.ToLower(string(agent.Role)), 10), truncate(work, max(1, width-51)),
 		))
 	}
+	rows = append(rows, "", lipgloss.NewStyle().Foreground(p.muted).Render("No runtime = no automatic delivery; messages and requests still work."))
 	return strings.Join(rows, "\n")
 }
-func (m Model) attention(p palette) string {
+func (m Model) attentionRows() []string {
 	rows := []string{}
-	for _, t := range m.state.Tasks {
+	for _, id := range service.SortedKeys(m.state.Tasks) {
+		t := m.state.Tasks[id]
+		if t.Archived || t.Status == "COMPLETED" || t.Status == "CANCELLED" {
+			continue
+		}
 		if t.Status == "BLOCKED" {
-			rows = append(rows, "! "+t.ID+"  "+t.Title+" is blocked")
+			rows = append(rows, "! Blocked: "+t.Title)
 		}
 		if !t.LeaseUntil.IsZero() && time.Until(t.LeaseUntil) < time.Hour {
-			rows = append(rows, "◷ "+t.ID+"  lease expires "+t.LeaseUntil.Local().Format("15:04"))
+			rows = append(rows, "◷ Lease: "+t.Title+" · "+t.LeaseUntil.Local().Format("15:04"))
 		}
 	}
-	for _, a := range m.state.Approvals {
+	for _, id := range service.SortedKeys(m.state.Approvals) {
+		a := m.state.Approvals[id]
 		if a.Status == "PENDING" {
 			rows = append(rows, "◆ "+a.ID+"  approval: "+a.Action)
 		}
 	}
-	for _, invocation := range m.state.Invocations {
+	for _, id := range service.SortedKeys(m.state.Invocations) {
+		invocation := m.state.Invocations[id]
 		switch invocation.Status {
 		case "WAITING":
 			rows = append(rows, "◫ "+invocation.ID+"  "+invocation.Target+" waits: "+invocation.Reason)
@@ -924,22 +1065,53 @@ func (m Model) attention(p palette) string {
 			rows = append(rows, "→ "+invocation.ID+"  pending delivery to "+invocation.Target)
 		}
 	}
-	for _, delivery := range m.state.InvocationDeliveries {
+	for _, id := range service.SortedKeys(m.state.InvocationDeliveries) {
+		delivery := m.state.InvocationDeliveries[id]
 		if delivery.Status == "FAILED" || delivery.Status == "EXHAUSTED" {
 			rows = append(rows, "✕ "+delivery.InvocationID+"  delivery failed: "+delivery.Error)
 		}
 	}
-	for _, runtime := range m.state.AgentRuntimes {
-		if runtime.Status == "REVOKED" || runtime.Health == "DEGRADED" {
+	for _, id := range service.SortedKeys(m.state.AgentRuntimes) {
+		runtime := m.state.AgentRuntimes[id]
+		if runtime.Status != "REVOKED" && runtime.Health == "DEGRADED" {
 			rows = append(rows, "● "+runtime.ID+"  "+runtime.Status+" · "+runtime.Health)
 		}
 	}
+	messageIDs := service.SortedKeys(m.state.Messages)
+	for i := len(messageIDs) - 1; i >= 0; i-- {
+		message := m.state.Messages[messageIDs[i]]
+		if len(messageActionsFor(message, m.actor)) > 0 {
+			rows = append(rows, "✉ "+message.Subject+" · from "+message.From)
+		}
+	}
+	return rows
+}
+
+func (m Model) attention(p palette) string {
+	rows := m.attentionRows()
 	if len(rows) == 0 {
 		return lipgloss.NewStyle().Foreground(p.cyan).Render("✓ CLEAR") + "\n" +
 			lipgloss.NewStyle().Foreground(p.muted).Render("No intervention needed.")
 	}
-	sort.Strings(rows)
 	return strings.Join(rows, "\n")
+}
+
+func (m Model) attentionPreview(p palette, width int) string {
+	rows := m.attentionRows()
+	if len(rows) == 0 {
+		return m.attention(p)
+	}
+	const previewRows = 3
+	visible := min(previewRows, len(rows))
+	preview := make([]string, 0, visible+1)
+	for _, row := range rows[:visible] {
+		preview = append(preview, ansi.Truncate(row, max(1, width), "…"))
+	}
+	if remaining := len(rows) - visible; remaining > 0 {
+		preview = append(preview, lipgloss.NewStyle().Foreground(p.cyan).Render(
+			ansi.Truncate(fmt.Sprintf("+%d more · open related tabs", remaining), max(1, width), "…")))
+	}
+	return strings.Join(preview, "\n")
 }
 
 func (m Model) blockers(p palette) string {
@@ -1031,15 +1203,11 @@ func (m Model) archive(p palette) string {
 // recomputed fresh the same way hubTabAt/sidebarHubAt/rowAtY already do,
 // since View() has no way to hand this to the Update() call that handles
 // a click). matchLine[i] is the row offset within the returned panel
-// string (0-based, before centering) of paletteMatches()'s i-th entry.
-// paletteVisibleCount is how many match rows the palette panel can show
-// at this terminal height: everything else it renders (border, padding,
-// title, subtitle, the query box and its label, the matches heading, the
-// scroll line and the footer, plus their blanks) comes to
-// paletteChromeHeight lines. One row is the floor -- below roughly 16
-// lines the panel's own frame is already taller than the terminal, and
-// no window size fixes that; the honest choice there is the smallest
-// possible list rather than a larger one that overflows further.
+// string (0-based physical row, including border/padding but before
+// centering) of paletteMatches()'s i-th entry.
+// paletteVisibleCount is how many match rows the full-size palette can
+// show after its border, padding, title, query, list heading, scroll line,
+// footer, and spacing. Smaller terminals use compactPaletteLayout instead.
 func paletteVisibleCount(height int) int {
 	return max(1, height-paletteChromeHeight)
 }
@@ -1067,7 +1235,10 @@ func paletteWindow(total, selected, visible int) (start, end int) {
 }
 
 func (m Model) paletteLayout(p palette) (panel string, matchLine []int) {
-	width := min(68, max(36, m.width-8))
+	if m.width < 44 || m.height < 16 {
+		return m.compactPaletteLayout(p)
+	}
+	width := min(68, m.width-8)
 	// An empty box said nothing about what to do with it; the list below
 	// is long enough now that "type" is not the only useful answer.
 	placeholder := ""
@@ -1156,6 +1327,50 @@ func (m Model) paletteLayout(p palette) (panel string, matchLine []int) {
 	panel = lipgloss.NewStyle().Width(width).Border(lipgloss.NormalBorder()).
 		BorderForeground(p.cyan).Foreground(p.text).Padding(1, 2).
 		Render(strings.Join(rows, "\n"))
+	for i := range matchLine {
+		if matchLine[i] >= 0 {
+			matchLine[i] += 2 // top border + top padding
+		}
+	}
+	return panel, matchLine
+}
+
+// compactPaletteLayout retains the same searchable command list and cursor
+// on small terminals, but drops decorative chrome rather than letting a
+// 16-line, 36-column dialog extend beyond the physical screen.
+func (m Model) compactPaletteLayout(p palette) (string, []int) {
+	width := max(8, min(68, m.width-2))
+	inner := max(1, width-4)
+	matches := m.paletteMatches()
+	selected := m.paletteSelectedIndex()
+	visible := max(1, m.height-7)
+	start, end := paletteWindow(len(matches), selected, visible)
+	rows := []string{
+		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("COMMANDS"),
+		lipgloss.NewStyle().Foreground(p.text).Render(ansi.Truncate("> "+m.query+"█", inner, "…")),
+		lipgloss.NewStyle().Foreground(p.muted).Render(fmt.Sprintf("%d commands · %d-%d", len(matches), start+1, end)),
+	}
+	matchLine := make([]int, len(matches))
+	for i := range matchLine {
+		matchLine[i] = -1
+	}
+	for i := start; i < end; i++ {
+		label := ansi.Truncate("› "+matches[i].label, inner, "…")
+		matchLine[i] = len(rows)
+		style := lipgloss.NewStyle().Foreground(p.text)
+		if i == selected {
+			style = style.Foreground(p.ink).Background(p.cyan).Bold(true)
+		}
+		rows = append(rows, style.Render(label))
+	}
+	rows = append(rows, lipgloss.NewStyle().Foreground(p.muted).Render(ansi.Truncate("↑↓ choose · Enter open · Esc close", inner, "…")))
+	panel := lipgloss.NewStyle().Width(width).Border(lipgloss.NormalBorder()).
+		BorderForeground(p.cyan).Padding(0, 1).Render(strings.Join(rows, "\n"))
+	for i := range matchLine {
+		if matchLine[i] >= 0 {
+			matchLine[i]++ // top border; compact panel has no top padding
+		}
+	}
 	return panel, matchLine
 }
 
@@ -1337,7 +1552,7 @@ func (m Model) renderInspector(p palette, width int) string {
 	}
 
 	return lipgloss.NewStyle().
-		Width(max(20, width-2)).
+		Width(max(4, width-2)).
 		BorderLeft(true).
 		BorderStyle(lipgloss.ThickBorder()).
 		BorderForeground(p.cyan).
