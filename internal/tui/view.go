@@ -189,14 +189,22 @@ func verticalRule(p palette, height int) string {
 // two left to draw.
 const ruleInset = 1
 
+// The widths are cramped rather than generous on purpose at the small
+// end -- every column here is one the body does not get -- but the wide
+// case was too tight for its own content: at 21 the project ID was
+// always elided and the active view's name ("Project settings",
+// "Contracts & decisions") never fit under its hub, even after the
+// truncation budget was corrected. 27 is what the longest of them
+// ("Contracts & decisions", 21 columns) needs once the sidebar's own
+// padding, the line's indent and its "└ " prefix are paid for.
 func (m Model) sidebarWidth() int {
 	if m.width < 60 {
-		return 14
-	}
-	if m.width < 72 {
 		return 16
 	}
-	return 21
+	if m.width < 72 {
+		return 20
+	}
+	return 27
 }
 
 // renderSidebar also returns, per navigationHubs entry, which line of rows
@@ -514,7 +522,14 @@ func (m Model) renderBody(p palette, w, h int) string {
 		}
 		body += "\n" + bar
 	}
-	return pane.Render(body)
+	// The pane renders exactly what it was given room for, even when the
+	// chrome alone does not fit. innerH floors at 1, so on a narrow
+	// enough terminal the command rail and hub tabs can wrap onto more
+	// lines than the whole pane has -- confirmed at 40x14 once a wider
+	// sidebar pushed the tabs onto an extra row. Clamped here, at the
+	// last moment, rather than trying to make every contributor above
+	// shrink: h-2 is the pane's interior after its own Padding(1, 2).
+	return pane.Render(clampHeight(body, contentW, max(1, h-2)))
 }
 
 // railToastMinWidth is the narrowest a toast badge may be squeezed to
