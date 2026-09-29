@@ -2632,20 +2632,43 @@ func TestDoctorFixReportsAFailedAttemptAsOne(t *testing.T) {
 func TestLifecycleConflictOutcomeReadsTheResultRatherThanTheError(t *testing.T) {
 	err := &projectlifecycle.Error{Code: projectlifecycle.CodeConflict, Message: "project lifecycle is locked by another process"}
 
-	repaired, failed := lifecycleConflictOutcome(err, 2)
+	repaired, failed := lifecycleConflictOutcome(err, false)
 	if failed != "" {
-		t.Errorf("findings cleared while the other process held the lock; that is not a failure: %q", failed)
+		t.Errorf("no lifecycle finding left; that is not a failure: %q", failed)
 	}
 	if !strings.Contains(repaired, "another process") {
 		t.Errorf("it should credit the run that actually did the work, got %q", repaired)
 	}
 
-	repaired, failed = lifecycleConflictOutcome(err, 0)
+	repaired, failed = lifecycleConflictOutcome(err, true)
 	if repaired != "" {
-		t.Errorf("nothing cleared, so nothing was repaired: %q", repaired)
+		t.Errorf("the lifecycle finding survived, so nothing was repaired: %q", repaired)
 	}
 	if !strings.Contains(failed, "re-run") {
 		t.Errorf("the reader's next move is to wait and re-run; say so: %q", failed)
+	}
+}
+
+// TestLifecycleUnresolvedJudgesTheLifecycleFindingsOnly is the
+// regression test for what codex-main caught in 4661488: the conflict
+// outcome was decided by the change in TOTAL finding count, so an
+// unrelated finding clearing between two calls a second apart -- a
+// stale lease expiring, a runtime going offline -- would have credited
+// the lock holder with a reconciliation that never happened.
+func TestLifecycleUnresolvedJudgesTheLifecycleFindingsOnly(t *testing.T) {
+	if lifecycleUnresolved(nil) {
+		t.Error("no findings means no lifecycle problem")
+	}
+	unrelated := []doctor.Finding{
+		{Code: "STALE_LEASE"}, {Code: "NO_ELEVATED_KEY"}, {Code: "TEST_LIKE_RUNTIME"},
+	}
+	if lifecycleUnresolved(unrelated) {
+		t.Error("findings that the lifecycle reconciliation does not repair must not count as one")
+	}
+	for _, code := range []string{"PROJECT_UPGRADE_AVAILABLE", "PROJECT_LIFECYCLE_INVALID"} {
+		if !lifecycleUnresolved(append(unrelated, doctor.Finding{Code: code})) {
+			t.Errorf("%s is exactly what the blocked reconciliation would have fixed", code)
+		}
 	}
 }
 

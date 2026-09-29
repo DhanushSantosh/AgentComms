@@ -42,7 +42,23 @@ func ResolvePrincipal(agents map[string]Agent, reference string) (string, error)
 	default:
 		// Ambiguity is reported, never guessed: picking one would attribute
 		// a signed event to a principal the caller did not choose.
-		return "", fmt.Errorf("%q is the display name of %d principals (%s); use the actor ID",
-			reference, len(matches), strings.Join(matches, ", "))
+		return "", &AmbiguousPrincipalError{Reference: reference, Candidates: matches}
 	}
+}
+
+// AmbiguousPrincipalError is returned when a display name names more than
+// one principal. Typed rather than a bare fmt.Errorf so a caller can tell
+// "you named two people" apart from "nobody by that name": the two want
+// opposite handling. A reference that matches nothing is usually best left
+// to whatever already reports unknown actors, while an ambiguous one has
+// to stop the command and name the candidates -- RFC 0039's promise, which
+// a caller cannot keep if it can only see an undifferentiated error.
+type AmbiguousPrincipalError struct {
+	Reference  string
+	Candidates []string
+}
+
+func (e *AmbiguousPrincipalError) Error() string {
+	return fmt.Sprintf("%q is the display name of %d principals (%s); use the actor ID",
+		e.Reference, len(e.Candidates), strings.Join(e.Candidates, ", "))
 }

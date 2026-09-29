@@ -481,12 +481,23 @@ func (c *cli) root() *cobra.Command {
 			// profile machinery. A reference that resolves to nothing is
 			// left alone so the existing "unknown actor" paths report it,
 			// rather than turning an unregistered actor into a resolution
-			// error.
+			// error -- but an AMBIGUOUS one stops the command here and
+			// names the candidates, which is RFC 0039 section 4's actual
+			// promise. Swallowing it (as this did) turned "you named two
+			// principals, say which" into the generic unknown-actor
+			// message, under the one source where the user typed the
+			// reference themselves and can act on the list. Reported by
+			// codex-main reviewing 1b7aa4c.
 			if c.actorResolution.Source == identity.ActorSourceFlag && c.svc != nil {
 				if state, stateErr := c.svc.State(); stateErr == nil {
-					if resolved, resolveErr := model.ResolvePrincipal(state.Agents, c.actor); resolveErr == nil {
+					resolved, resolveErr := model.ResolvePrincipal(state.Agents, c.actor)
+					var ambiguous *model.AmbiguousPrincipalError
+					switch {
+					case resolveErr == nil:
 						c.actor = resolved
 						c.actorResolution.Actor = resolved
+					case errors.As(resolveErr, &ambiguous):
+						return resolveErr
 					}
 				}
 			}

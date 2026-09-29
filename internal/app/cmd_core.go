@@ -502,7 +502,15 @@ func (c *cli) doctorCmd() *cobra.Command {
 					fixed = append(fixed, fmt.Sprintf("cleared %d finding(s)", cleared))
 				}
 				if conflict {
-					if repaired, failed := lifecycleConflictOutcome(reconcileErr, cleared); repaired != "" {
+					// Judged on the lifecycle findings themselves, not on
+					// the change in total count: doctor.Findings also
+					// reports leases, runtimes and connectors, any of
+					// which can clear between two calls a second apart.
+					// Counting would then credit the lock holder with a
+					// reconciliation that never happened, on the strength
+					// of an unrelated stale lease expiring. Reported by
+					// codex-main reviewing 4661488.
+					if repaired, failed := lifecycleConflictOutcome(reconcileErr, lifecycleUnresolved(findings)); repaired != "" {
 						fixed = append(fixed, repaired)
 					} else {
 						fixErrs = append(fixErrs, failed)
@@ -915,16 +923,29 @@ func payloadStatus(c *cli, domain, sub string, f func(string) any) *cobra.Comman
 // should say so at the point the problem is reported, not leave the reader
 // to discover the flag.
 // lifecycleConflictOutcome decides what a CONFLICT actually meant, once
-// the findings have been recomputed: if they cleared, the process
-// holding the lock did the repair for us and that is a success to
-// report, not an error. If they did not, the other run is still going,
-// which is worth saying plainly -- the reader's next move is to wait and
-// re-run, not to go looking for a broken project.
-func lifecycleConflictOutcome(err error, cleared int) (repaired, failed string) {
-	if cleared > 0 {
+// the findings have been recomputed: if no lifecycle finding is left,
+// the process holding the lock did the repair for us and that is a
+// success to report, not an error. If one is, the other run is still
+// going, which is worth saying plainly -- the reader's next move is to
+// wait and re-run, not to go looking for a broken project.
+func lifecycleConflictOutcome(err error, stillPending bool) (repaired, failed string) {
+	if !stillPending {
 		return "another process was reconciling this project; its run finished the repair", ""
 	}
 	return "", err.Error() + " -- it is reconciling this project now; re-run `agent-comms doctor --fix` once it finishes"
+}
+
+// lifecycleUnresolved reports whether the findings still name a lifecycle
+// problem -- the only thing the reconciliation a CONFLICT blocked would
+// have fixed.
+func lifecycleUnresolved(findings []doctor.Finding) bool {
+	for _, finding := range findings {
+		switch finding.Code {
+		case "PROJECT_UPGRADE_AVAILABLE", "PROJECT_LIFECYCLE_INVALID":
+			return true
+		}
+	}
+	return false
 }
 
 // isLifecycleConflict reports whether err is the lifecycle package's

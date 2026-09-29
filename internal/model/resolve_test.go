@@ -1,6 +1,9 @@
 package model
 
-import "testing"
+import (
+	"errors"
+	"testing"
+)
 
 func agents() map[string]Agent {
 	return map[string]Agent{
@@ -52,11 +55,33 @@ func TestAmbiguousDisplayNameIsRefusedAndNamesTheCandidates(t *testing.T) {
 			t.Errorf("error should mention %q, got: %v", want, err)
 		}
 	}
+	// Typed, so a caller can tell this apart from "nobody by that name"
+	// and act on the candidates -- a caller that can only see an
+	// undifferentiated error cannot keep RFC 0039's promise, and one of
+	// them (the CLI's own --actor resolution) was silently dropping it.
+	var ambiguous *AmbiguousPrincipalError
+	if !errors.As(err, &ambiguous) {
+		t.Fatalf("ambiguity must be distinguishable by type, got %T", err)
+	}
+	if ambiguous.Reference != "Atlas" {
+		t.Errorf("the error should carry the reference, got %q", ambiguous.Reference)
+	}
+	if len(ambiguous.Candidates) != 2 {
+		t.Errorf("the error should carry every candidate, got %v", ambiguous.Candidates)
+	}
 }
 
 func TestResolvePrincipalRejectsUnknownAndEmpty(t *testing.T) {
-	if _, err := ResolvePrincipal(agents(), "nobody"); err == nil {
+	_, err := ResolvePrincipal(agents(), "nobody")
+	if err == nil {
 		t.Error("an unknown reference must not resolve")
+	}
+	// Not ambiguity: callers treat the two differently, and a reference
+	// matching nobody is usually best left to whatever already reports
+	// unknown actors.
+	var ambiguous *AmbiguousPrincipalError
+	if errors.As(err, &ambiguous) {
+		t.Errorf("an unknown reference is not an ambiguous one: %v", err)
 	}
 	if _, err := ResolvePrincipal(agents(), "   "); err == nil {
 		t.Error("a blank reference must not resolve")

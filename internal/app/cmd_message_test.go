@@ -459,3 +459,66 @@ func TestRemainingPrincipalReferenceSitesResolveDisplayNames(t *testing.T) {
 		t.Errorf("filtering by display name must match the canonical target:\n%s", stdout.String())
 	}
 }
+
+// TestExplicitActorNamesTheCandidatesWhenTheDisplayNameIsAmbiguous is
+// the regression test for what codex-main caught reviewing 1b7aa4c:
+// app.go resolved --actor through model.ResolvePrincipal but discarded
+// the error, so naming a display name two principals share fell through
+// to the generic unknown-actor path. RFC 0039 section 4 promises the
+// candidates instead -- and this is the one source where the user typed
+// the reference themselves and can act on that list.
+func TestExplicitActorNamesTheCandidatesWhenTheDisplayNameIsAmbiguous(t *testing.T) {
+	project := t.TempDir()
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
+	cleanupProjectDaemon(t, project)
+	var stdout, stderr bytes.Buffer
+	run := func(args ...string) error {
+		stdout.Reset()
+		stderr.Reset()
+		return Run(append(args, "--project", project, "--json"), &stdout, &stderr)
+	}
+	if err := run("init", "--non-interactive", "--owner", "owner"); err != nil {
+		t.Fatal(err)
+	}
+	for _, provider := range []string{"claude", "codex"} {
+		if err := run("agent", "register", "--actor", "owner", "--provider", provider, "--display-name", "Atlas"); err != nil {
+			t.Fatalf("register %s: %v (%s)", provider, err, stderr.String())
+		}
+		if err := run("agent", "activate", "--actor", "owner", "--id", provider, "--role", "Engineer", "--scope", "*"); err != nil {
+			t.Fatalf("activate %s: %v (%s)", provider, err, stderr.String())
+		}
+	}
+
+	err := run("status", "--actor", "Atlas")
+	if err == nil {
+		t.Fatal("a display name shared by two principals must not silently resolve to either")
+	}
+	message := err.Error() + stdout.String() + stderr.String()
+	for _, want := range []string{"claude", "codex", "actor ID"} {
+		if !strings.Contains(message, want) {
+			t.Errorf("the refusal should name %q so the reader can pick: %s", want, message)
+		}
+	}
+
+	// An unambiguous display name still resolves, and a reference that
+	// matches nobody still reaches the ordinary unknown-actor path rather
+	// than being turned into a resolution error.
+	if err := run("agent", "rename", "--actor", "owner", "--id", "codex", "--display-name", "Beacon"); err != nil {
+		t.Fatalf("rename: %v (%s)", err, stderr.String())
+	}
+	if err := run("status", "--actor", "Beacon"); err != nil {
+		t.Fatalf("an unambiguous display name must still resolve: %v (%s)", err, stderr.String())
+	}
+	// A reference matching nobody is still left to the paths that already
+	// report unknown actors -- the ones that sign. status is a read and
+	// never gets that far, which is exactly why resolution failure is not
+	// turned into an error here for the not-found case.
+	err = run("message", "post", "--actor", "nobody-at-all", "--to", "Atlas",
+		"--kind", "FYI", "--subject", "x", "--body", "y")
+	if err == nil {
+		t.Error("signing as an unregistered actor must be refused")
+	} else if strings.Contains(err.Error(), "display name of") {
+		t.Errorf("an unknown actor is not an ambiguous one: %v", err)
+	}
+}
