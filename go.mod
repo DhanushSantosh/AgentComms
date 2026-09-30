@@ -2,6 +2,10 @@ module github.com/DhanushSantosh/AgentComms
 
 go 1.26
 
+// v0.6.2 listener shutdown can lose a close request after an accept error.
+// See third_party/go-winio/PATCH.md for provenance and the bounded diff.
+replace github.com/Microsoft/go-winio => ./third_party/go-winio/upstream
+
 require (
 	charm.land/bubbles/v2 v2.2.1
 	charm.land/bubbletea/v2 v2.0.8

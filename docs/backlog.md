@@ -23,12 +23,27 @@ The actual release gates and promotion sequence live in
    should be treated as a release gate until its uploaded daemon log and
    inlined probe error identify whether the process failed to start or the
    probe failed. The timeout has already been widened; another blind increase
-   is not a diagnosis. The latest instrumentation is in
+   is not a diagnosis. A confirmed test-launcher logging gap was corrected
+   locally on 2026-09-30; the historical no-pipe root cause remains unknown.
+   A separate slow-health reuse false relaunch is a confirmed fixture defect:
+   its handler recomputed the executable hash for 4.057s, exceeding the 3s
+   probe budget. The fixture now resolves its build ID before serving, like
+   the real daemon, with an ordering regression. The database-cleanup signature
+   also recurred under native concurrent load despite the existing 60s wait;
+   the new stack dump identifies a lost close request in go-winio v0.6.2,
+   before database cleanup. A local dependency patch preserves cancellation
+   across racing Windows completion errors, with deterministic red/green
+   coverage and real named-pipe shutdown/rebind tests; patch CI is pending.
+   This does not assign the same cause to the historical no-pipe signature.
+   The latest evidence is in
    [Test / CI infrastructure](#test--ci-infrastructure).
-2. **Medium if it recurs: delivery-coordinator/test race.** A single slow
-   Windows run let the background retry collide with an explicit delivery
-   attempt. Reproduce and separate a test-only timing assumption from a real
-   delivery-state defect before changing production behavior. See
+2. **Medium validation: delivery-coordinator/test race fixed locally,
+   CI pending.** Reproduced on native Windows on 2026-09-30; the fixture now
+   configures failure before delivery becomes eligible and retries only an
+   outstanding reservation collision. A forced coordinator-first regression
+   failed before the fix and passed 20 repeated runs afterward. Production
+   delivery behavior and timeout budgets are unchanged. Require first-attempt
+   matrix CI on the patch before treating it as landed. See
    [Test / CI infrastructure](#test--ci-infrastructure).
 3. **Medium validation, not an existing blocker:** exercise sustained
    multi-runtime recovery/cache lag, audit list/search/history bounds and
@@ -427,10 +442,13 @@ kept:
   provider session file before it contained complete JSON. Test cleanup
   now waits for the daemon goroutine to exit and close its stores; session
   discovery keeps polling malformed/partial files until its existing
-  deadline, with a staged-write regression. Confirm both on Windows CI.
+  deadline, with a staged-write regression. Cleanup was reopened on native
+  Windows 2026-09-30 after a replacement fixture exceeded the 60-second
+  shutdown wait and retained a SQLite file; see the startup investigation
+  below. The session-discovery mitigation is unchanged. Confirm on Windows CI.
 
-- **`TestInvocationDeliveryFailureDoesNotTerminateObligation` is flaky on
-  loaded/slow windows-latest runners, not fixed.** Observed live on PR #25's
+- **`TestInvocationDeliveryFailureDoesNotTerminateObligation`: reproduced
+  and fixed locally on native Windows 2026-09-30; patch CI pending.** Observed live on PR #25's
   CI (2026-08-13): failed once with `"an unexpired delivery attempt already
   exists for this runtime"` on a run where every package's tests ran visibly
   slower than normal (`internal/mcp` 72s vs the usual ~24s,
@@ -445,9 +463,71 @@ kept:
   colliding on the same runtime's outstanding attempt. Unrelated to RFC
   0017's actor-resolution guard (this test drives a `Service` instance
   directly with an explicit `"owner"` actor, never through CLI actor
-  resolution). Worth tightening the 500ms retry/test timing assumption if
-  it recurs; not done here since a single confirmed flake isn't enough to
-  diagnose the right fix.
+  resolution).
+  Native Windows (build 28000, amd64, CGO disabled, Go 1.26.6) reproduced the
+  same reservation error on `de3daf2` in a focused first run (2.56s); ten
+  unchanged repeats then passed. This is a test fixture race: the real
+  coordinator correctly owns a live reservation, while the test assumes its
+  manual request always wins. The original fixture also changed the connector
+  from success to failure after making delivery eligible.
+  The fix sets failure before runtime registration, retries only the exact
+  unexpired-reservation error within the existing test budget, and still
+  requires a failed manual `EXHAUSTED` delivery plus a `PENDING` invocation.
+  A test-only connector gate forces the automatic reservation to win; its
+  first manual request must be rejected. This regression failed before the
+  retry fix, then both immediate and coordinator-first cases passed all 20
+  repetitions (49.819s). The gate uses a separate release marker rather than
+  rewriting a concurrently read outcome file. No production semantics,
+  skips, or timeout increases are involved. The full Windows suite and
+  `go vet ./...` passed before and after the final patch (the final suite
+  reused valid cached results for unchanged packages and reran the modified
+  service package in 29.046s). Both daemon-replacement tests passed ten
+  repetitions each (90.610s); the independent no-pipe startup symptom was not
+  reproduced and remains conditional, not declared fixed. The first-attempt
+  green [CI run on `de3daf2`](https://github.com/DhanushSantosh/AgentComms/actions/runs/36714142643)
+  predates this patch and is not evidence that the patch passed matrix CI.
+
+- **Windows cleanup deadlock: root cause confirmed and fixed locally
+  2026-09-30; patch CI pending.** A 60-round native loaded startup loop
+  failed one of 180 cases (562.123s overall). The captured daemon goroutine
+  was inside `http.Server.Shutdown` calling go-winio v0.6.2 `Close` at
+  pipe.go:578. Its listener routine had resumed the top-level select at
+  pipe.go:462, rather than closing `doneCh`. HTTP Serve and connection
+  bookkeeping waited on the shutdown-held server mutex. SQLite close had
+  not been reached; a longer shutdown context cannot break this wait.
+  Inspection identifies a consumed close request followed by a connect
+  completion error other than nil/ErrFileClosed. The old implementation
+  returns that error, loses cancellation, and resumes accepting while
+  `Close` waits forever. The local replacement always reports
+  ErrPipeListenerClosed after draining a cancelled connect, regardless of
+  its Windows completion error. All three controlled completion-error
+  cases failed before correction and passed 100 repetitions after it.
+  A real Windows listener regression passed 800 shutdown/rebind cycles
+  with disconnecting clients (16.707s). Pipe ACLs, timeouts and SQLite
+  transactions are unchanged. The dependency copy, license, bounded diff
+  and removal criteria are documented in `third_party/go-winio/PATCH.md`;
+  an explicit Windows CI step covers its nested-module regression.
+  After this dependency correction, all 120 replacement cases in another
+  60-round loaded run avoided the cleanup failure. That run failed only
+  slow-health reuse (877.609s overall): its handler delay was 650.9805ms,
+  but executable-hash resolution added 4.0571163s, exceeding the existing
+  3s request budget. Production resolves compatibility before serving;
+  only this fixture recomputed it in the handler. The fixture now captures
+  that value once before serving. An ordering regression failed before
+  correction (calls=0 before serving, 0.665s); the corrected fixture and
+  ordering regression both passed 30 native repetitions (105.599s).
+  Another loaded 100 repetitions of the cancellation regression passed
+  (4.190s). The dependency-only full native suite passed
+  uncached (app 935.557s). The final combined native suite passed uncached
+  (app 602.809s, daemon 3.084s, service 119.355s); project vet and module
+  verification passed. All four shipped binaries cross-built for Windows,
+  Linux and macOS on amd64 and arm64 (24 builds). Explicit dependency-only
+  vet reports two existing unsafe.Pointer warnings in unchanged upstream
+  code; these are recorded, not suppressed. At this native-validation
+  snapshot, patch CI and installed-binary replacement had not occurred;
+  check the integration commit's CI run for the current matrix status.
+  Historical no-pipe remains separate until its own evidence establishes
+  causality.
 
 - **MITIGATED 2026-09-24: `TestEnsureDaemonReplacesIncompatibleDaemon`
   readiness flake on loaded Windows runners.** A
@@ -511,8 +591,9 @@ kept:
   failures produced a pointer to evidence nobody could ever read.
   **What is now instrumented.** `ensureDaemon` inlines the tail of
   daemon.log in the error rather than naming its path, and says explicitly
-  when the log is empty or unreadable, which itself indicates the process
-  never started. CI uploads any non-empty daemon.log as an artifact on
+  when the log is empty or unreadable. In the app test harness this did not
+  establish whether startup failed: its fake launcher discarded `daemon.Run`
+  errors and ignored the log writer. CI uploads any non-empty daemon.log as an artifact on
   failure. The error already reports probe count and elapsed time.
   **The one real clue so far.** The most recent failure read: `398 probes
   over 40.084s, last error: ... open \\.\pipe\agent-comms-<id>: The system
@@ -520,21 +601,54 @@ kept:
   this is not the slow-but-healthy case fixed earlier — the daemon process
   did not start, or exited before binding. The next occurrence should say
   why.
+  **Native investigation 2026-09-30, local patch not yet in CI.** The fake
+  launcher now owns a separate log handle until its goroutine exits, records
+  returned `daemon.Run` errors, and captures run configuration before launch.
+  Reusing the caller's writer would not suffice: `ensureDaemon` closes that
+  writer immediately after launch, whereas a real subprocess inherits its
+  own handle. A regression deliberately makes the isolated projection
+  database invalid before startup and closes the parent's writer immediately;
+  it failed with an empty log before correction and passed 20 native Windows
+  runs after (7.769s). This fixes missing evidence, not the historical startup
+  defect. In an expanded 20-round baseline both replacement variants passed
+  all runs, but `TestEnsureDaemonReusesSlowHealthyDaemon` falsely requested a
+  launch once (19/20 passed; combined run 198.336s). Its isolated unchanged
+  repeat passed 20/20 (20.962s). Initial instrumentation reported delay,
+  build-ID, and response timings on failure; no health budget or assertion was relaxed.
+  Keep this new signature separate from file-not-found before binding.
+  In the subsequent instrumented 30-round native run with concurrent service,
+  MCP, reconciliation, and app-suite activity, the normal replacement test
+  failed once at cleanup after 60s and once on its final health assertion
+  (416.951s overall). Cleanup held `personal-authority.db` open, so the earlier
+  mitigation is reopened. The final health assertion used a 300ms client
+  inherited from the retryable fixture-start loop even though production
+  readiness uses a 3s request budget. That test-only mismatch is corrected:
+  a 600ms fake IPC response deterministically failed with the old client
+  (0.42s test) and passed with the existing production budget. Both new
+  regressions passed 20 runs each (33.450s). A further 30-round loaded repeat
+  passed all three startup cases (263.725s), but does not erase the observed
+  cleanup/slow-health failures. Cleanup now dumps goroutines at its unchanged
+  shutdown deadline to distinguish server drain, database close, and other
+  unfinished work on the next recurrence. At that initial stage no causal
+  cleanup fix was established; the deeper investigation above subsequently
+  identified and corrected the lost-close deadlock and slow-health fixture
+  hashing. The historical missing-pipe cause remains unproven. Changes
+  remain local by user request.
   **Do not "fix" this by raising a timeout again.** 40s was already
   exhausted, and the per-probe cap was already corrected once. A longer
   wait would only lengthen the failure.
-  **Measured root cause of the family (2026-09-28).** windows-latest is
+  **Measured performance constraint (2026-09-28), not a root cause for
+  every failure.** windows-latest is
   roughly **100x slower than a local Linux machine for filesystem-heavy
   work**, not marginally slower. `TestConcurrentReconcileIsSerializedAndConsistent`
   takes 0.18s locally and 9.32s there; `internal/projectlifecycle` takes
-  0.7s locally and 68s there. That single fact explains the whole family:
-  every fixed timeout in this codebase was calibrated on a machine two
-  orders of magnitude faster, so each one is a latent Windows flake, and
-  they surface in whatever order the runner happens to be slowest.
+  0.7s locally and 68s there. This supports scaling deadlines for measured,
+  filesystem-heavy work; it does not prove why a daemon never bound its pipe
+  or why a healthy fixture's probe failed.
   The implication for future work is a rule, not a patch: **a timeout that
   bounds work proportional to N must scale with N**, and any constant
-  chosen by watching a local run needs roughly 100x headroom before it is
-  safe on that runner. The concurrent-reconcile test was fixed that way --
+  chosen from a local run must be checked against equivalent runner work,
+  not widened by a blanket multiplier. The concurrent-reconcile test was fixed that way --
   its budget is now `workers * perWorkerBudget` rather than a flat value
   that silently assumed one turn at the lock.
   Not every member of the family is a timeout, though: the daemon failure

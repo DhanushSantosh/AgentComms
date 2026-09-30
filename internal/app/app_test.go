@@ -396,7 +396,7 @@ func TestQuietSuppressesSuccessButNotWarnings(t *testing.T) {
 }
 
 func TestMain(testingMain *testing.M) {
-	launchDaemonProcess = func(_, projectRoot string, _ io.Writer) error {
+	launchDaemonProcess = func(_, projectRoot string, output io.Writer) error {
 		projectStore := store.Open(projectRoot)
 		config, err := projectStore.Config()
 		if err != nil {
@@ -408,22 +408,28 @@ func TestMain(testingMain *testing.M) {
 		if err != nil {
 			return err
 		}
+		// ensureDaemon closes its writer as soon as launch returns. Unlike a
+		// real subprocess, this goroutine does not inherit a separate handle.
+		// Reopen it now and keep the child-owned handle until Run exits.
+		parentLog, ok := output.(*os.File)
+		if !ok {
+			return errors.New("test daemon launcher requires a file log")
+		}
+		childLog, err := os.OpenFile(parentLog.Name(), os.O_APPEND|os.O_WRONLY, 0o600)
+		if err != nil {
+			return err
+		}
+		// Capture environment-dependent configuration before starting the
+		// goroutine, just as exec.Start captures a subprocess's environment.
+		runConfig := serveRunConfig(projectRoot, config, runtimeinit.ProjectionPath(projectRoot), credential.PrivateKey)
 		done := make(chan struct{})
 		testDaemonRuns.Store(projectRoot, done)
 		go func() {
 			defer close(done)
-			_ = daemon.Run(context.Background(), daemon.RunConfig{
-				ServicePublicKey: config.ServicePublicKey,
-				CachePath:        runtimeinit.ProjectionPath(projectRoot), Endpoint: config.DaemonEndpoint,
-				RuntimeMode: "personal", PersonalDatabase: runtimeinit.DatabasePath(projectRoot),
-				ServicePrivateKey: credential.PrivateKey, ProjectID: config.ProjectID,
-				ProductVersion: Version, BuildID: buildinfo.ResolvedBuildID(),
-				ProjectFormatVersion: store.ProjectFormatVersion,
-				CacheSchemaVersion:   projectlifecycle.ProjectionCacheSchemaVersion,
-				DraftSchemaVersion:   projectlifecycle.DraftStoreSchemaVersion,
-				ProjectRoot:          projectRoot,
-				ConnectorConfigPath:  os.Getenv("AGENT_COMMS_CONNECTOR_CONFIG"),
-			})
+			defer childLog.Close()
+			if runErr := daemon.Run(context.Background(), runConfig); runErr != nil {
+				_, _ = fmt.Fprintf(childLog, "daemon.Run failed: %v\n", runErr)
+			}
 		}()
 		return nil
 	}
@@ -491,7 +497,9 @@ func cleanupProjectDaemon(t *testing.T, projectRoot string) {
 			case <-time.After(50 * time.Millisecond):
 			}
 		}
-		t.Error("test daemon did not release its database before tempdir cleanup")
+		stacks := make([]byte, 128*1024)
+		n := runtime.Stack(stacks, true)
+		t.Errorf("test daemon did not release its database before tempdir cleanup; goroutines at shutdown deadline:\n%s", stacks[:n])
 	})
 }
 
@@ -889,7 +897,11 @@ func testEnsureDaemonReplacesIncompatibleDaemon(t *testing.T, startupDelay time.
 	if err = ensureDaemon(root, config); err != nil {
 		t.Fatal(err)
 	}
-	freshHealth, err := client.Health(context.Background())
+	// The fixture-start loop may use short retryable probes, but this final
+	// one-shot compatibility assertion needs the same request budget as the
+	// production readiness probe. The old 300ms client falsely failed after
+	// ensureDaemon had already observed a healthy replacement under load.
+	freshHealth, err := replacementDaemonHealth(config.DaemonEndpoint)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -899,6 +911,14 @@ func testEnsureDaemonReplacesIncompatibleDaemon(t *testing.T, startupDelay time.
 	if freshHealth.ProductVersion != Version {
 		t.Fatalf("expected the replacement daemon to report the current product version, got: %+v", freshHealth)
 	}
+}
+
+func replacementDaemonHealth(endpoint string) (daemonclient.Health, error) {
+	client, err := daemonclient.New(endpoint, daemonHealthRequestTimeout)
+	if err != nil {
+		return daemonclient.Health{}, err
+	}
+	return client.Health(context.Background())
 }
 
 // The health-probe timeout is shared by the initial compatibility check and
@@ -923,22 +943,7 @@ func TestEnsureDaemonReusesSlowHealthyDaemon(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/health/live" {
-			http.NotFound(w, r)
-			return
-		}
-		time.Sleep(600 * time.Millisecond)
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(daemonclient.Health{
-			Status: "live", RuntimeMode: config.RuntimeMode, ProjectID: config.ProjectID,
-			ProtocolVersion: controlplane.LocalDaemonProtocolVersion,
-			ProductVersion:  Version, BuildID: buildinfo.ResolvedBuildID(),
-			ProjectFormatVersion: store.ProjectFormatVersion,
-			CacheSchemaVersion:   projectlifecycle.ProjectionCacheSchemaVersion,
-			DraftSchemaVersion:   projectlifecycle.DraftStoreSchemaVersion,
-		})
-	})}
+	server := &http.Server{Handler: slowHealthyDaemonHandler(config, buildinfo.ResolvedBuildID)}
 	go func() { _ = server.Serve(listener) }()
 	t.Cleanup(func() { _ = server.Close() })
 
@@ -951,6 +956,30 @@ func TestEnsureDaemonReusesSlowHealthyDaemon(t *testing.T) {
 	if err := ensureDaemon(root, config); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func slowHealthyDaemonHandler(config store.Config, resolveBuildID func() string) http.Handler {
+	// daemon.Run resolves compatibility once, before serving. The fallback
+	// resolver hashes the test executable; doing that inside every health
+	// request added 4.057s under measured Windows load to the intended 600ms
+	// delay and falsely made a healthy fixture exceed the 3s probe budget.
+	buildID := resolveBuildID()
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/health/live" {
+			http.NotFound(w, r)
+			return
+		}
+		time.Sleep(600 * time.Millisecond)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(daemonclient.Health{
+			Status: "live", RuntimeMode: config.RuntimeMode, ProjectID: config.ProjectID,
+			ProtocolVersion: controlplane.LocalDaemonProtocolVersion,
+			ProductVersion:  Version, BuildID: buildID,
+			ProjectFormatVersion: store.ProjectFormatVersion,
+			CacheSchemaVersion:   projectlifecycle.ProjectionCacheSchemaVersion,
+			DraftSchemaVersion:   projectlifecycle.DraftStoreSchemaVersion,
+		})
+	})
 }
 
 // TestHandoffProjectUpgradePropagatesChildErrorCode guards finding 7's
