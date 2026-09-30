@@ -1,8 +1,86 @@
 # Backlog
 
-Deferred, real work items surfaced during development but intentionally not
-built yet — each was a deliberate decision to defer, not an oversight. When
-one is picked up, remove it from here and note the landing commit.
+The ordered queue below is the current view of unresolved work. The detailed
+sections after it retain the evidence, accepted risks, and resolved history;
+an old report there is not automatically a task to reopen. When an item is
+picked up, update this queue and record the landing commit beside its detail.
+
+## Current priority queue (2026-09-30)
+
+Severity describes the impact **if an issue manifests in the supported,
+trusted self-hosted deployment**, not a claim that it is failing now. Timing
+is separate: a deferred feature can matter to users without becoming a gate
+for the main release. Recheck CI and the live project at release time; a
+passing run does not prove an intermittent fault is gone.
+
+The actual release gates and promotion sequence live in
+[release verification](release-verification.md) and
+[releasing](releasing.md), not in this deferred-work queue.
+
+### 1. Release-confidence work — act on evidence, not speculation
+
+1. **High if it recurs: Windows daemon-startup CI flake.** The next red run
+   should be treated as a release gate until its uploaded daemon log and
+   inlined probe error identify whether the process failed to start or the
+   probe failed. The timeout has already been widened; another blind increase
+   is not a diagnosis. Use the [Windows investigation handoff](windows-investigation-handoff.md)
+   after booting into Windows. The latest instrumentation is in
+   [Test / CI infrastructure](#test--ci-infrastructure).
+2. **Medium if it recurs: delivery-coordinator/test race.** A single slow
+   Windows run let the background retry collide with an explicit delivery
+   attempt. Reproduce and separate a test-only timing assumption from a real
+   delivery-state defect before changing production behavior. See
+   [Test / CI infrastructure](#test--ci-infrastructure).
+3. **Medium validation, not an existing blocker:** exercise sustained
+   multi-runtime recovery/cache lag, audit list/search/history bounds and
+   cursors, and compare equivalent CLI/MCP outcomes. These are the
+   correctness-oriented items 2, 3, and 5 in
+   [Stabilization areas](#stabilization-areas-not-yet-started). A demonstrated
+   data-loss, authorization, or unbounded-resource defect would move above
+   this queue and block release; the planned checks alone do not.
+
+### 2. Next product polish — schedule after the release gate
+
+4. **Medium: action explainability.** Finish stabilization items 1 and 4:
+   stable error/precondition explanations in the TUI and worker surfaces,
+   and visible reasons an action is available, blocked, awaiting approval,
+   or disconnected. The 2026-09-29 TUI layout and messaging pass did not
+   implement these separate action-state explanations.
+5. **Medium: structured interactive delivery design.** Raw PTY text plus
+   echo heuristics cannot prove the exact invocation text reached an
+   interactive session. Scope a structured receipt/channel (reusing ACP
+   where possible) before implementing it; see
+   [Interactive-serve / multi-agent delivery](#interactive-serve--multi-agent-delivery).
+6. **Medium: first-class worker supervision.** Design the agent-spawns-agent
+   workflow around the existing `runtime worker` primitive, including
+   lifecycle, restart, and ownership rules. This is important product work,
+   not a missing capability in the current message protocol; see
+   [Runtime workers / agent-spawns-agent](#runtime-workers--agent-spawns-agent).
+
+### 3. Intentionally deferred — require a scope or policy change first
+
+7. **Medium, design first:** project-scoped custom providers must become
+   signed authority state shared by local and remote modes; the removed
+   local adapter escape hatch is not a partial implementation. See
+   [Project-scoped custom providers](#project-scoped-custom-providers).
+8. **Medium, external dependency:** cloud/hosted participation needs a
+   project-join design and a host that permits this CLI. The protocol's
+   multi-machine exchange was proven; the attempted integration was stopped
+   by host constraints. See [Remote and hosted participants](#remote-and-hosted-participants).
+9. **Low under the accepted trust model:** stronger separation of approval
+   requester and approver, authority token rotation/durable principal quotas,
+   and restrictions on cosmetic `agent.rename` impersonation are future
+   governance hardening. The main release targets trusted self-hosted teams;
+   revisit these before serving mutually untrusted tenants. See
+   [Security / governance](#security--governance).
+10. **Low / trigger-based cleanup:** decide whether to wire or remove the
+    unused `localcache.Cache.Rebuild` and `Integrity.UnknownEvents`; revisit
+    the suspected `doctor` false positive only with a fresh reproduction.
+    See [Unwired code](#unwired--vestigial-code-surfaced-during-rfc-0028-review-2026-09-02)
+    and [Possibly-a-bug](#possibly-a-bug-not-yet-root-caused).
+11. **Policy research, not a code task:** the built-in `agy` adapter was
+    removed. Seek an authoritative terms clarification only if support is
+    reconsidered; see [Compliance](#compliance--third-party-terms-of-service).
 
 ## Compliance / third-party terms of service
 
@@ -30,10 +108,10 @@ one is picked up, remove it from here and note the landing commit.
   itself. The rest of this entry is kept verbatim below as the research
   record that led here.
 
-- **The `agy` (Google Antigravity) adapter — both its own design and one
-  implementation detail — sits inside a genuinely open compliance question;
+- **Historical research before the built-in `agy` adapter was removed:** its
+  design and one implementation detail sat inside an open compliance question;
   the deeper question of whether *any* third-party automation of the
-  official `agy` CLI is compliant remains unresolved.** Investigated via
+  official `agy` CLI is compliant remains unresolved. Investigated via
   deep research 2026-08-07, across every provider integration in the
   codebase (`internal/worker/adapter_*.go`, `claudeserve`, `codexserve`,
   `opencodeclient`, `acpclient`, `claudetail`, `sessionbind`,
@@ -412,13 +490,11 @@ kept:
   than the unit-only run where most of its paths are `t.Skip`-guarded.
   Original entry kept below for context.
 
-- **`internal/protocol`'s `ValidateTransition` is mostly untested
-  in-package.** `transitions_test.go` covers the elevated-key/orchestrator
-  work directly; the other ~800 lines (task lifecycle, invocation
-  lifecycle, message routing, resource-overlap checks) have only indirect
-  coverage through `internal/service`/`internal/app`/`internal/mcp`/`internal/tui`
-  integration tests. Not urgent — the indirect coverage is real — but a gap
-  worth closing with direct unit tests for the highest-value paths.
+- **Historical report, resolved by the coverage work above:**
+  `internal/protocol`'s `ValidateTransition` once had direct in-package
+  coverage mostly for elevated-key/orchestrator transitions, while task,
+  invocation, and message paths relied on integration tests. The direct
+  lifecycle tests and coverage floor described above closed that gap.
 
 - **Windows CI daemon-startup flakiness — instrumented 2026-09-28, root
   cause still unknown.** Six CI failures over three days, five on
