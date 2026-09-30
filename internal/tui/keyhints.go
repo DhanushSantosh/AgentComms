@@ -112,33 +112,55 @@ func (m Model) globalHints() []keyHint {
 	}
 }
 
-// packHints lays hints out as plain (unstyled) lines no wider than width,
-// two spaces apart, for the sidebar's narrow column. Plain, not styled:
-// the packing measures each token's real width, and measuring a string
-// that already carries ANSI color would count the escape bytes.
-func packHints(hints []keyHint, width int) []string {
-	if width <= 0 {
+// hintGrid lays hints out as an aligned table for the sidebar: every key
+// in one column padded to the widest key, every label after it, and two
+// such cells per row when the width allows. It replaces a greedy packer
+// that filled each line with whatever fit next, which read as ragged
+// word soup -- "↑↓ hub  ←→ tab  ⏎ open" over "/ cmds  r refresh" -- with
+// no column a reader could scan down to find a key.
+//
+// Widths are measured on the plain text before any styling is applied;
+// measuring a string that already carries ANSI color counts the escapes.
+func hintGrid(p palette, hints []keyHint, width int) []string {
+	if len(hints) == 0 || width <= 0 {
 		return nil
 	}
-	var lines []string
-	current := ""
+	keyWidth, labelWidth := 0, 0
 	for _, hint := range hints {
-		token := hint.key + " " + hint.label
-		switch {
-		case current == "":
-			current = token
-		case lipgloss.Width(current+"  "+token) <= width:
-			current += "  " + token
-		default:
-			lines = append(lines, current)
-			current = token
+		keyWidth = max(keyWidth, lipgloss.Width(hint.key))
+		labelWidth = max(labelWidth, lipgloss.Width(hint.label))
+	}
+	const gap = 2
+	cellWidth := keyWidth + 1 + labelWidth
+	perRow := 1
+	if 2*cellWidth+gap <= width {
+		perRow = 2
+	}
+	keyStyle := lipgloss.NewStyle().Foreground(p.cyan)
+	labelStyle := lipgloss.NewStyle().Foreground(p.muted)
+	pad := func(text string, to int) string {
+		return text + strings.Repeat(" ", max(0, to-lipgloss.Width(text)))
+	}
+	var lines []string
+	for start := 0; start < len(hints); start += perRow {
+		end := min(start+perRow, len(hints))
+		var plain, styled strings.Builder
+		for i := start; i < end; i++ {
+			key, label := pad(hints[i].key, keyWidth), hints[i].label
+			if i < end-1 {
+				// Every cell but a row's last is padded to the full cell
+				// width, so the second column starts at the same place
+				// on every row.
+				label = pad(label, labelWidth) + strings.Repeat(" ", gap)
+			}
+			plain.WriteString(key + " " + label)
+			styled.WriteString(keyStyle.Render(key) + " " + labelStyle.Render(label))
 		}
-	}
-	if current != "" {
-		lines = append(lines, current)
-	}
-	for i, line := range lines {
-		lines[i] = ansi.Truncate(line, width, "…")
+		line := styled.String()
+		if lipgloss.Width(plain.String()) > width {
+			line = labelStyle.Render(ansi.Truncate(plain.String(), width, "…"))
+		}
+		lines = append(lines, line)
 	}
 	return lines
 }

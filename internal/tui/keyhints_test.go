@@ -6,6 +6,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // TestEveryViewShowsItsOwnKeysAndTheGlobalOnes is the regression test for
@@ -54,11 +55,17 @@ func TestGlobalHintsFollowTheFocusMode(t *testing.T) {
 		t.Fatal(err)
 	}
 	m.width, m.height = 140, 40
-	if got := m.View().Content; !strings.Contains(got, "↑↓ hub") {
+	// Plain text with runs of spaces collapsed: the legend is an aligned
+	// grid, so the key and its label are styled separately and the key
+	// column is padded to the widest key ("esc" in an entered tab).
+	legend := func(m Model) string {
+		return strings.Join(strings.Fields(ansi.Strip(m.View().Content)), " ")
+	}
+	if !strings.Contains(legend(m), "↑↓ hub") {
 		t.Error("navigation mode should say ↑↓ moves the hub")
 	}
 	m = enterAgentsView(t, m)
-	rendered := m.View().Content
+	rendered := legend(m)
 	if !strings.Contains(rendered, "↑↓ rows") {
 		t.Error("an entered tab should say ↑↓ moves the rows")
 	}
@@ -181,25 +188,59 @@ func TestNothingPaintsItsOwnBackground(t *testing.T) {
 	check("command palette", m.View().Content)
 }
 
-func TestPackHintsNeverExceedsTheSidebarWidth(t *testing.T) {
+// TestHintGridStaysInsideTheSidebarAndAlignsItsColumns: the sidebar's key
+// legend used to be packed greedily into ragged lines ("↑↓ hub  ←→ tab
+// ⏎ open" over "/ cmds  r refresh") with no column to scan down. It is a
+// grid now -- and a grid is only a grid if every row starts its columns in
+// the same place, at every width, without spilling past the sidebar.
+func TestHintGridStaysInsideTheSidebarAndAlignsItsColumns(t *testing.T) {
 	s := newTestService(t)
 	m, err := New(s, "owner")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, width := range []int{8, 12, 14, 16, 19, 21} {
+	p := colors()
+	for _, width := range []int{8, 12, 14, 18, 25} {
 		for _, entered := range []bool{false, true} {
 			m.rowFocus = entered
-			lines := packHints(m.globalHints(), width)
+			hints := m.globalHints()
+			lines := hintGrid(p, hints, width)
 			if len(lines) == 0 {
 				t.Fatalf("width %d: expected some global hints", width)
 			}
+			labelColumn := -1
 			for _, line := range lines {
-				if got := lipgloss.Width(line); got > width {
-					t.Fatalf("width %d: hint line spans %d columns: %q", width, got, line)
+				plain := ansi.Strip(line)
+				if got := lipgloss.Width(plain); got > width {
+					t.Fatalf("width %d: hint row spans %d columns: %q", width, got, plain)
+				}
+				if strings.Contains(plain, "…") {
+					continue // truncated at a width too narrow for any grid
+				}
+				// The first label starts at the same column on every row.
+				first := strings.Fields(plain)
+				if len(first) < 2 {
+					t.Fatalf("width %d: malformed hint row %q", width, plain)
+				}
+				column := lipgloss.Width(plain[:strings.Index(plain, first[1])])
+				if labelColumn == -1 {
+					labelColumn = column
+				} else if column != labelColumn {
+					t.Errorf("width %d entered=%v: label column moves from %d to %d on %q", width, entered, labelColumn, column, plain)
+				}
+			}
+			// Nothing dropped: every key is still somewhere in the grid.
+			joined := ansi.Strip(strings.Join(lines, "\n"))
+			for _, hint := range hints {
+				if width >= 18 && !strings.Contains(joined, hint.label) {
+					t.Errorf("width %d entered=%v: %q missing from the legend", width, entered, hint.label)
 				}
 			}
 		}
+	}
+	// Wide enough for two columns, the grid uses them.
+	if two := hintGrid(p, m.globalHints(), 25); len(two) >= len(m.globalHints()) {
+		t.Errorf("at 25 columns the legend should pair its hints, got %d rows for %d hints", len(two), len(m.globalHints()))
 	}
 }
 

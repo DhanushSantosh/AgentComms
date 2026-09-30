@@ -425,3 +425,82 @@ func TestConfirmShowsBothChoicesAndKeepsItsBorder(t *testing.T) {
 		}
 	}
 }
+
+// TestWrapAtHyphensKeepsWholeSegments: the sidebar truncated the project
+// ID to one line ("ac-fed3cb9f-266b-4cd5-a0…"), which cut off exactly the
+// part that tells one project from another. It wraps now, breaking after
+// a hyphen so no line ends mid-way through a hex group.
+func TestWrapAtHyphensKeepsWholeSegments(t *testing.T) {
+	const id = "ac-fed3cb9f-266b-4cd5-a081-1fe1441f9c86"
+	for _, width := range []int{25, 18, 14, 10} {
+		lines := wrapAtHyphens(id, width)
+		if got := strings.Join(lines, ""); got != id {
+			t.Fatalf("width %d: wrapping must lose nothing, rejoined %q", width, got)
+		}
+		for i, line := range lines {
+			if len([]rune(line)) > width {
+				t.Errorf("width %d: line %d is %d wide: %q", width, i, len([]rune(line)), line)
+			}
+			// Every line but the last ends on a hyphen when the segments
+			// allow it -- only a segment longer than the width itself
+			// (none here above width 12) may be hard-broken.
+			if width > 12 && i < len(lines)-1 && !strings.HasSuffix(line, "-") {
+				t.Errorf("width %d: line %d breaks mid-segment: %q", width, i, line)
+			}
+		}
+	}
+	if got := wrapAtHyphens("abcdefghij", 4); strings.Join(got, "") != "abcdefghij" || len(got) != 3 {
+		t.Errorf("a segment longer than the width must be hard-broken, not dropped: %q", got)
+	}
+}
+
+// TestSidebarShowsTheWholeProjectIDAndPinsItsLegend covers the two
+// sidebar layout changes together, as rendered: the full project ID is on
+// screen, and the KEYS legend sits at the foot of the column rather than
+// floating one line under the hub list with empty space beneath it.
+func TestSidebarShowsTheWholeProjectIDAndPinsItsLegend(t *testing.T) {
+	s := newTestService(t)
+	m, err := New(s, "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.projectID = "ac-fed3cb9f-266b-4cd5-a081-1fe1441f9c86"
+	for _, size := range [][2]int{{140, 40}, {120, 32}, {70, 30}} {
+		m.width, m.height = size[0], size[1]
+		side, _ := m.renderSidebar(colors(), m.sidebarWidth(), m.height)
+		lines := strings.Split(ansi.Strip(side), "\n")
+		compact := strings.Join(strings.Fields(strings.Join(lines, " ")), "")
+		if !strings.Contains(compact, m.projectID) {
+			t.Errorf("%dx%d: the full project ID is not on screen", size[0], size[1])
+		}
+		// Pinned, not merely last: the final legend row is the sidebar's
+		// final content line, directly above its bottom padding. The old
+		// layout also ended with the legend -- one line under the hubs,
+		// with blank rows beneath it -- so "is it last" cannot tell them
+		// apart; "is it at the bottom" can.
+		quitAt := -1
+		for i, line := range lines {
+			if strings.Contains(line, "quit") {
+				quitAt = i
+			}
+		}
+		if want := len(lines) - 2; quitAt != want {
+			t.Errorf("%dx%d: the legend's last row is on line %d, want it pinned to line %d", size[0], size[1], quitAt, want)
+		}
+		keysAt, lastHubAt := -1, -1
+		for i, line := range lines {
+			if strings.TrimSpace(line) == "KEYS" {
+				keysAt = i
+			}
+			if strings.Contains(line, "Project") && !strings.Contains(line, "└") {
+				lastHubAt = i
+			}
+		}
+		if keysAt < 0 || keysAt <= lastHubAt {
+			t.Errorf("%dx%d: the KEYS heading (line %d) must come after the hub list (line %d)", size[0], size[1], keysAt, lastHubAt)
+		}
+		if got := len(lines); got != m.height {
+			t.Errorf("%dx%d: the sidebar renders %d lines", size[0], size[1], got)
+		}
+	}
+}

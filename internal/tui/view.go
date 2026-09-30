@@ -252,13 +252,64 @@ func sidebarRenderedHeight(rows []string, w int) int {
 	return total
 }
 
+// wrapAtHyphens breaks an identifier across lines no wider than width,
+// preferring to break just after a hyphen so each line ends on a whole
+// segment: "ac-fed3cb9f-266b-4cd5-" / "a081-1fe1441f9c86", not a cut
+// through the middle of a hex group. A segment longer than width on its
+// own is hard-broken, since there is no better place to split it.
+//
+// The sidebar used to truncate the project ID to one line, leaving
+// "ac-fed3cb9f-266b-4cd5-a0…" -- the part that distinguishes one project
+// from another was always the part cut off.
+func wrapAtHyphens(text string, width int) []string {
+	if width <= 0 || text == "" {
+		return nil
+	}
+	var segments []string
+	for rest := text; rest != ""; {
+		i := strings.Index(rest, "-")
+		if i < 0 {
+			segments = append(segments, rest)
+			break
+		}
+		segments = append(segments, rest[:i+1])
+		rest = rest[i+1:]
+	}
+	var lines []string
+	current := ""
+	flush := func() {
+		if current != "" {
+			lines = append(lines, current)
+			current = ""
+		}
+	}
+	for _, segment := range segments {
+		for len([]rune(segment)) > width {
+			flush()
+			runes := []rune(segment)
+			lines = append(lines, string(runes[:width]))
+			segment = string(runes[width:])
+		}
+		if len([]rune(current))+len([]rune(segment)) > width {
+			flush()
+		}
+		current += segment
+	}
+	flush()
+	return lines
+}
+
 func (m Model) renderSidebar(p palette, w, h int) (view string, hubLine []int) {
 	titleStyle := lipgloss.NewStyle().Foreground(p.cyan).Bold(true)
 	title := titleStyle.Render(sidebarTitleText)
-	sub := lipgloss.NewStyle().Foreground(p.muted).Render(truncate(m.projectID, max(8, w-2)))
 	activeHub := m.activeHubIndex()
+	headingStyle := lipgloss.NewStyle().Foreground(p.muted)
 
-	rows := []string{title, sub, "", lipgloss.NewStyle().Foreground(p.muted).Render("OPERATIONS"), ""}
+	rows := []string{title}
+	for _, line := range wrapAtHyphens(m.projectID, max(8, w-2)) {
+		rows = append(rows, headingStyle.Render(line))
+	}
+	rows = append(rows, "", headingStyle.Render("OPERATIONS"), "")
 	hubLine = make([]int, len(navigationHubs))
 	for i, hub := range navigationHubs {
 		marker := "  "
@@ -285,10 +336,20 @@ func (m Model) renderSidebar(p palette, w, h int) (view string, hubLine []int) {
 	// (globalHints) rather than three hardcoded lines that only ever
 	// described navigation mode -- inside a focused tab ↑↓ moves rows,
 	// not hubs, and this used to keep insisting otherwise.
-	rows = append(rows, "")
-	for _, line := range packHints(m.globalHints(), max(4, w-2)) {
-		rows = append(rows, lipgloss.NewStyle().Foreground(p.muted).Render(line))
-	}
+	//
+	// Pinned to the foot of the sidebar under their own heading, the way
+	// the body's key bar is pinned to the foot of the pane. They used to
+	// sit one blank line under the last hub, which left them floating
+	// mid-column with the sidebar's whole lower half empty beneath them,
+	// reading as part of the hub list rather than as a legend.
+	keys := append([]string{headingStyle.Render("KEYS")}, hintGrid(p, m.globalHints(), max(4, w-2))...)
+	// filler may be 0: the hub list already ends on a blank line, so the
+	// legend can sit flush under it. Below 0 it does not fit at all, and
+	// the rows it overflows force the compact layout that follows, which
+	// drops the legend rather than render past the bottom of the screen.
+	filler := (h - 2) - sidebarRenderedHeight(rows, w) - sidebarRenderedHeight(keys, w)
+	rows = append(rows, make([]string, max(0, filler))...)
+	rows = append(rows, keys...)
 	// Padding(1) costs 2 more lines (top+bottom) than the rows themselves,
 	// and a row wider than the column costs more than one line of its
 	// own -- which is why the check measures rendered height rather than
