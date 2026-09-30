@@ -23,8 +23,7 @@ The actual release gates and promotion sequence live in
    should be treated as a release gate until its uploaded daemon log and
    inlined probe error identify whether the process failed to start or the
    probe failed. The timeout has already been widened; another blind increase
-   is not a diagnosis. Use the [Windows investigation handoff](windows-investigation-handoff.md)
-   after booting into Windows. The latest instrumentation is in
+   is not a diagnosis. The latest instrumentation is in
    [Test / CI infrastructure](#test--ci-infrastructure).
 2. **Medium if it recurs: delivery-coordinator/test race.** A single slow
    Windows run let the background retry collide with an explicit delivery
