@@ -137,12 +137,16 @@ Measured clearance (top/bottom px, identical across all six sections):
 
 ## Open
 
-- [ ] Owner review of the rendered page.
-- [ ] With consent: refresh only the lower-page visual baselines
-      (`landing-protocol`, `landing-control-room`).
-- [ ] Commit/push only when authorized.
-- Unrelated, pre-existing and still open: desktop WASM overview column
-  alignment, the RUNNING-invocation copy, the moderate npm advisory.
-- Not in scope: `globals.css` still carries rules for sections the page no
-  longer renders (collision lab, demo reel, lifecycle orbit, relay); they
-  cannot affect the new sections but are dead weight.
+- [x] Owner review of the rendered page (spacing, frame width, section 06,
+      reveal motion approved over several rounds on 2026-10-01).
+- [x] Lower-page linux visual baselines refreshed.
+- [ ] Push `feat/landing-product-sections` and open the PR (owner's call).
+- [ ] The win32 baselines for `landing-protocol` and `landing-control-room`
+      can only be regenerated on Windows.
+- [ ] The docs captures (docs/img, sites/docs/public) predate the TUI's
+      singular/plural fix and still read "1 open tasks"; refresh per
+      docs/img/README.md.
+- Resolved on this branch: the live control room's rows were centred by
+  the hero's inherited text-align (fixed, guarded by the launch test); the
+  TUI overview's plural counts; dead code for removed sections; production
+  `npm audit` reports 0 vulnerabilities.
