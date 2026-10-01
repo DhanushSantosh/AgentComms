@@ -10,9 +10,9 @@ Go tests and vet were checked against it before changing this status.
 
 This is a retrospective contract review, not a claim that review preceded
 implementation. The `config theme` removal and `doctor --fix` addition are
-already on `dev` after v0.8.0. They have not been released. RFC 0027 section
+included in v0.8.1 after v0.8.0. RFC 0027 section
 7 promised `config theme`; this RFC supersedes that section. This acceptance
-ratifies the present contract for the next release; it does not erase the
+ratifies the present contract for that release; it does not erase the
 fact that implementation preceded the RFC review.
 
 ## Problem and desired outcome

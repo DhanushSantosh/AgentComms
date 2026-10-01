@@ -5,15 +5,84 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-10-01 — “Room to Work”
+
+*The terminal control room now keeps its panes within the screen and separates
+messages from runtime presence. Routine health findings can be repaired in
+place, Windows shutdown is more reliable, and the landing site's dependencies
+are patched.*
+
 **Breaking**
-- `config theme` and the TUI theme toggle were removed. The TUI now uses one
-  palette and the terminal's own background; older user-config `theme` values
-  are ignored. See RFC 0040.
+- **Breaking:** `config theme` and the TUI theme toggle are removed; the TUI
+  uses one palette and the terminal's background, ignoring old theme values.
 
 **Added**
+- `doctor --fix` repairs routine project-lifecycle findings and recovers an
+  unavailable local daemon.
+
+**Changed**
+- TUI panes fit the terminal, the sidebar shows aligned key hints, and inbox
+  messages are separate from runtime presence.
+
+**Fixed**
+- Principal display names resolve consistently, with ambiguous names refused.
+- Windows named-pipe shutdown no longer loses a listener-close request.
+
+**Security**
+- Updated Next.js to 16.3.8 to address the reported advisory.
+
+### Added
 - `doctor --fix` can reconcile fixable project-lifecycle findings and recover
-  an unavailable local daemon without deciding confirmation-required or
-  judgment-based repairs. See RFC 0040.
+  an unavailable local daemon. It preserves backup, lock, integrity, and
+  confirmation boundaries; migrations or repairs requiring human judgment
+  remain explicit actions. Structured results include repair outcomes and
+  errors. See RFC 0040.
+
+### Changed
+- **Breaking:** Removed `config theme` and the TUI theme toggle. The TUI now
+  uses one palette and the terminal's own background. Older user-config
+  `theme` values are tolerated and ignored; scripts calling `config theme`
+  must stop invoking it. See RFC 0040.
+- Reworked TUI layout so tables, inspectors, and scrollable views remain
+  bounded by the terminal, with a wider sidebar, aligned key legends, and
+  the complete project ID. The command palette lists available actions and
+  per-view hints reflect the current view.
+- Separated durable inbox messaging from runtime presence and preserved
+  action notifications across refreshes.
+- Clarified development-build version metadata, Windows PowerShell commands,
+  update behavior, and installation of the optional `agc` shim.
+- Clarified that signed delivery records and heuristic PTY echo evidence
+  are separate from the target's claim and completion.
+
+### Fixed
+- Completed display-name resolution across principal-reference commands.
+  Ambiguous names stop the operation with candidate actor IDs rather than
+  silently selecting an identity or masking the ambiguity.
+- Doctor repair results are rechecked against the relevant finding; blocked
+  or incomplete repairs are reported truthfully.
+- Patched go-winio v0.6.2 locally to preserve listener-close cancellation
+  across racing Windows connection-completion errors, preventing a confirmed
+  named-pipe shutdown deadlock. Added deterministic dependency regressions
+  and native shutdown/rebind tests; patch provenance is recorded in
+  `third_party/go-winio/PATCH.md`.
+- Corrected daemon test log ownership, slow-health fixture build-ID hashing,
+  and a delivery-coordinator reservation race in the test fixture. These
+  changes retain production delivery behavior and bounded readiness probes.
+- CI now prints underlying coverage-test failures instead of exiting without
+  diagnostics. Added Windows browser visual baselines and observed relay
+  animation transitions directly to avoid missing short-lived states.
+
+### Security
+- Updated the landing site's Next.js dependency and lockfile to the patched
+  16.3.8 release.
+
+### Known limitations
+- The historical Windows failure where a daemon never creates its named pipe
+  is not conclusively explained by the shutdown correction; diagnostics and
+  monitoring remain in place.
+- Interactive PTY delivery still uses echo heuristics, custom provider
+  identities remain limited to the built-in set, and hosted project joining
+  and first-class worker supervision remain deferred.
 
 ## [0.8.0] - 2026-09-27 — “Roll Call”
 
@@ -1481,7 +1550,8 @@ deterministic JSON CLI/MCP surface.
 - Governed mutations revalidate authorization, leases, scopes, and conflicts
   inside the authoritative transaction.
 
-[Unreleased]: https://github.com/DhanushSantosh/AgentComms/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/DhanushSantosh/AgentComms/compare/v0.8.1...HEAD
+[0.8.1]: https://github.com/DhanushSantosh/AgentComms/compare/v0.8.0...v0.8.1
 [0.4.0]: https://github.com/DhanushSantosh/AgentComms/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/DhanushSantosh/AgentComms/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/DhanushSantosh/AgentComms/compare/v0.2.0...v0.2.1

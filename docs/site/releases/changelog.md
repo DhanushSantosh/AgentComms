@@ -4,7 +4,7 @@ description: What changed in each tagged release, why it matters, and where to f
 section: Releases
 order: 1
 audience: Everyone
-lastVerified: 2026-09-27
+lastVerified: 2026-10-01
 related: [guide/maintenance, security/releases]
 ---
 
@@ -12,13 +12,58 @@ Every tagged release is signed and dated. This page summarizes what changed and 
 
 Every release below is **Beta** — before v1.0.0, SemVer's own 0.x.y convention means anything may still change without notice. There is no Stable channel yet; that label only becomes accurate once a 1.x release ships.
 
+## v0.8.1 — "Room to Work" — Beta — 2026-10-01
+
+The terminal control room keeps its panes within the screen, separates inbox
+messages from runtime presence, and offers bounded repairs for routine health
+findings. Windows shutdown reliability and the landing site's dependencies
+are hardened.
+
+**Breaking**
+
+- `config theme` and the TUI theme toggle are removed. The single palette uses
+  the terminal's background; older theme values are tolerated and ignored.
+
+**Added**
+
+- `doctor --fix` repairs fixable project-lifecycle findings and recovers an
+  unavailable local daemon. Confirmation-required or judgment-based repairs
+  remain explicit actions.
+
+**Changed**
+
+- TUI tables, inspectors, and scrolling views fit the terminal, with aligned
+  sidebar key hints, the complete project ID, and separate messaging and
+  runtime-presence surfaces.
+- Source-build instructions now set development version metadata and explain
+  PowerShell builds and the optional `agc` shim.
+
+**Fixed**
+
+- Principal display names resolve consistently and ambiguous names are refused.
+- Doctor reports blocked or incomplete repairs truthfully after rechecking.
+- A local go-winio patch corrects a confirmed Windows named-pipe shutdown
+  deadlock, with deterministic dependency and native shutdown/rebind tests.
+- Daemon and delivery test fixtures now preserve logs and handle coordinator
+  reservation races. CI exposes coverage-test failures and includes Windows
+  browser visual baselines.
+
+**Security**
+
+- Updated Next.js to 16.3.8 to address the reported advisory.
+
+The historical Windows failure where a daemon never creates its named pipe
+remains under investigation. Interactive PTY delivery still uses echo
+heuristics; custom provider identities, hosted project joining, and worker
+supervision remain deferred.
+
 ## v0.8.0 — "Roll Call" — Beta — 2026-09-27
 
 Agents now say which runtime they are. An agent's ID names its provider — `claude`, `claude-2`, `codex-reviewer` — with a free-form display name you can address them by, and registering one no longer requires inventing an ID. Alongside that: team mode against a shared authority actually works now, drafts can finally be deleted, and approvals honour the expiry they were given.
 
 **Breaking**
 
-- A new AGENT principal's ID must name its provider: `<provider>` or `<provider>-<suffix>`, lower case, from `claude`, `codex`, `opencode`. Existing principals are unaffected and nothing renames; HUMAN principals keep free-form IDs. A declarative adapter adds its own name to the accepted set.
+- A new AGENT principal's ID must name its provider: `<provider>` or `<provider>-<suffix>`, lower case, from `claude`, `codex`, `opencode`. Existing principals are unaffected and nothing renames; HUMAN principals keep free-form IDs. The accepted set is fixed at build time; a declarative adapter does not extend it.
 - Action-scoped takeover and shared-write approvals now honour a stated expiry, so a lapsed approval that previously still authorized work is refused.
 
 **Added**
