@@ -2,9 +2,12 @@ const scrolledHeaderThresholdPixels = 24;
 const copyFeedbackDurationMilliseconds = 4_000;
 const defaultInstallButtonLabel = "Copy command";
 const defaultDownloadButtonLabel = "Copy";
-const minimumScrollableDistancePixels = 1;
-const revealIntersectionThreshold = 0.12;
-const revealRootMargin = "0px";
+// Tall sections must reveal when they enter even on a short mobile viewport,
+// so the threshold stays tiny; the bottom margin makes content reveal once
+// it is a little way into the viewport rather than at its very edge, where
+// the motion would finish before anyone could see it.
+const revealIntersectionThreshold = 0.01;
+const revealRootMargin = "0px 0px -10% 0px";
 const activeMotionDelayMilliseconds = 1_400;
 const reducedMotionMediaQuery = "(prefers-reduced-motion: reduce)";
 const hydrationAttributeName = "data-agent-comms-hydrated";
@@ -14,8 +17,6 @@ const revealedClassName = "is-revealed";
 const activeClassName = "is-active";
 const readoutUpdatingClassName = "is-updating";
 const revealSelector = "[data-reveal], [data-motion-stage]";
-const scrollProgressProperty = "--scroll-progress";
-const scrollHeadPositionProperty = "--scroll-head-position";
 const activeMotionTimers = new WeakMap();
 const featureDemoTimers = new WeakMap();
 
@@ -130,15 +131,6 @@ let frameworkHydrated = !document.querySelector(nextRuntimeScriptSelector)
 function updateViewportState() {
   const scrollOffset = window.scrollY;
   document.querySelector("[data-site-header]")?.toggleAttribute("data-scrolled", scrollOffset > scrolledHeaderThresholdPixels);
-  if (scrollOffset <= 0) {
-    document.documentElement.style.setProperty(scrollProgressProperty, "0");
-    document.documentElement.style.setProperty(scrollHeadPositionProperty, "0%");
-    return;
-  }
-  const scrollableDistance = Math.max(document.documentElement.scrollHeight - window.innerHeight, minimumScrollableDistancePixels);
-  const scrollProgress = Math.min(Math.max(scrollOffset / scrollableDistance, 0), 1);
-  document.documentElement.style.setProperty(scrollProgressProperty, scrollProgress.toFixed(4));
-  document.documentElement.style.setProperty(scrollHeadPositionProperty, `${(scrollProgress * 100).toFixed(2)}%`);
 }
 
 function scheduleViewportUpdate() {

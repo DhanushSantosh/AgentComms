@@ -94,7 +94,6 @@
   align-items: stretch;
   background: var(--panel);
   border: 1px solid var(--line-dark);
-  box-shadow: 0.45rem 0.45rem 0 var(--cyan);
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   min-height: 3.4rem;
@@ -105,9 +104,10 @@
   color: var(--text);
   font-family: var(--mono);
   font-size: clamp(0.66rem, 1vw, 0.8rem);
-  overflow-x: auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
   padding: 0.9rem 1.1rem;
-  white-space: nowrap;
+  white-space: normal;
 }
 
 .externalAction button {
@@ -126,6 +126,8 @@
   padding: 0.7rem 1rem;
   text-transform: uppercase;
   white-space: nowrap;
+  min-width: 2.75rem;
+  min-height: 2.75rem;
 }
 
 .externalAction button:hover { background: var(--cyan); color: var(--ink); }

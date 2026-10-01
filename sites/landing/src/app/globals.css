@@ -1,21 +1,8 @@
 :root {
-  /*
-   * This palette is not a marketing choice made in isolation -- it is
-   * lifted directly from internal/tui/model.go's own colors() function,
-   * value for value. The TUI is the product's real, most-used surface;
-   * the site borrows its exact language on purpose, down to the hex
-   * digit, so nothing here can quietly drift from what the terminal
-   * actually looks like. --blue/--ice are kept as aliases (not deleted)
-   * so the rest of this file didn't need a mechanical rename pass --
-   * they now resolve to the same cyan/text tones as everything else.
-   */
+  /* Site brand palette: intentionally independent of terminal themes.
+     Legacy blue/ice aliases preserve the existing hero styling. */
   color-scheme: dark;
-  /* True pitch black, matching the TUI's own high-contrast theme
-     (colors(true).ink in internal/tui/model.go) rather than the
-     teal-tinted #071216 its default theme uses -- picked deliberately
-     for the site's base so the darkest surface reads as unambiguously
-     black, with panel one step up doing the "raised dark surface" work
-     instead. */
+  /* Pitch-black brand canvas; raised panels retain the site's teal tint. */
   --ink: #000000;
   --ink-raised: #0d2024;
   --panel: #0d2024;
@@ -36,7 +23,7 @@
   --line-light: color-mix(in srgb, var(--text) 22%, transparent);
   --header-height: 4.7rem;
   --gutter: clamp(1.2rem, 4vw, 4.8rem);
-  --content: 96rem;
+  --section-space: clamp(4rem, 6vw, 6rem);
   --ease-authority: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-handoff: cubic-bezier(0.65, 0, 0.35, 1);
   --motion-fast: 360ms;
@@ -47,11 +34,296 @@
   --motion-loop-medium: 6s;
   --motion-loop-long: 9.6s;
   --motion-loop-feed: 14s;
-  --scroll-progress: 0;
-  --scroll-head-position: 0%;
 }
 
 * { box-sizing: border-box; }
+/* ---- Lower landing page: one section system --------------------------
+   Six numbered sections share one anatomy -- label, heading, body, link,
+   one visual -- and draw that visual from three reused primitives:
+   .ps-art (illustration), .ps-steps (a connected step list) and
+   .ps-facts / .ps-compare (aligned fact rows). Everything is namespaced
+   .ps-* on purpose: the previous lower page reused the original design's
+   section classes (.control, .modes, .mode, .trust), so its rules spent
+   their effort fighting legacy rules elsewhere in this file and needed
+   specificity hacks to win. Nothing here can collide with those.
+   Spacing: --gutter for the edges, and one vertical clearance between a
+   section's borders and its content, the same in every section. It is
+   section 02's spacing, which the owner picked as right: measured, its text
+   sat 123px from each border at 1280px, 127px at 1440 and 127.5px at 1920 --
+   a plateau that --ps-space reproduces (122.9 / 128 / 128), with 56px on
+   phones as before. */
+.product-sections {
+  --ps-space: clamp(3.5rem, 9.6vw, 8rem);
+  --ps-gap: clamp(2rem, 5vw, 5.5rem);
+  --ps-measure: 44ch;
+  /* One frame for every section, the same width as the control-room (WASM)
+     window above -- the content width, capped at 84rem -- so every edge
+     lines up down the page. A text column sits on one edge and a visual
+     column on the other (mirrored in 02 and 04); the space left between
+     them is the gap, never less than --ps-pair-gap. The text column fits the longest heading line; the visual
+     column is the illustrations' width (576px), and the step lists fill it
+     too, so every visual meets the same two edges. */
+  --ps-text-col: 34rem;
+  --ps-visual-col: 36rem;
+  --ps-pair-gap: clamp(3rem, 9vw, 12rem);
+  background: var(--ink);
+}
+.ps {
+  display: grid;
+  grid-template-columns: minmax(0, var(--ps-text-col)) minmax(0, var(--ps-visual-col));
+  column-gap: var(--ps-pair-gap);
+  justify-content: space-between;
+  row-gap: 3rem;
+  align-items: center;
+  padding: var(--ps-space) max(var(--gutter), (100% - 84rem) / 2);
+  border-top: 1px solid var(--line-dark);
+  scroll-margin-top: var(--header-height);
+}
+.ps--visual-left { grid-template-columns: minmax(0, var(--ps-visual-col)) minmax(0, var(--ps-text-col)); }
+.ps--visual-left .ps-visual { grid-column: 1; grid-row: 1; }
+.ps--visual-left .ps-copy { grid-column: 2; grid-row: 1; }
+.ps--wide {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+}
+/* Deployment carries a full comparison, so it does not split left/right:
+   a centred introduction, then the table across the full frame beneath it.
+   On phones it reads left-aligned like every other section. */
+@media (min-width: 48.01rem) {
+  .ps--wide .ps-copy {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    max-width: 44rem;
+    margin-inline: auto;
+    text-align: center;
+  }
+  .ps--wide .ps-label { justify-content: center; }
+  .ps--wide .ps-body { max-width: none; }
+}
+
+.ps-copy { min-width: 0; }
+.ps-label {
+  display: flex;
+  align-items: baseline;
+  gap: .75rem;
+  margin: 0 0 1.25rem;
+  color: var(--steel-light);
+  font: 500 .75rem/1.4 var(--mono);
+  letter-spacing: .14em;
+  text-transform: uppercase;
+}
+.ps-num { color: var(--cyan); }
+.ps h2 {
+  margin: 0;
+  color: var(--text);
+  font: 620 clamp(2.4rem, 4.2vw, 3.75rem)/.98 var(--display);
+  letter-spacing: -.05em;
+  text-wrap: balance;
+}
+.ps h2 span { display: block; }
+.ps-body {
+  max-width: var(--ps-measure);
+  margin: 1.5rem 0 0;
+  color: var(--steel-light);
+  font-size: clamp(1rem, 1.2vw, 1.125rem);
+  line-height: 1.65;
+}
+.ps-link {
+  display: inline-flex;
+  align-items: center;
+  gap: .4em;
+  min-height: 2.75rem;
+  margin-top: 1.25rem;
+  color: var(--cyan);
+  font: 500 .75rem/1.5 var(--mono);
+  letter-spacing: .04em;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: .45em;
+}
+.ps-link:hover,
+.ps-link:focus-visible { color: var(--text); }
+
+.ps-visual { min-width: 0; }
+
+/* Primitive 1: illustration. As wide as the visual column (576px) on desktop, 384px on phones.
+   Side by side, an illustration never sets the section's height: its box is
+   taller than the text beside it (336px against ~255px at 1440), and when it
+   set the height it pushed the text further from the borders in these
+   sections than in the rest -- the same 94px padding produced ~134px of
+   clearance here and 94px elsewhere. With size containment the row is as
+   tall as the text, the art is centred on it, and the box's own empty
+   margins overflow into the padding, so the drawing appears exactly where
+   it did before while every section now measures its clearance from the
+   text. On phones the art stacks below the text at its natural height. */
+.ps-art { width: min(100%, var(--ps-visual-col)); margin-inline: auto; overflow: hidden; }
+/* Crops the frame to the drawing. Vertical margin percentages resolve
+   against the container's width, and every illustration is 4:3, so a crop
+   that is a fraction of the image's height is that fraction times 75% of
+   the width. */
+.ps-art img {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin-top: calc(var(--crop-top, 0) * -75%);
+  margin-bottom: calc(var(--crop-bottom, 0) * -75%);
+}
+@media (min-width: 48.01rem) {
+  .ps-visual:has(> .ps-art) {
+    contain: size;
+    align-self: stretch;
+    display: grid;
+    place-items: center;
+    overflow: visible;
+  }
+}
+
+/* Primitive 2: a connected step list. The spine and ringed numbers are
+   drawn in the same thin cyan linework as the illustrations, so the
+   handoff and trust sections carry visual weight equal to the illustrated
+   ones instead of reading as bare paragraphs. */
+.ps-steps {
+  width: 100%;
+  /* Compact on purpose: the list sits beside its text like the
+     illustrations do in sections 02 and 04, so it should be about as tall
+     as that text. At the old size it was ~150px taller, and the text,
+     centred on it, sat lower in these sections than in the others. */
+  --step-pad: .55rem;
+  max-width: var(--ps-visual-col);
+  margin: 0 auto;
+  padding: 0;
+  list-style: none;
+}
+.ps-steps li {
+  position: relative;
+  display: grid;
+  grid-template-columns: 2.3rem minmax(0, 1fr);
+  gap: 1.25rem;
+  align-items: start;
+  padding: var(--step-pad) 0;
+}
+/* Each connector runs from the bottom of its own ring to the top of the
+   next one (this item's bottom padding plus the next item's top padding),
+   so the spine starts at 01 and stops exactly at the last ring. */
+.ps-steps li:not(:last-child)::before {
+  content: "";
+  position: absolute;
+  top: calc(var(--step-pad) + 2.3rem);
+  bottom: calc(var(--step-pad) * -1);
+  left: calc(1.15rem - .5px);
+  width: 1px;
+  background: color-mix(in srgb, var(--cyan) 55%, transparent);
+}
+.ps-step-num {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 2.3rem;
+  height: 2.3rem;
+  border: 1px solid var(--cyan);
+  border-radius: 50%;
+  background: var(--ink);
+  color: var(--cyan);
+  font: 500 .7rem/1 var(--mono);
+}
+.ps-steps strong {
+  display: block;
+  padding-top: .45rem;
+  color: var(--text);
+  font: 600 1.05rem/1.3 var(--display);
+  letter-spacing: -.01em;
+}
+.ps-steps p { margin: .2rem 0 0; color: var(--steel-light); font-size: .95rem; line-height: 1.6; }
+
+/* Primitive 3: aligned fact rows, used under the governance copy and, as
+   a table, for the deployment comparison. */
+.ps-facts { max-width: var(--ps-measure); margin: 2rem 0 0; }
+.ps-facts > div {
+  display: grid;
+  grid-template-columns: 6.5rem minmax(0, 1fr);
+  gap: 1rem;
+  padding: .85rem 0;
+  border-top: 1px solid var(--line-dark);
+}
+.ps-facts dt { color: var(--cyan); font: 500 .72rem/1.65 var(--mono); letter-spacing: .1em; text-transform: uppercase; }
+.ps-facts dd { margin: 0; color: var(--text); font-size: .95rem; line-height: 1.6; }
+
+.ps-compare { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.ps-compare th,
+.ps-compare td { padding: 1.1rem 0; text-align: left; vertical-align: top; font-weight: 400; }
+.ps-compare th + th,
+.ps-compare th + td,
+.ps-compare td + td { padding-left: clamp(1.5rem, 3vw, 3rem); }
+.ps-compare thead th:first-child { width: 9rem; }
+.ps-compare thead th { padding-bottom: 2rem; border-bottom: 1px solid var(--line-light); }
+.ps-compare tbody tr + tr { border-top: 1px solid var(--line-dark); }
+.ps-compare tbody th { color: var(--steel-light); font: 500 .72rem/1.65 var(--mono); letter-spacing: .1em; text-transform: uppercase; }
+.ps-compare td { color: var(--text); font-size: .95rem; line-height: 1.6; }
+.ps-modes { display: none; }
+.ps-mode-name {
+  display: flex;
+  margin: 0;
+  align-items: baseline;
+  gap: .75rem;
+  color: var(--cyan);
+  font: 500 .75rem/1.4 var(--mono);
+  letter-spacing: .14em;
+  text-transform: uppercase;
+}
+.ps-mode-name i { color: var(--steel); font-style: normal; letter-spacing: .08em; }
+.ps-mode-title {
+  display: block;
+  margin-top: 1rem;
+  color: var(--text);
+  font: 620 clamp(1.6rem, 2.4vw, 2.25rem)/1.05 var(--display);
+  letter-spacing: -.035em;
+}
+.ps-mode-text { display: block; max-width: 40ch; margin-top: .9rem; color: var(--steel-light); font-size: .95rem; line-height: 1.6; }
+
+/* Reveal: hidden only once JavaScript has marked the page motion-ready,
+   so without JS every section is simply visible. The text and the visual
+   are observed separately, so each reveals when it actually comes into
+   view -- stacked on phones, or under section 06's introduction, the
+   visual used to finish animating before it was on screen. The text
+   staggers line by line (label, heading, body, facts, link) like the hero
+   and the footer; the visual follows two beats after the label. */
+.motion-ready .ps-copy > *,
+.motion-ready .ps-visual {
+  transition: opacity var(--motion-medium) var(--ease-authority), transform var(--motion-medium) var(--ease-authority);
+}
+.motion-ready .ps-copy:not(.is-revealed) > *,
+.motion-ready .ps-visual:not(.is-revealed) { opacity: 0; transform: translateY(1.5rem); }
+.motion-ready .ps-copy.is-revealed > :nth-child(2) { transition-delay: calc(var(--motion-stagger) * 1); }
+.motion-ready .ps-copy.is-revealed > :nth-child(3) { transition-delay: calc(var(--motion-stagger) * 2); }
+.motion-ready .ps-copy.is-revealed > :nth-child(4) { transition-delay: calc(var(--motion-stagger) * 3); }
+.motion-ready .ps-copy.is-revealed > :nth-child(5) { transition-delay: calc(var(--motion-stagger) * 4); }
+.motion-ready .ps-visual.is-revealed { transition-delay: calc(var(--motion-stagger) * 2); }
+/* Same specificity as the hidden-state rules above, so it actually wins. */
+@media (prefers-reduced-motion: reduce) {
+  .motion-ready .ps-copy > *,
+  .motion-ready .ps-visual,
+  .motion-ready .ps-copy:not(.is-revealed) > *,
+  .motion-ready .ps-visual:not(.is-revealed) { opacity: 1; transform: none; transition: none; }
+}
+
+@media (max-width: 48rem) {
+  .ps,
+  .ps--visual-left { grid-template-columns: minmax(0, 1fr); row-gap: 2.5rem; }
+  .ps--visual-left .ps-visual,
+  .ps--visual-left .ps-copy { grid-column: auto; grid-row: auto; }
+  .ps-art { width: min(100%, 24rem); }
+  .ps-facts > div { grid-template-columns: 5.5rem minmax(0, 1fr); }
+
+  /* One block per mode instead of the table (see DeploymentComparison). */
+  .ps-compare { display: none; }
+  .ps-modes { display: grid; gap: 2.5rem; }
+  .ps-mode { padding-top: 2rem; border-top: 1px solid var(--line-dark); }
+  .ps-mode .ps-mode-title { margin: 1rem 0 0; font-size: 1.6rem; }
+  .ps-mode .ps-mode-text { margin: .9rem 0 0; }
+  .ps-mode .ps-facts { margin-top: 1.5rem; }
+}
 html {
   background: var(--ink);
   scrollbar-color: var(--cyan) var(--ink);
@@ -87,11 +359,12 @@ img { max-width: 100%; }
 .control,
 .modes,
 .trust,
-.releases,
-.site-footer {
+.releases {
   content-visibility: auto;
   contain-intrinsic-size: auto 70rem;
 }
+
+.site-footer { content-visibility: visible; contain-intrinsic-size: none; }
 
 .sr-only { clip: rect(0, 0, 0, 0); clip-path: inset(50%); height: 1px; overflow: hidden; position: absolute; white-space: nowrap; width: 1px; }
 .skip-link { background: var(--ice); color: var(--ink); font-weight: 750; left: 1rem; padding: 0.7rem 1rem; position: fixed; top: -5rem; z-index: 200; }
@@ -146,29 +419,6 @@ img { max-width: 100%; }
   top: 0;
   transition: background-color 220ms ease, border-color 220ms ease;
   z-index: 100;
-}
-.site-header::after {
-  background: var(--cyan);
-  bottom: 0;
-  content: "";
-  height: 2px;
-  left: 0;
-  pointer-events: none;
-  position: absolute;
-  right: 0;
-  transform: scaleX(var(--scroll-progress));
-  transform-origin: left;
-}
-.site-header::before {
-  background: var(--cyan);
-  bottom: -2px;
-  content: "";
-  height: 6px;
-  left: var(--scroll-head-position);
-  pointer-events: none;
-  position: absolute;
-  transform: translateX(-50%);
-  width: 6px;
 }
 .site-header:not([data-scrolled]) { color: var(--text); }
 .site-header[data-scrolled] { backdrop-filter: blur(18px); background: color-mix(in srgb, var(--ink) 92%, transparent); border-bottom: 1px solid var(--line-dark); }
@@ -427,9 +677,8 @@ img { max-width: 100%; }
  * layout to render anything legible (confirmed empirically -- at phone
  * viewports the fitted grid loses the sidebar and tab strip entirely).
  * Rather than expose that on small screens, the pre-launch, mobile-only
- * ControlRoomFrame recreation below stands in permanently: no launch, no
- * live WASM terminal, just the same static-but-interactive tui-* markup
- * this section always showed before LiveControlRoom existed. Desktop gets
+ * ControlRoomFrame recording stands in permanently: no live WASM terminal,
+ * only a real-product poster and an explicitly played video. Desktop gets
  * .control-live-wrap (the real, live launch flow); mobile gets
  * .control-mobile-poster. Both render in the DOM always -- CSS display:none
  * (not JS) decides which one is visible, so there's no hydration mismatch
@@ -437,6 +686,8 @@ img { max-width: 100%; }
  */
 .control-mobile-poster { display: none; }
 .control-live-wrap { display: block; }
+.tui-recording video { display: block; width: 100%; height: auto; }
+.tui-recording p { color: var(--steel-light); font-size: 0.75rem; line-height: 1.6; margin: 0; padding: 0.8rem 1rem; }
 .control-caption-mobile { display: none; }
 @media (max-width: 60rem) {
   .control-mobile-poster { display: block; }
