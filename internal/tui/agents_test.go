@@ -119,7 +119,7 @@ func TestMouseClickSelectsRow(t *testing.T) {
 	}
 	m = enterAgentsView(t, m)
 
-	p := colors(m.highContrast)
+	p := colors()
 	wantRow := 2
 	wantID := m.agentList.source.RowID(wantRow, m.state, m.actor, m.agentList.mine)
 	var targetY int
@@ -169,7 +169,7 @@ func TestMouseClickSelectsRowAfterScrolling(t *testing.T) {
 		t.Fatal("expected a selection after scrolling")
 	}
 
-	p := colors(m.highContrast)
+	p := colors()
 	wantRow := m.agentList.Cursor() // click exactly the current cursor's own row
 	var targetY int
 	found := false
@@ -260,7 +260,7 @@ func TestDoubleClickRowTogglesInspect(t *testing.T) {
 	}
 	m = enterAgentsView(t, m)
 
-	p := colors(m.highContrast)
+	p := colors()
 	var targetX, targetY int
 	found := false
 	for y := 0; y < m.height && !found; y++ {
@@ -332,7 +332,7 @@ func TestHubTabClickSwitchesView(t *testing.T) {
 	}
 	// Command hub's views are Overview, My work, Blockers, Approvals --
 	// start on Overview (the hub's default) and click the "Approvals" tab.
-	p := colors(m.highContrast)
+	p := colors()
 	var targetX, targetY int
 	found := false
 	for y := 0; y < m.height && !found; y++ {
@@ -364,7 +364,7 @@ func TestHubTabClickSwitchesView(t *testing.T) {
 // position by two lines once it becomes active.
 func hubClickPosition(t *testing.T, m Model, hubIndex int) (x, y int) {
 	t.Helper()
-	p := colors(m.highContrast)
+	p := colors()
 	for y := 0; y < m.height; y++ {
 		for x := 0; x < m.sidebarWidth(); x++ {
 			if hub, ok := m.sidebarHubAt(p, x, y); ok && hub == hubIndex {
@@ -424,7 +424,7 @@ func TestSidebarClickOpensAndFocusesHub(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	p := colors(m.highContrast)
+	p := colors()
 	teamHub := -1
 	for i, hub := range navigationHubs {
 		if hub.Name == "Team" {
@@ -475,7 +475,7 @@ func TestFormFieldClickFocusesField(t *testing.T) {
 		t.Fatalf("expected initial focus on field 0, got %d", m.formFocus)
 	}
 
-	p := colors(m.highContrast)
+	p := colors()
 	wantField := 2
 	var targetY int
 	found := false
@@ -924,7 +924,7 @@ func TestCommandRailShowsActiveActorID(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	p := colors(m.highContrast)
+	p := colors()
 	rail := m.commandRail(p, 200)
 	if !strings.Contains(rail, "owner") {
 		t.Fatalf("command rail = %q, want it to name the active actor (owner)", rail)
@@ -988,7 +988,7 @@ func TestRefreshSilentTracksConsecutiveFailuresAndShowsAStaleIndicator(t *testin
 	if e != nil {
 		t.Fatal(e)
 	}
-	p := colors(m.highContrast)
+	p := colors()
 
 	// A service pointed at an uninitialized directory: Store.Config() (the
 	// first thing State() does) fails reliably with no .agent-comms there.
@@ -1085,7 +1085,7 @@ func TestBodyPrefixMatchesActualRender(t *testing.T) {
 
 	full := m.View().Content
 	lines := strings.Split(full, "\n")
-	p := colors(m.highContrast)
+	p := colors()
 	predicted := m.bodyPrefixHeight(p)
 	if predicted <= 0 || predicted >= len(lines) {
 		t.Fatalf("bodyPrefixHeight returned an out-of-range %d", predicted)
@@ -1121,7 +1121,7 @@ func TestRowTableTopYMatchesActualRender(t *testing.T) {
 
 	full := m.View().Content
 	lines := strings.Split(full, "\n")
-	p := colors(m.highContrast)
+	p := colors()
 	predicted := m.rowTableTopY(p)
 	if predicted <= 0 || predicted >= len(lines) {
 		t.Fatalf("rowTableTopY returned an out-of-range %d", predicted)

@@ -119,26 +119,6 @@ func TestDefaultAgentActorIDNumbersOnlyAfterTheBareNameIsTaken(t *testing.T) {
 	}
 }
 
-func TestRegisterProviderExtendsTheAcceptedSet(t *testing.T) {
-	t.Cleanup(func() { delete(extraProviders, "housecat") })
-	if _, ok := ProviderOf("housecat-main"); ok {
-		t.Fatal("an unregistered provider must not be accepted")
-	}
-	RegisterProvider("  HouseCat  ")
-	if !IsKnownProvider("housecat") {
-		t.Fatal("RegisterProvider should lower-case and trim")
-	}
-	if provider, ok := ProviderOf("housecat-main"); !ok || provider != "housecat" {
-		t.Fatalf("declarative provider should be accepted, got (%q, %v)", provider, ok)
-	}
-	RegisterProvider("   ")
-	for _, name := range KnownProviders() {
-		if name == "" {
-			t.Fatal("a blank provider must never enter the set")
-		}
-	}
-}
-
 func contains(haystack, needle string) bool {
 	return len(haystack) >= len(needle) && (haystack == needle || len(needle) == 0 ||
 		func() bool {

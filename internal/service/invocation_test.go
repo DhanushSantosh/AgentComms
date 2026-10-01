@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -228,29 +229,83 @@ func TestInvocationNotificationReservationIsExclusive(t *testing.T) {
 }
 
 func TestInvocationDeliveryFailureDoesNotTerminateObligation(t *testing.T) {
-	instance := setupWithLocalConnector(t)
-	activate(t, instance, "claude-builder", model.PrincipalAgent)
-	must(t, instance, "owner", "invocation.request", "inv-dead", model.InvocationRequested{
-		Target: "claude-builder", Instruction: "Wake the builder",
-	})
-	registerOnlineDeliverableWorker(t, instance, "claude-builder", "runtime-dead")
-	if err := os.WriteFile(os.Getenv("AGENT_COMMS_TEST_CONNECTOR_OUTCOME"),
-		[]byte("failure"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	must(t, instance, "owner", "invocation.delivery-attempt", "inv-dead", model.InvocationDeliveryAttempted{
-		DeliveryID: "delivery-final", RuntimeID: "runtime-dead",
-		Transport: "LOCAL_PROCESS", Manual: true,
-	})
-	state, stateErr := instance.State()
-	if stateErr != nil {
-		t.Fatal(stateErr)
-	}
-	if state.Invocations["inv-dead"].Status != "PENDING" {
-		t.Fatalf("delivery failure terminated the invocation: %+v", state.Invocations["inv-dead"])
-	}
-	if state.InvocationDeliveries["delivery-final"].Status != "EXHAUSTED" {
-		t.Fatalf("delivery attempt was not closed: %+v", state.InvocationDeliveries["delivery-final"])
+	for _, coordinatorFirst := range []bool{false, true} {
+		name := "immediate"
+		if coordinatorFirst {
+			name = "coordinator-first"
+		}
+		t.Run(name, func(t *testing.T) {
+			instance := setupWithLocalConnector(t)
+			outcomePath := os.Getenv("AGENT_COMMS_TEST_CONNECTOR_OUTCOME")
+			outcome := "failure"
+			if coordinatorFirst {
+				outcome = "blocked-failure"
+			}
+			if err := os.WriteFile(outcomePath, []byte(outcome), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			// Release a blocked connector before daemon cleanup, including on failure.
+			t.Cleanup(func() {
+				if err := os.WriteFile(outcomePath+".release", []byte("release"), 0o600); err != nil {
+					t.Error(err)
+				}
+			})
+			activate(t, instance, "claude-builder", model.PrincipalAgent)
+			must(t, instance, "owner", "invocation.request", "inv-dead", model.InvocationRequested{
+				Target: "claude-builder", Instruction: "Wake the builder",
+			})
+			registerOnlineDeliverableWorker(t, instance, "claude-builder", "runtime-dead")
+			if coordinatorFirst {
+				deadline := time.Now().Add(deliveryStatusWaitTimeout)
+				for {
+					if _, err := os.Stat(outcomePath + ".started"); err == nil {
+						break
+					} else if !os.IsNotExist(err) {
+						t.Fatal(err)
+					}
+					if time.Now().After(deadline) {
+						t.Fatal("coordinator did not reach the connector gate")
+					}
+					time.Sleep(deliveryStatusPollInterval)
+				}
+			}
+			// A real daemon retries pending deliveries in the background. Its
+			// reservation may precede this manual final attempt, even when the
+			// connector outcome was configured before registering the runtime.
+			// Retry only that collision, not arbitrary errors or failed assertions.
+			deadline := time.Now().Add(deliveryStatusWaitTimeout)
+			released := false
+			for {
+				_, err := instance.Execute("owner", "invocation.delivery-attempt", "inv-dead", model.InvocationDeliveryAttempted{
+					DeliveryID: "delivery-final", RuntimeID: "runtime-dead",
+					Transport: "LOCAL_PROCESS", Manual: true,
+				})
+				collision := err != nil && strings.Contains(err.Error(), "an unexpired delivery attempt already exists for this runtime")
+				if coordinatorFirst && !released {
+					if !collision {
+						t.Fatalf("expected the coordinator's reservation to reject the first manual attempt, got %v", err)
+					}
+					if err := os.WriteFile(outcomePath+".release", []byte("release"), 0o600); err != nil {
+						t.Fatal(err)
+					}
+					released = true
+				}
+				if err == nil {
+					break
+				}
+				if !collision || time.Now().After(deadline) {
+					t.Fatalf("manual final delivery-attempt: %v", err)
+				}
+				time.Sleep(deliveryStatusPollInterval)
+			}
+			state := waitForDeliveryStatus(t, instance, "delivery-final", "EXHAUSTED")
+			if state.Invocations["inv-dead"].Status != "PENDING" {
+				t.Fatalf("delivery failure terminated the invocation: %+v", state.Invocations["inv-dead"])
+			}
+			if delivery := state.InvocationDeliveries["delivery-final"]; !delivery.Manual || delivery.Error == "" {
+				t.Fatalf("expected a failed manual final attempt: %+v", delivery)
+			}
+		})
 	}
 }
 

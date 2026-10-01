@@ -6,6 +6,17 @@ dist/
 /agent-comms
 /agent-comms.exe
 /agent-comms-*.exe
+# `go build ./cmd/<name>` with no -o drops the binary in the repo root under
+# the command's own name. Three accumulated there before this rule:
+# agent-comms-fresh (42MB, Sep 19), agent-comms-server and
+# agent-comms-tui-wasm (both mine, this session). The extension-less forms
+# are what the Linux/macOS builds produce.
+/agent-comms-daemon
+/agent-comms-server
+/agent-comms-verify
+/agent-comms-docgen
+/agent-comms-tui-wasm
+/agent-comms-fresh
 node_modules/
 .env
 .env.local

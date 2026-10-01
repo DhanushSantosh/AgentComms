@@ -26,16 +26,28 @@ Just want to run what's on `dev` right now, not submit a change? Skip ahead to [
 
 Source builds are for trying what's on `dev` before it's released, or for running a binary you built yourself instead of a download. They're unsigned and aren't a substitute for [release verification](docs/site/security/releases.md) -- install a [signed release](https://agentcomms-docs.vercel.app/start/install/) for regular use.
 
-Four commands, done:
+Build the current development branch:
 
 ```sh
 git clone https://github.com/DhanushSantosh/AgentComms.git
 cd AgentComms
-go build -o ./bin/agent-comms ./cmd/agent-comms
+git switch dev
+version="$(git describe --tags --abbrev=0 | sed 's/^v//')-dev"
+go build -ldflags "-X github.com/DhanushSantosh/AgentComms/internal/app.Version=$version -X github.com/DhanushSantosh/AgentComms/internal/buildinfo.Version=$version" -o ./bin/agent-comms ./cmd/agent-comms
 ./bin/agent-comms version
 ```
 
-That's a real, working `agent-comms` built from `dev`'s current tip. It has no `agent-comms update` and no verifiable signature; a source build reports its version as whatever was baked in at build time. Builds target the Go version declared in `go.mod`.
+That's a working `agent-comms` built from `dev`'s current tip. It has no verifiable release signature. `agent-comms update` is available and can replace it with a verified release. Check the Build field in `agent-comms version` to identify the source revision. Builds target the Go version declared in `go.mod`.
+
+On Windows PowerShell, use these commands after `git switch dev` to give the source build a version compatible with projects created by the latest release:
+
+```powershell
+$devVersion = (git describe --tags --abbrev=0).TrimStart('v') + '-dev'
+go build -ldflags "-X github.com/DhanushSantosh/AgentComms/internal/app.Version=$devVersion -X github.com/DhanushSantosh/AgentComms/internal/buildinfo.Version=$devVersion" -o .\bin\agent-comms.exe .\cmd\agent-comms
+.\bin\agent-comms.exe version
+```
+
+A source build does not install the `agc` shim automatically.
 
 The other three shipped binaries build the same way, one `go build` each:
 
@@ -45,7 +57,7 @@ for cmd in agent-comms-daemon agent-comms-server agent-comms-verify; do
 done
 ```
 
-To put your build on `PATH` instead of running it from `./bin`, either copy it into a directory already on `PATH` (e.g. `~/.local/bin` on Linux/macOS), or run `go install ./cmd/agent-comms`, which places it in `$(go env GOBIN)` or `$(go env GOPATH)/bin`. The signed-release installers also put a short `agc` alias beside `agent-comms`; add your own with `ln -s agent-comms <dir>/agc`.
+To put your build on `PATH` instead of running it from `./bin`, either copy it into a directory already on `PATH` (e.g. `~/.local/bin` on Linux/macOS), or run `go install ./cmd/agent-comms`, which places it in `$(go env GOBIN)` or `$(go env GOPATH)/bin`. The signed-release installers also put a short `agc` alias beside `agent-comms`. For a source build, add your own: `ln -s agent-comms <dir>/agc` on Linux/macOS, or place an `agc.cmd` file next to `agent-comms.exe` on Windows containing `@"%~dp0agent-comms.exe" %*`. If you replace a dev binary manually, keep that shim in the same directory; `agent-comms update` does not create it.
 
 ## Rules for any change
 

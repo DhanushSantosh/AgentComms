@@ -63,7 +63,7 @@ func paletteCommands() []paletteCommand {
 func (m Model) updatePalette(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if click, ok := msg.(tea.MouseClickMsg); ok {
 		if click.Mouse().Button == tea.MouseLeft {
-			p := colors(m.highContrast)
+			p := colors()
 			if index, ok := m.paletteMatchAt(p, click.Mouse().X, click.Mouse().Y); ok {
 				if matches := m.paletteMatches(); index < len(matches) {
 					return matches[index].apply(m)
@@ -88,13 +88,24 @@ func (m Model) updatePalette(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
-	if _, ok := msg.(tea.MouseWheelMsg); ok {
-		// Deliberately swallowed, not scrolled -- paletteMatches caps at
-		// 6 rows, never taller than the panel, so there's nothing to
-		// scroll here. Letting a wheel event reach whatever's underneath
-		// while composing a query would be exactly the kind of
-		// background-changes-while-typing surprise this whole fix
-		// removes for clicks and keystrokes too.
+	if wheel, ok := msg.(tea.MouseWheelMsg); ok {
+		// Moves the palette's own selection, which is what scrolls its
+		// window (paletteWindow keeps the selection in view). The match
+		// list is the app's whole command set now, not a capped six, so
+		// there genuinely is something to scroll. Never passed through to
+		// whatever is underneath: a background that changes while you
+		// compose a query is the same surprise this handler already rules
+		// out for clicks and keystrokes.
+		switch wheel.Button {
+		case tea.MouseWheelUp:
+			if m.paletteSelected > 0 {
+				m.paletteSelected--
+			}
+		case tea.MouseWheelDown:
+			if n := len(m.paletteMatches()); m.paletteSelected < n-1 {
+				m.paletteSelected++
+			}
+		}
 		return m, nil
 	}
 	key, ok := msg.(tea.KeyPressMsg)
@@ -119,14 +130,18 @@ func (m Model) updatePalette(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.paletteSelected++
 		}
 	case "enter":
-		// An empty query doing nothing (rather than applying whatever
-		// paletteMatches() lists first for an empty filter) matches the
-		// original behavior: an accidental Enter before typing anything
-		// should never silently open a form.
-		if strings.TrimSpace(m.query) != "" {
-			if matches := m.paletteMatches(); len(matches) > 0 {
-				return matches[m.paletteSelectedIndex()].apply(m)
-			}
+		// Applies whatever is highlighted, query or no query. This used
+		// to do nothing at all while the query was empty, on the grounds
+		// that "whatever paletteMatches() lists first for an empty
+		// filter" was arbitrary and an accidental Enter shouldn't open a
+		// form. That reasoning died with the six-match cap: an empty
+		// query now lists every command on purpose, with the selected
+		// row marked "›" and ↑/↓ moving it, so the palette was inviting
+		// people to pick a command and then refusing to open it --
+		// confirmed live, scrolling worked and nothing could be
+		// selected. Esc still backs out of anything Enter opens.
+		if matches := m.paletteMatches(); len(matches) > 0 {
+			return matches[m.paletteSelectedIndex()].apply(m)
 		}
 	case "backspace":
 		if len(m.query) > 0 {
@@ -167,10 +182,19 @@ func (m Model) openTaskForm() (tea.Model, tea.Cmd) {
 }
 
 func (m Model) updateForm(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if wheel, ok := msg.(tea.MouseWheelMsg); ok {
+		switch wheel.Button {
+		case tea.MouseWheelUp:
+			m.scrollOffset = max(0, m.scrollOffset-3)
+		case tea.MouseWheelDown:
+			m.scrollOffset += 3
+		}
+		return m, nil
+	}
 	if click, ok := msg.(tea.MouseClickMsg); ok {
 		mouse := click.Mouse()
 		if mouse.Button == tea.MouseLeft && len(m.inputs) > 0 {
-			if field, ok := m.formFieldAtY(colors(m.highContrast), mouse.Y); ok && field != m.formFocus {
+			if field, ok := m.formFieldAtY(colors(), mouse.Y); ok && field != m.formFocus {
 				m.inputs[m.formFocus].Blur()
 				m.formFocus = field
 				return m, m.inputs[m.formFocus].Focus()
@@ -179,6 +203,14 @@ func (m Model) updateForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if key, ok := msg.(tea.KeyPressMsg); ok {
+		switch key.String() {
+		case "pgup":
+			m.scrollOffset = max(0, m.scrollOffset-5)
+			return m, nil
+		case "pgdown":
+			m.scrollOffset += 5
+			return m, nil
+		}
 		if m.formSpec != nil && m.formFocus < len(m.formSpec.Fields) {
 			if options := m.formSpec.Fields[m.formFocus].Options; len(options) > 0 {
 				switch key.String() {
@@ -196,15 +228,18 @@ func (m Model) updateForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "tab", "down":
 			m.inputs[m.formFocus].Blur()
 			m.formFocus = (m.formFocus + 1) % len(m.inputs)
+			m.keepFormFocusVisible()
 			return m, m.inputs[m.formFocus].Focus()
 		case "shift+tab", "up":
 			m.inputs[m.formFocus].Blur()
 			m.formFocus = (m.formFocus - 1 + len(m.inputs)) % len(m.inputs)
+			m.keepFormFocusVisible()
 			return m, m.inputs[m.formFocus].Focus()
 		case "enter":
 			if m.formFocus < len(m.inputs)-1 {
 				m.inputs[m.formFocus].Blur()
 				m.formFocus++
+				m.keepFormFocusVisible()
 				return m, m.inputs[m.formFocus].Focus()
 			}
 			raw := make([]string, len(m.inputs))
@@ -272,7 +307,7 @@ func (m Model) updateForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.formSpec.ConfirmIf != nil {
 				if ok, prompt := m.formSpec.ConfirmIf(payload); ok {
 					m.form, m.inputs, m.formSpec = "", nil, nil
-					m.confirm = &confirmState{prompt: prompt, typ: typ, id: id, payload: payload, passphrase: passphrase}
+					m.openConfirm(confirmState{prompt: prompt, typ: typ, id: id, payload: payload, passphrase: passphrase})
 					return m, nil
 				}
 			}

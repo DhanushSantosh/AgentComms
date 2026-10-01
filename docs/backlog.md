@@ -1,8 +1,100 @@
 # Backlog
 
-Deferred, real work items surfaced during development but intentionally not
-built yet — each was a deliberate decision to defer, not an oversight. When
-one is picked up, remove it from here and note the landing commit.
+The ordered queue below is the current view of unresolved work. The detailed
+sections after it retain the evidence, accepted risks, and resolved history;
+an old report there is not automatically a task to reopen. When an item is
+picked up, update this queue and record the landing commit beside its detail.
+
+## Current priority queue (2026-09-30)
+
+Severity describes the impact **if an issue manifests in the supported,
+trusted self-hosted deployment**, not a claim that it is failing now. Timing
+is separate: a deferred feature can matter to users without becoming a gate
+for the main release. Recheck CI and the live project at release time; a
+passing run does not prove an intermittent fault is gone.
+
+The actual release gates and promotion sequence live in
+[release verification](release-verification.md) and
+[releasing](releasing.md), not in this deferred-work queue.
+
+### 1. Release-confidence work — act on evidence, not speculation
+
+1. **High if it recurs: Windows daemon-startup CI flake.** The next red run
+   should be treated as a release gate until its uploaded daemon log and
+   inlined probe error identify whether the process failed to start or the
+   probe failed. The timeout has already been widened; another blind increase
+   is not a diagnosis. A confirmed test-launcher logging gap was corrected
+   locally on 2026-09-30; the historical no-pipe root cause remains unknown.
+   A separate slow-health reuse false relaunch is a confirmed fixture defect:
+   its handler recomputed the executable hash for 4.057s, exceeding the 3s
+   probe budget. The fixture now resolves its build ID before serving, like
+   the real daemon, with an ordering regression. The database-cleanup signature
+   also recurred under native concurrent load despite the existing 60s wait;
+   the new stack dump identifies a lost close request in go-winio v0.6.2,
+   before database cleanup. A local dependency patch preserves cancellation
+   across racing Windows completion errors, with deterministic red/green
+   coverage and real named-pipe shutdown/rebind tests; patch CI is pending.
+   This does not assign the same cause to the historical no-pipe signature.
+   The latest evidence is in
+   [Test / CI infrastructure](#test--ci-infrastructure).
+2. **Medium validation: delivery-coordinator/test race fixed locally,
+   CI pending.** Reproduced on native Windows on 2026-09-30; the fixture now
+   configures failure before delivery becomes eligible and retries only an
+   outstanding reservation collision. A forced coordinator-first regression
+   failed before the fix and passed 20 repeated runs afterward. Production
+   delivery behavior and timeout budgets are unchanged. Require first-attempt
+   matrix CI on the patch before treating it as landed. See
+   [Test / CI infrastructure](#test--ci-infrastructure).
+3. **Medium validation, not an existing blocker:** exercise sustained
+   multi-runtime recovery/cache lag, audit list/search/history bounds and
+   cursors, and compare equivalent CLI/MCP outcomes. These are the
+   correctness-oriented items 2, 3, and 5 in
+   [Stabilization areas](#stabilization-areas-not-yet-started). A demonstrated
+   data-loss, authorization, or unbounded-resource defect would move above
+   this queue and block release; the planned checks alone do not.
+
+### 2. Next product polish — schedule after the release gate
+
+4. **Medium: action explainability.** Finish stabilization items 1 and 4:
+   stable error/precondition explanations in the TUI and worker surfaces,
+   and visible reasons an action is available, blocked, awaiting approval,
+   or disconnected. The 2026-09-29 TUI layout and messaging pass did not
+   implement these separate action-state explanations.
+5. **Medium: structured interactive delivery design.** Raw PTY text plus
+   echo heuristics cannot prove the exact invocation text reached an
+   interactive session. Scope a structured receipt/channel (reusing ACP
+   where possible) before implementing it; see
+   [Interactive-serve / multi-agent delivery](#interactive-serve--multi-agent-delivery).
+6. **Medium: first-class worker supervision.** Design the agent-spawns-agent
+   workflow around the existing `runtime worker` primitive, including
+   lifecycle, restart, and ownership rules. This is important product work,
+   not a missing capability in the current message protocol; see
+   [Runtime workers / agent-spawns-agent](#runtime-workers--agent-spawns-agent).
+
+### 3. Intentionally deferred — require a scope or policy change first
+
+7. **Medium, design first:** project-scoped custom providers must become
+   signed authority state shared by local and remote modes; the removed
+   local adapter escape hatch is not a partial implementation. See
+   [Project-scoped custom providers](#project-scoped-custom-providers).
+8. **Medium, external dependency:** cloud/hosted participation needs a
+   project-join design and a host that permits this CLI. The protocol's
+   multi-machine exchange was proven; the attempted integration was stopped
+   by host constraints. See [Remote and hosted participants](#remote-and-hosted-participants).
+9. **Low under the accepted trust model:** stronger separation of approval
+   requester and approver, authority token rotation/durable principal quotas,
+   and restrictions on cosmetic `agent.rename` impersonation are future
+   governance hardening. The main release targets trusted self-hosted teams;
+   revisit these before serving mutually untrusted tenants. See
+   [Security / governance](#security--governance).
+10. **Low / trigger-based cleanup:** decide whether to wire or remove the
+    unused `localcache.Cache.Rebuild` and `Integrity.UnknownEvents`; revisit
+    the suspected `doctor` false positive only with a fresh reproduction.
+    See [Unwired code](#unwired--vestigial-code-surfaced-during-rfc-0028-review-2026-09-02)
+    and [Possibly-a-bug](#possibly-a-bug-not-yet-root-caused).
+11. **Policy research, not a code task:** the built-in `agy` adapter was
+    removed. Seek an authoritative terms clarification only if support is
+    reconsidered; see [Compliance](#compliance--third-party-terms-of-service).
 
 ## Compliance / third-party terms of service
 
@@ -30,10 +122,10 @@ one is picked up, remove it from here and note the landing commit.
   itself. The rest of this entry is kept verbatim below as the research
   record that led here.
 
-- **The `agy` (Google Antigravity) adapter — both its own design and one
-  implementation detail — sits inside a genuinely open compliance question;
+- **Historical research before the built-in `agy` adapter was removed:** its
+  design and one implementation detail sat inside an open compliance question;
   the deeper question of whether *any* third-party automation of the
-  official `agy` CLI is compliant remains unresolved.** Investigated via
+  official `agy` CLI is compliant remains unresolved. Investigated via
   deep research 2026-08-07, across every provider integration in the
   codebase (`internal/worker/adapter_*.go`, `claudeserve`, `codexserve`,
   `opencodeclient`, `acpclient`, `claudetail`, `sessionbind`,
@@ -350,10 +442,13 @@ kept:
   provider session file before it contained complete JSON. Test cleanup
   now waits for the daemon goroutine to exit and close its stores; session
   discovery keeps polling malformed/partial files until its existing
-  deadline, with a staged-write regression. Confirm both on Windows CI.
+  deadline, with a staged-write regression. Cleanup was reopened on native
+  Windows 2026-09-30 after a replacement fixture exceeded the 60-second
+  shutdown wait and retained a SQLite file; see the startup investigation
+  below. The session-discovery mitigation is unchanged. Confirm on Windows CI.
 
-- **`TestInvocationDeliveryFailureDoesNotTerminateObligation` is flaky on
-  loaded/slow windows-latest runners, not fixed.** Observed live on PR #25's
+- **`TestInvocationDeliveryFailureDoesNotTerminateObligation`: reproduced
+  and fixed locally on native Windows 2026-09-30; patch CI pending.** Observed live on PR #25's
   CI (2026-08-13): failed once with `"an unexpired delivery attempt already
   exists for this runtime"` on a run where every package's tests ran visibly
   slower than normal (`internal/mcp` 72s vs the usual ~24s,
@@ -368,9 +463,71 @@ kept:
   colliding on the same runtime's outstanding attempt. Unrelated to RFC
   0017's actor-resolution guard (this test drives a `Service` instance
   directly with an explicit `"owner"` actor, never through CLI actor
-  resolution). Worth tightening the 500ms retry/test timing assumption if
-  it recurs; not done here since a single confirmed flake isn't enough to
-  diagnose the right fix.
+  resolution).
+  Native Windows (build 28000, amd64, CGO disabled, Go 1.26.6) reproduced the
+  same reservation error on `de3daf2` in a focused first run (2.56s); ten
+  unchanged repeats then passed. This is a test fixture race: the real
+  coordinator correctly owns a live reservation, while the test assumes its
+  manual request always wins. The original fixture also changed the connector
+  from success to failure after making delivery eligible.
+  The fix sets failure before runtime registration, retries only the exact
+  unexpired-reservation error within the existing test budget, and still
+  requires a failed manual `EXHAUSTED` delivery plus a `PENDING` invocation.
+  A test-only connector gate forces the automatic reservation to win; its
+  first manual request must be rejected. This regression failed before the
+  retry fix, then both immediate and coordinator-first cases passed all 20
+  repetitions (49.819s). The gate uses a separate release marker rather than
+  rewriting a concurrently read outcome file. No production semantics,
+  skips, or timeout increases are involved. The full Windows suite and
+  `go vet ./...` passed before and after the final patch (the final suite
+  reused valid cached results for unchanged packages and reran the modified
+  service package in 29.046s). Both daemon-replacement tests passed ten
+  repetitions each (90.610s); the independent no-pipe startup symptom was not
+  reproduced and remains conditional, not declared fixed. The first-attempt
+  green [CI run on `de3daf2`](https://github.com/DhanushSantosh/AgentComms/actions/runs/36714142643)
+  predates this patch and is not evidence that the patch passed matrix CI.
+
+- **Windows cleanup deadlock: root cause confirmed and fixed locally
+  2026-09-30; patch CI pending.** A 60-round native loaded startup loop
+  failed one of 180 cases (562.123s overall). The captured daemon goroutine
+  was inside `http.Server.Shutdown` calling go-winio v0.6.2 `Close` at
+  pipe.go:578. Its listener routine had resumed the top-level select at
+  pipe.go:462, rather than closing `doneCh`. HTTP Serve and connection
+  bookkeeping waited on the shutdown-held server mutex. SQLite close had
+  not been reached; a longer shutdown context cannot break this wait.
+  Inspection identifies a consumed close request followed by a connect
+  completion error other than nil/ErrFileClosed. The old implementation
+  returns that error, loses cancellation, and resumes accepting while
+  `Close` waits forever. The local replacement always reports
+  ErrPipeListenerClosed after draining a cancelled connect, regardless of
+  its Windows completion error. All three controlled completion-error
+  cases failed before correction and passed 100 repetitions after it.
+  A real Windows listener regression passed 800 shutdown/rebind cycles
+  with disconnecting clients (16.707s). Pipe ACLs, timeouts and SQLite
+  transactions are unchanged. The dependency copy, license, bounded diff
+  and removal criteria are documented in `third_party/go-winio/PATCH.md`;
+  an explicit Windows CI step covers its nested-module regression.
+  After this dependency correction, all 120 replacement cases in another
+  60-round loaded run avoided the cleanup failure. That run failed only
+  slow-health reuse (877.609s overall): its handler delay was 650.9805ms,
+  but executable-hash resolution added 4.0571163s, exceeding the existing
+  3s request budget. Production resolves compatibility before serving;
+  only this fixture recomputed it in the handler. The fixture now captures
+  that value once before serving. An ordering regression failed before
+  correction (calls=0 before serving, 0.665s); the corrected fixture and
+  ordering regression both passed 30 native repetitions (105.599s).
+  Another loaded 100 repetitions of the cancellation regression passed
+  (4.190s). The dependency-only full native suite passed
+  uncached (app 935.557s). The final combined native suite passed uncached
+  (app 602.809s, daemon 3.084s, service 119.355s); project vet and module
+  verification passed. All four shipped binaries cross-built for Windows,
+  Linux and macOS on amd64 and arm64 (24 builds). Explicit dependency-only
+  vet reports two existing unsafe.Pointer warnings in unchanged upstream
+  code; these are recorded, not suppressed. At this native-validation
+  snapshot, patch CI and installed-binary replacement had not occurred;
+  check the integration commit's CI run for the current matrix status.
+  Historical no-pipe remains separate until its own evidence establishes
+  causality.
 
 - **MITIGATED 2026-09-24: `TestEnsureDaemonReplacesIncompatibleDaemon`
   readiness flake on loaded Windows runners.** A
@@ -412,13 +569,92 @@ kept:
   than the unit-only run where most of its paths are `t.Skip`-guarded.
   Original entry kept below for context.
 
-- **`internal/protocol`'s `ValidateTransition` is mostly untested
-  in-package.** `transitions_test.go` covers the elevated-key/orchestrator
-  work directly; the other ~800 lines (task lifecycle, invocation
-  lifecycle, message routing, resource-overlap checks) have only indirect
-  coverage through `internal/service`/`internal/app`/`internal/mcp`/`internal/tui`
-  integration tests. Not urgent — the indirect coverage is real — but a gap
-  worth closing with direct unit tests for the highest-value paths.
+- **Historical report, resolved by the coverage work above:**
+  `internal/protocol`'s `ValidateTransition` once had direct in-package
+  coverage mostly for elevated-key/orchestrator transitions, while task,
+  invocation, and message paths relied on integration tests. The direct
+  lifecycle tests and coverage floor described above closed that gap.
+
+- **Windows CI daemon-startup flakiness — instrumented 2026-09-28, root
+  cause still unknown.** Six CI failures over three days, five on
+  `windows-latest`, mostly clustered on "daemon did not become ready":
+  `TestEnsureDaemonReplacesIncompatibleDaemon`,
+  `TestEnsureDaemon...AfterSlowFixtureStart`,
+  `TestCodexACPAdapterDoesNotRequireExecutable`,
+  `TestTakeoverTerminatesALiveProcess`,
+  `TestMutationCommandPlainOutputIsAConciseReceipt`, plus one
+  `TestRunWithColorProfileTrueColorSurvivesToOutput` and one Linux
+  Coverage-floor step that exited 1 after 89s with no output at all. Every
+  one passed on re-run with no change to the tree.
+  **Why it stayed unknown for so long.** The failure message said "inspect
+  `<configDir>/daemon.log`" — a file CI destroys with the runner. Five
+  failures produced a pointer to evidence nobody could ever read.
+  **What is now instrumented.** `ensureDaemon` inlines the tail of
+  daemon.log in the error rather than naming its path, and says explicitly
+  when the log is empty or unreadable. In the app test harness this did not
+  establish whether startup failed: its fake launcher discarded `daemon.Run`
+  errors and ignored the log writer. CI uploads any non-empty daemon.log as an artifact on
+  failure. The error already reports probe count and elapsed time.
+  **The one real clue so far.** The most recent failure read: `398 probes
+  over 40.084s, last error: ... open \\.\pipe\agent-comms-<id>: The system
+  cannot find the file specified`. The named pipe was never created, so
+  this is not the slow-but-healthy case fixed earlier — the daemon process
+  did not start, or exited before binding. The next occurrence should say
+  why.
+  **Native investigation 2026-09-30, local patch not yet in CI.** The fake
+  launcher now owns a separate log handle until its goroutine exits, records
+  returned `daemon.Run` errors, and captures run configuration before launch.
+  Reusing the caller's writer would not suffice: `ensureDaemon` closes that
+  writer immediately after launch, whereas a real subprocess inherits its
+  own handle. A regression deliberately makes the isolated projection
+  database invalid before startup and closes the parent's writer immediately;
+  it failed with an empty log before correction and passed 20 native Windows
+  runs after (7.769s). This fixes missing evidence, not the historical startup
+  defect. In an expanded 20-round baseline both replacement variants passed
+  all runs, but `TestEnsureDaemonReusesSlowHealthyDaemon` falsely requested a
+  launch once (19/20 passed; combined run 198.336s). Its isolated unchanged
+  repeat passed 20/20 (20.962s). Initial instrumentation reported delay,
+  build-ID, and response timings on failure; no health budget or assertion was relaxed.
+  Keep this new signature separate from file-not-found before binding.
+  In the subsequent instrumented 30-round native run with concurrent service,
+  MCP, reconciliation, and app-suite activity, the normal replacement test
+  failed once at cleanup after 60s and once on its final health assertion
+  (416.951s overall). Cleanup held `personal-authority.db` open, so the earlier
+  mitigation is reopened. The final health assertion used a 300ms client
+  inherited from the retryable fixture-start loop even though production
+  readiness uses a 3s request budget. That test-only mismatch is corrected:
+  a 600ms fake IPC response deterministically failed with the old client
+  (0.42s test) and passed with the existing production budget. Both new
+  regressions passed 20 runs each (33.450s). A further 30-round loaded repeat
+  passed all three startup cases (263.725s), but does not erase the observed
+  cleanup/slow-health failures. Cleanup now dumps goroutines at its unchanged
+  shutdown deadline to distinguish server drain, database close, and other
+  unfinished work on the next recurrence. At that initial stage no causal
+  cleanup fix was established; the deeper investigation above subsequently
+  identified and corrected the lost-close deadlock and slow-health fixture
+  hashing. The historical missing-pipe cause remains unproven. Changes
+  remain local by user request.
+  **Do not "fix" this by raising a timeout again.** 40s was already
+  exhausted, and the per-probe cap was already corrected once. A longer
+  wait would only lengthen the failure.
+  **Measured performance constraint (2026-09-28), not a root cause for
+  every failure.** windows-latest is
+  roughly **100x slower than a local Linux machine for filesystem-heavy
+  work**, not marginally slower. `TestConcurrentReconcileIsSerializedAndConsistent`
+  takes 0.18s locally and 9.32s there; `internal/projectlifecycle` takes
+  0.7s locally and 68s there. This supports scaling deadlines for measured,
+  filesystem-heavy work; it does not prove why a daemon never bound its pipe
+  or why a healthy fixture's probe failed.
+  The implication for future work is a rule, not a patch: **a timeout that
+  bounds work proportional to N must scale with N**, and any constant
+  chosen from a local run must be checked against equivalent runner work,
+  not widened by a blanket multiplier. The concurrent-reconcile test was fixed that way --
+  its budget is now `workers * perWorkerBudget` rather than a flat value
+  that silently assumed one turn at the lock.
+  Not every member of the family is a timeout, though: the daemon failure
+  above reported the named pipe was never created at all, which no amount
+  of waiting fixes. Read the next occurrence's inlined log before assuming
+  slowness.
 
 - **`ensureDaemon` gives each health probe 300ms but the whole wait 40s, so a
   slow-but-healthy daemon is reported as never ready — fixed
@@ -452,6 +688,50 @@ kept:
   Note the pre-flight check at `cmd_misc.go:315` shares the same constant
   and benefits too: at 300ms a slow-but-healthy running daemon could be
   misjudged as absent and needlessly killed and respawned.
+
+## Project-scoped custom providers
+
+- **Extending RFC 0039's provider set per project — attempted 2026-09-28,
+  removed, deferred.** `claude`, `codex` and `opencode` are fixed at build
+  time (`internal/model/provider.go`). An attempt to let a declarative
+  adapter (`.agent-comms/adapters/<name>.json`) add its own name was
+  implemented and then removed: adapters load in the **CLI** process, while
+  agent IDs are validated in `ValidateTransition` inside the **authority**
+  process. Verified by running it — with an adapter declared, the CLI
+  accepted `--provider housecat` and the daemon rejected the command,
+  reporting only the three built-ins.
+  **Why the obvious fix was rejected.** Loading adapters in the daemon
+  repairs personal mode only. In team mode the authority is a remote
+  service with no access to the project's files, so the two runtime modes
+  would disagree about which identities are registrable — and it would add
+  a write to a package-level map concurrent with the reads validation
+  performs.
+  **What a real design needs.** The accepted provider set has to be
+  something every process derives identically, which for this project means
+  signed project state rather than a local file — `model.ProjectSettings`
+  is the natural home, reached through `project.settings.update`, so
+  widening which identities an authority accepts is itself a governed,
+  audited act. Note there is no `project settings` CLI command today, so
+  this is a governance surface as well as a plumbing change. Until then the
+  set is fixed, which is at least consistent everywhere.
+
+## Stabilization areas not yet started
+
+Moved here 2026-09-28 from `docs/stabilization.md`, which had become one
+part live invariants, one part a finished August work log, and one part
+this -- forward-looking items that belong where open work is tracked.
+None has been started; none is scheduled.
+
+1. Extend stable error codes and action-precondition explanations through
+   the TUI and worker status surfaces.
+2. Exercise delivery-coordinator recovery and cache lag under sustained
+   multi-runtime load.
+3. Audit every list/search/history surface for bounded results and
+   consistent cursor semantics.
+4. Reduce TUI action ambiguity by showing why an action is available,
+   disabled, awaiting approval, or blocked by connectivity.
+5. Add contract tests that run equivalent workflows through CLI and MCP and
+   compare authoritative outcomes.
 
 ## Remote and hosted participants
 

@@ -135,7 +135,14 @@ func newRowList(source RowSource) RowList {
 // between View itself and syncActiveRowListDimensions (mouse.go) so the
 // persisted height used for scroll math can never drift from what's
 // actually rendered.
-func visibleRowCount(h int) int { return max(0, h-4) }
+// visibleRowCount is how many data rows fit in h lines of pane: h less
+// the table's own header row, and one spare line so a rounding error
+// upward can never render past the pane. It was h-4 while RowList.View
+// also rendered a blank line and a key footer of its own; those moved to
+// the shared key bar (keyhints.go), whose height bodyLayout now reserves
+// separately, so counting them here as well would leave two rows of the
+// table permanently invisible.
+func visibleRowCount(h int) int { return max(0, h-2) }
 
 func (r *RowList) Refresh(st model.State, actor string) {
 	r.clampToRowCount(len(r.source.Rows(st, actor, r.mine)))
@@ -347,42 +354,17 @@ func (r RowList) View(p palette, st model.State, actor string, w, h int) string 
 	for i := top; i < end; i++ {
 		lines = append(lines, renderTableRow(cols, rows[i], styles, i == r.cursor))
 	}
-	id := r.source.RowID(r.cursor, st, actor, r.mine)
-	navParts := []string{
-		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[↑/↓]") + " " + lipgloss.NewStyle().Foreground(p.muted).Render("select"),
-		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[i]") + " " + lipgloss.NewStyle().Foreground(p.muted).Render("inspect"),
-		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[esc]") + " " + lipgloss.NewStyle().Foreground(p.muted).Render("back"),
+	if h >= 2 && len(rows) > visibleRowCount(h) {
+		position := fmt.Sprintf("↕ %d–%d/%d · ↑↓ PgUp/PgDn", top+1, end, len(rows))
+		lines = append(lines, lipgloss.NewStyle().Foreground(p.cyan).Render(ansi.Truncate(position, w, "…")))
 	}
-	parts := []string{strings.Join(navParts, " · ")}
-	actions := r.source.Actions(id, st, actor)
-	hiddenCount := 0
-	for _, act := range actions {
-		hint := lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("["+act.Key+"]") +
-			" " + lipgloss.NewStyle().Foreground(p.muted).Render(act.Label)
-		candidate := strings.Join(append(parts, hint), " · ")
-		if lipgloss.Width(candidate) <= w {
-			parts = append(parts, hint)
-		} else {
-			hiddenCount++
-		}
-	}
-	if hiddenCount > 0 {
-		moreHint := lipgloss.NewStyle().Foreground(p.muted).Render(fmt.Sprintf("+%d more", hiddenCount))
-		candidate := strings.Join(append(parts, moreHint), " · ")
-		if lipgloss.Width(candidate) <= w {
-			parts = append(parts, moreHint)
-		}
-	}
-	// ansi.Truncate, not a bare join: parts always includes the base
-	// "[↑/↓] select · [i] inspect · [esc] back" trio unconditionally --
-	// only the per-action hints after it are already width-aware -- so at
-	// a narrow enough w that trio alone still overflowed w and wrapped
-	// onto extra physical lines lipgloss's default (non-Inline) wrapping
-	// added silently. RowList.View's own line-count contract (1 header +
-	// visibleRowCount(h) rows + this footer) assumes exactly one line
-	// here; wrapping broke it the same way an unclamped data cell once did.
-	footer := ansi.Truncate(strings.Join(parts, " · "), w, "…")
-	return strings.Join(lines, "\n") + "\n\n" + footer
+	// No key footer here any more: the selected row's actions, [i]
+	// inspect and the navigation keys all render in keyhints.go's bar at
+	// the foot of the pane, alongside the global keys and in the same
+	// place on every view -- this footer only ever covered row-list views,
+	// and its own width budget quietly dropped actions behind "+N more"
+	// while the views without a row list showed nothing at all.
+	return strings.Join(lines, "\n")
 }
 
 func (m *Model) activeRowList() *RowList {
@@ -410,32 +392,40 @@ func (m *Model) activeRowList() *RowList {
 	}
 	return nil
 }
+
+// createForms drives both the [n] hint and its action. A view cannot gain a
+// visible create shortcut without also having an opener, or vice versa.
+type createFormSpec struct {
+	label   string
+	form    *ActionForm
+	command string
+	task    bool
+}
+
+var createForms = map[string]createFormSpec{
+	"Tasks":                 {label: "new task", task: true},
+	"My work":               {label: "new task", task: true},
+	"Inbox":                 {label: "new message", form: messagePostForm, command: "message.post"},
+	"Approvals":             {label: "new approval", form: approvalRequestForm, command: "approval.request"},
+	"Agents":                {label: "register agent", form: agentRegisterForm, command: "agent.register"},
+	"Invocations":           {label: "new invocation", form: invocationRequestForm, command: "invocation.request"},
+	"Runtimes":              {label: "register runtime", form: runtimeRegisterForm, command: "runtime.register"},
+	"Documents":             {label: "new document", form: documentCreateForm, command: "document.create"},
+	"Contracts & decisions": {label: "new decision", form: decisionCreateForm, command: "document.create"},
+	"Artifacts":             {label: "add artifact", form: artifactAddForm, command: "artifact.add"},
+	"Drafts":                {label: "save draft", form: draftSaveForm, command: "draft.save"},
+	"Environment":           {label: "set env key", form: envSetForm, command: "env.set"},
+}
+
 func (m Model) openCreateForm() (tea.Model, tea.Cmd) {
-	switch views[m.view] {
-	case "Tasks", "My work":
-		return m.openTaskForm()
-	case "Inbox":
-		return m.openActionForm(messagePostForm, "message.post", "")
-	case "Approvals":
-		return m.openActionForm(approvalRequestForm, "approval.request", "")
-	case "Agents":
-		return m.openActionForm(agentRegisterForm, "agent.register", "")
-	case "Invocations":
-		return m.openActionForm(invocationRequestForm, "invocation.request", "")
-	case "Runtimes":
-		return m.openActionForm(runtimeRegisterForm, "runtime.register", "")
-	case "Documents":
-		return m.openActionForm(documentCreateForm, "document.create", "")
-	case "Contracts & decisions":
-		return m.openActionForm(decisionCreateForm, "document.create", "")
-	case "Artifacts":
-		return m.openActionForm(artifactAddForm, "artifact.add", "")
-	case "Drafts":
-		return m.openActionForm(draftSaveForm, "draft.save", "")
-	case "Environment":
-		return m.openActionForm(envSetForm, "env.set", "")
+	spec, ok := createForms[views[m.view]]
+	if !ok {
+		return m, nil
 	}
-	return m, nil
+	if spec.task {
+		return m.openTaskForm()
+	}
+	return m.openActionForm(spec.form, spec.command, "")
 }
 
 func (m Model) updateRowList(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -449,24 +439,32 @@ func (m Model) updateRowList(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Mouse wheel scrolls the row cursor the same one row at a time that
 	// LineUp/LineDown (k/j, up/down) already do.
 	if wheel, ok := msg.(tea.MouseWheelMsg); ok {
+		selected := list.SelectedID(m.state, m.actor)
 		switch wheel.Button {
 		case tea.MouseWheelUp:
 			list.MoveCursor(-1, rowCount)
 		case tea.MouseWheelDown:
 			list.MoveCursor(1, rowCount)
 		}
+		if list.SelectedID(m.state, m.actor) != selected {
+			m.detailScrollOffset = 0
+		}
 		return m, nil
 	}
 	if click, ok := msg.(tea.MouseClickMsg); ok {
 		mouse := click.Mouse()
 		if mouse.Button == tea.MouseLeft {
-			p := colors(m.highContrast)
+			p := colors()
 			if row, ok := m.rowAtY(p, mouse.Y); ok {
+				selected := list.SelectedID(m.state, m.actor)
 				// Recorded regardless of whether this turns out to be a
 				// double-click, so a third click starts a fresh window
 				// rather than chaining into more double-clicks.
 				double := m.isDoubleClick(mouse.X, mouse.Y, time.Now())
 				list.SetCursor(row, rowCount)
+				if list.SelectedID(m.state, m.actor) != selected {
+					m.detailScrollOffset = 0
+				}
 				if double {
 					// [i] inspect, not actions[0]: firing the row's first
 					// action -- activate for a PENDING agent, drain for an
@@ -495,13 +493,19 @@ func (m Model) updateRowList(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if !ok {
 		return m, nil
 	}
-	// esc/left/q/ctrl+c/​/​/ctrl+p/r/i/?/h/n below are reserved globally --
+	// esc/left/q/ctrl+c/​/​/ctrl+p/r/i/?/n below are reserved globally --
 	// matched here, in this explicit switch, before the default case ever
 	// gets a chance to check a row's own Actions() for a matching key. No
 	// RowAction anywhere in the app may use any of these as its own Key;
 	// one already did ("r" for agent.go's actChangeRole) and was silently
 	// unreachable, always losing to refresh, until this comment existed.
 	switch k := key.String(); k {
+	case "shift+pgup":
+		m.detailScrollOffset = max(0, m.detailScrollOffset-5)
+		return m, nil
+	case "shift+pgdown":
+		m.detailScrollOffset += 5
+		return m, nil
 	case "esc", "left":
 		m.rowFocus = false
 		return m, nil
@@ -516,12 +520,15 @@ func (m Model) updateRowList(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "i":
 		m.inspecting = !m.inspecting
+		m.detailScrollOffset = 0
+		// The table's viewport just changed size (rowListDimensions
+		// gives the inspector its room), so the persisted height has to
+		// follow immediately -- the click-to-row math and scroll
+		// clamping both read it before the next keystroke would.
+		m.syncActiveRowListDimensions()
 		return m, nil
 	case "?":
 		m.notice = "↑/↓ select row · [key] contextual action · [i] inspect · [n] new · / commands · [esc] back · [q] quit"
-		return m, nil
-	case "h":
-		m.highContrast = !m.highContrast
 		return m, nil
 	case "n":
 		return m.openCreateForm()
@@ -556,10 +563,22 @@ func (m Model) updateRowList(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "end", "G":
 			list.SetCursor(rowCount-1, rowCount)
 		}
+		if list.SelectedID(m.state, m.actor) != id {
+			m.detailScrollOffset = 0
+		}
 	}
 	return m, nil
 }
 func (m Model) updateConfirm(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if wheel, ok := msg.(tea.MouseWheelMsg); ok {
+		switch wheel.Button {
+		case tea.MouseWheelUp:
+			m.scrollOffset = max(0, m.scrollOffset-3)
+		case tea.MouseWheelDown:
+			m.scrollOffset += 3
+		}
+		return m, nil
+	}
 	if click, ok := msg.(tea.MouseClickMsg); ok {
 		mouse := click.Mouse()
 		if mouse.Button != tea.MouseLeft {
@@ -571,7 +590,7 @@ func (m Model) updateConfirm(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// irreversible action (revoke, delete, an elevated-key-gated
 		// grant), so there is no default direction an ambiguous click ever
 		// resolves to.
-		if yes, ok := m.confirmChoiceAt(colors(m.highContrast), mouse.X, mouse.Y); ok {
+		if yes, ok := m.confirmChoiceAt(colors(), mouse.X, mouse.Y); ok {
 			return m.resolveConfirm(yes)
 		}
 		return m, nil
@@ -581,6 +600,12 @@ func (m Model) updateConfirm(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	switch key.String() {
+	case "pgup":
+		m.scrollOffset = max(0, m.scrollOffset-5)
+		return m, nil
+	case "pgdown":
+		m.scrollOffset += 5
+		return m, nil
 	case "y", "Y", "enter":
 		return m.resolveConfirm(true)
 	case "n", "N", "esc":
@@ -626,27 +651,56 @@ const (
 	confirmGap           = "    "
 )
 
+func (m *Model) openConfirm(confirm confirmState) {
+	m.confirm = &confirm
+	m.scrollOffset = 0
+}
+
 func (m Model) renderConfirm(p palette) string {
+	yesLabel := confirmYesLabel
+	if m.confirm.localDraft {
+		yesLabel = draftConfirmYesLabel
+	}
+	buttons := yesLabel + confirmGap + confirmNoLabel
+	// Keep each choice intact when the two labels do not fit side by side.
+	// Otherwise the narrow terminal wraps "Go back" away from its [n/esc]
+	// prefix, leaving no whole visible target for a mouse click.
+	if ansi.StringWidth(buttons)+3 > m.contentWidth() {
+		buttons = yesLabel + "\n" + confirmNoLabel
+	}
 	if m.confirm.localDraft {
 		rows := []string{
 			lipgloss.NewStyle().Foreground(p.amber).Bold(true).Render("REVIEW / Local draft deletion"),
 			m.confirm.prompt,
 			"",
 			lipgloss.NewStyle().Foreground(p.muted).Render("This deletes one local draft and frees its quota; it does not change project history."),
-			lipgloss.NewStyle().Foreground(p.amber).Render(draftConfirmYesLabel + confirmGap + confirmNoLabel),
+			lipgloss.NewStyle().Foreground(p.amber).Render(buttons),
 		}
-		return lipgloss.NewStyle().BorderLeft(true).BorderStyle(lipgloss.ThickBorder()).
-			BorderForeground(p.amber).PaddingLeft(2).Render(strings.Join(rows, "\n"))
+		return m.confirmFrame(p).Render(strings.Join(rows, "\n"))
 	}
 	rows := []string{
 		lipgloss.NewStyle().Foreground(p.amber).Bold(true).Render("REVIEW / Signed change"),
 		m.confirm.prompt,
 		"",
 		lipgloss.NewStyle().Foreground(p.muted).Render("This action becomes part of project history."),
-		lipgloss.NewStyle().Foreground(p.amber).Render(confirmYesLabel + confirmGap + confirmNoLabel),
+		lipgloss.NewStyle().Foreground(p.amber).Render(buttons),
 	}
-	return lipgloss.NewStyle().BorderLeft(true).BorderStyle(lipgloss.ThickBorder()).
-		BorderForeground(p.amber).PaddingLeft(2).Render(strings.Join(rows, "\n"))
+	return m.confirmFrame(p).Render(strings.Join(rows, "\n"))
+}
+
+// confirmFrame is the bordered block both confirm variants render in. It is
+// given the content width explicitly. Without one, lipgloss pads every line
+// out to the widest -- a long prompt, 108 columns in the case that surfaced
+// this -- and scrollViewport's Hardwrap at contentW then split each padded
+// line into the text plus two or three lines of trailing spaces: a 6-line
+// dialog rendered as 18. At 70x24 that left "Sign and apply" on screen and
+// pushed "[n / esc] Go back" below the fold, the destructive choice shown
+// and the safe one hidden, and the wrapped prompt lost its left border.
+// With a width, lipgloss wraps inside the border itself, continuation lines
+// keep it, and the Hardwrap has nothing left to split.
+func (m Model) confirmFrame(p palette) lipgloss.Style {
+	return lipgloss.NewStyle().Width(m.contentWidth()).BorderLeft(true).
+		BorderStyle(lipgloss.ThickBorder()).BorderForeground(p.amber).PaddingLeft(2)
 }
 func (m Model) dispatchEvent(typ, id string, payload any) (tea.Model, tea.Cmd) {
 	return m.dispatchEventWithPassphrase(typ, id, payload, "")
@@ -721,7 +775,7 @@ func (m Model) triggerRowAction(act RowAction, id string) (tea.Model, tea.Cmd) {
 		if act.Payload != nil {
 			payload = act.Payload()
 		}
-		m.confirm = &confirmState{prompt: act.prompt(id), typ: act.EventType, id: id, payload: payload, onError: act.OnError}
+		m.openConfirm(confirmState{prompt: act.prompt(id), typ: act.EventType, id: id, payload: payload, onError: act.OnError})
 		return m, nil
 	}
 	return m.dispatchRowAction(act, id)
@@ -798,5 +852,6 @@ func (m Model) openActionForm(spec *ActionForm, typ, id string) (tea.Model, tea.
 		cmd = m.inputs[0].Focus()
 	}
 	m.form, m.formTaskID, m.formSpec, m.formFocus, m.palette, m.query = typ, id, spec, 0, false, ""
+	m.scrollOffset = 0
 	return m, cmd
 }

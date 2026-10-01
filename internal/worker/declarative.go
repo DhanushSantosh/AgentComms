@@ -5,12 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/DhanushSantosh/AgentComms/internal/model"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
-
-	"github.com/DhanushSantosh/AgentComms/internal/model"
 )
 
 // DeclarativeSpec defines a CLI adapter configuration declaratively in JSON or YAML.
@@ -144,12 +143,12 @@ func RegisterDeclarativeAdapter(spec DeclarativeSpec) error {
 		return fmt.Errorf("cannot override built-in adapter %q", spec.Name)
 	}
 	adapters[name] = declarativeAdapter{spec: spec}
-	// A declarative adapter is a provider this project runs, so its name
-	// also becomes a valid prefix for agent actor IDs (RFC 0039). Without
-	// this the adapter system's escape hatch is documented but absent:
-	// you could add a runtime and still be unable to register an agent
-	// for it.
-	model.RegisterProvider(name)
+	// Deliberately does NOT widen RFC 0039's provider set. Adapters load in
+	// the CLI process; agent IDs are validated in the authority process, so
+	// registering here would let the CLI accept a provider the authority
+	// then rejects -- which is exactly what happened before this was
+	// removed. See internal/model/provider.go and docs/backlog.md,
+	// "Project-scoped custom providers".
 	return nil
 }
 

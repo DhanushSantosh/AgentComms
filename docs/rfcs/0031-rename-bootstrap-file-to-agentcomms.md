@@ -3,8 +3,8 @@
 ## Status
 
 **Accepted, 2026-09-05.** The project owner requested this directly while
-reviewing [UX-01 of the release UX audit](research/2026-09-05-release-ux-audit.md)
-(`docs/research/2026-09-05-release-ux-audit.md`), per `docs/rfcs/README.md`.
+reviewing [UX-01 of the historical release UX audit](https://github.com/DhanushSantosh/AgentComms/blob/1b7aa4cde3def4f6a0d90b40c46ff559b4c63088/docs/research/2026-09-05-release-ux-audit.md),
+per `docs/rfcs/README.md`.
 
 Changes the on-disk installation contract (a file every initialized project
 creates and that other tooling can collide with), so it requires review.

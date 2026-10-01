@@ -94,10 +94,13 @@ func TestProjectControlResponsiveViews(t *testing.T) {
 		if e != nil {
 			t.Fatal(e)
 		}
-		for _, want := range []string{"AGENT COMMS", "PROJECT CONTROL", "AGENT WORKFORCE", "ATTENTION", "LIVE ACTIVITY"} {
+		for _, want := range []string{"AGENT COMMS", "PROJECT CONTROL", "TEAM", "NEEDS ATTENTION"} {
 			if !strings.Contains(v, want) {
 				t.Errorf("%dx%d missing %q", size[0], size[1], want)
 			}
+		}
+		if size[0] == 140 && !strings.Contains(v, "RECENT EVENTS") {
+			t.Errorf("%dx%d should show recent events without scrolling", size[0], size[1])
 		}
 	}
 }
@@ -392,7 +395,7 @@ func TestActiveTabLooksDifferentWhenFocusedVsBrowsing(t *testing.T) {
 		t.Fatal(err)
 	}
 	m.width, m.height = 120, 30
-	p := colors(m.highContrast)
+	p := colors()
 
 	m.rowFocus, m.settingsFocus = false, false
 	browsing, _ := m.renderHubTabs(p, 100)

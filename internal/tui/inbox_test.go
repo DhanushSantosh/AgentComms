@@ -1,14 +1,31 @@
 package tui
 
 import (
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 )
 
 var inboxTestAnsi = regexp.MustCompile("\x1b\\[[0-9;]*m")
+
+func TestInboxPrioritizesActionableThenRecentMessages(t *testing.T) {
+	state := model.State{Messages: map[string]model.Message{
+		"msg-001": {ID: "msg-001", Kind: "FYI", To: []string{"reviewer"}},
+		"msg-002": {ID: "msg-002", Kind: "ACTION", To: []string{"reviewer"}, Recipients: []model.RecipientState{{Principal: "reviewer", Status: "PENDING"}}},
+		"msg-003": {ID: "msg-003", Kind: "FYI", To: []string{"reviewer"}},
+		"msg-004": {ID: "msg-004", Kind: "ACTION", To: []string{"reviewer"}, Recipients: []model.RecipientState{{Principal: "reviewer", Status: "PENDING"}}},
+	}}
+	ids := (messageRowSource{}).filteredIDs(state, "reviewer")
+	want := []string{"msg-004", "msg-002", "msg-003", "msg-001"}
+	if !reflect.DeepEqual(ids, want) {
+		t.Fatalf("inbox order %v, want %v", ids, want)
+	}
+}
 
 func enterInboxView(t *testing.T, m Model) Model {
 	t.Helper()
@@ -241,5 +258,89 @@ func TestRowCellsNeverWrapOntoAnExtraLine(t *testing.T) {
 				t.Fatalf("width %d: expected a single line containing both %q and DELIV(ERED), got:\n%s", width, want, strings.Join(lines, "\n"))
 			}
 		}
+	}
+}
+
+// TestInspectorStaysOnScreenWhenTheTableIsFull is the regression test for
+// the one place the TUI shows a message's body: the inspector used to be
+// appended below a row list that had already been given the pane's whole
+// height, so on any view with enough rows to fill the screen it rendered
+// past the last line the terminal has. [i] looked like a dead key, and
+// the body looked like something the TUI simply did not display --
+// confirmed live on a 40-message inbox. The table yields the room now.
+func TestInspectorStaysOnScreenWhenTheTableIsFull(t *testing.T) {
+	s := newTestService(t)
+	const body = "The body-preservation path drops trailing whitespace when a message is re-rendered."
+	for i := 0; i < 40; i++ {
+		id := "msg-" + string(rune('a'+i/26)) + string(rune('a'+i%26))
+		if _, e := s.Execute("owner", "message.post", id, model.MessagePosted{
+			Kind: "FYI", To: []string{"owner"}, Subject: "Subject " + id, Body: body,
+		}); e != nil {
+			t.Fatal(e)
+		}
+	}
+	m, e := New(s, "owner")
+	if e != nil {
+		t.Fatal(e)
+	}
+	m.width, m.height = 120, 30
+	m = enterInboxView(t, m)
+
+	before := m.View().Content
+	if strings.Contains(before, "INSPECTOR") {
+		t.Fatal("the inspector should be closed to begin with")
+	}
+	m = pressKey(t, m, keyText("i"))
+	if !m.inspecting {
+		t.Fatal("expected [i] to open the inspector")
+	}
+	after := m.View().Content
+	if !strings.Contains(after, "INSPECTOR") {
+		t.Fatal("[i] did nothing visible: the inspector rendered past the bottom of the screen")
+	}
+	// A fragment, not the whole body: the inspector wraps it across
+	// lines, so the full string is never contiguous on screen.
+	if !strings.Contains(inboxTestAnsi.ReplaceAllString(after, ""), "body-preservation path") {
+		t.Error("the inspector must show the message body")
+	}
+	// It cost the table rows rather than the terminal its last lines.
+	if got := lipgloss.Height(after); got > m.height {
+		t.Errorf("the screen renders %d lines into a %d-line terminal", got, m.height)
+	}
+	if rows := strings.Count(after, "Subject msg-"); rows == 0 {
+		t.Error("the table should still show rows alongside the inspector")
+	}
+}
+
+func TestLongInspectorScrollsWithoutMovingInboxSelection(t *testing.T) {
+	s := newTestService(t)
+	body := strings.Repeat("first section\n", 30) + "last section marker"
+	if _, err := s.Execute("owner", "message.post", "msg-long-inspector", model.MessagePosted{
+		Kind: "FYI", To: []string{"owner"}, Subject: "Long body", Body: body,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	m, err := New(s, "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.width, m.height = 80, 24
+	m = enterInboxView(t, m)
+	m = pressKey(t, m, keyText("i"))
+	selected := m.messageList.SelectedID(m.state, m.actor)
+	if !strings.Contains(m.View().Content, "↕") {
+		t.Fatal("long inspector lacks a visible scroll indicator")
+	}
+	for i := 0; i < 30; i++ {
+		m = pressKey(t, m, tea.KeyPressMsg(tea.Key{Code: tea.KeyPgDown, Mod: tea.ModShift}))
+	}
+	if !strings.Contains(m.View().Content, "last section marker") {
+		t.Fatal("last inspector line could not be reached")
+	}
+	if got := m.messageList.SelectedID(m.state, m.actor); got != selected {
+		t.Fatalf("scrolling inspector moved inbox selection from %q to %q", selected, got)
+	}
+	if got := lipgloss.Height(m.View().Content); got > m.height {
+		t.Fatalf("inspector pushed screen to %d lines (height %d)", got, m.height)
 	}
 }

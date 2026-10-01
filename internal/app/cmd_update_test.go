@@ -3,6 +3,9 @@ package app
 import (
 	"bytes"
 	"context"
+	"fmt"
+	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -155,4 +158,87 @@ func TestUpdateReportsAlreadyCurrentWithoutPrompting(t *testing.T) {
 	if !strings.Contains(stdout.String(), "up to date") {
 		t.Fatalf("expected stdout to say up to date, got: %s", stdout.String())
 	}
+}
+
+// `update` replaces this executable, so reconciling projects in
+// PersistentPreRunE would do it with the binary on its way out. A project
+// whose recorded minimum toolkit is already the incoming version is refused
+// by the outgoing one, and the resulting "skipped lifecycle inspection ...
+// requires toolkit X, running Y" warnings flush after the update succeeded
+// -- reading as though reconciliation failed when it had not been attempted.
+// Reported live upgrading 0.7.1 -> 0.8.0.
+//
+// update reconciles properly by re-execing the freshly installed binary, so
+// the pre-run pass must not happen at all.
+func TestUpdateDoesNotReconcileProjectsWithTheOutgoingBinary(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(home, "config"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(home, "credentials"))
+	Version = "0.7.1"
+	t.Cleanup(func() { Version = "0.7.1" })
+
+	// A project that only the incoming version may touch: exactly the
+	// shape the outgoing binary refuses to inspect.
+	project := filepath.Join(home, "future-project")
+	if err := os.MkdirAll(filepath.Join(project, ".agent-comms"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(project, ".agentcomms"),
+		[]byte("# Agent Comms managed bootstrap\nruntime = .agent-comms\nmode = personal\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	config := `{"schema_version":"2.2.0","toolkit_version":"9.9.9","minimum_toolkit_version":"9.9.9",` +
+		`"project_format_version":1,"managed_files_version":2,"runtime_mode":"personal",` +
+		`"project_id":"ac-future","owner":"owner"}`
+	if err := os.WriteFile(filepath.Join(project, ".agent-comms", "config.json"), []byte(config), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// reconcileUserInstallation only sees projects recorded in identity
+	// profiles, so without this the test would pass whether or not the fix
+	// is present -- verified by removing the fix and watching it stay green.
+	if err := os.MkdirAll(filepath.Join(home, "config"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	userConfig := fmt.Sprintf(`{"profiles":{"ac-future:owner":{"name":"ac-future:owner","project_id":"ac-future","actor":"owner","project_root":%q}}}`, project)
+	if err := os.WriteFile(filepath.Join(home, "config", "config.json"), []byte(userConfig), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	handoffCalled := false
+	c := &cli{
+		out: &stdout, err: &stderr, timeout: time.Second,
+		in: strings.NewReader("y\n"),
+		fetchReleaseFn: func(ctx context.Context, channel, version string) (githubRelease, error) {
+			return fakeRelease("v9.9.9"), nil
+		},
+		installReleaseFn: func(ctx context.Context, r githubRelease) (map[string]any, error) {
+			return map[string]any{"version": "9.9.9", "installed": "/fake/new-binary", "previous": "/fake/old", "verified": true}, nil
+		},
+		handoffRunner: func(ctx context.Context, executable string, args []string, in io.Reader, out, errOut io.Writer) error {
+			// The reconcile that does happen must use the NEW binary.
+			handoffCalled = true
+			if executable != "/fake/new-binary" {
+				t.Errorf("the reconcile must use the installed binary, got %q", executable)
+			}
+			return nil
+		},
+	}
+	root := c.root()
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+	root.SetArgs([]string{"update", "--yes", "--current-project-only"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("update: %v\nstderr: %s", err, stderr.String())
+	}
+
+	combined := stdout.String() + stderr.String()
+	if strings.Contains(combined, "skipped lifecycle inspection") {
+		t.Errorf("update must not reconcile with the outgoing binary:\n%s", combined)
+	}
+	if strings.Contains(combined, "requires toolkit") {
+		t.Errorf("no toolkit-version warning should survive an update:\n%s", combined)
+	}
+	_ = handoffCalled
 }

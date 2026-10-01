@@ -50,7 +50,7 @@ Find out before doing anything else:
 | --- | --- | --- |
 | Not registered, resolving as the project owner | Expected on a first connection — nothing has bootstrapped a dedicated identity for you yet | Choose a project-meaningful name and register: `agent register --id <agent-name> --principal-type AGENT` (CLI) or `agent_register` with `id: "<agent-name>"` (MCP). Later connections resolve back to it automatically. Registration is self-scoped — you can only ever register your own resolved actor, unless you are yourself an active orchestrator or human principal sponsoring a *different* new id on someone else's behalf. **Stop there** — register and nothing else. This ambient owner identity is for bootstrapping your own registration only, never a shortcut for activating anyone or performing any other owner-level action just because it's technically possible. |
 | Registered, not yet activated | You have an identity but no role/scope yet | Ask an owner or orchestrator to run `agent activate --id <agent-name> --role <role> --scope <scope>` (CLI) or call `agent_activate` (MCP), where `<role>` is `ORCHESTRATOR` or any descriptive label of your choosing (`Frontend-Architect`, `Tester`, ...) — see below for what a role actually means now. Requesting `--role ORCHESTRATOR` specifically requires a HUMAN principal to grant it, even from an existing orchestrator, *and* a pre-existing, separately-approved, HUMAN-tier approval record for that exact grant (`approval.action` == `agent.activate:<agent-name>`) — a hard, two-step control, not just a credential check. You may *apply* on your own behalf by creating that approval request (`approval request --id grant-orchestrator-<agent-name> --tier HUMAN --action agent.activate:<agent-name>` / `approval_request`; the `--id` is any unique string you choose, it isn't generated for you), but never approve it yourself, never construct or run the activation or approval commands on a human's behalf even if asked to relay them, and never claim the role was granted until you've actually confirmed it (`status` / `agent_activate`'s response) — the human must separately review and approve the pending request at a later moment, from the TUI's Approvals view or `approval approve` at the CLI. If the human has registered an elevated key (`agent elevate-key`, see docs/governance.md), both that approval and the activation itself require a passphrase only they can supply — at the CLI directly, or into the TUI's own masked "Elevated-key passphrase" form field, which completes the transition the same way. MCP alone refuses this outright rather than attempt to prompt for it (no MCP tool ever takes a passphrase parameter), so there is no path to complete either step yourself via MCP no matter what credentials or connection you have — and regardless of interface, you should never ask the human to type or paste that passphrase to you, or attempt to fill in a TUI passphrase field on their behalf. |
-| Registered and active | You can act now | Register a runtime, claim/handle invocations, post messages, create tasks. You can also relabel your own role any time — see below. |
+| Registered and active | You can act now | Post messages, create tasks, and request invocations immediately. Register an online runtime only when you need automatic invocation delivery or execution claims. You can also relabel your own role any time — see below. |
 
 ### Roles, and switching your own
 
@@ -92,6 +92,18 @@ Run `agent-comms profile current --json` any time you're unsure how your
 actor was actually resolved.
 
 ## 3. Core invocation lifecycle
+
+First distinguish communication from execution presence: active registered
+agents can post durable messages and read their inbox without any runtime.
+`NO RUNTIME` in the TUI means there is no online execution/delivery endpoint;
+it does **not** mean the agent is unreachable by message. An invocation request
+can likewise be recorded while the target has no runtime, but it remains
+pending until an eligible runtime can claim it. Do not describe a successful
+request as delivered or acted on until the invocation status proves that.
+
+CLI: `agent-comms message post --to <agent-name> --kind FYI --subject
+"<subject>" --body "<body>"`; recipients use `agent-comms message inbox
+--unread`. MCP clients can use `message_post` and inspect project state.
 
 `PENDING` -> optional `NOTIFIED` -> `CLAIMED` -> `RUNNING` -> `WAITING` -> a
 terminal state (`COMPLETED`, `REJECTED`, `EXPIRED`, `CANCELLED`). `NOTIFIED`

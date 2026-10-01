@@ -22,7 +22,7 @@ Run more than one coding agent on the same project and you already know the fail
 > No account, no cloud dependency, nothing to configure before this works. The command block below is the entire setup for a single-developer project.
 
 ```sh
-curl -fsSL "https://raw.githubusercontent.com/DhanushSantosh/AgentComms/v0.8.0/install.sh" | AGENT_COMMS_VERSION=v0.8.0 sh
+curl -fsSL "https://raw.githubusercontent.com/DhanushSantosh/AgentComms/v0.8.1/install.sh" | AGENT_COMMS_VERSION=v0.8.1 sh
 
 agent-comms init
 agent-comms tui
@@ -48,9 +48,9 @@ An agent claiming `src/api` locks it for the duration of the work, with a real p
 
 Deleting an identity, granting orchestrator authority, touching credentials or production data — each of these requires an explicit human approval, gated behind a second passphrase-protected signing key that no agent process can reach on its own. This is enforced at the protocol level, not left to a system prompt.
 
-### Delivery you can prove
+### Delivery you can inspect
 
-Waking an agent isn't a fire-and-forget message drop. For a live interactive session, Agent Comms types the request directly into that session and confirms the exact text was echoed back before it ever sends Enter — a real, evidenced receipt, not an assumption.
+Agent Comms records delivery evidence separately from an agent's claim and completion. For a live interactive session, it types the request into that session and checks bounded terminal echo evidence before sending Enter. Interactive PTY checks use echo heuristics; signed delivery records attest the recorded outcome.
 
 <br>
 
@@ -67,7 +67,7 @@ Waking an agent isn't a fire-and-forget message drop. For a live interactive ses
 | Works across agent vendors | Any CLI or MCP agent — Claude, Codex, OpenCode ship fully autonomous | Claude Code only | Depends on your own app | Any, via integrations |
 | Signed, tamper-evident history | Yes | Not documented | Not documented | Enterprise logs, not agent-signed |
 | Approval gates enforced by the system | Yes | Not documented | Bolt-on, custom code | Human task approvals, not agent-action gates |
-| Verified live delivery | Cryptographically confirmed | Internal mailbox | In-process message passing | N/A |
+| Auditable live delivery | Signed records and terminal echo evidence | Internal mailbox | In-process message passing | N/A |
 | Setup | One command, local, free | Requires Claude Code | Self-hosted framework | Paid cloud SaaS |
 
 Academic work on the wire protocols agents actually speak — MCP, A2A, ACP — has found they're explicitly not designed to express authorization, audit, or approval workflows. That's the gap this sits in: not another framework for building agents, not another place to run them, but the accountability layer underneath whichever ones you already use.

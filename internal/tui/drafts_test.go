@@ -43,7 +43,7 @@ func TestDraftSaveThroughGuidedForm(t *testing.T) {
 	if !found {
 		t.Fatalf("expected draft-review-notes among drafts: %+v", drafts)
 	}
-	rendered := view.draftsView(colors(false))
+	rendered := view.draftsView(colors())
 	if !strings.Contains(rendered, "draft-review-notes") {
 		t.Fatalf("drafts view missing draft-review-notes:\n%s", rendered)
 	}
@@ -71,7 +71,7 @@ func TestDraftDeleteConfirmsExactSelectedID(t *testing.T) {
 	if view.confirm == nil || !view.confirm.localDraft || view.confirm.id != selectedID {
 		t.Fatalf("confirmation must capture the selected ID exactly: %+v", view.confirm)
 	}
-	if rendered := view.renderConfirm(colors(false)); strings.Contains(rendered, "Signed change") || !strings.Contains(rendered, "Local draft deletion") {
+	if rendered := view.renderConfirm(colors()); strings.Contains(rendered, "Signed change") || !strings.Contains(rendered, "Local draft deletion") {
 		t.Fatalf("local confirmation describes a signed change: %s", rendered)
 	}
 	view = pressKey(t, view, keyText("n"))
@@ -132,7 +132,7 @@ func TestDraftMouseSelectionTargetsClickedRow(t *testing.T) {
 	clicked := 2
 	view = pressMsg(t, view, tea.MouseClickMsg{
 		X:      view.sidebarWidth() + 5,
-		Y:      view.bodyPrefixHeight(colors(false)) + 1 + clicked,
+		Y:      view.bodyPrefixHeight(colors()) + 1 + clicked,
 		Button: tea.MouseLeft,
 	})
 	if view.draftCursor != clicked {
@@ -159,8 +159,11 @@ func TestDraftRowsStaySingleLineAtNarrowWidths(t *testing.T) {
 		view.width = terminalWidth
 		view.openView("Drafts")
 		view = pressKey(t, view, keyEnter())
-		lines := strings.Split(view.draftsView(colors(view.highContrast)), "\n")
-		if len(lines) != len(view.drafts)+3 {
+		lines := strings.Split(view.draftsView(colors()), "\n")
+		// +1, not +3: the column header, and nothing else. The blank
+		// line and key footer draftsView used to append moved into the
+		// shared key bar at the foot of the pane (keyhints.go).
+		if len(lines) != len(view.drafts)+1 {
 			t.Fatalf("width %d: expected one physical line per draft, got %d lines: %q", terminalWidth, len(lines), lines)
 		}
 		for i, line := range lines {
@@ -170,7 +173,7 @@ func TestDraftRowsStaySingleLineAtNarrowWidths(t *testing.T) {
 		}
 		view = pressMsg(t, view, tea.MouseClickMsg{
 			X:      view.sidebarWidth() + 5,
-			Y:      view.bodyPrefixHeight(colors(view.highContrast)) + 2,
+			Y:      view.bodyPrefixHeight(colors()) + 2,
 			Button: tea.MouseLeft,
 		})
 		if view.draftCursor != 1 {

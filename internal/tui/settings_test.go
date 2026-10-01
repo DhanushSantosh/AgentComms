@@ -100,7 +100,7 @@ func TestSettingsSectionClickAndDoubleClick(t *testing.T) {
 		t.Fatal("expected entering Project settings to set settingsFocus")
 	}
 
-	p := colors(m.highContrast)
+	p := colors()
 	const wantDomain = 1 // "Agents & access"
 	var targetX, targetY int
 	found := false
@@ -154,16 +154,24 @@ func TestSettingsSectionClickAtNarrowWidths(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	// contentW = m.width - sidebarWidth(21) - 3 - 4 = 72 here, exactly
-	// domainWidth's floor boundary -- the width this bug lived at.
-	m.width, m.height = 100, 32
+	// contentW == 72 exactly: domainWidth's floor boundary, and the width
+	// this bug lived at. Derived from sidebarWidth rather than hardcoded
+	// as a terminal width -- pinning it to 100 meant the test silently
+	// stopped exercising the boundary (and then failed outright) the
+	// first time the sidebar's own width changed.
+	m.height = 32
+	for m.width = 60; m.contentWidth() < 72; m.width++ {
+	}
+	if got := m.contentWidth(); got != 72 {
+		t.Fatalf("this test needs contentW == 72 to hit the boundary, got %d", got)
+	}
 	for index, name := range views {
 		if name == "Project settings" {
 			m.view, m.cursor = index, index
 		}
 	}
 	m.focusCurrentView()
-	p := colors(m.highContrast)
+	p := colors()
 
 	for wantDomain := range settingsSections {
 		var targetX, targetY int
@@ -177,7 +185,7 @@ func TestSettingsSectionClickAtNarrowWidths(t *testing.T) {
 			}
 		}
 		if !found {
-			t.Fatalf("domain %d: could not find its clickable position at width 100", wantDomain)
+			t.Fatalf("domain %d: could not find its clickable position at %dx%d (contentW %d)", wantDomain, m.width, m.height, m.contentWidth())
 		}
 		clicked := pressMsg(t, m, click(targetX, targetY))
 		if clicked.settingsCursor != wantDomain {

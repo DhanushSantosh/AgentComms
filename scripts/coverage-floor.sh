@@ -64,8 +64,14 @@ declare -A FLOORS=(
   [github.com/DhanushSantosh/AgentComms/internal/worker]=45
 )
 
-output=$(go test -cover ./... 2>&1)
-echo "$output"
+if output=$(go test -cover ./... 2>&1); then
+  printf '%s\n' "$output"
+else
+  status=$?
+  printf '%s\n' "$output"
+  echo "::error::go test -cover ./... failed with exit code $status"
+  exit "$status"
+fi
 
 failed=0
 while IFS= read -r line; do

@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -80,7 +81,7 @@ var messagePostForm = &ActionForm{
 		}
 		if message.Kind == "CONTRACT" {
 			m.form, m.inputs, m.formSpec = "", nil, nil
-			m.confirm = &confirmState{prompt: "Publish a CONTRACT to " + strings.Join(message.To, ", ") + "? All named parties must accept before it is satisfied.", typ: "message.post", id: id, payload: message}
+			m.openConfirm(confirmState{prompt: "Publish a CONTRACT to " + strings.Join(message.To, ", ") + "? All named parties must accept before it is satisfied.", typ: "message.post", id: id, payload: message})
 			return m, nil
 		}
 		return m.dispatchEvent("message.post", id, message)
@@ -173,6 +174,18 @@ func (s messageRowSource) filteredIDs(st model.State, actor string) []string {
 			ids = append(ids, id)
 		}
 	}
+	// The overview's inbox-action count should lead directly to those rows,
+	// not to the oldest FYI in a large project. Within each group the
+	// generated time-sortable IDs put newer messages first; custom IDs have
+	// a deterministic fallback order.
+	sort.Slice(ids, func(i, j int) bool {
+		leftAction := len(messageActionsFor(st.Messages[ids[i]], actor)) > 0
+		rightAction := len(messageActionsFor(st.Messages[ids[j]], actor)) > 0
+		if leftAction != rightAction {
+			return leftAction
+		}
+		return ids[i] > ids[j]
+	})
 	return ids
 }
 func recipientStatus(m model.Message, actor string) string {

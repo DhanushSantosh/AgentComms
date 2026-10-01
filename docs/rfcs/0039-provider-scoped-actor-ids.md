@@ -7,8 +7,10 @@ claimed this status while only the grammar, its enforcement and the display
 work had shipped; codex-main's review of c6f04fe..2af2fb6 found four
 promised contract paths missing, and CI was green because none of them were
 exercised. All four are now implemented and tested: `--provider` with a
-derived default ID, display-name resolution, declarative adapters extending
-the provider set, and error suggestions that are themselves valid. Requested by the project owner; drafted by
+derived default ID, display-name resolution, and error suggestions that are
+themselves valid. (The fourth, declarative adapters extending the provider
+set, was implemented here and later removed as unworkable -- see
+Corrections.) Requested by the project owner; drafted by
 claude-main. Changes the public `agent register` contract, so it requires
 review before implementation.
 
@@ -51,10 +53,10 @@ rename.
 variants (`claude-acp`, `codex-live`) which are not separate providers, and
 a principal named `claude-acp-main` would be wrong.
 
-A project that registers a declarative adapter
-(`.agent-comms/adapters/<name>.json`) extends the accepted set with that
-name, so custom providers work without a code change — the same escape
-hatch the adapter system already provides.
+**The set is fixed at build time.** This originally said a declarative
+adapter would extend it. That was implemented, shipped, and then removed as
+unworkable — see "Corrections" below. Project-scoped custom providers are
+deferred; `docs/backlog.md` records why and what a real design needs.
 
 ### 3. `--provider` becomes the primary flag; `--id` becomes optional
 
@@ -105,8 +107,10 @@ should show the exact replacement rather than only stating a rule.
 
 `antigravity` is deliberately not in the starting provider list — its
 adapter was removed (see `docs/backlog.md`). The existing
-`antigravity-main` principal is grandfathered and keeps working; a project
-that wants to register new ones adds a declarative adapter by that name.
+`antigravity-main` principal is grandfathered and keeps working. There is
+no supported way to register new ones: the provider set is fixed at build
+time, and extending it per project is deferred (see Corrections and
+`docs/backlog.md`).
 
 ## Alternatives considered
 
@@ -139,7 +143,9 @@ signed by the principal's own key.
 - HUMAN principals keep free-form IDs; `dhanush` still registers.
 - `--id` omitted defaults to `<provider>`, then `<provider>-2` when taken.
 - A mismatched `--id` names both the given and the expected form.
-- Declarative adapter registration extends the accepted provider set.
+- Registering a declarative adapter does NOT extend the provider set: the
+  authority process never sees adapter files, so the CLI must not accept a
+  provider it would reject.
 - Replay: a projection of historical events containing a non-conforming
   registration still applies cleanly.
 - Resolution: display name resolves; ambiguous display name errors with
@@ -190,6 +196,39 @@ rename was applied to real fixtures:
 
 A naming rule that makes the primary UI unreadable is not finished, and
 this one is not finished until those are in — which they now are.
+
+## Corrections
+
+This RFC has been wrong twice about the same feature, recorded here rather
+than quietly edited.
+
+1. **"Accepted and implemented" while four contract paths did not exist**
+   (codex-main's review of c6f04fe..2af2fb6). CI was green because nothing
+   exercised them. Closed in 64cfdf9.
+2. **"A declarative adapter extends the provider set" was false end to
+   end**, even after the wiring was added. `RegisterDeclarativeAdapter`
+   called `model.RegisterProvider`, but adapters load in the CLI process
+   while agent IDs are validated in the authority process. Verified by
+   running it: with `.agent-comms/adapters/housecat.json` present, the CLI
+   accepted `--provider housecat` and the daemon rejected the resulting
+   command, reporting only the three built-ins.
+
+   The obvious repair — load adapters in the daemon too — was rejected. It
+   fixes personal mode only; a remote authority in team mode has no access
+   to the project's files, so the two modes would disagree about which
+   identities are registrable. It would also add a write to a package-level
+   map concurrent with the reads validation performs.
+
+   The deeper objection is that the shape was wrong for this project: a
+   local JSON file would silently widen which identities a *signed*
+   authority accepts. Provider extensibility, if wanted, belongs in signed
+   project state so every process reaches the same answer. Removed rather
+   than left as a claim that does not hold.
+
+Both were found by review and by running the thing, not by reading it. The
+grammar, the CLI surface, display-name resolution and the display work are
+implemented and tested; extensibility is not, and this RFC no longer claims
+it is.
 
 ## Unresolved questions
 

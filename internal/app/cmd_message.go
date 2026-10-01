@@ -295,3 +295,17 @@ func (c *cli) resolvePrincipals(references []string) ([]string, error) {
 	}
 	return resolved, nil
 }
+
+// resolvePrincipal is resolvePrincipals for a single reference. An empty
+// reference passes through untouched: several commands treat "" as "not
+// specified" and validate that themselves.
+func (c *cli) resolvePrincipal(reference string) (string, error) {
+	if strings.TrimSpace(reference) == "" {
+		return reference, nil
+	}
+	resolved, err := c.resolvePrincipals([]string{reference})
+	if err != nil {
+		return "", err
+	}
+	return resolved[0], nil
+}

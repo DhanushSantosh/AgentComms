@@ -59,9 +59,24 @@ func TestServiceConnectorHelperProcess(t *testing.T) {
 	if os.Getenv("SERVICE_CONNECTOR_HELPER") != "1" {
 		return
 	}
-	outcome, err := os.ReadFile(os.Getenv("SERVICE_CONNECTOR_OUTCOME"))
+	outcomePath := os.Getenv("SERVICE_CONNECTOR_OUTCOME")
+	outcome, err := os.ReadFile(outcomePath)
 	if err != nil {
 		os.Exit(2)
+	}
+	if strings.TrimSpace(string(outcome)) == "blocked-failure" {
+		if err := os.WriteFile(outcomePath+".started", []byte("ready"), 0o600); err != nil {
+			os.Exit(2)
+		}
+		// The connector's existing process timeout bounds this test-only gate.
+		for {
+			if _, err := os.Stat(outcomePath + ".release"); err == nil {
+				os.Exit(1)
+			} else if !os.IsNotExist(err) {
+				os.Exit(2)
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
 	}
 	if strings.TrimSpace(string(outcome)) == "failure" {
 		os.Exit(1)

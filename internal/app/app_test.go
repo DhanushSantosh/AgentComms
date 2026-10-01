@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/DhanushSantosh/AgentComms/internal/doctor"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -20,6 +21,7 @@ import (
 	"time"
 
 	"github.com/DhanushSantosh/AgentComms/internal/buildinfo"
+	"github.com/DhanushSantosh/AgentComms/internal/cliui"
 	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
 	"github.com/DhanushSantosh/AgentComms/internal/daemon"
 	"github.com/DhanushSantosh/AgentComms/internal/daemonclient"
@@ -394,7 +396,7 @@ func TestQuietSuppressesSuccessButNotWarnings(t *testing.T) {
 }
 
 func TestMain(testingMain *testing.M) {
-	launchDaemonProcess = func(_, projectRoot string, _ io.Writer) error {
+	launchDaemonProcess = func(_, projectRoot string, output io.Writer) error {
 		projectStore := store.Open(projectRoot)
 		config, err := projectStore.Config()
 		if err != nil {
@@ -406,22 +408,28 @@ func TestMain(testingMain *testing.M) {
 		if err != nil {
 			return err
 		}
+		// ensureDaemon closes its writer as soon as launch returns. Unlike a
+		// real subprocess, this goroutine does not inherit a separate handle.
+		// Reopen it now and keep the child-owned handle until Run exits.
+		parentLog, ok := output.(*os.File)
+		if !ok {
+			return errors.New("test daemon launcher requires a file log")
+		}
+		childLog, err := os.OpenFile(parentLog.Name(), os.O_APPEND|os.O_WRONLY, 0o600)
+		if err != nil {
+			return err
+		}
+		// Capture environment-dependent configuration before starting the
+		// goroutine, just as exec.Start captures a subprocess's environment.
+		runConfig := serveRunConfig(projectRoot, config, runtimeinit.ProjectionPath(projectRoot), credential.PrivateKey)
 		done := make(chan struct{})
 		testDaemonRuns.Store(projectRoot, done)
 		go func() {
 			defer close(done)
-			_ = daemon.Run(context.Background(), daemon.RunConfig{
-				ServicePublicKey: config.ServicePublicKey,
-				CachePath:        runtimeinit.ProjectionPath(projectRoot), Endpoint: config.DaemonEndpoint,
-				RuntimeMode: "personal", PersonalDatabase: runtimeinit.DatabasePath(projectRoot),
-				ServicePrivateKey: credential.PrivateKey, ProjectID: config.ProjectID,
-				ProductVersion: Version, BuildID: buildinfo.ResolvedBuildID(),
-				ProjectFormatVersion: store.ProjectFormatVersion,
-				CacheSchemaVersion:   projectlifecycle.ProjectionCacheSchemaVersion,
-				DraftSchemaVersion:   projectlifecycle.DraftStoreSchemaVersion,
-				ProjectRoot:          projectRoot,
-				ConnectorConfigPath:  os.Getenv("AGENT_COMMS_CONNECTOR_CONFIG"),
-			})
+			defer childLog.Close()
+			if runErr := daemon.Run(context.Background(), runConfig); runErr != nil {
+				_, _ = fmt.Fprintf(childLog, "daemon.Run failed: %v\n", runErr)
+			}
 		}()
 		return nil
 	}
@@ -429,6 +437,25 @@ func TestMain(testingMain *testing.M) {
 }
 
 var testDaemonRuns sync.Map // project root -> daemon.Run completion channel
+
+// testDaemonShutdownBudget is how long cleanup waits for the test daemon
+// to finish and release its SQLite files before t.TempDir() tries to
+// delete them. Windows gets four times as long, and not as a guess: the
+// same filesystem-heavy work this package does runs about two orders of
+// magnitude slower on windows-latest than locally (measured earlier in
+// this repo: a 0.18s test at 9.32s, a 0.7s package at 68s), and on
+// Windows a still-open handle makes RemoveAll fail outright rather than
+// unlinking the file underneath the holder as POSIX does. 15s was
+// calibrated on a fast machine and produced exactly that failure --
+// "test daemon did not release its database before tempdir cleanup"
+// followed by a RemoveAll sharing violation -- on three different tests
+// across two CI runs.
+func testDaemonShutdownBudget() time.Duration {
+	if runtime.GOOS == "windows" {
+		return 60 * time.Second
+	}
+	return 15 * time.Second
+}
 
 func cleanupProjectDaemon(t *testing.T, projectRoot string) {
 	t.Helper()
@@ -454,7 +481,7 @@ func cleanupProjectDaemon(t *testing.T, projectRoot string) {
 			t.Errorf("prepare daemon cleanup: %v", err)
 			return
 		}
-		deadline := time.Now().Add(15 * time.Second)
+		deadline := time.Now().Add(testDaemonShutdownBudget())
 		for time.Now().Before(deadline) {
 			select {
 			case <-done:
@@ -470,7 +497,9 @@ func cleanupProjectDaemon(t *testing.T, projectRoot string) {
 			case <-time.After(50 * time.Millisecond):
 			}
 		}
-		t.Error("test daemon did not release its database before tempdir cleanup")
+		stacks := make([]byte, 128*1024)
+		n := runtime.Stack(stacks, true)
+		t.Errorf("test daemon did not release its database before tempdir cleanup; goroutines at shutdown deadline:\n%s", stacks[:n])
 	})
 }
 
@@ -868,7 +897,11 @@ func testEnsureDaemonReplacesIncompatibleDaemon(t *testing.T, startupDelay time.
 	if err = ensureDaemon(root, config); err != nil {
 		t.Fatal(err)
 	}
-	freshHealth, err := client.Health(context.Background())
+	// The fixture-start loop may use short retryable probes, but this final
+	// one-shot compatibility assertion needs the same request budget as the
+	// production readiness probe. The old 300ms client falsely failed after
+	// ensureDaemon had already observed a healthy replacement under load.
+	freshHealth, err := replacementDaemonHealth(config.DaemonEndpoint)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -878,6 +911,14 @@ func testEnsureDaemonReplacesIncompatibleDaemon(t *testing.T, startupDelay time.
 	if freshHealth.ProductVersion != Version {
 		t.Fatalf("expected the replacement daemon to report the current product version, got: %+v", freshHealth)
 	}
+}
+
+func replacementDaemonHealth(endpoint string) (daemonclient.Health, error) {
+	client, err := daemonclient.New(endpoint, daemonHealthRequestTimeout)
+	if err != nil {
+		return daemonclient.Health{}, err
+	}
+	return client.Health(context.Background())
 }
 
 // The health-probe timeout is shared by the initial compatibility check and
@@ -902,22 +943,7 @@ func TestEnsureDaemonReusesSlowHealthyDaemon(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/health/live" {
-			http.NotFound(w, r)
-			return
-		}
-		time.Sleep(600 * time.Millisecond)
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(daemonclient.Health{
-			Status: "live", RuntimeMode: config.RuntimeMode, ProjectID: config.ProjectID,
-			ProtocolVersion: controlplane.LocalDaemonProtocolVersion,
-			ProductVersion:  Version, BuildID: buildinfo.ResolvedBuildID(),
-			ProjectFormatVersion: store.ProjectFormatVersion,
-			CacheSchemaVersion:   projectlifecycle.ProjectionCacheSchemaVersion,
-			DraftSchemaVersion:   projectlifecycle.DraftStoreSchemaVersion,
-		})
-	})}
+	server := &http.Server{Handler: slowHealthyDaemonHandler(config, buildinfo.ResolvedBuildID)}
 	go func() { _ = server.Serve(listener) }()
 	t.Cleanup(func() { _ = server.Close() })
 
@@ -930,6 +956,30 @@ func TestEnsureDaemonReusesSlowHealthyDaemon(t *testing.T) {
 	if err := ensureDaemon(root, config); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func slowHealthyDaemonHandler(config store.Config, resolveBuildID func() string) http.Handler {
+	// daemon.Run resolves compatibility once, before serving. The fallback
+	// resolver hashes the test executable; doing that inside every health
+	// request added 4.057s under measured Windows load to the intended 600ms
+	// delay and falsely made a healthy fixture exceed the 3s probe budget.
+	buildID := resolveBuildID()
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/health/live" {
+			http.NotFound(w, r)
+			return
+		}
+		time.Sleep(600 * time.Millisecond)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(daemonclient.Health{
+			Status: "live", RuntimeMode: config.RuntimeMode, ProjectID: config.ProjectID,
+			ProtocolVersion: controlplane.LocalDaemonProtocolVersion,
+			ProductVersion:  Version, BuildID: buildID,
+			ProjectFormatVersion: store.ProjectFormatVersion,
+			CacheSchemaVersion:   projectlifecycle.ProjectionCacheSchemaVersion,
+			DraftSchemaVersion:   projectlifecycle.DraftStoreSchemaVersion,
+		})
+	})
 }
 
 // TestHandoffProjectUpgradePropagatesChildErrorCode guards finding 7's
@@ -2443,5 +2493,257 @@ func TestAgentRegisterDerivesTheIDFromTheProvider(t *testing.T) {
 		t.Fatal("registering an AGENT with neither --id nor --provider must be refused")
 	} else if !strings.Contains(err.Error(), "--provider") {
 		t.Errorf("the error should ask for --provider, got: %v", err)
+	}
+}
+
+// doctor should repair what it can rather than only naming it. The case
+// this exists for: `update` reconciles known projects with the pre-update
+// binary, so a project that already requires the newer toolkit is skipped
+// and left with managed files unreconciled.
+func TestDoctorFixRepairsManagedFilesAndLeavesJudgementCallsAlone(t *testing.T) {
+	project := t.TempDir()
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
+	cleanupProjectDaemon(t, project)
+	var stdout, stderr bytes.Buffer
+	run := func(args ...string) error {
+		stdout.Reset()
+		stderr.Reset()
+		return Run(append(args, "--project", project, "--json"), &stdout, &stderr)
+	}
+	if err := run("init", "--non-interactive", "--owner", "owner"); err != nil {
+		t.Fatal(err)
+	}
+
+	instructions := filepath.Join(project, ".agent-comms", "AGENT_INSTRUCTIONS.md")
+	if err := os.Remove(instructions); err != nil {
+		t.Fatal(err)
+	}
+
+	// Without --fix, doctor reports the finding AND that it is repairable,
+	// so the reader does not have to discover the flag.
+	if err := run("doctor"); err != nil {
+		t.Fatalf("doctor: %v (%s)", err, stderr.String())
+	}
+	before := stdout.String()
+	if !strings.Contains(before, "AGENT_INSTRUCTIONS_MISSING") {
+		t.Fatalf("expected the missing-instructions finding:\n%s", before)
+	}
+	if !strings.Contains(before, `"fixable"`) {
+		t.Fatalf("doctor should report how many findings are repairable:\n%s", before)
+	}
+
+	// With --fix, it repairs and the file comes back.
+	if err := run("doctor", "--fix"); err != nil {
+		t.Fatalf("doctor --fix: %v (%s)", err, stderr.String())
+	}
+	after := stdout.String()
+	if _, statErr := os.Stat(instructions); statErr != nil {
+		t.Fatalf("--fix should have restored %s: %v", instructions, statErr)
+	}
+	if strings.Contains(after, "AGENT_INSTRUCTIONS_MISSING") {
+		t.Errorf("the repaired finding should be gone from the post-fix report:\n%s", after)
+	}
+	if !strings.Contains(after, `"fixed"`) {
+		t.Errorf("--fix should report what it did:\n%s", after)
+	}
+	// NO_ELEVATED_KEY needs a passphrase only the owner has. doctor must
+	// not pretend it can fix that, before or after --fix.
+	if !strings.Contains(after, "NO_ELEVATED_KEY") {
+		t.Errorf("a judgement-call finding must survive --fix:\n%s", after)
+	}
+}
+
+// Every code doctor advertises as repairable must actually be one the
+// remediation addresses; a Fix string on a finding nothing repairs would
+// promise a repair that never happens.
+func TestDoctorAdvertisesRepairOnlyForCodesItCanActuallyRepair(t *testing.T) {
+	for code, fix := range doctor.FixableCodes {
+		if strings.TrimSpace(fix) == "" {
+			t.Errorf("%s is listed as fixable with an empty description", code)
+		}
+	}
+	for _, judgement := range []string{
+		"STALE_LEASE", "NO_ELEVATED_KEY", "TEST_LIKE_RUNTIME",
+		"CONNECTOR_CONFIG_INVALID", "RUNTIME_CONFIG_INVALID",
+		"REVOKED_AGENT_HAS_OPEN_WORK", "RUNTIME_SCHEMA_MISMATCH",
+	} {
+		if _, claimed := doctor.FixableCodes[judgement]; claimed {
+			t.Errorf("%s needs a human decision and must not be advertised as auto-repairable", judgement)
+		}
+	}
+}
+
+// Five consecutive Windows CI failures reported "local daemon did not
+// become ready ... inspect <path>/daemon.log" and produced no evidence,
+// because the runner is destroyed with the log still on it. The failure has
+// to carry the daemon's own last words, not a path to them.
+func TestTailFileCarriesTheEvidenceRatherThanAPathToIt(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "daemon.log")
+
+	if got := tailFile(filepath.Join(dir, "absent.log"), 2048); got != "" {
+		t.Errorf("a missing file must yield nothing, got %q", got)
+	}
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := tailFile(path, 2048); got != "" {
+		t.Errorf("an empty file must yield nothing, got %q", got)
+	}
+
+	if err := os.WriteFile(path, []byte("first line\nsecond line\nlast line\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := tailFile(path, 2048)
+	if !strings.Contains(got, "last line") {
+		t.Errorf("the tail must include the final line, got %q", got)
+	}
+	if strings.HasSuffix(got, "\n") {
+		t.Errorf("trailing newline should be trimmed, got %q", got)
+	}
+
+	// Over the cap: keep the end, and never start mid-line, which reads as
+	// corruption in an error message.
+	var big strings.Builder
+	for i := range 500 {
+		fmt.Fprintf(&big, "line %03d padded out to make this comfortably long\n", i)
+	}
+	if err := os.WriteFile(path, []byte(big.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got = tailFile(path, 256)
+	if !strings.Contains(got, "line 499") {
+		t.Errorf("must keep the end of a large log, got %q", got)
+	}
+	if len(got) > 256 {
+		t.Errorf("must respect the cap, got %d bytes", len(got))
+	}
+	if !strings.HasPrefix(got, "line ") {
+		t.Errorf("must not begin mid-line, got %q", got)
+	}
+}
+
+// TestDoctorFixReportsAFailedAttemptAsOne: "nothing to repair" is only
+// honest when nothing was attempted. `doctor --fix` printed it directly
+// above "Could not repair: ...", so the line a reader takes at face
+// value said there had been nothing wrong -- which is exactly how a
+// blocked repair got reported as a silent no-op.
+func TestDoctorFixReportsAFailedAttemptAsOne(t *testing.T) {
+	value := func(fields []cliui.Field, label string) string {
+		for _, field := range fields {
+			if field.Label == label {
+				return field.Value
+			}
+		}
+		return ""
+	}
+	if got := value(doctorFixFields(true, nil, nil, 0), "Repaired"); got != "nothing to repair" {
+		t.Errorf("with nothing attempted: got %q", got)
+	}
+	if got := value(doctorFixFields(true, []string{"reconciled the project lifecycle (1 action(s))"}, nil, 0), "Repaired"); got != "reconciled the project lifecycle (1 action(s))" {
+		t.Errorf("with a repair done: got %q", got)
+	}
+	failed := doctorFixFields(true, nil, []string{"project lifecycle is locked by another process"}, 1)
+	if got := value(failed, "Repaired"); strings.Contains(got, "nothing to repair") {
+		t.Errorf("with an attempt that failed, the report must not read as nothing having been wrong: %q", got)
+	}
+	if got := value(failed, "Could not repair"); got == "" {
+		t.Error("a failed attempt must still name its reason")
+	}
+}
+
+// TestLifecycleConflictOutcomeReadsTheResultRatherThanTheError: another
+// process holding the upgrade lock is, in practice, that process running
+// this very reconciliation -- usually a daemon that started against a
+// project whose recorded build ID just changed. Whether that is a
+// failure depends entirely on what the findings look like afterwards.
+func TestLifecycleConflictOutcomeReadsTheResultRatherThanTheError(t *testing.T) {
+	err := &projectlifecycle.Error{Code: projectlifecycle.CodeConflict, Message: "project lifecycle is locked by another process"}
+
+	repaired, failed := lifecycleConflictOutcome(err, false)
+	if failed != "" {
+		t.Errorf("no lifecycle finding left; that is not a failure: %q", failed)
+	}
+	if !strings.Contains(repaired, "another process") {
+		t.Errorf("it should credit the run that actually did the work, got %q", repaired)
+	}
+
+	repaired, failed = lifecycleConflictOutcome(err, true)
+	if repaired != "" {
+		t.Errorf("the lifecycle finding survived, so nothing was repaired: %q", repaired)
+	}
+	if !strings.Contains(failed, "re-run") {
+		t.Errorf("the reader's next move is to wait and re-run; say so: %q", failed)
+	}
+}
+
+// TestLifecycleUnresolvedJudgesTheLifecycleFindingsOnly is the
+// regression test for what codex-main caught in 4661488: the conflict
+// outcome was decided by the change in TOTAL finding count, so an
+// unrelated finding clearing between two calls a second apart -- a
+// stale lease expiring, a runtime going offline -- would have credited
+// the lock holder with a reconciliation that never happened.
+func TestLifecycleUnresolvedJudgesTheLifecycleFindingsOnly(t *testing.T) {
+	if lifecycleUnresolved(nil) {
+		t.Error("no findings means no lifecycle problem")
+	}
+	unrelated := []doctor.Finding{
+		{Code: "STALE_LEASE"}, {Code: "NO_ELEVATED_KEY"}, {Code: "TEST_LIKE_RUNTIME"},
+	}
+	if lifecycleUnresolved(unrelated) {
+		t.Error("findings that the lifecycle reconciliation does not repair must not count as one")
+	}
+	for _, code := range []string{"PROJECT_UPGRADE_AVAILABLE", "PROJECT_LIFECYCLE_INVALID"} {
+		if !lifecycleUnresolved(append(unrelated, doctor.Finding{Code: code})) {
+			t.Errorf("%s is exactly what the blocked reconciliation would have fixed", code)
+		}
+	}
+}
+
+func TestLifecycleFindingsUseOneClassification(t *testing.T) {
+	if got := lifecycleFindings(projectlifecycle.Plan{}, nil); len(got) != 0 {
+		t.Fatalf("healthy lifecycle: got findings %+v", got)
+	}
+	invalid := lifecycleFindings(projectlifecycle.Plan{}, errors.New("invalid project"))
+	if len(invalid) != 1 || invalid[0].Code != "PROJECT_LIFECYCLE_INVALID" || !invalid[0].Fixable() {
+		t.Fatalf("invalid lifecycle: got findings %+v", invalid)
+	}
+	upgrade := lifecycleFindings(projectlifecycle.Plan{Interrupted: true}, nil)
+	if len(upgrade) != 1 || upgrade[0].Code != "PROJECT_UPGRADE_AVAILABLE" || !upgrade[0].Fixable() {
+		t.Fatalf("interrupted lifecycle: got findings %+v", upgrade)
+	}
+}
+
+func TestConflictDoesNotCreditUnrelatedClearedFindings(t *testing.T) {
+	before := []doctor.Finding{{Code: "PROJECT_UPGRADE_AVAILABLE", Fix: "reconcile"}, {Code: "STALE_LEASE"}}
+	if got := clearedFindingSummary(before, before[:1], false); got != "" {
+		t.Fatalf("a lock conflict did not repair the stale lease: %q", got)
+	}
+	if got := clearedFindingSummary(before, before[:1], true); got != "" {
+		t.Fatalf("an unrelated stale lease clearing is not a lifecycle repair: %q", got)
+	}
+	if got := clearedFindingSummary(before, before[1:], true); got != "cleared 1 finding(s)" {
+		t.Fatalf("a completed reconciliation should report the fixable finding it cleared: %q", got)
+	}
+}
+
+// TestIsLifecycleConflictOnlyMatchesTheLock guards the widening that
+// would make every lifecycle failure look like a transient one worth
+// re-inspecting past.
+func TestIsLifecycleConflictOnlyMatchesTheLock(t *testing.T) {
+	if !isLifecycleConflict(&projectlifecycle.Error{Code: projectlifecycle.CodeConflict, Message: "locked"}) {
+		t.Error("a CONFLICT is the lock")
+	}
+	for _, other := range []projectlifecycle.ErrorCode{
+		projectlifecycle.CodeUpgradeFailed, projectlifecycle.CodeUpgradeRequired,
+		projectlifecycle.CodeProjectTooNew, projectlifecycle.CodeNotAProject,
+	} {
+		if isLifecycleConflict(&projectlifecycle.Error{Code: other, Message: "x"}) {
+			t.Errorf("%s is a real failure, not a lock contention", other)
+		}
+	}
+	if isLifecycleConflict(nil) || isLifecycleConflict(errors.New("boom")) {
+		t.Error("only the lifecycle package's own CONFLICT counts")
 	}
 }

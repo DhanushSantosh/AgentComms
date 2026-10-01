@@ -1,12 +1,14 @@
 package tui
 
 import (
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 )
 
@@ -26,8 +28,8 @@ func TestControlRoomRendersWorkforceAndOperationalViews(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, expected := range []string{
-		"AGENT WORKFORCE", "Command", "Work", "Team", "Relay", "Project",
-		"inv-control", "Overview", "My work", "LIVE ACTIVITY",
+		"TEAM", "Command", "Work", "Team", "Relay", "Project",
+		"inv-control", "Overview", "My work", "RECENT EVENTS",
 	} {
 		if !strings.Contains(rendered, expected) {
 			t.Errorf("control room missing %q", expected)
@@ -62,12 +64,28 @@ func TestWorkforceSignalIsStableAcrossMultipleRuntimeRecords(t *testing.T) {
 			},
 		},
 	}
-	p := colors(false)
+	p := colors()
 	for i := 0; i < 50; i++ {
 		out := m.workforce(p, 100)
 		if !strings.Contains(out, "ONLINE") || strings.Contains(out, "REVOKED") {
 			t.Fatalf("iteration %d: expected a stable ONLINE signal for HENRY, got:\n%s", i, out)
 		}
+	}
+}
+
+func TestWorkforceShowsAvailableRuntimeWhenNewerRecordIsOffline(t *testing.T) {
+	older := time.Now().Add(-time.Hour)
+	newer := time.Now()
+	m := Model{state: model.State{
+		Agents: map[string]model.Agent{"reviewer": {ID: "reviewer", Status: "ACTIVE", PrincipalType: model.PrincipalAgent}},
+		AgentRuntimes: map[string]model.AgentRuntime{
+			"working": {ID: "working", AgentID: "reviewer", Status: "ONLINE", Health: "HEALTHY", LastSeenAt: older},
+			"unused":  {ID: "unused", AgentID: "reviewer", Status: "OFFLINE", LastSeenAt: newer},
+		},
+	}}
+	out := m.workforce(colors(), 100)
+	if !strings.Contains(out, "ONLINE") || strings.Contains(out, "OFFLINE") {
+		t.Fatalf("an available runtime should win over a newer inactive record:\n%s", out)
 	}
 }
 
@@ -84,9 +102,99 @@ func TestWorkforceFallsBackToAgentIDWhenDisplayNameIsBlank(t *testing.T) {
 			},
 		},
 	}
-	out := m.workforce(colors(false), 100)
+	out := m.workforce(colors(), 100)
 	if !strings.Contains(out, "claude-peter") {
 		t.Fatalf("expected the blank-display-name agent to fall back to its ID %q, got:\n%s", "claude-peter", out)
+	}
+}
+
+func TestOverviewDoesNotConflateMessagingAndRuntimePresence(t *testing.T) {
+	m := Model{state: model.State{
+		Agents: map[string]model.Agent{
+			"reviewer": {ID: "reviewer", DisplayName: "Reviewer", Status: "ACTIVE", PrincipalType: model.PrincipalAgent},
+		},
+		AgentRuntimes: map[string]model.AgentRuntime{},
+	}}
+	out := m.workforce(colors(), 100)
+	for _, want := range []string{"MESSAGES", "RUNTIME", "READY", "NO RUNTIME", "messages and requests still work"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("workforce should show %q without an execution runtime:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "OFFLINE") {
+		t.Fatalf("runtime absence must not label the agent offline:\n%s", out)
+	}
+}
+
+func TestAttentionExcludesCompletedTaskLeases(t *testing.T) {
+	soon := time.Now().Add(20 * time.Minute)
+	m := Model{state: model.State{Tasks: map[string]model.Task{
+		"done": {ID: "done", Title: "done", Status: "COMPLETED", LeaseUntil: soon},
+		"open": {ID: "open", Title: "open", Status: "IN_PROGRESS", LeaseUntil: soon},
+	}}}
+	out := m.attention(colors())
+	if strings.Contains(out, "done") || !strings.Contains(out, "open") {
+		t.Fatalf("attention should include only live task leases:\n%s", out)
+	}
+}
+
+func TestAttentionExcludesRevokedRuntimeHistory(t *testing.T) {
+	m := Model{state: model.State{AgentRuntimes: map[string]model.AgentRuntime{
+		"revoked": {ID: "revoked", Status: "REVOKED", Health: "DEGRADED"},
+		"active":  {ID: "active", Status: "ONLINE", Health: "DEGRADED"},
+	}}}
+	out := m.attention(colors())
+	if strings.Contains(out, "revoked") || !strings.Contains(out, "active") {
+		t.Fatalf("only active degraded runtime should need attention:\n%s", out)
+	}
+}
+
+func TestAttentionIncludesActorsMessageObligations(t *testing.T) {
+	m := Model{actor: "reviewer", state: model.State{Messages: map[string]model.Message{
+		"action": {ID: "action", Kind: "ACTION", Subject: "Review changes", Recipients: []model.RecipientState{{Principal: "reviewer", Status: "PENDING"}}},
+		"fyi":    {ID: "fyi", Kind: "FYI", Subject: "FYI only", Recipients: []model.RecipientState{{Principal: "reviewer", Status: "PENDING"}}},
+		"other":  {ID: "other", Kind: "ACTION", Subject: "Other actor", Recipients: []model.RecipientState{{Principal: "owner", Status: "PENDING"}}},
+	}}}
+	out := m.attention(colors())
+	if !strings.Contains(out, "Review changes") || strings.Contains(out, "FYI only") || strings.Contains(out, "Other actor") {
+		t.Fatalf("attention must show only this actor's actionable messages:\n%s", out)
+	}
+}
+
+func TestAttentionPreviewIsBoundedAndShowsRemainingCount(t *testing.T) {
+	messages := map[string]model.Message{}
+	for i := 0; i < 8; i++ {
+		id := fmt.Sprintf("msg-%02d", i)
+		messages[id] = model.Message{ID: id, Kind: "ACTION", Subject: "Review a long item " + id,
+			Recipients: []model.RecipientState{{Principal: "reviewer", Status: "PENDING"}}}
+	}
+	m := Model{actor: "reviewer", state: model.State{Messages: messages}}
+	preview := m.attentionPreview(colors(), 32)
+	if got := len(strings.Split(preview, "\n")); got != 4 {
+		t.Fatalf("preview uses %d lines, want three items plus count:\n%s", got, preview)
+	}
+	if !strings.Contains(preview, "+5 more") {
+		t.Fatalf("preview hides remaining obligations without a count:\n%s", preview)
+	}
+	for _, line := range strings.Split(preview, "\n") {
+		if got := lipgloss.Width(line); got > 32 {
+			t.Fatalf("attention row occupies %d columns, want <= 32: %q", got, line)
+		}
+	}
+}
+
+func TestOverviewInboxShortcutOpensActionableDetail(t *testing.T) {
+	s := newTestService(t)
+	m, err := New(s, "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m = pressKey(t, m, keyText("m"))
+	if got := views[m.view]; got != "Inbox" {
+		t.Fatalf("overview inbox shortcut opened %q", got)
+	}
+	if !m.rowFocus {
+		t.Fatal("inbox shortcut should focus the actionable row immediately")
 	}
 }
 

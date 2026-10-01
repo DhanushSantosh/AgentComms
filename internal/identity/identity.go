@@ -389,7 +389,6 @@ type UserConfig struct {
 	ActiveProfileBySession map[string]SessionProfile `json:"active_profile_by_session,omitempty"`
 	UpdateChannel          string                    `json:"update_channel"`
 	CheckUpdates           bool                      `json:"check_updates"`
-	Theme                  string                    `json:"theme"`
 	Profiles               map[string]Profile        `json:"profiles"`
 }
 
@@ -601,7 +600,7 @@ func LoadUserConfig() (UserConfig, error) {
 	}
 	b, e := os.ReadFile(filepath.Join(d, "config.json"))
 	if os.IsNotExist(e) {
-		return UserConfig{UpdateChannel: "stable", Theme: "auto", Profiles: map[string]Profile{}}, nil
+		return UserConfig{UpdateChannel: "stable", Profiles: map[string]Profile{}}, nil
 	}
 	if e != nil {
 		return UserConfig{}, e

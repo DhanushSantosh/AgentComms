@@ -43,7 +43,12 @@ func (c *cli) taskCmd() *cobra.Command {
 	var offerTTL time.Duration
 	offer := &cobra.Command{Use: "offer", Short: "Offer a task to another principal", RunE: func(cmd *cobra.Command, args []string) error {
 		id, _ := cmd.Flags().GetString("id")
-		v, e := c.svc.Execute(c.actor, "task.offer", id, model.TaskOffered{To: to, ExpiresAt: time.Now().UTC().Add(offerTTL)})
+		// RFC 0039 section 4: a principal may be named by display name.
+		resolvedTo, resolveErr := c.resolvePrincipal(to)
+		if resolveErr != nil {
+			return resolveErr
+		}
+		v, e := c.svc.Execute(c.actor, "task.offer", id, model.TaskOffered{To: resolvedTo, ExpiresAt: time.Now().UTC().Add(offerTTL)})
 		if e != nil {
 			return e
 		}
@@ -119,10 +124,18 @@ func (c *cli) taskCmd() *cobra.Command {
 		id, _ := cmd.Flags().GetString("id")
 		accept, _ := cmd.Flags().GetBool("accept")
 		typ := "task.handoff"
-		var p any = model.TaskHandoff{To: handTo, Summary: handSummary}
+		var p any
 		if accept {
+			// --accept ignores --to entirely, so resolving it here would
+			// let an irrelevant bad name reject a valid acceptance.
 			typ = "task.handoff.accept"
 			p = model.TaskStatus{Summary: handSummary}
+		} else {
+			resolvedHandTo, resolveErr := c.resolvePrincipal(handTo)
+			if resolveErr != nil {
+				return resolveErr
+			}
+			p = model.TaskHandoff{To: resolvedHandTo, Summary: handSummary}
 		}
 		v, e := c.svc.Execute(c.actor, typ, id, p)
 		if e != nil {

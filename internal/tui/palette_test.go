@@ -1,11 +1,13 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // TestPaletteOpenedFromRowFocusDoesNotLeakKeystrokes is the regression
@@ -115,22 +117,68 @@ func TestPaletteEnterAppliesExactlyTheHighlightedMatch(t *testing.T) {
 	}
 }
 
-// TestPaletteEnterOnEmptyQueryIsANoOp preserves the original behavior: an
-// accidental Enter before typing anything must never silently apply
-// whatever paletteMatches() lists first for an empty filter.
-func TestPaletteEnterOnEmptyQueryIsANoOp(t *testing.T) {
+// TestPaletteEnterAppliesTheSelectionWithNoQueryTyped is the regression
+// test for the state this replaced: Enter did nothing at all while the
+// query was empty. That was defensible when an empty filter meant six
+// arbitrary rows, but an empty query now lists every command on purpose,
+// with the selection marked "›" and ↑/↓ moving it -- the palette was
+// inviting a choice and then refusing to act on it. Confirmed live: the
+// list scrolled fine and nothing could be selected.
+func TestPaletteEnterAppliesTheSelectionWithNoQueryTyped(t *testing.T) {
 	s := newTestService(t)
 	m, err := New(s, "owner")
 	if err != nil {
 		t.Fatal(err)
 	}
+	m.width, m.height = 120, 40
 	m.palette = true
-	m = pressKey(t, m, tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
-	if !m.palette {
-		t.Fatal("expected Enter on an empty query to leave the palette open, not apply a match")
+	// Third row down, chosen the way a user does: by scrolling to it.
+	for i := 0; i < 2; i++ {
+		m = pressKey(t, m, tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
 	}
-	if m.form != "" {
-		t.Fatalf("expected no form to open, got %q", m.form)
+	want := m.paletteMatches()[m.paletteSelectedIndex()].label
+	if want != "new message" {
+		t.Fatalf("expected the third command to be %q, got %q", "new message", want)
+	}
+	m = pressKey(t, m, tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	if m.palette {
+		t.Fatal("expected Enter to apply the selection and close the palette")
+	}
+	if m.form != "message.post" {
+		t.Fatalf("expected the selected command to run, got form=%q", m.form)
+	}
+}
+
+// TestPaletteEnterOpensASelectedView covers the other half of the list:
+// a bare view name navigates and focuses, rather than opening a form.
+func TestPaletteEnterOpensASelectedView(t *testing.T) {
+	s := newTestService(t)
+	m, err := New(s, "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.width, m.height = 120, 40
+	m.palette = true
+	matches := m.paletteMatches()
+	target := -1
+	for i, match := range matches {
+		if match.label == "Contracts & decisions" {
+			target = i
+			break
+		}
+	}
+	if target < 0 {
+		t.Fatal("expected the view list to include Contracts & decisions")
+	}
+	for i := 0; i < target; i++ {
+		m = pressKey(t, m, tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
+	}
+	m = pressKey(t, m, tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	if m.palette {
+		t.Fatal("expected Enter to close the palette")
+	}
+	if views[m.view] != "Contracts & decisions" {
+		t.Fatalf("expected to land on Contracts & decisions, got %q", views[m.view])
 	}
 }
 
@@ -149,7 +197,7 @@ func TestPaletteMatchClickAppliesIt(t *testing.T) {
 	}
 	m.width, m.height = 120, 30
 	m.palette = true
-	p := colors(m.highContrast)
+	p := colors()
 	panel, matchLine := m.paletteLayout(p)
 	if len(matchLine) == 0 {
 		t.Fatal("expected at least one match for an empty query")
@@ -162,6 +210,28 @@ func TestPaletteMatchClickAppliesIt(t *testing.T) {
 	}
 	if m.form != "task.create" {
 		t.Fatalf("expected clicking the first match (new task) to open its form, got form=%q", m.form)
+	}
+}
+
+func TestPaletteMatchCoordinatesPointToVisibleRowsAtAllSizes(t *testing.T) {
+	s := newTestService(t)
+	m, err := New(s, "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.palette = true
+	for _, size := range [][2]int{{120, 30}, {40, 14}, {30, 12}} {
+		m.width, m.height = size[0], size[1]
+		panel, lines := m.paletteLayout(colors())
+		physical := strings.Split(panel, "\n")
+		for index, line := range lines {
+			if line < 0 {
+				continue
+			}
+			if line >= len(physical) || !strings.Contains(ansi.Strip(physical[line]), m.paletteMatches()[index].label) && !strings.Contains(ansi.Strip(physical[line]), "…") {
+				t.Fatalf("%dx%d match %d points to nonmatch physical line %d", m.width, m.height, index, line)
+			}
+		}
 	}
 }
 
@@ -182,7 +252,7 @@ func TestPaletteClickElsewhereClosesItAndNavigates(t *testing.T) {
 	m.width, m.height = 120, 30
 	m.palette = true
 	m.query = "something nothing on screen matches"
-	p := colors(m.highContrast)
+	p := colors()
 	_, paneH, _, _ := m.bodyLayout(p)
 	_, hubLine := m.renderSidebar(p, m.sidebarWidth(), paneH)
 	if len(hubLine) == 0 {
@@ -271,5 +341,128 @@ func TestPaletteAcceptsUnicodeInput(t *testing.T) {
 	m = pressKey(t, m, tea.KeyPressMsg(tea.Key{Code: tea.KeyBackspace}))
 	if m.query != "é" {
 		t.Fatalf("expected backspace to remove exactly one rune, got query=%q", m.query)
+	}
+}
+
+// TestPaletteWithNoInputListsEveryCommand: opening the palette used to
+// show six rows and stop -- paletteMatches hard-capped at 6, so the other
+// twenty-two commands and views were undiscoverable from the one surface
+// built to discover them. An empty query now means "everything".
+func TestPaletteWithNoInputListsEveryCommand(t *testing.T) {
+	s := newTestService(t)
+	m, err := New(s, "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.palette = true
+	matches := m.paletteMatches()
+	if want := len(paletteCommands()) + len(views); len(matches) != want {
+		t.Fatalf("empty query listed %d commands, want all %d", len(matches), want)
+	}
+	labels := map[string]bool{}
+	for _, match := range matches {
+		labels[match.label] = true
+	}
+	for _, cmd := range paletteCommands() {
+		if !labels[cmd.label] {
+			t.Errorf("command %q missing from the empty-query list", cmd.label)
+		}
+	}
+	for _, name := range views {
+		if !labels[name] {
+			t.Errorf("view %q missing from the empty-query list", name)
+		}
+	}
+}
+
+// TestPaletteFilteredListIsNotCappedEither: the same cap silently hid
+// matches past the sixth for a typed query too -- "new" matches all ten
+// named commands, and four of them could never be reached.
+func TestPaletteFilteredListIsNotCappedEither(t *testing.T) {
+	s := newTestService(t)
+	m, err := New(s, "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.palette = true
+	m.query = "new"
+	if got := len(m.paletteMatches()); got < len(paletteCommands()) {
+		t.Fatalf(`query "new" listed %d matches, want at least the %d named commands`, got, len(paletteCommands()))
+	}
+}
+
+// TestPalettePanelNeverOutgrowsTheTerminal: listing everything only helps
+// if the panel still fits the screen. paletteLayout windows the list;
+// this proves the rendered panel never exceeds the terminal's own height
+// at any size, with the full (empty-query) list open.
+func TestPalettePanelNeverOutgrowsTheTerminal(t *testing.T) {
+	s := newTestService(t)
+	m, err := New(s, "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.palette = true
+	// From 16 lines up: below that the panel's own frame (border,
+	// padding, title, query box, footer) is already taller than the
+	// terminal no matter how small the match window gets.
+	for _, height := range []int{16, 18, 20, 24, 30, 45, 60} {
+		m.width, m.height = 100, height
+		panel, _ := m.paletteLayout(colors())
+		if got := lipgloss.Height(panel); got > height {
+			t.Errorf("height %d: palette panel renders %d lines", height, got)
+		}
+	}
+}
+
+// TestPaletteWindowFollowsTheSelection: a windowed list must scroll to
+// whatever is selected, or Down past the window's edge would highlight a
+// row nobody can see (and click hit-testing would hand the click to the
+// wrong match).
+func TestPaletteWindowFollowsTheSelection(t *testing.T) {
+	s := newTestService(t)
+	m, err := New(s, "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.width, m.height = 100, 26
+	m.palette = true
+	total := len(m.paletteMatches())
+	visible := paletteVisibleCount(m.height)
+	if total <= visible {
+		t.Fatalf("test needs a list taller than the window: %d matches, %d visible", total, visible)
+	}
+	m.paletteSelected = total - 1
+	_, matchLine := m.paletteLayout(colors())
+	if matchLine[total-1] < 0 {
+		t.Fatal("the selected match scrolled out of the rendered window")
+	}
+	if matchLine[0] >= 0 {
+		t.Fatal("expected the window to have scrolled off the first match")
+	}
+	m.paletteSelected = 0
+	_, matchLine = m.paletteLayout(colors())
+	if matchLine[0] < 0 {
+		t.Fatal("expected the first match to be visible when it is selected")
+	}
+}
+
+// TestPaletteClickIgnoresScrolledOutMatches: off-window matches carry -1
+// in matchLine, and a click above the panel produces a negative relative
+// Y -- without an explicit guard the two meet and a stray click applies
+// a command the user cannot even see.
+func TestPaletteClickIgnoresScrolledOutMatches(t *testing.T) {
+	s := newTestService(t)
+	m, err := New(s, "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.width, m.height = 100, 26
+	m.palette = true
+	m.paletteSelected = len(m.paletteMatches()) - 1
+	p := colors()
+	panel, _ := m.paletteLayout(p)
+	top := centerOffset(m.height, lipgloss.Height(panel))
+	if _, ok := m.paletteMatchAt(p, m.width/2, top-1); ok {
+		t.Fatal("a click above the panel must not resolve to a scrolled-out match")
 	}
 }

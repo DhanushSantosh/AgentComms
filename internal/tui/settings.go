@@ -10,7 +10,6 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/DhanushSantosh/AgentComms/internal/identity"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 )
 
@@ -22,8 +21,12 @@ var settingsSections = []struct {
 	{"Agent runtimes", "RUNTIME", "Connectors, capacity, health, drain, and revocation."},
 	{"Authority & data", "SYSTEM", "Authority mode, consistency, cache, and internal storage."},
 	{"Environment", "ENV", "Project-scoped key/value configuration."},
-	{"Interface", "LOCAL", "Per-user display preferences; never written to project history."},
 }
+
+// No "Interface" domain: it existed only to toggle between a muted and a
+// high-contrast palette, and there is one palette now. Every remaining
+// domain is signed, project-wide governance, which is why the scope
+// badge below no longer has a local-preference case to distinguish.
 
 func (m Model) updateSettings(message tea.Msg) (tea.Model, tea.Cmd) {
 	if wheel, ok := message.(tea.MouseWheelMsg); ok {
@@ -42,7 +45,7 @@ func (m Model) updateSettings(message tea.Msg) (tea.Model, tea.Cmd) {
 	if click, ok := message.(tea.MouseClickMsg); ok {
 		mouse := click.Mouse()
 		if mouse.Button == tea.MouseLeft {
-			if index, ok := m.settingsSectionAt(colors(m.highContrast), mouse.X, mouse.Y); ok {
+			if index, ok := m.settingsSectionAt(colors(), mouse.X, mouse.Y); ok {
 				double := m.isDoubleClick(mouse.X, mouse.Y, time.Now())
 				m.settingsCursor = index
 				if double {
@@ -57,6 +60,10 @@ func (m Model) updateSettings(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	switch key.String() {
+	case "pgup":
+		m.scrollOffset = max(0, m.scrollOffset-5)
+	case "pgdown":
+		m.scrollOffset += 5
 	case "esc", "left":
 		m.settingsFocus = false
 	case "q", "ctrl+c":
@@ -79,17 +86,15 @@ func (m Model) updateSettings(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.openView("Runtimes")
 		m.settingsFocus, m.rowFocus = false, true
 		m.runtimeList.Refresh(m.state, m.actor)
-	case "h":
-		m.toggleTheme()
 	case "?":
-		m.notice = "↑/↓ choose domain · e/enter manage · g agents · r runtimes · h contrast · esc navigation"
+		m.notice = "↑/↓ choose domain · e/enter manage · g agents · r runtimes · esc navigation"
 	}
 	return m, nil
 }
 
 // enterSettingsDomain runs whatever "e"/"enter" (keyboard) or a double-click
 // (mouse) both mean for the given domain index -- opening its form, moving
-// into its own row-focused view, or toggling the local theme. Shared so
+// into its own row-focused view. Shared so
 // the two input paths can never disagree about what a domain does.
 func (m Model) enterSettingsDomain(index int) (tea.Model, tea.Cmd) {
 	switch index {
@@ -109,8 +114,6 @@ func (m Model) enterSettingsDomain(index int) (tea.Model, tea.Cmd) {
 		m.openView("Environment")
 		m.settingsFocus, m.rowFocus = false, true
 		m.envList.Refresh(m.state, m.actor)
-	case 5:
-		m.toggleTheme()
 	}
 	return m, nil
 }
@@ -167,23 +170,6 @@ func (m Model) openDangerZoneForm() (tea.Model, tea.Cmd) {
 		opened.inputs[0].Placeholder = filepath.Base(m.svc.Store.Root)
 	}
 	return opened, cmd
-}
-
-func (m *Model) toggleTheme() {
-	m.highContrast = !m.highContrast
-	theme := "auto"
-	if m.highContrast {
-		theme = "high-contrast"
-	}
-	if config, err := identity.LoadUserConfig(); err == nil {
-		config.Theme = theme
-		if err = identity.SaveUserConfig(config); err != nil {
-			m.err = err
-			return
-		}
-	}
-	m.err = nil
-	m.notice = "Local interface theme set to " + theme
 }
 
 func (m Model) openProjectSettingsForm() (tea.Model, tea.Cmd) {
@@ -246,25 +232,10 @@ func (m Model) projectSettings(p palette, width, height int) string {
 	} else {
 		content = m.settingsSelectedDomain(p) + "\n\n" + m.settingsControl(p, width)
 	}
-	footerParts := []string{
-		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[↑/↓]") + " " + lipgloss.NewStyle().Foreground(p.muted).Render("domain"),
-		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[e/enter]") + " " + lipgloss.NewStyle().Foreground(p.muted).Render("manage"),
-		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[g]") + " " + lipgloss.NewStyle().Foreground(p.muted).Render("agents"),
-		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[r]") + " " + lipgloss.NewStyle().Foreground(p.muted).Render("runtimes"),
-		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[h]") + " " + lipgloss.NewStyle().Foreground(p.muted).Render("contrast"),
-		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[esc]") + " " + lipgloss.NewStyle().Foreground(p.muted).Render("back"),
-	}
-	parts := []string{}
-	for _, part := range footerParts {
-		candidate := strings.Join(append(parts, part), " · ")
-		if lipgloss.Width(candidate) <= width {
-			parts = append(parts, part)
-		} else {
-			break
-		}
-	}
-	footer := strings.Join(parts, " · ")
-	return content + "\n\n" + footer
+	// Project settings' own key footer moved to keyhints.go's shared bar,
+	// which renders these same keys next to the global ones at the foot of
+	// every view instead of only this one.
+	return content
 }
 
 func (m Model) settingsDomainRail(p palette, width int) string {
@@ -355,31 +326,14 @@ func (m Model) settingsControl(p palette, width int) string {
 			wrapText("Plain-text, project-scoped configuration values -- never store secrets here.", innerWidth),
 			"", lipgloss.NewStyle().Foreground(p.amber).Render("[e] open environment administration"),
 		)
-	case 5:
-		theme := "automatic"
-		if m.highContrast {
-			theme = "high contrast"
-		}
-		rows = append(rows,
-			settingLine("Theme", theme),
-			settingLine("Scope", "this user"),
-			wrapText("Interface choices do not create events or affect other collaborators.", innerWidth),
-			"", lipgloss.NewStyle().Foreground(p.amber).Render("[e] toggle theme"),
-		)
 	}
 
 	role := m.actorAuthority()
-	shared := m.settingsCursor != 5
-	scope, boundary := "LOCAL PREFERENCE", "Saved for this user."
-	color := p.cyan
-	if shared {
-		scope, boundary = "SIGNED GOVERNANCE", "Validated by authority & visible project-wide."
-		color = p.amber
-	}
 	rows = append(rows, "",
-		lipgloss.NewStyle().Foreground(color).Bold(true).Render("◈ "+scope)+"  "+
+		lipgloss.NewStyle().Foreground(p.amber).Bold(true).Render("◈ SIGNED GOVERNANCE")+"  "+
 			lipgloss.NewStyle().Foreground(p.muted).Render(fmt.Sprintf("(Actor: %s · Role: %s)", m.actor, role)),
-		lipgloss.NewStyle().Foreground(p.muted).Render(wrapText(boundary+" Internal data directory hidden by default.", innerWidth)),
+		lipgloss.NewStyle().Foreground(p.muted).Render(wrapText(
+			"Validated by authority & visible project-wide. Internal data directory hidden by default.", innerWidth)),
 	)
 
 	return lipgloss.NewStyle().Width(width).Border(lipgloss.NormalBorder()).BorderForeground(p.cyan).Padding(1, 2).Render(strings.Join(rows, "\n"))

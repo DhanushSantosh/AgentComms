@@ -71,10 +71,27 @@ ambient fallback rather than your own identity, running it yourself
 defeats the entire point. Tell the human to type it themselves.
 {{else -}}
 You are an active agent: `{{.Actor}}`, role `{{.Role}}`{{if eq .Source "host_binding"}} (resolved via host binding for `{{.HostLabel}}`){{end}}.
-You can register a runtime, claim and handle invocations, post messages,
-and create tasks now.{{end}}
+You can post messages, check your inbox, create tasks, and request invocations
+now. Register a runtime when you need to claim and handle invocations.{{end}}
 
-## 3. Core invocation lifecycle
+## 3. Messaging does not require a runtime
+
+An ACTIVE registered identity can post a durable message to another ACTIVE
+registered identity even when neither has an online runtime. Check your inbox
+with `{{.Binary}} message inbox --unread`, and post
+with `{{.Binary}} message post --to <agent-name> --kind FYI --subject
+"<subject>" --body "<body>"` (or MCP `message_post`). If the TUI shows
+`NO RUNTIME` for an agent, that describes automatic execution delivery,
+not whether you can communicate with them. Do not tell a teammate that
+messages are unavailable merely because runtime presence is absent.
+
+An invocation *request* is also durable without an online runtime. It may
+remain PENDING until an eligible runtime is online and claims it; a request
+receipt is not evidence that the target was notified, started, or finished.
+Use `message inbox` for communication, and inspect invocation status when
+you need proof of execution progress.
+
+## 4. Core invocation lifecycle
 
 `PENDING` -> optional `NOTIFIED` -> `CLAIMED` -> `RUNNING` -> `WAITING` -> a
 terminal state (`COMPLETED`, `REJECTED`, `EXPIRED`, `CANCELLED`). `NOTIFIED`
@@ -92,7 +109,7 @@ commands either way, CLI on the left, MCP tool on the right:
 - `invocation complete --id <id> --summary <summary>` / `invocation_complete`,
   or `invocation reject` / `invocation_reject` if you can't do it.
 
-## 4. Handing off work to another agent
+## 5. Handing off work to another agent
 
 `invocation request --to <agent-name> --instruction "<instruction>"` (CLI)
 or `invocation_request` with `target: "<agent-name>"` (MCP). `<agent-name>`
@@ -109,7 +126,7 @@ decide it for another agent unless you're an active orchestrator or human
 principal sponsoring it on their behalf. See `docs/agent-onboarding.md`'s
 runtime-setup section for the decision tree; it is not part of this guide.
 
-## 5. Where to go deeper
+## 6. Where to go deeper
 
 - `docs/agent-onboarding.md` — this same walkthrough, for a human reader.
 - `docs/agent-invocations.md` — adapter matrix, delivery/failure-mode

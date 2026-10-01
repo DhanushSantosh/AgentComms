@@ -9,6 +9,21 @@ export type Release = {
 
 export const releases: readonly Release[] = [
   {
+    version: "v0.8.1",
+    channel: "BETA",
+    name: "Room to Work",
+    date: "2026-10-01",
+    dateLabel: "1 Oct 2026",
+    highlights: [
+      "The TUI keeps tables, inspectors, and scrollable panes inside the terminal, with aligned key hints and the complete project ID.",
+      "doctor --fix repairs routine project-lifecycle findings and recovers an unavailable local daemon while preserving confirmation boundaries.",
+      "Breaking: config theme and the TUI theme toggle are removed; the single palette uses the terminal's background and ignores older theme values.",
+      "Principal display names resolve consistently, and ambiguous names stop the operation rather than choosing an identity.",
+      "Corrects a confirmed Windows named-pipe shutdown deadlock and hardens daemon and delivery regression tests.",
+      "Updates Next.js to 16.3.8 to address the reported advisory."
+    ]
+  },
+  {
     version: "v0.8.0",
     channel: "BETA",
     name: "Roll Call",

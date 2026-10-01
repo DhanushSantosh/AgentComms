@@ -119,7 +119,7 @@ func (c *cli) configCmd() *cobra.Command {
 			}
 			result := map[string]any{"user": u, "precedence": []string{"flags", "environment", "project", "user", "defaults"}}
 			fields := []cliui.Field{
-				{Label: "Active profile", Value: u.ActiveProfile}, {Label: "Theme", Value: u.Theme}, {Label: "Update channel", Value: u.UpdateChannel},
+				{Label: "Active profile", Value: u.ActiveProfile}, {Label: "Update channel", Value: u.UpdateChannel},
 			}
 			// projectOptional: c.svc is nil outside an initialized project
 			// (RFC 0027 section 12). Report user config only in that case.
@@ -151,26 +151,8 @@ func (c *cli) configCmd() *cobra.Command {
 			})
 		},
 	}
-	var themeName string
-	theme := &cobra.Command{
-		Use:   "theme <auto|dark|high-contrast>",
-		Short: "Set the UI theme for this user",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			themeName = args[0]
-			u, e := identity.LoadUserConfig()
-			if e != nil {
-				return e
-			}
-			u.Theme = themeName
-			if e = identity.SaveUserConfig(u); e != nil {
-				return e
-			}
-			return c.emitDocument("config.theme", map[string]string{"theme": themeName}, cliui.Document{
-				Title: "Theme updated", Status: cliui.StatusSuccess, Fields: []cliui.Field{{Label: "Theme", Value: themeName}},
-			})
-		},
-	}
-	root.AddCommand(theme)
+	// No `config theme`: the TUI has one palette now (the former
+	// high-contrast one), so there is nothing left for this to select.
+	// An older user config's "theme" key is simply ignored.
 	return root
 }

@@ -92,8 +92,12 @@ func (c *cli) invocationCmd() *cobra.Command {
 			value := time.Now().UTC().Add(expiresIn)
 			deadline = &value
 		}
+		resolvedTarget, resolveErr := c.resolvePrincipal(target)
+		if resolveErr != nil {
+			return resolveErr
+		}
 		payload := model.InvocationRequested{
-			Target: target, MessageID: messageID, TaskID: taskID, Instruction: instruction,
+			Target: resolvedTarget, MessageID: messageID, TaskID: taskID, Instruction: instruction,
 			ExpectedResult: expectedResult, Scopes: invocationScopes, Priority: priority,
 			ConsumerMode:       model.ConsumerMode(strings.ToUpper(consumerMode)),
 			PreferredRuntimeID: preferredRuntimeID, Deadline: deadline,
@@ -153,7 +157,10 @@ func (c *cli) invocationCmd() *cobra.Command {
 			Status: status,
 			Fields: []cliui.Field{
 				{Label: "Invocation", Value: id},
-				{Label: "Target", Value: target},
+				// The resolved ID, not the raw flag: if the caller typed a
+				// display name, the receipt should show the identity the
+				// event actually records.
+				{Label: "Target", Value: resolvedTarget},
 				{Label: "Priority", Value: priority},
 				{Label: "Consumer", Value: resolvedConsumer},
 				{Label: "Delivery", Value: delivery},
@@ -189,6 +196,13 @@ func (c *cli) invocationCmd() *cobra.Command {
 		}
 		status, _ := cmd.Flags().GetString("status")
 		targetFilter, _ := cmd.Flags().GetString("to")
+		// Invocation.Target holds the canonical actor ID, so comparing the
+		// raw flag made a display-name filter match nothing at all -- and
+		// silently, which is worse than refusing it.
+		targetFilter, filterErr := c.resolvePrincipal(targetFilter)
+		if filterErr != nil {
+			return filterErr
+		}
 		result := map[string]model.Invocation{}
 		for id, invocation := range state.Invocations {
 			if status != "" && invocation.Status != strings.ToUpper(status) {

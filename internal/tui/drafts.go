@@ -72,7 +72,7 @@ func (m Model) updateDrafts(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	if click, ok := msg.(tea.MouseClickMsg); ok {
 		mouse := click.Mouse()
-		p := colors(m.highContrast)
+		p := colors()
 		_, _, _, contentH := m.bodyLayout(p)
 		bodyTop := m.bodyPrefixHeight(p)
 		if mouse.Button == tea.MouseLeft && mouse.X >= m.sidebarWidth()+1 &&
@@ -116,10 +116,10 @@ func (m Model) updateDrafts(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		id := m.drafts[m.draftCursor].ID
-		m.confirm = &confirmState{
+		m.openConfirm(confirmState{
 			prompt: "Delete local draft " + fmt.Sprintf("%q", id) + "?",
 			id:     id, localDraft: true,
-		}
+		})
 	case "?":
 		m.notice = "↑/↓ select draft · [d] delete selected · [n] save draft · [r] refresh · [esc] back"
 	}
@@ -128,7 +128,7 @@ func (m Model) updateDrafts(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) draftPageSize() int {
-	_, _, _, contentH := m.bodyLayout(colors(m.highContrast))
+	_, _, _, contentH := m.bodyLayout(colors())
 	return max(1, contentH-1)
 }
 
@@ -162,15 +162,9 @@ func (m Model) draftsView(p palette) string {
 		line := marker + d.ID + " · " + d.Kind + " · " + d.UpdatedAt.Local().Format("2006-01-02 15:04:05")
 		rows = append(rows, lipgloss.NewStyle().Foreground(p.text).Inline(true).Render(ansi.Truncate(line, width, "…")))
 	}
-	draftFooterParts := []string{
-		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[n]") + " " + lipgloss.NewStyle().Foreground(p.muted).Render("save draft"),
-		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[d]") + " " + lipgloss.NewStyle().Foreground(p.muted).Render("delete selected"),
-		lipgloss.NewStyle().Foreground(p.cyan).Bold(true).Render("[r]") + " " + lipgloss.NewStyle().Foreground(p.muted).Render("refresh"),
-	}
-	if !m.rowFocus {
-		rows = append(rows, lipgloss.NewStyle().Foreground(p.muted).Inline(true).Render(
-			ansi.Truncate("Press [enter] to select a draft.", width, "…")))
-	}
-	rows = append(rows, "", ansi.Truncate(strings.Join(draftFooterParts, " · "), width, "…"))
+	// Drafts' own key footer moved to keyhints.go's shared bar, which
+	// renders the same keys (plus the global ones) at the foot of every
+	// view, and states the "not entered yet" case there too rather than
+	// as a sentence in the middle of the list.
 	return strings.Join(rows, "\n")
 }
