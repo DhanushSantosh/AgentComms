@@ -72,7 +72,7 @@ test("mobile navigation exposes the current manual tree", async ({ page }, testI
 
 test("the TUI recording stays inside the article and viewport", async ({ page }) => {
   await page.goto("/start/tui/");
-  const recording = page.getByRole("img", { name: /terminal control room/ });
+  const recording = page.getByRole("img", { name: /Current overview separating/ });
   const article = page.locator("article");
   const [recordingBox, articleBox] = await Promise.all([recording.boundingBox(), article.boundingBox()]);
 
@@ -86,6 +86,8 @@ test("the TUI recording stays inside the article and viewport", async ({ page })
   expect(recordingBox.x).toBeGreaterThanOrEqual(articleBox.x);
   expect(recordingBox.x + recordingBox.width).toBeLessThanOrEqual(articleBox.x + articleBox.width + 1);
   expect(recordingBox.x + recordingBox.width).toBeLessThanOrEqual(viewport.width + 1);
+  await expect(recording).toHaveAttribute("src", "/tui-overview.png");
+  await expect(page.getByRole("link", { name: "Watch the terminal tour" })).toHaveAttribute("href", "/tui-demo.mp4");
 });
 
 test("platform tabs and related-page context are keyboard accessible", async ({ page, context }) => {

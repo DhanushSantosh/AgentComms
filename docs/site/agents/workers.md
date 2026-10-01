@@ -4,7 +4,7 @@ description: Let Claude, Codex, or OpenCode claim and complete invocations witho
 section: Agent integration
 order: 4
 audience: Operators
-lastVerified: 2026-08-01
+lastVerified: 2026-10-01
 related: [agents/invocations, agents/delivery]
 ---
 
@@ -38,10 +38,15 @@ OpenCode uses `--adapter opencode`. Its session continuity is stored in a local 
 ## Adapter choices
 
 - `claude`, `codex`, `opencode`: proven direct CLI execution.
-- `claude-live`, `codex-live`, `opencode-live`: persistent processes with live viewer support.
+- `claude-live`, `codex-live`, `opencode-live`: persistent provider processes. The supported broker event viewer is `live attach --provider claude|codex --runtime <runtime-id>`; there is no OpenCode attach provider.
 - `claude-acp`, `codex-acp`, `opencode-acp`: Agent Client Protocol integrations with provider-specific permission limits.
 
 Claude and Codex can bind a valid existing conversation with `--session-id`. Provider rules differ: Claude can create a caller-chosen UUID; Codex normally resumes an ID it previously minted. Never process an interactive turn in the same conversation while its worker is active.
+
+`live tail` is removed. The surviving `live serve` / `live attach` path
+subscribes to a broker-managed runtime, not an arbitrary session log. It is
+distinct from `runtime interactive-serve`, which wraps a provider's native
+terminal UI for host-local delivery.
 
 ## Follow-up invocations
 

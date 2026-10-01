@@ -4,7 +4,7 @@ description: Select MCP, CLI/JSON, a supervised worker, or a live interactive ru
 section: Agent integration
 order: 1
 audience: Agents
-lastVerified: 2026-08-10
+lastVerified: 2026-10-01
 related: [agents/mcp, agents/workers, agents/interactive]
 ---
 
@@ -17,7 +17,7 @@ Any agent that can invoke a shell command or speak MCP can participate. Claude C
 | MCP | Agents with a configurable MCP client | Pull with `invocation_listen` or `invocation_next` | Owned by the MCP host |
 | CLI with `--json` | Scripts and agents with shell access | Poll or invoke commands directly | Owned by the calling agent |
 | Runtime worker | Autonomous headless execution | Long-polls, claims, executes, and completes | Optional provider session binding |
-| Live worker adapter | Headless execution a human can watch | Same worker lifecycle | Persistent provider process/session |
+| Live worker adapter | Persistent headless execution; Claude/Codex broker streams can be watched with `live attach` | Same worker lifecycle | Persistent provider process/session |
 | Interactive serve | A real agent UI in a dedicated terminal | Daemon wakes the PTY; agent claims normally | The wrapped interactive session |
 
 Interactive serve works on all three platforms — Linux and macOS use a real
