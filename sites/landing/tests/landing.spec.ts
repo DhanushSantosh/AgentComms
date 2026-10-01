@@ -68,11 +68,33 @@ test("relay separates transport from acknowledgement and returns a result", asyn
   await page.goto("/#relay");
 
   const relay = page.locator("[data-relay-sequence]");
-  await page.getByRole("button", { name: "Replay agent relay demonstration" }).click();
-  await expect(relay).toHaveAttribute("data-relay-state", "requested");
-  await expect(relay).toHaveAttribute("data-relay-state", "delivered", { timeout: 3_000 });
+  const states = await page.evaluate(() => new Promise<string[]>((resolve, reject) => {
+    const sequence = document.querySelector("[data-relay-sequence]");
+    const replay = document.querySelector("[data-relay-replay]");
+    if (!(sequence instanceof HTMLElement) || !(replay instanceof HTMLButtonElement)) {
+      reject(new Error("Relay controls are missing"));
+      return;
+    }
+
+    const observed: string[] = [];
+    const observer = new MutationObserver(() => {
+      const state = sequence.dataset.relayState;
+      if (state && observed.at(-1) !== state) observed.push(state);
+      if (state === "completed") {
+        window.clearTimeout(deadline);
+        observer.disconnect();
+        resolve(observed);
+      }
+    });
+    const deadline = window.setTimeout(() => {
+      observer.disconnect();
+      reject(new Error(`Relay did not complete; observed ${observed.join(", ")}`));
+    }, 10_000);
+    observer.observe(sequence, { attributes: true, attributeFilter: ["data-relay-state"] });
+    replay.click();
+  }));
+  expect(states).toEqual(["requested", "delivered", "claimed", "completed"]);
   await expect(relay.getByText("DELIVERED ≠ ACKNOWLEDGED")).toBeVisible();
-  await expect(relay).toHaveAttribute("data-relay-state", "completed", { timeout: 7_000 });
   await expect(relay.getByText("24 / 24 auth tests pass", { exact: true })).toBeVisible();
 });
 
