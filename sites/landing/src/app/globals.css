@@ -663,7 +663,11 @@ img { max-width: 100%; }
 .control-launch-error button:hover { color: var(--text); }
 .control-live { display: flex; flex-direction: column; min-height: 32rem; }
 .control-loading { color: var(--steel-light); font-family: var(--mono); font-size: 0.6rem; letter-spacing: 0.04em; margin: 0; padding: 1rem 1.3rem 0; text-transform: uppercase; }
-.control-terminal { flex: 1; min-height: 32rem; padding: 0.5rem 0.7rem; }
+/* text-align: left is load-bearing. The control room sits inside .hero,
+   which centres its text, and xterm.js trims each row's trailing spaces --
+   so an inherited "center" centred every short row on its own, scattering
+   the TUI's columns (sidebar labels mid-screen, tables shifted). */
+.control-terminal { flex: 1; min-height: 32rem; padding: 0.5rem 0.7rem; text-align: left; }
 .control-reset { align-self: flex-end; margin: 0 1rem 1rem auto; min-height: 2.4rem; padding: 0 1rem; }
 @media (max-width: 60rem) {
   .control-launcher { min-height: 22rem; }

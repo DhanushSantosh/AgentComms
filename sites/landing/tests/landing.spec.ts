@@ -307,6 +307,18 @@ test("launches the real TUI in the control room and can act on the seeded approv
   await expect(terminal.getByText("reviewer", { exact: false }).first()).toBeVisible({ timeout: 20_000 });
   await expect(terminal.getByText("Approvals", { exact: false }).first()).toBeVisible();
 
+  // Every rendered row must start at the terminal's left edge. xterm.js
+  // trims trailing spaces, so an inherited text-align (the hero centres its
+  // text) used to centre each short row on its own and scatter the TUI.
+  const rowOffsets = await terminal.locator(".xterm-rows").evaluate((rows) => {
+    const left = rows.getBoundingClientRect().left;
+    return [...rows.children]
+      .filter((row) => row.textContent?.trim())
+      .map((row) => Math.round((row.firstElementChild ?? row).getBoundingClientRect().left - left));
+  });
+  expect(rowOffsets.length).toBeGreaterThan(10);
+  expect(Math.max(...rowOffsets)).toBeLessThanOrEqual(1);
+
   // Drive the real keybinding into the seeded Approvals row list and
   // confirm the pending approval is actually there and actionable.
   await terminal.click();
