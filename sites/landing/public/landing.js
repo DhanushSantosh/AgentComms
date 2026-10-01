@@ -1,6 +1,5 @@
 const scrolledHeaderThresholdPixels = 24;
 const copyFeedbackDurationMilliseconds = 4_000;
-const defaultInstallButtonLabel = "Copy command";
 const defaultDownloadButtonLabel = "Copy";
 // Tall sections must reveal when they enter even on a short mobile viewport,
 // so the threshold stays tiny; the bottom margin makes content reveal once
@@ -15,10 +14,8 @@ const hydrationEventName = "agent-comms:hydrated";
 const nextRuntimeScriptSelector = 'script[src^="/_next/static/chunks/"]';
 const revealedClassName = "is-revealed";
 const activeClassName = "is-active";
-const readoutUpdatingClassName = "is-updating";
-const revealSelector = "[data-reveal], [data-motion-stage]";
+const revealSelector = "[data-reveal]";
 const activeMotionTimers = new WeakMap();
-const featureDemoTimers = new WeakMap();
 
 document.addEventListener("click", async (event) => {
   const target = event.target;
@@ -36,72 +33,6 @@ document.addEventListener("click", async (event) => {
   if (target.closest("[data-site-navigation] a")) {
     document.querySelector("[data-menu-toggle]")?.setAttribute("aria-expanded", "false");
     document.querySelector("[data-site-navigation]")?.removeAttribute("data-open");
-    return;
-  }
-
-  const collisionButton = target.closest("[data-collision-mode]");
-  if (collisionButton instanceof HTMLElement) {
-    updateCollisionLab(collisionButton);
-    return;
-  }
-
-  const stageButton = target.closest("[data-stage]");
-  if (stageButton instanceof HTMLElement) {
-    const instrument = stageButton.closest("[data-protocol-instrument]");
-    if (instrument instanceof HTMLElement) clearFeatureTimers(instrument);
-    updateProtocolInstrument(stageButton);
-    return;
-  }
-
-  const protocolReplayButton = target.closest("[data-protocol-replay]");
-  if (protocolReplayButton instanceof HTMLButtonElement) {
-    const instrument = protocolReplayButton.closest("[data-protocol-instrument]");
-    if (instrument instanceof HTMLElement) playProtocolInstrument(instrument);
-    return;
-  }
-
-  const reelSceneButton = target.closest("[data-reel-select]");
-  if (reelSceneButton instanceof HTMLButtonElement) {
-    const reel = reelSceneButton.closest("[data-demo-reel]");
-    if (reel instanceof HTMLElement) selectReelScene(reel, Number(reelSceneButton.dataset.reelSelect), true);
-    return;
-  }
-
-  const reelReplayButton = target.closest("[data-reel-replay]");
-  if (reelReplayButton instanceof HTMLButtonElement) {
-    const reel = reelReplayButton.closest("[data-demo-reel]");
-    if (reel instanceof HTMLElement) playDemoReel(reel, true);
-    return;
-  }
-
-  const relayReplayButton = target.closest("[data-relay-replay]");
-  if (relayReplayButton instanceof HTMLButtonElement) {
-    const relay = relayReplayButton.closest("[data-relay-sequence]");
-    if (relay instanceof HTMLElement) playRelaySequence(relay);
-    return;
-  }
-
-  const controlOpenButton = target.closest("[data-control-open]");
-  if (controlOpenButton instanceof HTMLButtonElement) {
-    setControlDetail(controlOpenButton.closest("[data-tui-frame]"), true);
-    return;
-  }
-
-  const controlCloseButton = target.closest("[data-control-close]");
-  if (controlCloseButton instanceof HTMLButtonElement) {
-    setControlDetail(controlCloseButton.closest("[data-tui-frame]"), false);
-    return;
-  }
-
-  const controlApproveButton = target.closest("[data-control-approve]");
-  if (controlApproveButton instanceof HTMLButtonElement) {
-    approveControlItem(controlApproveButton.closest("[data-tui-frame]"));
-    return;
-  }
-
-  const copyButton = target.closest("[data-copy-install]");
-  if (copyButton instanceof HTMLButtonElement) {
-    await copyInstallCommand(copyButton);
     return;
   }
 
@@ -149,47 +80,6 @@ window.addEventListener("load", markPageLoaded, { once: true });
 window.addEventListener(hydrationEventName, markFrameworkHydrated, { once: true });
 attemptPageMotionInitialization();
 
-function updateCollisionLab(button) {
-  const mode = button.dataset.collisionMode;
-  if (mode !== "governed" && mode !== "ungoverned") return;
-  const collisionLab = button.closest("[data-collision-lab]");
-  if (!(collisionLab instanceof HTMLElement)) return;
-  collisionLab.dataset.mode = mode;
-  collisionLab.querySelectorAll("[data-collision-mode]").forEach((candidate) => {
-    candidate.setAttribute("aria-pressed", String(candidate === button));
-  });
-  setText(collisionLab, "[data-collision-state]", mode === "governed" ? "RESOLVED" : "COLLISION");
-  setText(collisionLab, "[data-proof-outcome]", mode === "governed" ? "one owner before writing" : "conflict discovered late");
-}
-
-function updateProtocolInstrument(button) {
-  const instrument = button.closest("[data-protocol-instrument]");
-  if (!(instrument instanceof HTMLElement)) return;
-  const buttons = [...instrument.querySelectorAll("[data-stage]")];
-  buttons.forEach((candidate) => {
-    const active = candidate === button;
-    candidate.classList.toggle("is-active", active);
-    candidate.setAttribute("aria-pressed", String(active));
-  });
-  const stageIndex = buttons.indexOf(button);
-  const stageName = button.querySelector("span")?.textContent;
-  setText(instrument, "[data-stage-sequence]", `${String(stageIndex + 1).padStart(2, "0")} / ${String(buttons.length).padStart(2, "0")}`);
-  setText(instrument, "[data-stage-name]", stageName);
-  setText(instrument, "[data-stage-description]", button.dataset.description);
-  setText(instrument, "[data-stage-proves]", button.dataset.proves);
-  setText(instrument, "[data-stage-excludes]", button.dataset.excludes);
-  setText(instrument, "[data-stage-event]", button.dataset.event);
-  const gap = instrument.querySelector("[data-protocol-gap]");
-  if (gap instanceof HTMLElement) gap.hidden = stageIndex !== 1;
-  restartReadoutAnimation(instrument);
-}
-
-async function copyInstallCommand(copyButton) {
-  const installCommand = document.querySelector("[data-install-command]")?.textContent?.trim();
-  if (!installCommand) return;
-  await copyCommandText(copyButton, installCommand, defaultInstallButtonLabel);
-}
-
 async function copyDownloadCommand(copyButton) {
   const commandSourceID = copyButton.dataset.commandSource;
   if (!commandSourceID) return;
@@ -227,7 +117,6 @@ function initializeRevealMotion() {
   const prefersReducedMotion = window.matchMedia(reducedMotionMediaQuery).matches;
   if (prefersReducedMotion || !("IntersectionObserver" in window)) {
     revealElements.forEach(revealElement);
-    settleFeatureDemos();
     return;
   }
 
@@ -286,115 +175,8 @@ function scheduleElementActivation(element) {
   const timer = window.setTimeout(() => {
     activeMotionTimers.delete(element);
     element.classList.add(activeClassName);
-    startFeatureDemo(element);
   }, activeMotionDelayMilliseconds);
   activeMotionTimers.set(element, timer);
-}
-
-function startFeatureDemo(element) {
-  const reel = element.querySelector("[data-demo-reel]");
-  if (reel instanceof HTMLElement && !reel.dataset.demoPlayed) playDemoReel(reel, false);
-  const relay = element.matches("[data-relay-sequence]") ? element : element.querySelector("[data-relay-sequence]");
-  if (relay instanceof HTMLElement && !relay.dataset.demoPlayed) playRelaySequence(relay);
-  const protocolInstrument = element.querySelector("[data-protocol-instrument]");
-  if (protocolInstrument instanceof HTMLElement && !protocolInstrument.dataset.demoPlayed) playProtocolInstrument(protocolInstrument);
-}
-
-function clearFeatureTimers(element) {
-  const timers = featureDemoTimers.get(element) ?? [];
-  timers.forEach((timer) => window.clearTimeout(timer));
-  featureDemoTimers.delete(element);
-}
-
-function scheduleFeatureSteps(element, steps) {
-  clearFeatureTimers(element);
-  const timers = steps.map(({ delay, run }) => window.setTimeout(run, delay));
-  featureDemoTimers.set(element, timers);
-}
-
-function selectReelScene(reel, index, userSelected) {
-  if (!Number.isInteger(index) || index < 0 || index > 3) return;
-  if (userSelected) {
-    clearFeatureTimers(reel);
-    reel.dataset.demoPlayed = "true";
-  }
-  reel.dataset.scene = String(index);
-  reel.querySelectorAll("[data-reel-select]").forEach((button) => {
-    button.setAttribute("aria-pressed", String(button.dataset.reelSelect === String(index)));
-  });
-  const caption = reel.querySelector(`[data-reel-caption-source="${index}"]`)?.textContent;
-  setText(reel, "[data-reel-live]", caption);
-}
-
-function playDemoReel(reel, replayed) {
-  reel.dataset.demoPlayed = "true";
-  selectReelScene(reel, 0, false);
-  scheduleFeatureSteps(reel, [1, 2, 3].map((index) => ({ delay: index * 3_600, run: () => selectReelScene(reel, index, false) })));
-  if (replayed) reel.querySelector("[data-reel-live]")?.focus?.();
-}
-
-function playRelaySequence(relay) {
-  relay.dataset.demoPlayed = "true";
-  relay.dataset.relayState = "requested";
-  setText(relay, "[data-relay-outcome]", "Bounded request committed.");
-  scheduleFeatureSteps(relay, [
-    { delay: 1_100, run: () => { relay.dataset.relayState = "delivered"; setText(relay, "[data-relay-outcome]", "Transport evidenced. The target has not acknowledged yet."); } },
-    { delay: 3_200, run: () => { relay.dataset.relayState = "claimed"; setText(relay, "[data-relay-outcome]", "TESTER acknowledged the obligation and started work."); } },
-    { delay: 5_500, run: () => { relay.dataset.relayState = "completed"; setText(relay, "[data-relay-outcome]", "Result returned and committed: 24 / 24 auth tests pass."); } }
-  ]);
-}
-
-function playProtocolInstrument(instrument) {
-  instrument.dataset.demoPlayed = "true";
-  const buttons = [...instrument.querySelectorAll("[data-stage]")];
-  if (buttons.length === 0) return;
-  updateProtocolInstrument(buttons[0]);
-  scheduleFeatureSteps(instrument, buttons.slice(1).map((button, index) => ({
-    delay: index === 0 ? 2_000 : 4_500 + ((index - 1) * 2_000),
-    run: () => updateProtocolInstrument(button)
-  })));
-}
-
-function setControlDetail(frame, open) {
-  if (!(frame instanceof HTMLElement)) return;
-  const detail = frame.querySelector("[data-control-detail]");
-  const trigger = frame.querySelector("[data-control-open]");
-  if (detail instanceof HTMLElement) detail.hidden = !open;
-  trigger?.setAttribute("aria-expanded", String(open));
-  frame.dataset.controlState = open ? "reviewing" : frame.dataset.controlState === "approved" ? "approved" : "pending";
-}
-
-function approveControlItem(frame) {
-  if (!(frame instanceof HTMLElement)) return;
-  frame.dataset.controlState = "approved";
-  setText(frame, "[data-control-status]", "approved by project owner");
-  setText(frame, "[data-control-role]", "ORCHESTRATOR");
-  setText(frame, "[data-control-work]", "coordinating auth/session");
-  const role = frame.querySelector("[data-control-role]");
-  role?.classList.remove("role-custom");
-  role?.classList.add("role-orchestrator");
-  const event = frame.querySelector("[data-control-event]");
-  setText(event, "b", "approval.approve");
-  setText(event, "em", "OWNER · elevated");
-  setText(frame, "[data-control-outcome]", "Human approval committed. \"reviewer\" is now ORCHESTRATOR · seq 0147.");
-  setControlDetail(frame, false);
-}
-
-function settleFeatureDemos() {
-  document.querySelectorAll("[data-demo-reel]").forEach((reel) => {
-    reel.dataset.demoPlayed = "true";
-    selectReelScene(reel, 3, false);
-  });
-  document.querySelectorAll("[data-relay-sequence]").forEach((relay) => {
-    relay.dataset.demoPlayed = "true";
-    relay.dataset.relayState = "completed";
-    setText(relay, "[data-relay-outcome]", "Result returned and committed: 24 / 24 auth tests pass.");
-  });
-  document.querySelectorAll("[data-protocol-instrument]").forEach((instrument) => {
-    instrument.dataset.demoPlayed = "true";
-    const buttons = [...instrument.querySelectorAll("[data-stage]")];
-    if (buttons.length > 0) updateProtocolInstrument(buttons[buttons.length - 1]);
-  });
 }
 
 function deactivateElement(element) {
@@ -404,21 +186,4 @@ function deactivateElement(element) {
     activeMotionTimers.delete(element);
   }
   element.classList.remove(activeClassName);
-}
-
-function restartReadoutAnimation(instrument) {
-  const readout = instrument.querySelector(".protocol-readout");
-  if (!(readout instanceof HTMLElement)) return;
-  readout.classList.remove(readoutUpdatingClassName);
-  window.requestAnimationFrame(() => {
-    readout.classList.add(readoutUpdatingClassName);
-    readout.addEventListener("animationend", () => {
-      readout.classList.remove(readoutUpdatingClassName);
-    }, { once: true });
-  });
-}
-
-function setText(container, selector, value) {
-  const target = container.querySelector(selector);
-  if (target && value) target.textContent = value;
 }
