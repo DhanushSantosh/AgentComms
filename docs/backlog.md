@@ -54,7 +54,13 @@ The actual release gates and promotion sequence live in
    multi-runtime recovery/cache lag, audit list/search/history bounds and
    cursors, and compare equivalent CLI/MCP outcomes. These are the
    correctness-oriented items 2, 3, and 5 in
-   [Stabilization areas](#stabilization-areas-not-yet-started). A demonstrated
+   [Stabilization areas](#stabilization-areas-not-yet-started). A focused
+   2026-10-02 validation pass with two runtimes, a queued burst, induced cache
+   lag, concurrent sync callers, and CLI/MCP
+   contract comparisons is recorded in
+   [release validation](release-validation-20261002.md). It found unpaginated
+   state-backed lists and a bounded draft list without a continuation cursor;
+   production-scale concurrent soak remains open. A demonstrated
    data-loss, authorization, or unbounded-resource defect would move above
    this queue and block release; the planned checks alone do not.
 
@@ -730,7 +736,9 @@ kept:
 Moved here 2026-09-28 from `docs/stabilization.md`, which had become one
 part live invariants, one part a finished August work log, and one part
 this -- forward-looking items that belong where open work is tracked.
-None has been started; none is scheduled.
+The 2026-10-02 focused pass started items 2, 3 and 5; see
+[release validation](release-validation-20261002.md). The remaining work is
+production-scale concurrent soak and a design for bounded entity listings.
 
 1. Extend stable error codes and action-precondition explanations through
    the TUI and worker status surfaces.
