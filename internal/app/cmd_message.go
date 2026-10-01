@@ -67,7 +67,7 @@ func (c *cli) messageCmd() *cobra.Command {
 	post.Flags().StringSliceVar(&to, "to", nil, "recipient")
 	post.Flags().StringVar(&subject, "subject", "", "subject")
 	post.Flags().StringVar(&body, "body", "", "body")
-	post.Flags().StringVar(&bodyFile, "body-file", "", "read body from file (bypasses CLI arg limits)")
+	post.Flags().StringVar(&bodyFile, "body-file", "", "read body from a file; avoids shell argument limits only -- the 1200-character message limit still applies (use document create for longer content)")
 	post.Flags().StringVar(&taskID, "task", "", "related task")
 	post.Flags().BoolVar(&requestApproval, "request-approval", false, "request a payload-bound approval instead of posting")
 	post.Flags().StringVar(&approvalID, "approval-id", "", "approval ID (generated from the message ID when omitted)")

@@ -947,8 +947,15 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 				return nil, fmt.Errorf("active message recipient %s is required", recipient)
 			}
 		}
+		// The limit lives here, in the protocol, so it applies however the
+		// body arrived -- including `message post --body-file`, which this
+		// error used to recommend. That flag only avoids the shell's own
+		// argument-length limits; it can never get past this check. The
+		// only real path for longer content is a document, which messages
+		// are meant to point at. MCP has no document tool, so the advice
+		// names the CLI command rather than a tool an agent may not have.
 		if len(p.Body) > 1200 {
-			return nil, fmt.Errorf("message body exceeds 1200 characters (got %d) — use --body-file for longer content", len(p.Body))
+			return nil, fmt.Errorf("message body exceeds 1200 characters (got %d); the limit applies however the body is supplied, including --body-file. Put longer content in a document (agent-comms document create --body-file <path>) and reference its ID in the message", len(p.Body))
 		}
 		if p.Kind == "CONTRACT" {
 			a, _ := active(st, actor)

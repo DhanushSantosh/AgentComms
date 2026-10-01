@@ -6480,7 +6480,7 @@
         },
         {
           "name": "body-file",
-          "usage": "read body from file (bypasses CLI arg limits)",
+          "usage": "read body from a file; avoids shell argument limits only -- the 1200-character message limit still applies (use document create for longer content)",
           "default": "",
           "type": "string"
         },
