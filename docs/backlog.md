@@ -33,17 +33,22 @@ The actual release gates and promotion sequence live in
    the new stack dump identifies a lost close request in go-winio v0.6.2,
    before database cleanup. A local dependency patch preserves cancellation
    across racing Windows completion errors, with deterministic red/green
-   coverage and real named-pipe shutdown/rebind tests; patch CI is pending.
+   coverage and real named-pipe shutdown/rebind tests. It landed in v0.8.1
+   and passed first-attempt matrix CI at the tag ([CI run 36844490824](https://github.com/DhanushSantosh/AgentComms/actions/runs/36844490824),
+   `4cb6579`, 2026-10-01), including the explicit Windows step that runs the
+   nested-module regression at `-count=20`.
    This does not assign the same cause to the historical no-pipe signature.
    The latest evidence is in
    [Test / CI infrastructure](#test--ci-infrastructure).
-2. **Medium validation: delivery-coordinator/test race fixed locally,
-   CI pending.** Reproduced on native Windows on 2026-09-30; the fixture now
+2. **Resolved in v0.8.1: delivery-coordinator/test race.** Reproduced on
+   native Windows on 2026-09-30; the fixture now
    configures failure before delivery becomes eligible and retries only an
    outstanding reservation collision. A forced coordinator-first regression
    failed before the fix and passed 20 repeated runs afterward. Production
-   delivery behavior and timeout budgets are unchanged. Require first-attempt
-   matrix CI on the patch before treating it as landed. See
+   delivery behavior and timeout budgets are unchanged. The bar set here --
+   first-attempt matrix CI on the patch -- was met at the v0.8.1 tag
+   ([CI run 36844490824](https://github.com/DhanushSantosh/AgentComms/actions/runs/36844490824), `4cb6579`). Kept on this list only until the
+   next triage pass retires it. See
    [Test / CI infrastructure](#test--ci-infrastructure).
 3. **Medium validation, not an existing blocker:** exercise sustained
    multi-runtime recovery/cache lag, audit list/search/history bounds and
@@ -448,7 +453,8 @@ kept:
   below. The session-discovery mitigation is unchanged. Confirm on Windows CI.
 
 - **`TestInvocationDeliveryFailureDoesNotTerminateObligation`: reproduced
-  and fixed locally on native Windows 2026-09-30; patch CI pending.** Observed live on PR #25's
+  and fixed on native Windows 2026-09-30; verified by first-attempt matrix
+  CI at the v0.8.1 tag.** Observed live on PR #25's
   CI (2026-08-13): failed once with `"an unexpired delivery attempt already
   exists for this runtime"` on a run where every package's tests ran visibly
   slower than normal (`internal/mcp` 72s vs the usual ~24s,
@@ -485,10 +491,13 @@ kept:
   repetitions each (90.610s); the independent no-pipe startup symptom was not
   reproduced and remains conditional, not declared fixed. The first-attempt
   green [CI run on `de3daf2`](https://github.com/DhanushSantosh/AgentComms/actions/runs/36714142643)
-  predates this patch and is not evidence that the patch passed matrix CI.
+  predates this patch and is not evidence that the patch passed matrix CI;
+  the evidence that it did is the v0.8.1 tag's first-attempt [CI run 36844490824](https://github.com/DhanushSantosh/AgentComms/actions/runs/36844490824)
+  at `4cb6579`.
 
-- **Windows cleanup deadlock: root cause confirmed and fixed locally
-  2026-09-30; patch CI pending.** A 60-round native loaded startup loop
+- **Windows cleanup deadlock: root cause confirmed and fixed 2026-09-30;
+  verified by first-attempt matrix CI at the v0.8.1 tag.** A 60-round native
+  loaded startup loop
   failed one of 180 cases (562.123s overall). The captured daemon goroutine
   was inside `http.Server.Shutdown` calling go-winio v0.6.2 `Close` at
   pipe.go:578. Its listener routine had resumed the top-level select at
@@ -506,7 +515,8 @@ kept:
   with disconnecting clients (16.707s). Pipe ACLs, timeouts and SQLite
   transactions are unchanged. The dependency copy, license, bounded diff
   and removal criteria are documented in `third_party/go-winio/PATCH.md`;
-  an explicit Windows CI step covers its nested-module regression.
+  an explicit Windows CI step covers its nested-module regression, and it
+  passed at `-count=20` in [CI run 36844490824](https://github.com/DhanushSantosh/AgentComms/actions/runs/36844490824) at the v0.8.1 tag.
   After this dependency correction, all 120 replacement cases in another
   60-round loaded run avoided the cleanup failure. That run failed only
   slow-health reuse (877.609s overall): its handler delay was 650.9805ms,
