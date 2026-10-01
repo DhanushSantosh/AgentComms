@@ -904,6 +904,15 @@ func (m Model) tableDetailHeight(p palette, width, contentHeight int) int {
 	return min(wrappedHeight(detail, width), min(max(3, contentHeight/2), contentHeight-3))
 }
 
+// countOf renders a count with the noun form that agrees with it, so the
+// overview reads "1 open task", not "1 open tasks".
+func countOf(n int, singular, plural string) string {
+	if n == 1 {
+		return fmt.Sprintf("%d %s", n, singular)
+	}
+	return fmt.Sprintf("%d %s", n, plural)
+}
+
 func (m Model) overview(p palette) string {
 	contentWidth := m.contentWidth()
 	open, running, ready, online, inboxActions := 0, 0, 0, 0, 0
@@ -933,13 +942,22 @@ func (m Model) overview(p palette) string {
 			inboxActions++
 		}
 	}
+	agents := len(m.state.Agents)
 	status := fmt.Sprintf(
-		"%d agents  ·  %d can message  ·  %d online runtimes  ·  %d open tasks  ·  %d inbox actions  ·  %d running invocations",
-		len(m.state.Agents), ready, online, open, inboxActions, running,
+		"%s  ·  %d can message  ·  %s  ·  %s  ·  %s  ·  %s",
+		countOf(agents, "agent", "agents"), ready,
+		countOf(online, "online runtime", "online runtimes"),
+		countOf(open, "open task", "open tasks"),
+		countOf(inboxActions, "inbox action", "inbox actions"),
+		countOf(running, "running invocation", "running invocations"),
 	)
 	if contentWidth < 78 {
-		status = fmt.Sprintf("%d agents · %d message-ready · %d runtimes online\n%d open tasks · %d inbox actions · %d running invocations",
-			len(m.state.Agents), ready, online, open, inboxActions, running)
+		status = fmt.Sprintf("%s · %d message-ready · %s online\n%s · %s · %s",
+			countOf(agents, "agent", "agents"), ready,
+			countOf(online, "runtime", "runtimes"),
+			countOf(open, "open task", "open tasks"),
+			countOf(inboxActions, "inbox action", "inbox actions"),
+			countOf(running, "running invocation", "running invocations"))
 	}
 	workforceWidth := contentWidth
 	attentionWidth := contentWidth
