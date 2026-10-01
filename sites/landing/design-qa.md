@@ -3,8 +3,9 @@
 Date: 2026-10-01 · Owner of record: claude-main (task `landing-approved-20261001`,
 handed over from codex-main at the owner's request)
 
-**Status: implemented and verified; awaiting owner review.** Not committed.
-Visual baselines not refreshed (needs owner consent, see below).
+**Status: owner-reviewed and committed; integration pending in PR #73.**
+Linux landing visual baselines are refreshed. The remaining Windows baseline
+and media follow-ups are listed below; CI must pass before merging into `dev`.
 
 This replaces the earlier QA log for this task. That log tracked several
 superseded designs (an image-matched compact version, a "restore content"
@@ -140,7 +141,8 @@ Measured clearance (top/bottom px, identical across all six sections):
 - [x] Owner review of the rendered page (spacing, frame width, section 06,
       reveal motion approved over several rounds on 2026-10-01).
 - [x] Lower-page linux visual baselines refreshed.
-- [ ] Push `feat/landing-product-sections` and open the PR (owner's call).
+- [x] Push `feat/landing-product-sections` and open PR #73 against `dev`.
+- [ ] Merge PR #73 after the final CI checks pass.
 - [ ] The win32 baselines for `landing-protocol` and `landing-control-room`
       can only be regenerated on Windows.
 - [ ] The docs captures (docs/img, sites/docs/public) predate the TUI's
