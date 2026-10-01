@@ -4,7 +4,7 @@ description: Update the user-level installation, reconcile managed projects, ins
 section: User guide
 order: 7
 audience: Human operators
-lastVerified: 2026-09-02
+lastVerified: 2026-10-01
 related: [start/install, operations/recovery]
 ---
 
@@ -38,6 +38,12 @@ agent-comms invocation list
 ```
 
 `doctor` detects project compatibility problems, invalid connector references, runtime/owner mismatches, foreign-host interactive endpoints, ambiguous routing, and stale delivery attempts. Follow its repair command exactly rather than modifying `.agent-comms/`.
+
+`agent-comms doctor --fix` applies bounded, routine lifecycle repairs and
+attempts to recover an unavailable local daemon, then rechecks the result.
+It does not approve confirmation-required migrations, change governance,
+take over leases, or choose a connector on your behalf. Remaining findings
+still require their documented action; an attempted repair is not success.
 
 ## Search and export
 

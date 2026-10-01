@@ -4,7 +4,7 @@ description: Check release checksums, Sigstore identity, provenance, and the cur
 section: Security and trust
 order: 4
 audience: Security reviewers
-lastVerified: 2026-09-02
+lastVerified: 2026-10-01
 related: [start/install, security/integrity]
 ---
 
@@ -25,12 +25,16 @@ Any missing pin, asset, or verification failure stops installation. The pin is i
 
 ## Manual verification
 
-Use the command printed by the installer, or run the equivalent check with the downloaded `agent-comms-verify` binary:
+First authenticate a downloaded `agent-comms-verify` against its SHA-256 pin
+in the protected release tag, as the installer does; a checksum from the same
+mutable release-assets page is not an independent trust anchor. Alternatively,
+use a separately trusted Cosign installation. Bind verification to one exact
+tag, not every tag in the repository. For the current release:
 
 ```sh
 ./agent-comms-verify \
   --bundle agent-comms-linux-amd64.bundle \
-  --certificate-identity-regexp '^https://github.com/DhanushSantosh/AgentComms/.github/workflows/release.yml@refs/tags/' \
+  --certificate-identity-regexp '^https://github\.com/DhanushSantosh/AgentComms/\.github/workflows/release\.yml@refs/tags/\Q{{LATEST_TAG}}\E$' \
   --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
   agent-comms-linux-amd64
 ```
@@ -40,7 +44,7 @@ A real, separately installed [`cosign`](https://docs.sigstore.dev/cosign/system_
 ```sh
 cosign verify-blob \
   --bundle agent-comms-linux-amd64.bundle \
-  --certificate-identity-regexp '^https://github.com/DhanushSantosh/AgentComms/.github/workflows/release.yml@refs/tags/' \
+  --certificate-identity-regexp '^https://github\.com/DhanushSantosh/AgentComms/\.github/workflows/release\.yml@refs/tags/\Q{{LATEST_TAG}}\E$' \
   --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
   agent-comms-linux-amd64
 ```

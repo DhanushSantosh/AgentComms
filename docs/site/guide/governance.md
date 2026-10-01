@@ -4,7 +4,7 @@ description: Record durable decisions and require the right level of authority b
 section: User guide
 order: 5
 audience: Human operators
-lastVerified: 2026-09-02
+lastVerified: 2026-10-01
 related: [security/identity, security/integrity]
 ---
 
@@ -45,7 +45,8 @@ agent-comms document supersede \
 agent-comms approval request \
   --id approval-shared-auth \
   --tier ORCHESTRATOR \
-  --action "share-write:internal/auth" \
+  --action "shared-write:task-api-auth:task-auth-tests" \
+  --expires-in 1h \
   --reason "<agent-a> implements while <agent-b> verifies" \
   --affected <agent-a> \
   --affected <agent-b>
@@ -63,6 +64,21 @@ agent-comms approval approve --id approval-shared-auth
 agent-comms approval reject --id approval-shared-auth
 ```
 
-The transition that consumes approval rechecks the approval, actor authority, and current target state. Creating an approval record does not make an otherwise invalid action succeed.
+Shared-write approval authorizes overlap between the two named tasks, not
+unrestricted writes to a path. Both tasks must exist. The arrangement remains
+reusable for that task pair until any stated expiry; task takeover instead
+consumes one eligible approval per takeover (`task.takeover:<task-id>`).
+
+Contract publication and approval-gated invocation requests bind approval to
+the canonical operation payload and require a future expiry. Use the command's
+approval-required guidance to obtain the exact subject JSON and digest; an
+action string alone cannot authorize these operations. Review that payload
+and expiry with `approval show --id <approval-id>` before approving.
+
+The authorized transition rechecks the approval, actor authority, and current
+target state. Creating an approval record does not make an otherwise invalid
+action succeed. An expired approval cannot authorize a new transition, even
+if its stored status still reads APPROVED; expiry does not revoke a lease
+already granted.
 
 > The current protocol does not require the approver to differ from the requester. If your governance requires two distinct people, enforce that operationally until multi-party approval is added.

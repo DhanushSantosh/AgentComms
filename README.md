@@ -10,9 +10,14 @@
 
 <br>
 
-<img src="docs/img/tui-demo.gif" alt="Agent Comms terminal control room — tasks, agents, and invocation delivery" width="820">
+<img src="docs/img/tui-overview.png" alt="Current Agent Comms overview — messaging readiness, runtime presence, work, attention, and signed history" width="820">
 
 </div>
+
+[Watch the current terminal tour](docs/img/tui-demo.mp4) ·
+[Animated preview](docs/img/tui-demo.gif). Recorded from the real TUI using an
+isolated demo project; navigation pauses are shortened. No private project
+messages or credentials appear in these captures.
 
 <br>
 

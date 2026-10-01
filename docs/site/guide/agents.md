@@ -4,7 +4,7 @@ description: Create identities, assign roles and scopes, rotate keys, and safely
 section: User guide
 order: 2
 audience: Human operators
-lastVerified: 2026-08-01
+lastVerified: 2026-10-01
 related: [security/identity, agents/integrations]
 ---
 
@@ -14,18 +14,30 @@ An agent identity and an agent process are different things. Registration create
 
 ```sh
 agent-comms agent register \
-  --id <agent-id> \
-  --display-name "<agent-id>" \
+  --provider codex \
+  --id codex-api \
+  --display-name "API specialist" \
   --principal-type AGENT
 
 agent-comms agent activate \
-  --id <agent-id> \
+  --id codex-api \
   --role Backend-Designer \
   --scope src \
   --scope tests
 ```
 
 An identity may self-register. Registering a different ID requires an active human or orchestrator sponsor. Only `OWNER` and `ORCHESTRATOR` are reserved roles with any permission effect (`OWNER` is established once, during project initialization, and is never a legal target afterward). Anything else — `Backend-Designer` above, or `Frontend-Architect`, `Tester`, whatever actually describes the work — is a freeform, purely descriptive label with no bearing on standing.
+
+New AGENT IDs must be the provider name or a provider-prefixed ID, such as
+`codex-api`. Supported providers are `claude`, `codex`, and `opencode`;
+custom adapter configuration does not extend this signed protocol allowlist.
+Omit `--id` to allocate the next available provider ID. Existing identities
+are not renamed, and HUMAN IDs remain free-form. Elsewhere in these docs,
+`<agent-id>` means the actual registered ID, not a literal placeholder.
+
+You can also address a principal by its display name. An exact ID takes
+precedence; an ambiguous display name is refused rather than guessed. Signed
+events always retain the principal ID.
 
 ## Manage the lifecycle
 
@@ -57,7 +69,11 @@ A human principal can register a separate passphrase-protected signing key:
 agent-comms --actor owner agent elevate-key
 ```
 
-The elevated key is required for sensitive identity operations and human-tier approvals when configured. It is CLI-only so an unattended MCP client cannot answer the passphrase prompt.
+Elevated-key registration is CLI-only so an unattended MCP client cannot
+enroll one. When configured, the key is required for sensitive identity
+operations and human-tier approvals; human operators can enter its passphrase
+in the corresponding CLI prompt or masked TUI form. Do not give the passphrase
+to an agent or put it in a message.
 
 ## Revoke and delete
 
