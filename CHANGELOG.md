@@ -5,28 +5,107 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-10-02 — “Order of Arrival”
+
+*Messages and every other project record now carry real timestamps from their
+signed history, and lists show the newest first, so a recent message can no
+longer hide behind how its ID sorts. Existing projects need a one-time
+upgrade. The landing site and docs are refreshed.*
+
 **Breaking**
-- **Breaking:** lists are ordered by recent activity, not by ID: `message
-  inbox` shows the newest posted message first and applies `--limit` after
-  ordering, and other lists put the most recently changed entity first.
-  Scripts that assumed ID order should read the new JSON `order` field.
-- **Breaking:** existing projects need a one-time `project upgrade` (personal
-  mode, after the usual backup) and shared authorities need
-  `agent-comms-server migrate apply --yes --allow-disruptive` (migration 7),
-  which replays signed history to give existing entities their timestamps.
-  Time taken grows with the number of events; the server will not start
-  until it has run.
+- **Breaking:** lists are ordered by recent activity, not by ID; `message
+  inbox --limit N` returns the N newest messages. Scripts should read the
+  new JSON `order` array.
+- **Breaking:** run `project upgrade` once (personal mode) or
+  `agent-comms-server migrate apply --yes --allow-disruptive` (shared
+  servers) to backfill timestamps from signed history.
 
 **Added**
-- Entities carry `created_at` and `updated_at` from the signed events that
-  created and last changed them, shown in CLI tables, `show`, JSON, MCP and
-  the TUI.
-- JSON list envelopes include an `order` array; the new MCP `message_inbox`
-  tool returns the same order in `_meta.order`.
+- `created_at`/`updated_at` on messages, tasks, agents, approvals,
+  documents, runtimes, invocations and more, in the CLI, JSON, MCP and TUI.
+- MCP `message_inbox` tool, with the same order as the CLI in `_meta.order`.
 
 **Fixed**
-- A newer message can no longer be hidden from `message inbox --limit N` by
-  how its ID happens to sort.
+- The overview reads "1 open task", not "1 open tasks".
+- The landing site's live control room no longer scatters its rows.
+- Daemon replacement on Windows no longer fails with `SQLITE_BUSY`.
+- Prerelease toolkit versions compare correctly.
+
+### Added
+- Event-derived entity timestamps (RFC 0041). Every entity records
+  `created_at`/`updated_at` and their signed sequences, taken only from the
+  signed events that created and last changed it, including cascades (task
+  unblock, approval consumption, document supersession, archival, runtime
+  revoke). Client clocks are never used; unknown times are omitted rather
+  than shown as year 1.
+- JSON list envelopes (`message inbox`, `task`, `agent`, `approval`,
+  `document`, `invocation`, `runtime` and `env` lists) add a top-level
+  `order` array with the displayed IDs after filtering and `--limit`; it is
+  `[]` when nothing matches.
+- The MCP `message_inbox` tool lists messages addressed to the caller
+  (optional `unread`, `from`, `limit`), returns the message map as
+  structured content and the order in `_meta.order`, and shares its
+  filtering with the CLI.
+- Release validation: CLI/MCP parity tests for tasks, messages and history
+  pages, and a PostgreSQL delivery test with two runtimes, induced cache
+  lag, a queued burst and concurrent syncs.
+
+### Changed
+- **Breaking:** `message inbox` orders by signed creation sequence, newest
+  first, and applies `--limit` after ordering. Other lists put the most
+  recently changed entity first. The TUI follows the same order, keeps the
+  selected entity selected when rows reorder, and its attention panel,
+  blockers and "current work" use recency. The TUI messages list is strictly
+  newest first; messages needing a response remain in the attention panel.
+- **Breaking:** existing data is backfilled by replaying verified signed
+  history. Personal mode: `project upgrade` (confirmation required, after
+  the usual backup) moves the personal authority to schema 2 and the
+  projection cache to 4. Shared servers: migration 7 runs automatically on
+  a fresh database, but with existing history the server refuses to start
+  until `agent-comms-server migrate apply --yes --allow-disruptive` has run;
+  time taken grows with the number of events. Unverifiable authority history
+  fails the migration rather than publishing guessed times; an unverifiable
+  cache project is dropped and refetched.
+- The server refuses a database migrated by a newer binary, and the personal
+  authority refuses an older database until `project upgrade` runs.
+- The landing site's lower page is rebuilt as six consistent sections in the
+  same frame as the live control room, with a phone layout for the
+  deployment comparison and even reveal motion.
+- README and docs use fresh captures of the current TUI from the isolated
+  demo project, and guides are updated to current behaviour (provider-named
+  agent IDs, the 1,200-character message limit, shared-write and takeover
+  approvals, `doctor --fix`, `live attach`, release verification pinned to
+  one tag).
+
+### Fixed
+- `message inbox --limit N` could omit a newer message whose ID sorted lower.
+- The TUI overview pluralized single counts ("1 open tasks").
+- The landing site's live control room centred each terminal row, scattering
+  the TUI, because it inherited the hero's text alignment.
+- Opening the personal authority read its schema version before setting a
+  busy timeout, so daemon replacement on Windows could fail with
+  `SQLITE_BUSY`.
+- Toolkit versions with prerelease tags (such as `0.8.2-dev`) compared as
+  older than their release; they now follow SemVer precedence.
+- The communication guide used `document notify --to`; the flag is
+  `--notify`. Guidance no longer suggests `--body-file` can exceed the
+  message limit.
+- Tests no longer write profiles into the developer's real user config, and
+  several cross-platform test flakes are fixed.
+
+### Removed
+- Unused code across Go and the sites, including `identity.Verify`,
+  `remote.New`, an unused OpenCode permission listing, unused docs font
+  dependencies, and code for landing sections the page no longer renders.
+
+### Known limitations
+- Lists remain unpaginated full-state reads; ordering does not make them
+  bounded. Draft listing has no continuation cursor.
+- Windows visual baselines for the rebuilt landing lower page were not
+  regenerated (CI runs visual tests on Linux).
+- Interactive PTY delivery still uses echo heuristics, custom provider
+  identities remain limited to the built-in set, and hosted project joining
+  and first-class worker supervision remain deferred.
 
 ## [0.8.1] - 2026-10-01 — “Room to Work”
 
