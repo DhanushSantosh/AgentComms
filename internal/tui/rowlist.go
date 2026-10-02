@@ -81,6 +81,7 @@ func (act RowAction) prompt(id string) string {
 
 type RowSource interface {
 	Columns(width int) []table.Column
+	IDs(st model.State, actor string, mine bool) []string
 	Rows(st model.State, actor string, mine bool) []table.Row
 	RowID(idx int, st model.State, actor string, mine bool) string
 	Actions(id string, st model.State, actor string) []RowAction
@@ -121,6 +122,7 @@ type RowList struct {
 	source RowSource
 	mine   bool
 	cursor int
+	rowIDs []string // previous refresh order, for stable selection after reordering
 	topRow int
 	height int // visible data-row count, kept in sync by syncActiveRowListDimensions
 	width  int
@@ -145,7 +147,22 @@ func newRowList(source RowSource) RowList {
 func visibleRowCount(h int) int { return max(0, h-2) }
 
 func (r *RowList) Refresh(st model.State, actor string) {
-	r.clampToRowCount(len(r.source.Rows(st, actor, r.mine)))
+	selectedID := ""
+	if r.cursor >= 0 && r.cursor < len(r.rowIDs) {
+		selectedID = r.rowIDs[r.cursor]
+	}
+	ids := r.source.IDs(st, actor, r.mine)
+	count := len(ids)
+	r.rowIDs = ids
+	if selectedID != "" {
+		for index, id := range ids {
+			if id == selectedID {
+				r.SetCursor(index, count)
+				return
+			}
+		}
+	}
+	r.clampToRowCount(count)
 }
 func (r *RowList) SetMineFilter(mine bool, st model.State, actor string) {
 	r.mine = mine
@@ -158,6 +175,21 @@ func (r RowList) Actions(id string, st model.State, actor string) []RowAction {
 	return r.source.Actions(id, st, actor)
 }
 func (r RowList) Cursor() int { return r.cursor }
+
+// SelectID moves the cursor to id if it is visible, e.g. to follow an
+// entity the user just created now that rows are ordered by recent
+// activity rather than by ID. It reports whether id was found.
+func (r *RowList) SelectID(id string, st model.State, actor string) bool {
+	ids := r.source.IDs(st, actor, r.mine)
+	r.rowIDs = ids
+	for index, candidate := range ids {
+		if candidate == id {
+			r.SetCursor(index, len(ids))
+			return true
+		}
+	}
+	return false
+}
 
 // SetCursor moves to an absolute row (clamped to the valid range for
 // rowCount), scrolling topRow the minimum amount needed to keep it

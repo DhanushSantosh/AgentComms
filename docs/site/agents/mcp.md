@@ -4,7 +4,7 @@ description: Configure the stdio MCP server, establish actor identity, and use b
 section: Agent integration
 order: 2
 audience: Agents
-lastVerified: 2026-08-01
+lastVerified: 2026-10-02
 related: [reference/mcp, agents/invocations]
 ---
 
@@ -35,6 +35,8 @@ The actor must have a matching local credential. Prefer a named Agent Comms prof
 4. Use `invocation_listen` for bounded waiting or `invocation_next` for polling.
 
 MCP tools return structured content and use the same stable failure codes as the CLI. Mutation tools do not weaken role or human-approval requirements.
+
+`message_inbox` lists messages addressed to the calling actor, newest posted first, with optional `unread`, `from`, and `limit`. Its structured content is a map keyed by message ID; the display order is in the result's `_meta.order`, the same IDs and order as the CLI envelope's `order`.
 
 ## Receiving invocations
 

@@ -8,7 +8,6 @@ import (
 
 	"github.com/DhanushSantosh/AgentComms/internal/cliui"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
-	"github.com/DhanushSantosh/AgentComms/internal/service"
 	"github.com/spf13/cobra"
 )
 
@@ -154,16 +153,16 @@ func (c *cli) taskCmd() *cobra.Command {
 		if e != nil {
 			return e
 		}
-		ids := service.SortedKeys(st.Tasks)
+		ids := model.SortedIDsBySequence(st.Tasks, func(task model.Task) uint64 { return task.UpdatedSequence })
 		rows := make([][]string, 0, len(ids))
 		for _, id := range ids {
 			task := st.Tasks[id]
-			rows = append(rows, []string{id, task.Title, task.Status, task.Owner, task.Branch})
+			rows = append(rows, []string{id, task.Title, task.Status, task.Owner, task.Branch, formatEntityTime(task.UpdatedAt)})
 		}
 		// UX-15: `task list` has no filters (unlike invocation list/message
 		// inbox), so an empty result always means the same thing -- name
 		// the next step instead of a bare "(no rows)".
-		return c.emitTableWithEmpty("task.list", st.Tasks, []string{"ID", "TITLE", "STATUS", "OWNER", "BRANCH"},
+		return c.emitTableFullOrdered("task.list", st.Tasks, ids, []string{"ID", "TITLE", "STATUS", "OWNER", "BRANCH", "UPDATED"}, []int{4, 0, 1, 2, 3, 5},
 			"No tasks yet. Use `agent-comms task create` to add one.", rows)
 	}}
 	var lockWorktree, lockNote string
@@ -269,6 +268,8 @@ func (c *cli) taskCmd() *cobra.Command {
 		fields := []cliui.Field{
 			{Label: "Title", Value: t.Title}, {Label: "Status", Value: t.Status},
 			{Label: "Owner", Value: t.Owner}, {Label: "Branch", Value: t.Branch},
+			{Label: "Created", Value: formatEntityTime(t.CreatedAt)},
+			{Label: "Updated", Value: formatEntityTime(t.UpdatedAt)},
 			{Label: "Worktree lock", Value: worktreeStatus},
 			{Label: "Protected resources", Value: strings.Join(t.Resources, ", ")},
 		}

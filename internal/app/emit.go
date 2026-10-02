@@ -119,8 +119,12 @@ func (c *cli) emitTableWithPriorities(command string, v any, headers []string, p
 // emitTableFull is emitTable/emitTableWithPriorities/emitTableWithEmpty's
 // shared implementation.
 func (c *cli) emitTableFull(command string, v any, headers []string, priorities []int, empty string, rows [][]string, warnings ...string) error {
+	return c.emitTableFullOrdered(command, v, nil, headers, priorities, empty, rows, warnings...)
+}
+
+func (c *cli) emitTableFullOrdered(command string, v any, order []string, headers []string, priorities []int, empty string, rows [][]string, warnings ...string) error {
 	if c.json || c.quiet {
-		return c.emit(command, v, warnings...)
+		return c.emitWithDeliveryAndOrder(command, v, nil, order, warnings...)
 	}
 	if len(c.pendingWarnings) > 0 {
 		warnings = append(append([]string{}, c.pendingWarnings...), warnings...)
@@ -199,13 +203,17 @@ func renderTable(out io.Writer, headers []string, rows [][]string) {
 }
 
 func (c *cli) emitWithDelivery(command string, v, delivery any, warnings ...string) error {
+	return c.emitWithDeliveryAndOrder(command, v, delivery, nil, warnings...)
+}
+
+func (c *cli) emitWithDeliveryAndOrder(command string, v, delivery any, order []string, warnings ...string) error {
 	if c.json {
 		if len(c.pendingWarnings) > 0 {
 			warnings = append(append([]string{}, c.pendingWarnings...), warnings...)
 		}
 		return json.NewEncoder(c.out).Encode(Envelope{
 			APIVersion: APIVersion, OK: true, Command: command,
-			Result: v, Delivery: delivery, Warnings: warnings,
+			Result: v, Order: order, Delivery: delivery, Warnings: warnings,
 		})
 	}
 	if c.quiet {

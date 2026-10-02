@@ -6,7 +6,6 @@ import (
 	"charm.land/bubbles/v2/table"
 	tea "charm.land/bubbletea/v2"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
-	"github.com/DhanushSantosh/AgentComms/internal/service"
 )
 
 var envSetForm = &ActionForm{
@@ -77,8 +76,11 @@ func (envRowSource) Columns(width int) []table.Column {
 		{Title: "UPDATED AT", Width: updatedAt},
 	}
 }
+func (envRowSource) IDs(st model.State, _ string, _ bool) []string {
+	return model.SortedIDsBySequence(st.Env, func(entry model.EnvEntry) uint64 { return entry.UpdatedSequence })
+}
 func (envRowSource) Rows(st model.State, actor string, mine bool) []table.Row {
-	ids := service.SortedKeys(st.Env)
+	ids := model.SortedIDsBySequence(st.Env, func(entry model.EnvEntry) uint64 { return entry.UpdatedSequence })
 	rows := make([]table.Row, 0, len(ids))
 	for _, id := range ids {
 		e := st.Env[id]
@@ -91,7 +93,7 @@ func (envRowSource) Rows(st model.State, actor string, mine bool) []table.Row {
 	return rows
 }
 func (envRowSource) RowID(idx int, st model.State, actor string, mine bool) string {
-	ids := service.SortedKeys(st.Env)
+	ids := model.SortedIDsBySequence(st.Env, func(entry model.EnvEntry) uint64 { return entry.UpdatedSequence })
 	if idx < 0 || idx >= len(ids) {
 		return ""
 	}

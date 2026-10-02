@@ -338,7 +338,7 @@ func inspectDatabases(root string, config store.Config) ([]databaseVersion, erro
 		if err != nil {
 			return nil, err
 		}
-		result = append(result, databaseVersion{"personal_authority", version, PersonalAuthoritySchemaVersion, "apply transactional schema migrations", false})
+		result = append(result, databaseVersion{"personal_authority", version, PersonalAuthoritySchemaVersion, "apply transactional schema migrations and rebuild state from signed history", false})
 	}
 	cachePath, pathErr := projectionPath(root, config)
 	if pathErr != nil {
@@ -354,7 +354,7 @@ func inspectDatabases(root string, config store.Config) ([]databaseVersion, erro
 				version = ProjectionCacheSchemaVersion
 			}
 		}
-		result = append(result, databaseVersion{"projection_cache", version, ProjectionCacheSchemaVersion, "mark cache for rebuild", true})
+		result = append(result, databaseVersion{"projection_cache", version, ProjectionCacheSchemaVersion, "rebuild cache from its signed history", true})
 	}
 	draftPath := filepath.Join(root, store.Runtime, "data", "drafts.db")
 	draftVersion, err := sqliteVersion(draftPath)
@@ -485,6 +485,9 @@ func migrateDatabases(ctx context.Context, root string, config store.Config) err
 		if err := foldDecisionsIntoDocuments(path); err != nil {
 			return err
 		}
+		if err := rebuildSnapshotsFromEvents(ctx, path, personalAuthoritySnapshots); err != nil {
+			return err
+		}
 		if err := setSQLiteVersion("personal_authority", path, PersonalAuthoritySchemaVersion); err != nil {
 			return err
 		}
@@ -498,6 +501,9 @@ func migrateDatabases(ctx context.Context, root string, config store.Config) err
 	}
 	if _, statErr := os.Stat(cachePath); statErr == nil {
 		if err = foldDecisionsIntoDocuments(cachePath); err != nil {
+			return err
+		}
+		if err = rebuildSnapshotsFromEvents(ctx, cachePath, projectionCacheSnapshots); err != nil {
 			return err
 		}
 		if err = setSQLiteVersion("projection_cache", cachePath, ProjectionCacheSchemaVersion); err != nil {

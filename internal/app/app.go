@@ -90,6 +90,7 @@ type Envelope struct {
 	OK         bool       `json:"ok"`
 	Command    string     `json:"command"`
 	Result     any        `json:"result,omitempty"`
+	Order      []string   `json:"order,omitzero"`
 	Delivery   any        `json:"delivery,omitempty"`
 	Error      *ErrorBody `json:"error,omitempty"`
 	Warnings   []string   `json:"warnings,omitempty"`

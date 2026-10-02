@@ -10780,6 +10780,27 @@
       "name": "status"
     },
     {
+      "description": "List messages addressed to you, newest posted first; _meta.order gives the order",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "from": {
+            "type": "string"
+          },
+          "limit": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "unread": {
+            "type": "boolean"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "message_inbox"
+    },
+    {
       "description": "Read a bounded page of immutable signed events",
       "inputSchema": {
         "additionalProperties": false,

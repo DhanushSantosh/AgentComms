@@ -6,7 +6,6 @@ import (
 	"charm.land/bubbles/v2/table"
 	tea "charm.land/bubbletea/v2"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
-	"github.com/DhanushSantosh/AgentComms/internal/service"
 )
 
 // artifactAddForm calls Service.AddArtifact directly rather than going
@@ -48,8 +47,11 @@ func (artifactRowSource) Columns(width int) []table.Column {
 		{Title: "STORAGE", Width: storage},
 	}
 }
+func (artifactRowSource) IDs(st model.State, _ string, _ bool) []string {
+	return model.SortedIDsBySequence(st.Artifacts, func(a model.Artifact) uint64 { return a.CreatedSequence })
+}
 func (artifactRowSource) Rows(st model.State, actor string, mine bool) []table.Row {
-	ids := service.SortedKeys(st.Artifacts)
+	ids := model.SortedIDsBySequence(st.Artifacts, func(a model.Artifact) uint64 { return a.CreatedSequence })
 	rows := make([]table.Row, 0, len(ids))
 	for _, id := range ids {
 		a := st.Artifacts[id]
@@ -58,7 +60,7 @@ func (artifactRowSource) Rows(st model.State, actor string, mine bool) []table.R
 	return rows
 }
 func (artifactRowSource) RowID(idx int, st model.State, actor string, mine bool) string {
-	ids := service.SortedKeys(st.Artifacts)
+	ids := model.SortedIDsBySequence(st.Artifacts, func(a model.Artifact) uint64 { return a.CreatedSequence })
 	if idx < 0 || idx >= len(ids) {
 		return ""
 	}

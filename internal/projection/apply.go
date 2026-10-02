@@ -48,7 +48,7 @@ func ApplyEvent(s *model.State, e model.Event) error {
 		a.Scopes = p.Scopes
 		s.Agents[e.EntityID] = a
 		if p.Role == model.RoleOrchestrator {
-			consumeOrchestratorGrantApproval(s, e.EntityID)
+			consumeOrchestratorGrantApproval(s, e.EntityID, e)
 		}
 	case *model.AgentRoleSwitched:
 		// Only Role changes -- Capabilities and Scopes are untouched,
@@ -59,7 +59,7 @@ func ApplyEvent(s *model.State, e model.Event) error {
 		if p.Role == model.RoleOrchestrator {
 			// e.EntityID == e.Actor here always -- agent.switch-role is
 			// self-service only (ValidateTransition rejects id != actor).
-			consumeOrchestratorGrantApproval(s, e.EntityID)
+			consumeOrchestratorGrantApproval(s, e.EntityID, e)
 		}
 	case *model.AgentKeyRotated:
 		a := s.Agents[e.EntityID]
@@ -138,13 +138,13 @@ func ApplyEvent(s *model.State, e model.Event) error {
 			t.HandoffTo = ""
 		case "task.takeover":
 			if p.ApprovalID != "" {
-				if err := consumeNamedApprovedAction(s, p.ApprovalID, "task.takeover:"+e.EntityID, e.Time); err != nil {
+				if err := consumeNamedApprovedAction(s, p.ApprovalID, "task.takeover:"+e.EntityID, e); err != nil {
 					return err
 				}
 			} else {
 				// Events written before RFC 0037 lack approval_id. Preserve
 				// their original sorted, action-only replay semantics.
-				consumeApprovedAction(s, "task.takeover:"+e.EntityID)
+				consumeApprovedAction(s, "task.takeover:"+e.EntityID, e)
 			}
 			settings := model.EffectiveProjectSettings(s.ProjectSettings)
 			defaultLease, _ := time.ParseDuration(settings.DefaultLease)
@@ -164,7 +164,11 @@ func ApplyEvent(s *model.State, e model.Event) error {
 		if p.Kind == "FYI" {
 			status = "DELIVERED"
 		}
-		s.Messages[e.EntityID] = model.Message{ID: e.EntityID, Kind: p.Kind, From: e.Actor, To: p.To, Subject: p.Subject, Body: p.Body, TaskID: p.TaskID, Status: status, Recipients: r}
+		s.Messages[e.EntityID] = model.Message{
+			ID: e.EntityID, Kind: p.Kind, From: e.Actor, To: p.To, Subject: p.Subject,
+			Body: p.Body, TaskID: p.TaskID, Status: status, Recipients: r,
+			CreatedAt: e.Time, UpdatedAt: e.Time, CreatedSequence: e.Sequence, UpdatedSequence: e.Sequence,
+		}
 	case *model.MessageResponse:
 		m := s.Messages[e.EntityID]
 		for i := range m.Recipients {
@@ -175,10 +179,13 @@ func ApplyEvent(s *model.State, e model.Event) error {
 			}
 		}
 		m.Status = messageStatus(m)
+		m.UpdatedAt = e.Time
+		m.UpdatedSequence = e.Sequence
 		s.Messages[e.EntityID] = m
 		if p.Response == "RESOLVED" && m.TaskID != "" {
 			if t, ok := s.Tasks[m.TaskID]; ok && t.Status == "BLOCKED" {
 				t.Status = "OPEN"
+				stampClock(&t.EntityClock, e)
 				s.Tasks[m.TaskID] = t
 			}
 		}
@@ -317,6 +324,7 @@ func ApplyEvent(s *model.State, e model.Event) error {
 					},
 					RequireHumanForSensitive: true,
 					UpdatedBy:                e.Actor, UpdatedAt: e.Time,
+					CreatedAt: e.Time, CreatedSequence: e.Sequence, UpdatedSequence: e.Sequence,
 				}
 			}
 		}
@@ -355,6 +363,7 @@ func ApplyEvent(s *model.State, e model.Event) error {
 			for rid, rt := range s.AgentRuntimes {
 				if rt.AgentID == e.EntityID && rt.Status != "REVOKED" {
 					rt.Status, rt.Reason, rt.LastChangedBy = "REVOKED", "agent revoked", e.Actor
+					rt.UpdatedAt, rt.UpdatedSequence = e.Time, e.Sequence
 					s.AgentRuntimes[rid] = rt
 				}
 			}
@@ -381,6 +390,11 @@ func ApplyEvent(s *model.State, e model.Event) error {
 		runtime.LastChangedBy = e.Actor
 		s.AgentRuntimes[e.EntityID] = runtime
 	case *model.InvocationPolicyUpdated:
+		previous := s.InvocationPolicies[e.EntityID]
+		createdAt, createdSequence := previous.CreatedAt, previous.CreatedSequence
+		if createdAt.IsZero() {
+			createdAt, createdSequence = e.Time, e.Sequence
+		}
 		defaultConsumer := effectiveConsumerMode(p.DefaultConsumerMode)
 		allowedConsumers := p.AllowedConsumerModes
 		if len(allowedConsumers) == 0 {
@@ -397,6 +411,7 @@ func ApplyEvent(s *model.State, e model.Event) error {
 			PreferredInteractiveRuntimeID: p.PreferredInteractiveRuntimeID,
 			RequireHumanForSensitive:      p.RequireHumanForSensitive,
 			UpdatedBy:                     e.Actor, UpdatedAt: e.Time,
+			CreatedAt: createdAt, CreatedSequence: createdSequence, UpdatedSequence: e.Sequence,
 		}
 	case *model.ProjectSettingsUpdated:
 		s.ProjectSettings = model.ProjectSettings{
@@ -428,14 +443,16 @@ func ApplyEvent(s *model.State, e model.Event) error {
 		if p.Supersedes != "" {
 			d := s.Documents[p.Supersedes]
 			d.Status = "SUPERSEDED"
+			stampClock(&d.EntityClock, e)
 			s.Documents[p.Supersedes] = d
 		}
 	case *model.ArtifactAdded:
-		s.Artifacts[p.SHA256] = model.Artifact{SHA256: p.SHA256, Size: p.Size, Name: p.Name, MediaType: p.MediaType, Storage: p.Storage}
+		s.Artifacts[p.SHA256] = model.Artifact{SHA256: p.SHA256, Size: p.Size, Name: p.Name, MediaType: p.MediaType, Storage: p.Storage, CreatedAt: e.Time, CreatedSequence: e.Sequence}
 	case *model.ArchiveRun:
 		for _, id := range p.TaskIDs {
 			t := s.Tasks[id]
 			t.Archived = true
+			stampClock(&t.EntityClock, e)
 			s.Tasks[id] = t
 		}
 	case *model.DocumentPayload:
@@ -457,15 +474,70 @@ func ApplyEvent(s *model.State, e model.Event) error {
 				nd := s.Documents[p.ReplacementID]
 				nd.Status = "ACTIVE"
 				nd.Supersedes = e.EntityID
+				stampClock(&nd.EntityClock, e)
 				s.Documents[p.ReplacementID] = nd
 			}
 		}
 	case *model.EnvSetPayload:
-		s.Env[p.Key] = model.EnvEntry{Key: p.Key, Value: p.Value, UpdatedAt: e.Time, UpdatedBy: e.Actor}
+		previous := s.Env[p.Key]
+		createdAt, createdSequence := previous.CreatedAt, previous.CreatedSequence
+		if createdAt.IsZero() {
+			createdAt, createdSequence = e.Time, e.Sequence
+		}
+		s.Env[p.Key] = model.EnvEntry{Key: p.Key, Value: p.Value, CreatedAt: createdAt, CreatedSequence: createdSequence, UpdatedAt: e.Time, UpdatedSequence: e.Sequence, UpdatedBy: e.Actor}
 	case *model.EnvDeletePayload:
 		delete(s.Env, p.Key)
 	}
+	stampEntity(s, e)
 	return nil
+}
+
+func stampClock(clock *model.EntityClock, e model.Event) {
+	if clock.CreatedAt.IsZero() {
+		clock.CreatedAt, clock.CreatedSequence = e.Time, e.Sequence
+	}
+	clock.UpdatedAt, clock.UpdatedSequence = e.Time, e.Sequence
+}
+
+func stampEntity(s *model.State, e model.Event) {
+	switch {
+	case strings.HasPrefix(e.Type, "agent."):
+		if value, ok := s.Agents[e.EntityID]; ok {
+			stampClock(&value.EntityClock, e)
+			s.Agents[e.EntityID] = value
+		}
+	case strings.HasPrefix(e.Type, "task."):
+		if value, ok := s.Tasks[e.EntityID]; ok {
+			stampClock(&value.EntityClock, e)
+			s.Tasks[e.EntityID] = value
+		}
+	case strings.HasPrefix(e.Type, "invocation."):
+		if value, ok := s.Invocations[e.EntityID]; ok {
+			value.UpdatedAt, value.UpdatedSequence = e.Time, e.Sequence
+			if value.CreatedAt.IsZero() {
+				value.CreatedAt, value.CreatedSequence = e.Time, e.Sequence
+			}
+			s.Invocations[e.EntityID] = value
+		}
+	case strings.HasPrefix(e.Type, "runtime."):
+		if value, ok := s.AgentRuntimes[e.EntityID]; ok {
+			if value.CreatedAt.IsZero() {
+				value.CreatedAt, value.CreatedSequence = e.Time, e.Sequence
+			}
+			value.UpdatedAt, value.UpdatedSequence = e.Time, e.Sequence
+			s.AgentRuntimes[e.EntityID] = value
+		}
+	case strings.HasPrefix(e.Type, "approval."):
+		if value, ok := s.Approvals[e.EntityID]; ok {
+			stampClock(&value.EntityClock, e)
+			s.Approvals[e.EntityID] = value
+		}
+	case strings.HasPrefix(e.Type, "document.") || strings.HasPrefix(e.Type, "decision."):
+		if value, ok := s.Documents[e.EntityID]; ok {
+			stampClock(&value.EntityClock, e)
+			s.Documents[e.EntityID] = value
+		}
+	}
 }
 
 // consumeOrchestratorGrantApproval marks the specific HUMAN-tier approval
@@ -478,13 +550,14 @@ func ApplyEvent(s *model.State, e model.Event) error {
 // required this approval to exist and be APPROVED for the AgentActivated/
 // AgentRoleSwitched event applied here to have been produced at all, so it
 // is guaranteed present.
-func consumeOrchestratorGrantApproval(s *model.State, principalID string) {
+func consumeOrchestratorGrantApproval(s *model.State, principalID string, e model.Event) {
 	approvalID := protocol.OrchestratorGrantApprovalID(principalID)
 	approval, exists := s.Approvals[approvalID]
 	if !exists {
 		return
 	}
 	approval.Status = "CONSUMED"
+	stampClock(&approval.EntityClock, e)
 	s.Approvals[approvalID] = approval
 }
 
@@ -496,7 +569,7 @@ func consumeOrchestratorGrantApproval(s *model.State, principalID string) {
 // makes consumption deterministic when callers have independently requested
 // and approved more than one record for the same action -- each approved
 // record still authorizes exactly one event.
-func consumeApprovedAction(s *model.State, action string) {
+func consumeApprovedAction(s *model.State, action string, e model.Event) {
 	ids := make([]string, 0)
 	for id, approval := range s.Approvals {
 		if approval.Action == action && approval.Status == "APPROVED" {
@@ -509,16 +582,18 @@ func consumeApprovedAction(s *model.State, action string) {
 	sort.Strings(ids)
 	approval := s.Approvals[ids[0]]
 	approval.Status = "CONSUMED"
+	stampClock(&approval.EntityClock, e)
 	s.Approvals[ids[0]] = approval
 }
 
-func consumeNamedApprovedAction(s *model.State, id, action string, at time.Time) error {
+func consumeNamedApprovedAction(s *model.State, id, action string, e model.Event) error {
 	approval, ok := s.Approvals[id]
 	if !ok || approval.Action != action || approval.Status != "APPROVED" ||
-		(approval.ExpiresAt != nil && !approval.ExpiresAt.After(at)) {
+		(approval.ExpiresAt != nil && !approval.ExpiresAt.After(e.Time)) {
 		return fmt.Errorf("takeover approval %q is missing, expired, or not approved for %q", id, action)
 	}
 	approval.Status = "CONSUMED"
+	stampClock(&approval.EntityClock, e)
 	s.Approvals[id] = approval
 	return nil
 }

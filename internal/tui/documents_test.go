@@ -69,6 +69,15 @@ func TestDocumentCreateThenUpdateThenSupersede(t *testing.T) {
 	}
 	view.refresh()
 	view.rowFocus = true
+	// The newly created replacement is now first in latest-activity order;
+	// supersede must still target the original document.
+	ids := model.SortedIDsBySequence(view.state.Documents, func(d model.Document) uint64 { return d.UpdatedSequence })
+	for index, id := range ids {
+		if id == "guide-v1" {
+			view.documentList.SetCursor(index, len(ids))
+			break
+		}
+	}
 	view = pressKey(t, view, keyText("s"))
 	if view.form != "document.supersede" {
 		t.Fatalf("expected document.supersede form, got %q", view.form)

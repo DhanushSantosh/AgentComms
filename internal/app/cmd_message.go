@@ -8,7 +8,6 @@ import (
 
 	"github.com/DhanushSantosh/AgentComms/internal/cliui"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
-	"github.com/DhanushSantosh/AgentComms/internal/service"
 	"github.com/spf13/cobra"
 )
 
@@ -86,70 +85,21 @@ func (c *cli) messageCmd() *cobra.Command {
 		from, _ := cmd.Flags().GetString("from")
 		limit, _ := cmd.Flags().GetInt("limit")
 		filtered := unread || from != ""
-		addressedToActor := false
-		out := map[string]model.Message{}
-		for id, m := range st.Messages {
-			toActor := false
-			for _, to := range m.To {
-				if to == c.actor {
-					toActor = true
-					break
-				}
-			}
-			if !toActor {
-				continue
-			}
-			addressedToActor = true
-			// UX-05: unread must reflect *this* recipient's own obligation,
-			// not the message's aggregate Status -- a two-recipient ACTION
-			// stays "OPEN" (aggregate) until every recipient has responded,
-			// so an already-acknowledged recipient kept seeing it as
-			// unread here purely because someone else hadn't acted yet.
-			// FYI has no obligation (initialRecipientStatus never sets it
-			// to PENDING for FYI), so it correctly never matches --unread
-			// either way -- no new durable read-state invented for it.
-			if unread {
-				pending := false
-				for _, recipient := range m.Recipients {
-					if recipient.Principal == c.actor && recipient.Status == "PENDING" {
-						pending = true
-						break
-					}
-				}
-				if !pending {
-					continue
-				}
-			}
-			if from != "" && m.From != from {
-				continue
-			}
-			out[id] = m
-		}
-		// UX-05: sort before limiting, not after -- trimming a Go map
-		// (whose iteration order is randomized per-run) before sorting
-		// meant an unchanged inbox returned different IDs across repeated
-		// `--limit 1` calls, breaking any kind of stable pagination.
-		ids := service.SortedKeys(out)
-		if limit > 0 && len(ids) > limit {
-			ids = ids[:limit]
-			limited := make(map[string]model.Message, len(ids))
-			for _, id := range ids {
-				limited[id] = out[id]
-			}
-			out = limited
-		}
+		// RFC 0041: filter, order newest posted first, then limit -- shared
+		// with MCP's message_inbox so both transports agree on order.
+		out, ids, addressedToActor := model.Inbox(st, c.actor, model.InboxOptions{Unread: unread, From: from, Limit: limit})
 		rows := make([][]string, 0, len(ids))
 		for _, id := range ids {
 			message := out[id]
-			rows = append(rows, []string{id, message.Kind, message.From, message.Status, message.Subject})
+			rows = append(rows, []string{id, message.Kind, message.From, message.Status, formatEntityTime(message.CreatedAt), message.Subject})
 		}
 		// UX-04: SUBJECT and FROM are what a person actually reads this
 		// list for; ID is the long machine identifier `message show --id`
 		// needs, useful but the most acceptable to drop first when the
 		// terminal is narrow. Column order (for muscle memory / --json
 		// stability) is unchanged; only removal priority moves.
-		headers := []string{"ID", "KIND", "FROM", "STATUS", "SUBJECT"}
-		priorities := []int{4, 2, 0, 3, 1}
+		headers := []string{"ID", "KIND", "FROM", "STATUS", "POSTED", "SUBJECT"}
+		priorities := []int{5, 2, 0, 3, 4, 1}
 		// UX-15: "(no rows)" read identically whether nothing has ever been
 		// addressed to this actor or --unread/--from just narrowed a real
 		// inbox to zero -- distinguish the two and name the fix for the
@@ -159,7 +109,7 @@ func (c *cli) messageCmd() *cobra.Command {
 		if filtered && addressedToActor {
 			empty = "No messages match this filter. Remove --unread/--from to see everything addressed to you."
 		}
-		return c.emitTableFull("message.inbox", out, headers, priorities, empty, rows)
+		return c.emitTableFullOrdered("message.inbox", out, ids, headers, priorities, empty, rows)
 	}}
 	inbox.Flags().Bool("unread", false, "show only unread messages")
 	inbox.Flags().String("from", "", "filter by sender")
@@ -180,12 +130,22 @@ func (c *cli) messageCmd() *cobra.Command {
 		return m, []cliui.Field{
 			{Label: "Kind", Value: m.Kind}, {Label: "From", Value: m.From},
 			{Label: "Status", Value: m.Status}, {Label: "Subject", Value: m.Subject},
+			{Label: "Created", Value: formatEntityTime(m.CreatedAt)},
+			{Label: "Updated", Value: formatEntityTime(m.UpdatedAt)},
 			{Label: "Body", Value: m.Body}, {Label: "Recipients", Value: strings.Join(recipients, ", ")},
 		}, true
 	})
 	root.AddCommand(post, inbox, show)
 	return root
 }
+
+func formatEntityTime(at time.Time) string {
+	if at.IsZero() {
+		return "unknown"
+	}
+	return at.UTC().Format(time.RFC3339)
+}
+
 func (c *cli) approvalCmd() *cobra.Command {
 	root := &cobra.Command{Use: "approval"}
 	var tier, action, reason, subjectDigest, approvalSubject string
@@ -231,13 +191,13 @@ func (c *cli) approvalCmd() *cobra.Command {
 		if e != nil {
 			return e
 		}
-		ids := service.SortedKeys(st.Approvals)
+		ids := model.SortedIDsBySequence(st.Approvals, func(a model.Approval) uint64 { return a.UpdatedSequence })
 		rows := make([][]string, 0, len(ids))
 		for _, id := range ids {
 			approval := st.Approvals[id]
-			rows = append(rows, []string{id, approval.Tier, approval.Status, approval.Requester, approval.Action})
+			rows = append(rows, []string{id, approval.Tier, approval.Status, approval.Requester, approval.Action, formatEntityTime(approval.UpdatedAt)})
 		}
-		return c.emitTable("approval.list", st.Approvals, []string{"ID", "TIER", "STATUS", "REQUESTER", "ACTION"}, rows)
+		return c.emitTableFullOrdered("approval.list", st.Approvals, ids, []string{"ID", "TIER", "STATUS", "REQUESTER", "ACTION", "UPDATED"}, []int{4, 2, 1, 3, 0, 5}, "", rows)
 	}}
 	show := c.entityShow("approval", func(st model.State, id string) (any, []cliui.Field, bool) {
 		a, ok := st.Approvals[id]
@@ -255,6 +215,8 @@ func (c *cli) approvalCmd() *cobra.Command {
 		fields := []cliui.Field{
 			{Label: "Tier", Value: a.Tier}, {Label: "Status", Value: a.Status},
 			{Label: "Requester", Value: a.Requester}, {Label: "Action", Value: a.Action},
+			{Label: "Created", Value: formatEntityTime(a.CreatedAt)},
+			{Label: "Updated", Value: formatEntityTime(a.UpdatedAt)},
 		}
 		if a.Subject != "" {
 			fields = append(fields, cliui.Field{Label: "Subject", Value: a.Subject})

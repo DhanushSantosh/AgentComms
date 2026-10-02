@@ -4,7 +4,7 @@ description: Automate Agent Comms through stable exit-code classes, versioned JS
 section: Agent integration
 order: 3
 audience: Agents
-lastVerified: 2026-08-26
+lastVerified: 2026-10-02
 related: [reference/cli, reference/configuration]
 ---
 
@@ -28,6 +28,12 @@ Each JSONL record includes `api_version`, `command`, `event`, `timestamp`, and
 typed `data`. Bounded commands reject JSONL instead of silently changing their
 document contract. MCP, shell completion, exports, and provider attachment
 retain their native protocol or pass-through output.
+
+## Read list order from `order`
+
+List commands (`message inbox`, `task list`, `agent list`, `approval list`, `document list`, `invocation list`, `runtime list`, `env list`) keep `result` as a map keyed by ID, which carries no order. The envelope adds a top-level `order` array with exactly the displayed IDs, after filtering and `--limit`, in display order. It is empty (`[]`) when nothing matches and absent on commands that are not lists.
+
+`message inbox` lists the newest posted message first; the other lists put the most recently changed entity first. Order comes from the signed event sequence, never from IDs, which callers can choose freely. Entities carry `created_at` and `updated_at` (RFC 3339, from the signed event that created or last changed them) plus `created_sequence` and `updated_sequence`. A timestamp is omitted, never shown as year 1, when it is unknown.
 
 ## Treat warnings as data
 
