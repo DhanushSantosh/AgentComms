@@ -57,13 +57,43 @@ func TestReleaseCLIMCPAuthoritativeParity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a, b := state.Tasks["cli-task"], state.Tasks["mcp-task"]
+	// Check existence first: two missing entries would compare equal as zero
+	// values and pass every field comparison below.
+	a, okA := state.Tasks["cli-task"]
+	b, okB := state.Tasks["mcp-task"]
+	if !okA || !okB {
+		t.Fatalf("both adapters must create their task: cli=%t mcp=%t", okA, okB)
+	}
 	if a.Title != b.Title || a.Status != b.Status || a.Repository != b.Repository || a.Branch != b.Branch || !reflect.DeepEqual(a.Resources, b.Resources) {
 		t.Fatalf("task adapters disagree: %+v / %+v", a, b)
 	}
-	x, y := state.Messages["cli-message"], state.Messages["mcp-message"]
+	x, okX := state.Messages["cli-message"]
+	y, okY := state.Messages["mcp-message"]
+	if !okX || !okY {
+		t.Fatalf("both adapters must post their message: cli=%t mcp=%t", okX, okY)
+	}
 	if x.Kind != y.Kind || x.From != y.From || x.Subject != y.Subject || x.Body != y.Body || !reflect.DeepEqual(x.To, y.To) {
 		t.Fatalf("message adapters disagree: %+v / %+v", x, y)
+	}
+	// The whole log fits one 500-record page; the cursor walk below must
+	// visit exactly these sequences.
+	var full struct {
+		Items []struct {
+			Event struct {
+				Sequence uint64 `json:"sequence"`
+			} `json:"event"`
+		} `json:"items"`
+		NextCursor string `json:"next_cursor"`
+	}
+	if err = json.Unmarshal(cli("history", "--limit", "500"), &full); err != nil {
+		t.Fatal(err)
+	}
+	if full.NextCursor != "" || len(full.Items) < 6 {
+		t.Fatalf("expected the whole history in one page: %d items, next=%q", len(full.Items), full.NextCursor)
+	}
+	want := map[uint64]bool{}
+	for _, item := range full.Items {
+		want[item.Event.Sequence] = true
 	}
 	for _, limit := range []int{1, 3, 500} {
 		var left, right any
@@ -116,11 +146,11 @@ func TestReleaseCLIMCPAuthoritativeParity(t *testing.T) {
 		if cursor == "" {
 			break
 		}
-		if len(seen) > 20 {
+		if len(seen) > len(want) {
 			t.Fatal("history cursor did not terminate")
 		}
 	}
-	if len(seen) < 6 {
-		t.Fatalf("history omitted events: got %d", len(seen))
+	if !reflect.DeepEqual(seen, want) {
+		t.Fatalf("cursor walk visited %d events, want exactly the %d in the full page", len(seen), len(want))
 	}
 }
