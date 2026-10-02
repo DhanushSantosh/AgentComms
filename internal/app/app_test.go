@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/DhanushSantosh/AgentComms/internal/doctor"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -19,6 +18,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/DhanushSantosh/AgentComms/internal/doctor"
 
 	"github.com/DhanushSantosh/AgentComms/internal/buildinfo"
 	"github.com/DhanushSantosh/AgentComms/internal/cliui"
@@ -622,26 +623,6 @@ func TestConflictingOutputModesAreRejected(t *testing.T) {
 	}
 	if out.Len() != 0 {
 		t.Fatalf("conflicting output modes wrote a result: %s", out.String())
-	}
-}
-
-func TestRenderTableAlignsColumnsAndHandlesEmptyRows(t *testing.T) {
-	var out bytes.Buffer
-	renderTable(&out, []string{"ID", "STATUS"}, [][]string{
-		{"builder", "ACTIVE"},
-		{"a-much-longer-id", "SUSPENDED"},
-	})
-	want := "ID                STATUS\n" +
-		"builder           ACTIVE\n" +
-		"a-much-longer-id  SUSPENDED\n"
-	if out.String() != want {
-		t.Fatalf("got:\n%q\nwant:\n%q", out.String(), want)
-	}
-
-	out.Reset()
-	renderTable(&out, []string{"ID", "STATUS"}, nil)
-	if out.String() != "(no rows)\n" {
-		t.Fatalf("expected the empty-rows placeholder, got %q", out.String())
 	}
 }
 

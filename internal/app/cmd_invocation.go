@@ -11,7 +11,6 @@ import (
 	"github.com/DhanushSantosh/AgentComms/internal/cliui"
 	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
-	"github.com/DhanushSantosh/AgentComms/internal/service"
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 )
@@ -213,11 +212,12 @@ func (c *cli) invocationCmd() *cobra.Command {
 			}
 			result[id] = invocation
 		}
-		headers := []string{"ID", "TARGET", "STATUS", "PRIORITY", "REQUESTED_BY"}
+		headers := []string{"ID", "TARGET", "STATUS", "PRIORITY", "REQUESTED_BY", "UPDATED"}
 		rows := make([][]string, 0, len(result))
-		for _, id := range service.SortedKeys(result) {
+		ids := model.SortedIDsBySequence(result, func(inv model.Invocation) uint64 { return inv.UpdatedSequence })
+		for _, id := range ids {
 			inv := result[id]
-			rows = append(rows, []string{id, inv.Target, inv.Status, inv.Priority, inv.RequestedBy})
+			rows = append(rows, []string{id, inv.Target, inv.Status, inv.Priority, inv.RequestedBy, formatEntityTime(inv.UpdatedAt)})
 		}
 		// UX-15: distinguish no invocations at all from a --status/--to
 		// filter matching nothing real, and name the fix for the filtered
@@ -226,7 +226,7 @@ func (c *cli) invocationCmd() *cobra.Command {
 		if (status != "" || targetFilter != "") && len(state.Invocations) > 0 {
 			empty = "No invocations match this filter. Remove --status/--to to see everything."
 		}
-		return c.emitTableWithEmpty("invocation.list", result, headers, empty, rows)
+		return c.emitTableFullOrdered("invocation.list", result, ids, headers, []int{3, 1, 0, 2, 4, 5}, empty, rows)
 	}}
 	list.Flags().String("status", "", "filter by status")
 	list.Flags().String("to", "", "filter by target agent")

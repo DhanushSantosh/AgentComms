@@ -5,6 +5,29 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 
 ## [Unreleased]
 
+**Breaking**
+- **Breaking:** lists are ordered by recent activity, not by ID: `message
+  inbox` shows the newest posted message first and applies `--limit` after
+  ordering, and other lists put the most recently changed entity first.
+  Scripts that assumed ID order should read the new JSON `order` field.
+- **Breaking:** existing projects need a one-time `project upgrade` (personal
+  mode, after the usual backup) and shared authorities need
+  `agent-comms-server migrate apply --yes --allow-disruptive` (migration 7),
+  which replays signed history to give existing entities their timestamps.
+  Time taken grows with the number of events; the server will not start
+  until it has run.
+
+**Added**
+- Entities carry `created_at` and `updated_at` from the signed events that
+  created and last changed them, shown in CLI tables, `show`, JSON, MCP and
+  the TUI.
+- JSON list envelopes include an `order` array; the new MCP `message_inbox`
+  tool returns the same order in `_meta.order`.
+
+**Fixed**
+- A newer message can no longer be hidden from `message inbox --limit N` by
+  how its ID happens to sort.
+
 ## [0.8.1] - 2026-10-01 — “Room to Work”
 
 *The terminal control room now keeps its panes within the screen and separates

@@ -5,11 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/DhanushSantosh/AgentComms/internal/model"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/DhanushSantosh/AgentComms/internal/model"
 )
 
 // DeclarativeSpec defines a CLI adapter configuration declaratively in JSON or YAML.

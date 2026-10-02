@@ -199,24 +199,6 @@ func Generate(projectID, actor string) (Credential, error) {
 	}
 	return Credential{ProjectID: projectID, Actor: actor, PublicKey: base64.StdEncoding.EncodeToString(pub), PrivateKey: base64.StdEncoding.EncodeToString(priv)}, nil
 }
-func Sign(c Credential, hash string) (string, error) {
-	b, e := base64.StdEncoding.DecodeString(c.PrivateKey)
-	if e != nil {
-		return "", e
-	}
-	if len(b) != ed25519.PrivateKeySize {
-		return "", errors.New("invalid private key")
-	}
-	return base64.StdEncoding.EncodeToString(ed25519.Sign(ed25519.PrivateKey(b), []byte(hash))), nil
-}
-func Verify(publicKey, hash, sig string) bool {
-	p, e := base64.StdEncoding.DecodeString(publicKey)
-	if e != nil {
-		return false
-	}
-	s, e := base64.StdEncoding.DecodeString(sig)
-	return e == nil && ed25519.Verify(ed25519.PublicKey(p), []byte(hash), s)
-}
 func Fingerprint(publicKey string) string {
 	b, _ := base64.StdEncoding.DecodeString(publicKey)
 	h := sha256.Sum256(b)
@@ -358,17 +340,6 @@ func ProfilesByProjectAndHost(profiles map[string]Profile, projectID, hostLabel 
 		return matches[left].Name < matches[right].Name
 	})
 	return matches
-}
-
-// FindProfileByProjectAndHost returns the actor from the single profile
-// matching both projectID and hostLabel. If zero or more than one profile
-// matches, it returns ok=false rather than guessing which one to use.
-func FindProfileByProjectAndHost(profiles map[string]Profile, projectID, hostLabel string) (string, bool) {
-	matches := ProfilesByProjectAndHost(profiles, projectID, hostLabel)
-	if len(matches) != 1 {
-		return "", false
-	}
-	return matches[0].Actor, true
 }
 
 type UserConfig struct {

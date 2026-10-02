@@ -17,7 +17,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const SchemaVersion = 3
+const SchemaVersion = 4 // 4: RFC 0041 event-derived timestamps
 
 const schema = `
 PRAGMA journal_mode=WAL;

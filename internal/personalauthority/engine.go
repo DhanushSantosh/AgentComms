@@ -49,8 +49,11 @@ CREATE TABLE IF NOT EXISTS events (
     FOREIGN KEY (project_id) REFERENCES projects(project_id)
 );
 
-PRAGMA user_version=1;
 `
+
+// SchemaVersion is the personal authority database version. It must equal
+// projectlifecycle.PersonalAuthoritySchemaVersion.
+const SchemaVersion = 2
 
 type Engine struct {
 	db     *sql.DB
@@ -74,9 +77,35 @@ func Open(path string, signer *controlplane.Signer) (*Engine, error) {
 	}
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
+	// Fail closed on an older database rather than re-stamping it: version
+	// 2 (RFC 0041) means state_json was rebuilt from signed history with
+	// event-derived timestamps, which only `project upgrade` does. Stamping
+	// an old database here would skip that backfill forever.
+	// Wait for locks before the first read, as the schema below also does: a
+	// daemon being replaced can still hold the database for a moment, and
+	// without this the version read fails at once with SQLITE_BUSY.
+	if _, err = db.Exec(`PRAGMA busy_timeout=5000`); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("configure personal authority: %w", err)
+	}
+	var currentVersion int
+	if err = db.QueryRow(`PRAGMA user_version`).Scan(&currentVersion); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("read personal authority schema version: %w", err)
+	}
+	if currentVersion != 0 && currentVersion != SchemaVersion {
+		_ = db.Close()
+		return nil, fmt.Errorf(
+			"personal authority schema is version %d, this binary expects %d; run `agent-comms project upgrade`",
+			currentVersion, SchemaVersion)
+	}
 	if _, err = db.Exec(schema); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("initialize personal authority: %w", err)
+	}
+	if _, err = db.Exec(fmt.Sprintf("PRAGMA user_version=%d", SchemaVersion)); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("stamp personal authority schema version: %w", err)
 	}
 	for _, databaseFile := range []string{path, path + "-wal", path + "-shm"} {
 		if chmodErr := os.Chmod(databaseFile, 0o600); chmodErr != nil && !os.IsNotExist(chmodErr) {

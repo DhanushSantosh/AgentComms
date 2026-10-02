@@ -8,7 +8,6 @@ import (
 
 	"charm.land/bubbles/v2/table"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
-	"github.com/DhanushSantosh/AgentComms/internal/service"
 )
 
 var taskCreateForm = &ActionForm{
@@ -187,15 +186,17 @@ func (taskRowSource) Columns(width int) []table.Column {
 	}
 }
 func (taskRowSource) filteredIDs(st model.State, actor string, mine bool) []string {
-	ids := make([]string, 0, len(st.Tasks))
-	for _, id := range service.SortedKeys(st.Tasks) {
-		t := st.Tasks[id]
+	visible := make(map[string]model.Task)
+	for id, t := range st.Tasks {
 		if t.Archived || (mine && t.Owner != actor) {
 			continue
 		}
-		ids = append(ids, id)
+		visible[id] = t
 	}
-	return ids
+	return model.SortedIDsBySequence(visible, func(t model.Task) uint64 { return t.UpdatedSequence })
+}
+func (s taskRowSource) IDs(st model.State, actor string, mine bool) []string {
+	return s.filteredIDs(st, actor, mine)
 }
 func (s taskRowSource) Rows(st model.State, actor string, mine bool) []table.Row {
 	ids := s.filteredIDs(st, actor, mine)

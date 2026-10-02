@@ -11,8 +11,10 @@ import "time"
 // project databases to inspect in the first place).
 
 const (
-	PersonalAuthoritySchemaVersion = 1
-	ProjectionCacheSchemaVersion   = 3
+	// 2 and 4: state rebuilt from signed history with event-derived
+	// timestamps (RFC 0041).
+	PersonalAuthoritySchemaVersion = 2
+	ProjectionCacheSchemaVersion   = 4
 	DraftStoreSchemaVersion        = 1
 )
 

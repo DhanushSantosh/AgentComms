@@ -15,16 +15,6 @@ type PermissionRequest struct {
 	Patterns   []string `json:"patterns"`
 }
 
-// ListPermissions returns every pending permission request across all
-// sessions on this server.
-func (c *Client) ListPermissions(ctx context.Context) ([]PermissionRequest, error) {
-	var requests []PermissionRequest
-	if err := c.do(ctx, http.MethodGet, "/permission", nil, &requests); err != nil {
-		return nil, err
-	}
-	return requests, nil
-}
-
 // ReplyPermission answers a pending permission request. reply must be one of
 // "once", "always", or "reject" — OpenCode's PermissionV1.Reply.
 func (c *Client) ReplyPermission(ctx context.Context, requestID, reply, message string) error {

@@ -2,7 +2,10 @@ package wasmdemo
 
 import (
 	"context"
+	"crypto/ed25519"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -31,7 +34,7 @@ func registerCommand(t *testing.T, projectID, actor string) (controlplane.Comman
 		Payload: payload, IdempotencyKey: "idem-" + actor + "-register",
 		IssuedAt: time.Now().UTC(), PublicKey: credential.PublicKey,
 	}
-	sig, err := identity.Sign(credential, mustIntentHash(t, command))
+	sig, err := signIntent(credential, mustIntentHash(t, command))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +112,7 @@ func TestMemoryAuthorityRejectsAnInvalidTransitionViaRealProtocolValidation(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	sig, err := identity.Sign(credential, hash)
+	sig, err := signIntent(credential, hash)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,7 +154,7 @@ func TestMemoryAuthorityChainsASecondEventToTheFirst(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sig, err := identity.Sign(credential, hash)
+	sig, err := signIntent(credential, hash)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,4 +199,17 @@ func TestMemoryAuthorityEventsReturnsAppendedEvents(t *testing.T) {
 	if page.Items[0].Event.Type != "agent.register" {
 		t.Errorf("expected agent.register event, got %q", page.Items[0].Event.Type)
 	}
+}
+
+// signIntent signs an intent hash with a credential's Ed25519 key, the way a
+// client signs a command.
+func signIntent(c identity.Credential, hash string) (string, error) {
+	b, e := base64.StdEncoding.DecodeString(c.PrivateKey)
+	if e != nil {
+		return "", e
+	}
+	if len(b) != ed25519.PrivateKeySize {
+		return "", errors.New("invalid private key")
+	}
+	return base64.StdEncoding.EncodeToString(ed25519.Sign(ed25519.PrivateKey(b), []byte(hash))), nil
 }

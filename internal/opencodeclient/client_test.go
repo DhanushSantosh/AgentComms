@@ -73,14 +73,6 @@ func (f *fakeServer) handler() http.HandlerFunc {
 			text := f.promptText
 			f.mu.Unlock()
 			_ = json.NewEncoder(w).Encode(PromptResponse{Parts: []Part{{Type: "text", Text: text}}})
-		case r.Method == http.MethodGet && r.URL.Path == "/permission":
-			f.mu.Lock()
-			defer f.mu.Unlock()
-			var out []PermissionRequest
-			for _, p := range f.permissions {
-				out = append(out, p)
-			}
-			_ = json.NewEncoder(w).Encode(out)
 		case r.Method == http.MethodPost && strings.Contains(r.URL.Path, "/permission/") && strings.HasSuffix(r.URL.Path, "/reply"):
 			parts := strings.Split(r.URL.Path, "/")
 			requestID := parts[2]
@@ -252,7 +244,7 @@ func TestHealthReportsServerReachability(t *testing.T) {
 	}
 }
 
-func TestListAndReplyPermission(t *testing.T) {
+func TestReplyPermission(t *testing.T) {
 	fake := newFakeServer()
 	server := httptest.NewServer(fake.handler())
 	defer server.Close()
@@ -260,13 +252,6 @@ func TestListAndReplyPermission(t *testing.T) {
 
 	fake.askPermission("per_1", "ses_test1", "bash")
 	ctx := context.Background()
-	requests, err := client.ListPermissions(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(requests) != 1 || requests[0].Permission != "bash" {
-		t.Fatalf("unexpected pending permissions: %+v", requests)
-	}
 	if err := client.ReplyPermission(ctx, "per_1", "reject", ""); err != nil {
 		t.Fatal(err)
 	}

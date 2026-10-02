@@ -9,7 +9,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/DhanushSantosh/AgentComms/internal/identity"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
-	"github.com/DhanushSantosh/AgentComms/internal/service"
 )
 
 var agentRegisterForm = &ActionForm{
@@ -34,6 +33,8 @@ var agentRegisterForm = &ActionForm{
 		m.err, m.form, m.inputs, m.formSpec = nil, "", nil, nil
 		m.notice = "Registered " + id + " (pending activation)"
 		m.refreshState()
+		// Select the new identity: activation is the usual next step.
+		m.agentList.SelectID(id, m.state, m.actor)
 		return m, nil
 	},
 }
@@ -339,7 +340,7 @@ func (agentRowSource) Columns(width int) []table.Column {
 	}
 }
 func (s agentRowSource) Rows(st model.State, actor string, mine bool) []table.Row {
-	ids := service.SortedKeys(st.Agents)
+	ids := s.IDs(st, actor, mine)
 	rows := make([]table.Row, 0, len(ids))
 	for _, id := range ids {
 		a := st.Agents[id]
@@ -347,8 +348,11 @@ func (s agentRowSource) Rows(st model.State, actor string, mine bool) []table.Ro
 	}
 	return rows
 }
+func (agentRowSource) IDs(st model.State, _ string, _ bool) []string {
+	return model.SortedIDsBySequence(st.Agents, func(a model.Agent) uint64 { return a.UpdatedSequence })
+}
 func (s agentRowSource) RowID(idx int, st model.State, actor string, mine bool) string {
-	ids := service.SortedKeys(st.Agents)
+	ids := s.IDs(st, actor, mine)
 	if idx < 0 || idx >= len(ids) {
 		return ""
 	}

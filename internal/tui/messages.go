@@ -2,14 +2,12 @@ package tui
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
 	"charm.land/bubbles/v2/table"
 	tea "charm.land/bubbletea/v2"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
-	"github.com/DhanushSantosh/AgentComms/internal/service"
 )
 
 func buildMessagePost(values []string) (any, error) {
@@ -161,9 +159,8 @@ func (messageRowSource) Columns(width int) []table.Column {
 	}
 }
 func (s messageRowSource) filteredIDs(st model.State, actor string) []string {
-	ids := make([]string, 0, len(st.Messages))
-	for _, id := range service.SortedKeys(st.Messages) {
-		m := st.Messages[id]
+	addressedMessages := make(map[string]model.Message)
+	for id, m := range st.Messages {
 		addressed := s.owner != "" && actor == s.owner
 		for _, to := range m.To {
 			if to == actor {
@@ -171,22 +168,16 @@ func (s messageRowSource) filteredIDs(st model.State, actor string) []string {
 			}
 		}
 		if addressed {
-			ids = append(ids, id)
+			addressedMessages[id] = m
 		}
 	}
-	// The overview's inbox-action count should lead directly to those rows,
-	// not to the oldest FYI in a large project. Within each group the
-	// generated time-sortable IDs put newer messages first; custom IDs have
-	// a deterministic fallback order.
-	sort.Slice(ids, func(i, j int) bool {
-		leftAction := len(messageActionsFor(st.Messages[ids[i]], actor)) > 0
-		rightAction := len(messageActionsFor(st.Messages[ids[j]], actor)) > 0
-		if leftAction != rightAction {
-			return leftAction
-		}
-		return ids[i] > ids[j]
-	})
-	return ids
+	// Newest posted first by signed creation sequence, the same order as
+	// `message inbox` (RFC 0041); actionable messages are surfaced
+	// separately in the overview's attention panel.
+	return model.SortedIDsBySequence(addressedMessages, func(m model.Message) uint64 { return m.CreatedSequence })
+}
+func (s messageRowSource) IDs(st model.State, actor string, _ bool) []string {
+	return s.filteredIDs(st, actor)
 }
 func recipientStatus(m model.Message, actor string) string {
 	for _, r := range m.Recipients {

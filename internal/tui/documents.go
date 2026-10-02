@@ -7,7 +7,6 @@ import (
 
 	"charm.land/bubbles/v2/table"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
-	"github.com/DhanushSantosh/AgentComms/internal/service"
 )
 
 var documentCreateForm = &ActionForm{
@@ -87,7 +86,7 @@ func (documentRowSource) Columns(width int) []table.Column {
 	}
 }
 func (documentRowSource) Rows(st model.State, actor string, mine bool) []table.Row {
-	ids := service.SortedKeys(st.Documents)
+	ids := (documentRowSource{}).IDs(st, actor, mine)
 	rows := make([]table.Row, 0, len(ids))
 	for _, id := range ids {
 		d := st.Documents[id]
@@ -95,8 +94,11 @@ func (documentRowSource) Rows(st model.State, actor string, mine bool) []table.R
 	}
 	return rows
 }
+func (documentRowSource) IDs(st model.State, _ string, _ bool) []string {
+	return model.SortedIDsBySequence(st.Documents, func(d model.Document) uint64 { return d.UpdatedSequence })
+}
 func (documentRowSource) RowID(idx int, st model.State, actor string, mine bool) string {
-	ids := service.SortedKeys(st.Documents)
+	ids := (documentRowSource{}).IDs(st, actor, mine)
 	if idx < 0 || idx >= len(ids) {
 		return ""
 	}

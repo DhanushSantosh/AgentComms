@@ -2,7 +2,7 @@ import { getLatestVersion } from "@/lib/latestRelease";
 
 const repositoryUrl = "https://github.com/DhanushSantosh/AgentComms";
 
-export type InstallerMethod = {
+type InstallerMethod = {
   id: "unix" | "windows";
   name: string;
   environment: string;
@@ -10,7 +10,7 @@ export type InstallerMethod = {
   command: string;
 };
 
-export type DownloadRelease = {
+type DownloadRelease = {
   version: string;
   tag: string;
   channel: "Beta" | "Stable";

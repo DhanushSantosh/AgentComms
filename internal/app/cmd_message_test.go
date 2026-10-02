@@ -115,6 +115,63 @@ func TestInboxLimitIsDeterministic(t *testing.T) {
 	}
 }
 
+// A caller-supplied ID is not a timestamp. In particular, a newly posted
+// custom ID may sort after an older generated-looking ID. The limit must
+// select the newest signed message, not the lowest lexicographic ID.
+func TestInboxLimitSelectsNewestMessageRegardlessOfID(t *testing.T) {
+	project := t.TempDir()
+	cleanupProjectDaemon(t, project)
+	t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(project, "user"))
+	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(project, "credentials"))
+	var out, stderr bytes.Buffer
+	must := func(args ...string) {
+		t.Helper()
+		out.Reset()
+		stderr.Reset()
+		args = append(args, "--project", project, "--json")
+		if err := Run(args, &out, &stderr); err != nil {
+			t.Fatalf("%v: %v\n%s", args, err, stderr.String())
+		}
+	}
+	must("init", "--non-interactive", "--owner", "owner", "--mode", "personal")
+	must("agent", "register", "--actor", "owner", "--id", "claude-recipient")
+	must("agent", "activate", "--actor", "owner", "--id", "claude-recipient", "--role", "AGENT", "--scope", "src")
+	must("message", "post", "--actor", "owner", "--id", "msg-100", "--to", "claude-recipient", "--subject", "old")
+	must("message", "post", "--actor", "owner", "--id", "z-custom-new", "--to", "claude-recipient", "--subject", "new")
+	must("message", "inbox", "--actor", "claude-recipient", "--limit", "1")
+	var got map[string]any
+	if err := json.Unmarshal(extractResult(t, out.Bytes()), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got["z-custom-new"] == nil {
+		t.Fatalf("--limit 1 must include the latest message despite its ID: %s", out.String())
+	}
+	var envelope struct {
+		Order []string `json:"order"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if len(envelope.Order) != 1 || envelope.Order[0] != "z-custom-new" {
+		t.Fatalf("structured inbox order must identify the displayed message: %s", out.String())
+	}
+	var latest struct {
+		CreatedAt       string `json:"created_at"`
+		UpdatedAt       string `json:"updated_at"`
+		CreatedSequence uint64 `json:"created_sequence"`
+	}
+	latestJSON, err := json.Marshal(got["z-custom-new"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(latestJSON, &latest); err != nil {
+		t.Fatal(err)
+	}
+	if latest.CreatedAt == "" || latest.UpdatedAt == "" || latest.CreatedSequence == 0 {
+		t.Fatalf("signed creation metadata missing from latest message: %+v", latest)
+	}
+}
+
 // TestMessageShow is the regression test for UX-04 / RFC 0032: there was
 // no way to read one message's subject and body directly by ID.
 func TestMessageShow(t *testing.T) {

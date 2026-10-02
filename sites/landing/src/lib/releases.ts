@@ -1,4 +1,4 @@
-export type Release = {
+type Release = {
   version: string;
   channel: "BETA" | "STABLE";
   name: string;

@@ -1,6 +1,6 @@
 import { BrandMark } from "@/components/BrandMark";
 
-export type SiteHeaderNavItem = {
+type SiteHeaderNavItem = {
   label: string;
   href: string;
 };

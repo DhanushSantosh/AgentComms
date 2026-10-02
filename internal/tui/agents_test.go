@@ -568,6 +568,16 @@ func TestActivateOrchestratorChainsApprovalWhenNoneExists(t *testing.T) {
 		t.Fatal(e)
 	}
 	m = enterAgentsView(t, m)
+	// Elevating the owner's key is a later event than registering the
+	// candidate. Lists now show latest activity first, so select the
+	// candidate explicitly instead of assuming it is the first row.
+	ids := model.SortedIDsBySequence(m.state.Agents, func(a model.Agent) uint64 { return a.UpdatedSequence })
+	for index, id := range ids {
+		if id == "claude-candidate" {
+			m.agentList.SetCursor(index, len(ids))
+			break
+		}
+	}
 	m = pressKey(t, m, keyText("a"))
 	if m.form != "agent.activate" || len(m.inputs) != 4 {
 		t.Fatalf("expected agent.activate form with 4 fields, got form=%q inputs=%d", m.form, len(m.inputs))
@@ -644,6 +654,11 @@ func TestActivateOrchestratorThroughMaskedPassphraseField(t *testing.T) {
 		t.Fatal(e)
 	}
 	m = enterAgentsView(t, m)
+	// Rows are ordered by recent activity (RFC 0041), so pick the
+	// candidate explicitly rather than relying on its row position.
+	if !m.agentList.SelectID("claude-candidate", m.state, m.actor) {
+		t.Fatal("claude-candidate is not listed")
+	}
 	if id := m.agentList.SelectedID(m.state, m.actor); id != "claude-candidate" {
 		t.Fatalf("selected id = %q, want candidate", id)
 	}

@@ -30,6 +30,7 @@ func TestReleaseCLIMCPAuthoritativeParity(t *testing.T) {
 		}
 		return extractResult(t, out.Bytes())
 	}
+	var lastMeta json.RawMessage // _meta of the most recent MCP call
 	rpc := func(name string, args map[string]any) json.RawMessage {
 		t.Helper()
 		input, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": name, "arguments": args}})
@@ -43,6 +44,7 @@ func TestReleaseCLIMCPAuthoritativeParity(t *testing.T) {
 		var reply struct {
 			Result struct {
 				Structured json.RawMessage `json:"structuredContent"`
+				Meta       json.RawMessage `json:"_meta"`
 			} `json:"result"`
 			Error json.RawMessage `json:"error"`
 		}
@@ -52,6 +54,7 @@ func TestReleaseCLIMCPAuthoritativeParity(t *testing.T) {
 		if len(reply.Error) != 0 {
 			t.Fatalf("MCP %s: %s", name, reply.Error)
 		}
+		lastMeta = reply.Result.Meta
 		return reply.Result.Structured
 	}
 	cli("task", "create", "--id", "cli-task", "--title", "Parity", "--repository", "local", "--branch", "dev", "--resource", "src")
@@ -79,6 +82,46 @@ func TestReleaseCLIMCPAuthoritativeParity(t *testing.T) {
 	}
 	if x.Kind != y.Kind || x.From != y.From || x.Subject != y.Subject || x.Body != y.Body || !reflect.DeepEqual(x.To, y.To) {
 		t.Fatalf("message adapters disagree: %+v / %+v", x, y)
+	}
+	// RFC 0041: both transports return the inbox newest posted first, the
+	// CLI in the envelope's top-level order and MCP in _meta.order, with
+	// event-derived times on every message.
+	for _, limit := range []int{0, 1} {
+		var envelope struct {
+			Result map[string]json.RawMessage `json:"result"`
+			Order  []string                   `json:"order"`
+		}
+		var out, stderr bytes.Buffer
+		if err = Run([]string{"message", "inbox", "--limit", strconv.Itoa(limit), "--project", root, "--actor", "owner", "--json"}, &out, &stderr); err != nil {
+			t.Fatalf("CLI inbox: %v %s", err, stderr.String())
+		}
+		if err = json.Unmarshal(out.Bytes(), &envelope); err != nil {
+			t.Fatal(err)
+		}
+		var mcpMessages map[string]json.RawMessage
+		if err = json.Unmarshal(rpc("message_inbox", map[string]any{"limit": limit}), &mcpMessages); err != nil {
+			t.Fatal(err)
+		}
+		var meta struct {
+			Order []string `json:"order"`
+		}
+		if err = json.Unmarshal(lastMeta, &meta); err != nil {
+			t.Fatalf("MCP message_inbox _meta: %v (%s)", err, lastMeta)
+		}
+		if !reflect.DeepEqual(envelope.Order, meta.Order) || len(envelope.Result) != len(mcpMessages) {
+			t.Fatalf("inbox order differs at limit %d: CLI=%v MCP=%v", limit, envelope.Order, meta.Order)
+		}
+		if len(envelope.Order) == 0 || envelope.Order[0] != "mcp-message" {
+			t.Fatalf("inbox at limit %d must lead with the newest post mcp-message: %v", limit, envelope.Order)
+		}
+		for _, id := range envelope.Order {
+			var message struct {
+				CreatedAt string `json:"created_at"`
+			}
+			if err = json.Unmarshal(envelope.Result[id], &message); err != nil || message.CreatedAt == "" {
+				t.Fatalf("inbox message %s lacks created_at: %s", id, envelope.Result[id])
+			}
+		}
 	}
 	// The whole log fits one 500-record page; the cursor walk below must
 	// visit exactly these sequences.

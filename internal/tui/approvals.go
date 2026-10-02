@@ -7,7 +7,6 @@ import (
 
 	"charm.land/bubbles/v2/table"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
-	"github.com/DhanushSantosh/AgentComms/internal/service"
 )
 
 var approvalRequestForm = &ActionForm{
@@ -119,7 +118,10 @@ func (approvalRowSource) Columns(width int) []table.Column {
 	}
 }
 func (approvalRowSource) filteredIDs(st model.State) []string {
-	return service.SortedKeys(st.Approvals)
+	return model.SortedIDsBySequence(st.Approvals, func(a model.Approval) uint64 { return a.UpdatedSequence })
+}
+func (s approvalRowSource) IDs(st model.State, _ string, _ bool) []string {
+	return s.filteredIDs(st)
 }
 func (s approvalRowSource) Rows(st model.State, actor string, mine bool) []table.Row {
 	ids := s.filteredIDs(st)
