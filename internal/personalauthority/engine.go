@@ -81,6 +81,13 @@ func Open(path string, signer *controlplane.Signer) (*Engine, error) {
 	// 2 (RFC 0041) means state_json was rebuilt from signed history with
 	// event-derived timestamps, which only `project upgrade` does. Stamping
 	// an old database here would skip that backfill forever.
+	// Wait for locks before the first read, as the schema below also does: a
+	// daemon being replaced can still hold the database for a moment, and
+	// without this the version read fails at once with SQLITE_BUSY.
+	if _, err = db.Exec(`PRAGMA busy_timeout=5000`); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("configure personal authority: %w", err)
+	}
 	var currentVersion int
 	if err = db.QueryRow(`PRAGMA user_version`).Scan(&currentVersion); err != nil {
 		_ = db.Close()
