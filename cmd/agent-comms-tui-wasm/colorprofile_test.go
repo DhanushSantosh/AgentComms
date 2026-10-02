@@ -74,15 +74,26 @@ func runTUIAndCapture(t *testing.T, opts ...tea.ProgramOption) string {
 
 	go func() {
 		defer pw.Close()
-		_, _ = pw.Write(encodeWindowSizeEvent(100, 30))
+		resize := encodeWindowSizeEvent(100, 30)
+		_, _ = pw.Write(resize)
 		// "LIVE" appears in the first model frame in either color profile.
 		// Never send quit before it appears: a fixed repaint deadline made
 		// slow CI runners produce only initialization/teardown output.
+		//
+		// The size is resent until that frame appears. A pipe has no real
+		// terminal size, so this event is the only way the model learns one,
+		// and a macOS run once rendered nothing for 30s after the initial
+		// clear: the first event was lost during program startup. A resize
+		// is idempotent, and the WASM bridge likewise resends size changes.
 		ticker := time.NewTicker(10 * time.Millisecond)
 		defer ticker.Stop()
+		resend := time.NewTicker(500 * time.Millisecond)
+		defer resend.Stop()
 		for !strings.Contains(out.String(), "LIVE") {
 			select {
 			case <-ticker.C:
+			case <-resend.C:
+				_, _ = pw.Write(resize)
 			case <-ctx.Done():
 				return
 			}
