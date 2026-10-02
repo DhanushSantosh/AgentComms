@@ -16,6 +16,11 @@ import (
 // times/IDs differ; the governed payloads, actors and read pages must agree.
 func TestReleaseCLIMCPAuthoritativeParity(t *testing.T) {
 	svc, root := testsupport.StartPersonalProject(t)
+	// The CLI launches its own in-process daemon whenever its health check
+	// misses the helper's (seen on Windows); stop it before TempDir cleanup,
+	// or its open personal-authority.db cannot be deleted there. Registered
+	// after the helper, so it runs first.
+	cleanupProjectDaemon(t, root)
 	cli := func(args ...string) json.RawMessage {
 		t.Helper()
 		var out, stderr bytes.Buffer
