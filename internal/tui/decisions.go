@@ -6,7 +6,6 @@ import (
 	"charm.land/bubbles/v2/table"
 	tea "charm.land/bubbletea/v2"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
-	"github.com/DhanushSantosh/AgentComms/internal/service"
 )
 
 // RFC 0029: a "decision" is a governed document tagged `decision`. This
@@ -25,13 +24,13 @@ func isDecisionDoc(d model.Document) bool {
 }
 
 func decisionDocIDs(st model.State) []string {
-	ids := make([]string, 0)
-	for _, id := range service.SortedKeys(st.Documents) {
-		if isDecisionDoc(st.Documents[id]) {
-			ids = append(ids, id)
+	decisions := make(map[string]model.Document)
+	for id, document := range st.Documents {
+		if isDecisionDoc(document) {
+			decisions[id] = document
 		}
 	}
-	return ids
+	return model.SortedIDsBySequence(decisions, func(d model.Document) uint64 { return d.UpdatedSequence })
 }
 
 var decisionCreateForm = &ActionForm{
@@ -91,6 +90,9 @@ func (decisionRowSource) Columns(width int) []table.Column {
 		{Title: "STATEMENT", Width: statement},
 	}
 }
+func (decisionRowSource) IDs(st model.State, _ string, _ bool) []string {
+	return decisionDocIDs(st)
+}
 func (decisionRowSource) Rows(st model.State, actor string, mine bool) []table.Row {
 	ids := decisionDocIDs(st)
 	rows := make([]table.Row, 0, len(ids))
@@ -119,7 +121,7 @@ func (decisionRowSource) Actions(id string, st model.State, actor string) []RowA
 // are governed via message.* actions on the Inbox panel, not here.
 func decisionMessages(st model.State) string {
 	rows := []string{}
-	for _, id := range service.SortedKeys(st.Messages) {
+	for _, id := range model.SortedIDsBySequence(st.Messages, func(m model.Message) uint64 { return m.CreatedSequence }) {
 		x := st.Messages[id]
 		if x.Kind == "CONTRACT" {
 			rows = append(rows, "◇ "+id+"  "+x.Subject+" · "+x.Status)

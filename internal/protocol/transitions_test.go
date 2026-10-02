@@ -700,3 +700,37 @@ func TestTaskCreateReportsExactlyTheMissingFields(t *testing.T) {
 		t.Fatalf("error = %q, want every missing field named", err.Error())
 	}
 }
+
+// TestOversizedMessageBodyPointsAtDocumentsNotBodyFile: the 1200-character
+// limit is enforced here, in the protocol, so it applies however the body
+// arrived. The error used to say "use --body-file for longer content" --
+// advice that can never work, since --body-file only avoids the shell's
+// argument-length limits and its content lands on this same check. People
+// followed it, hit the identical error, and were told the same thing again.
+func TestOversizedMessageBodyPointsAtDocumentsNotBodyFile(t *testing.T) {
+	st := model.State{Agents: map[string]model.Agent{
+		"owner":     humanAgent("owner"),
+		"recipient": {ID: "recipient", Status: "ACTIVE", Role: model.Role("MEMBER"), PrincipalType: model.PrincipalAgent},
+	}}
+	post := func(body string) error {
+		_, err := ValidateTransition(st, "owner", "message.post", "msg-x",
+			model.MessagePosted{Kind: "FYI", To: []string{"recipient"}, Subject: "s", Body: body}, time.Now())
+		return err
+	}
+	if err := post(strings.Repeat("x", 1200)); err != nil {
+		t.Fatalf("exactly 1200 characters is within the limit: %v", err)
+	}
+	err := post(strings.Repeat("x", 1201))
+	if err == nil {
+		t.Fatal("1201 characters must be rejected")
+	}
+	message := err.Error()
+	if strings.Contains(message, "use --body-file for longer content") {
+		t.Errorf("the error must not recommend --body-file as a way past the limit: %s", message)
+	}
+	for _, want := range []string{"1200", "1201", "document create"} {
+		if !strings.Contains(message, want) {
+			t.Errorf("the error should mention %q: %s", want, message)
+		}
+	}
+}

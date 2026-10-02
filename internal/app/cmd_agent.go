@@ -7,7 +7,6 @@ import (
 
 	"github.com/DhanushSantosh/AgentComms/internal/cliui"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
-	"github.com/DhanushSantosh/AgentComms/internal/service"
 	"github.com/spf13/cobra"
 )
 
@@ -185,13 +184,14 @@ func (c *cli) agentCmd() *cobra.Command {
 		if e != nil {
 			return e
 		}
-		headers := []string{"ID", "STATUS", "ROLE", "TYPE", "SCOPES"}
+		headers := []string{"ID", "STATUS", "ROLE", "TYPE", "SCOPES", "UPDATED"}
 		rows := make([][]string, 0, len(st.Agents))
-		for _, id := range service.SortedKeys(st.Agents) {
+		ids := model.SortedIDsBySequence(st.Agents, func(a model.Agent) uint64 { return a.UpdatedSequence })
+		for _, id := range ids {
 			a := st.Agents[id]
-			rows = append(rows, []string{id, a.Status, string(a.Role), string(a.PrincipalType), strings.Join(a.Scopes, ",")})
+			rows = append(rows, []string{id, a.Status, string(a.Role), string(a.PrincipalType), strings.Join(a.Scopes, ","), formatEntityTime(a.UpdatedAt)})
 		}
-		return c.emitTable("agent.list", st.Agents, headers, rows)
+		return c.emitTableFullOrdered("agent.list", st.Agents, ids, headers, []int{3, 1, 0, 2, 4, 5}, "", rows)
 	}}
 	show := c.entityShow("agent", func(st model.State, id string) (any, []cliui.Field, bool) {
 		a, ok := st.Agents[id]
@@ -201,6 +201,8 @@ func (c *cli) agentCmd() *cobra.Command {
 		return a, []cliui.Field{
 			{Label: "Status", Value: a.Status}, {Label: "Role", Value: string(a.Role)},
 			{Label: "Type", Value: string(a.PrincipalType)}, {Label: "Scopes", Value: strings.Join(a.Scopes, ",")},
+			{Label: "Created", Value: formatEntityTime(a.CreatedAt)},
+			{Label: "Updated", Value: formatEntityTime(a.UpdatedAt)},
 		}, true
 	})
 	root.AddCommand(reg, act, switchRoleCmd, suspend, rotate, elevate, rename, revoke, deleteAgent, list, show)

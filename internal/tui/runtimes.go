@@ -12,7 +12,6 @@ import (
 	"github.com/DhanushSantosh/AgentComms/internal/daemon"
 	"github.com/DhanushSantosh/AgentComms/internal/identity"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
-	"github.com/DhanushSantosh/AgentComms/internal/service"
 	"github.com/DhanushSantosh/AgentComms/internal/sessionbind"
 )
 
@@ -131,8 +130,12 @@ func (runtimeRowSource) Columns(width int) []table.Column {
 	}
 }
 
+func (runtimeRowSource) IDs(state model.State, _ string, _ bool) []string {
+	return model.SortedIDsBySequence(state.AgentRuntimes, func(rt model.AgentRuntime) uint64 { return rt.UpdatedSequence })
+}
+
 func (runtimeRowSource) Rows(state model.State, _ string, _ bool) []table.Row {
-	ids := service.SortedKeys(state.AgentRuntimes)
+	ids := model.SortedIDsBySequence(state.AgentRuntimes, func(rt model.AgentRuntime) uint64 { return rt.UpdatedSequence })
 	rows := make([]table.Row, 0, len(ids))
 	for _, id := range ids {
 		runtime := state.AgentRuntimes[id]
@@ -242,7 +245,7 @@ func (r runtimeRowSource) sessionBinding(runtimeID string) (provider, session st
 }
 
 func (runtimeRowSource) RowID(index int, state model.State, _ string, _ bool) string {
-	ids := service.SortedKeys(state.AgentRuntimes)
+	ids := model.SortedIDsBySequence(state.AgentRuntimes, func(rt model.AgentRuntime) uint64 { return rt.UpdatedSequence })
 	if index < 0 || index >= len(ids) {
 		return ""
 	}

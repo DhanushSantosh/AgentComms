@@ -4,13 +4,50 @@ description: What changed in each tagged release, why it matters, and where to f
 section: Releases
 order: 1
 audience: Everyone
-lastVerified: 2026-10-01
+lastVerified: 2026-10-02
 related: [guide/maintenance, security/releases]
 ---
 
 Every tagged release is signed and dated. This page summarizes what changed and why; the repository's [CHANGELOG.md](https://github.com/DhanushSantosh/AgentComms/blob/main/CHANGELOG.md) carries the exhaustive per-change detail this page intentionally leaves out.
 
 Every release below is **Beta** — before v1.0.0, SemVer's own 0.x.y convention means anything may still change without notice. There is no Stable channel yet; that label only becomes accurate once a 1.x release ships.
+
+## v0.8.2 — "Order of Arrival" — Beta — 2026-10-02
+
+Messages and every other project record now carry real timestamps from their
+signed history, and lists show the newest first, so a recent message can no
+longer hide behind how its ID sorts. The landing site and docs are refreshed.
+
+**Breaking**
+
+- Lists are ordered by recent activity, not by ID. `message inbox` shows the
+  newest posted message first and applies `--limit` after ordering; scripts
+  should read the new JSON `order` array instead of assuming ID order.
+- Existing projects need a one-time `project upgrade` (personal mode, after
+  its usual backup), and shared servers need `agent-comms-server migrate
+  apply --yes --allow-disruptive`. Both replay verified signed history to
+  backfill timestamps; unverifiable history fails rather than guessing, and
+  a shared server will not start until the migration has run.
+
+**Added**
+
+- `created_at` and `updated_at` on messages, tasks, agents, approvals,
+  documents, runtimes, invocations and more, in CLI tables, `show`, JSON,
+  MCP and the TUI.
+- JSON list envelopes include an `order` array; the new MCP `message_inbox`
+  tool returns the same order in `_meta.order`.
+
+**Fixed**
+
+- The overview reads "1 open task", not "1 open tasks".
+- Daemon replacement on Windows no longer fails with `SQLITE_BUSY`.
+- Prerelease toolkit versions compare correctly.
+- The landing site's live control room no longer scatters its rows.
+
+Lists remain unpaginated full-state reads, and draft listing has no
+continuation cursor. Interactive PTY delivery still uses echo heuristics;
+custom provider identities, hosted project joining, and worker supervision
+remain deferred.
 
 ## v0.8.1 — "Room to Work" — Beta — 2026-10-01
 

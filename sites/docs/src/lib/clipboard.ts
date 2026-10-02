@@ -9,7 +9,7 @@
 // (still broadly supported, synchronous) execCommand("copy") technique via
 // a throwaway textarea, and reports which happened so the caller can give
 // real feedback either way.
-export type CopyOutcome = "clipboard-api" | "legacy-fallback" | "failed";
+type CopyOutcome = "clipboard-api" | "legacy-fallback" | "failed";
 
 export async function copyToClipboard(text: string): Promise<CopyOutcome> {
   if (navigator.clipboard?.writeText) {

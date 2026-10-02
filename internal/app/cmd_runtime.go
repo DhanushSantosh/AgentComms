@@ -18,7 +18,6 @@ import (
 	"github.com/DhanushSantosh/AgentComms/internal/identity"
 	"github.com/DhanushSantosh/AgentComms/internal/interactiveserve"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
-	"github.com/DhanushSantosh/AgentComms/internal/service"
 	"github.com/DhanushSantosh/AgentComms/internal/sessionbind"
 	"github.com/DhanushSantosh/AgentComms/internal/terminallaunch"
 	runtimeworker "github.com/DhanushSantosh/AgentComms/internal/worker"
@@ -151,13 +150,14 @@ func (c *cli) runtimeCmd() *cobra.Command {
 			}
 			state.AgentRuntimes[id] = runtimeState
 		}
-		headers := []string{"ID", "AGENT", "KIND", "STATUS", "HEALTH"}
+		headers := []string{"ID", "AGENT", "KIND", "STATUS", "HEALTH", "UPDATED"}
 		rows := make([][]string, 0, len(state.AgentRuntimes))
-		for _, id := range service.SortedKeys(state.AgentRuntimes) {
+		ids := model.SortedIDsBySequence(state.AgentRuntimes, func(rt model.AgentRuntime) uint64 { return rt.UpdatedSequence })
+		for _, id := range ids {
 			rt := state.AgentRuntimes[id]
-			rows = append(rows, []string{id, rt.AgentID, string(rt.Kind), rt.Status, rt.Health})
+			rows = append(rows, []string{id, rt.AgentID, string(rt.Kind), rt.Status, rt.Health, formatEntityTime(rt.UpdatedAt)})
 		}
-		return c.emitTable("runtime.list", state.AgentRuntimes, headers, rows)
+		return c.emitTableFullOrdered("runtime.list", state.AgentRuntimes, ids, headers, []int{2, 1, 3, 0, 4, 5}, "", rows)
 	}}
 	var workerAdapter, workerExecutable, workerModel, workerSessionID, permissionMode, sandbox string
 	var codexAddDirs []string

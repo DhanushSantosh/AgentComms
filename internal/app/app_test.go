@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/DhanushSantosh/AgentComms/internal/doctor"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -19,6 +18,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/DhanushSantosh/AgentComms/internal/doctor"
 
 	"github.com/DhanushSantosh/AgentComms/internal/buildinfo"
 	"github.com/DhanushSantosh/AgentComms/internal/cliui"
@@ -396,6 +397,19 @@ func TestQuietSuppressesSuccessButNotWarnings(t *testing.T) {
 }
 
 func TestMain(testingMain *testing.M) {
+	// Never touch the developer's real user config or credentials: a test
+	// that forgot its own t.Setenv wrote ~90 stale profiles into
+	// ~/.config/agent-comms over time. Tests that set their own directories
+	// still override these defaults.
+	isolated, err := os.MkdirTemp("", "agent-comms-app-test-")
+	if err != nil {
+		panic(err)
+	}
+	for name, dir := range map[string]string{"AGENT_COMMS_CONFIG_DIR": "user", "AGENT_COMMS_CREDENTIAL_DIR": "credentials"} {
+		if err = os.Setenv(name, filepath.Join(isolated, dir)); err != nil {
+			panic(err)
+		}
+	}
 	launchDaemonProcess = func(_, projectRoot string, output io.Writer) error {
 		projectStore := store.Open(projectRoot)
 		config, err := projectStore.Config()
@@ -433,7 +447,9 @@ func TestMain(testingMain *testing.M) {
 		}()
 		return nil
 	}
-	os.Exit(testingMain.Run())
+	code := testingMain.Run()
+	_ = os.RemoveAll(isolated)
+	os.Exit(code)
 }
 
 var testDaemonRuns sync.Map // project root -> daemon.Run completion channel
@@ -622,26 +638,6 @@ func TestConflictingOutputModesAreRejected(t *testing.T) {
 	}
 	if out.Len() != 0 {
 		t.Fatalf("conflicting output modes wrote a result: %s", out.String())
-	}
-}
-
-func TestRenderTableAlignsColumnsAndHandlesEmptyRows(t *testing.T) {
-	var out bytes.Buffer
-	renderTable(&out, []string{"ID", "STATUS"}, [][]string{
-		{"builder", "ACTIVE"},
-		{"a-much-longer-id", "SUSPENDED"},
-	})
-	want := "ID                STATUS\n" +
-		"builder           ACTIVE\n" +
-		"a-much-longer-id  SUSPENDED\n"
-	if out.String() != want {
-		t.Fatalf("got:\n%q\nwant:\n%q", out.String(), want)
-	}
-
-	out.Reset()
-	renderTable(&out, []string{"ID", "STATUS"}, nil)
-	if out.String() != "(no rows)\n" {
-		t.Fatalf("expected the empty-rows placeholder, got %q", out.String())
 	}
 }
 

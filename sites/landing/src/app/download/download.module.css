@@ -231,7 +231,6 @@
   align-items: center;
   background: var(--panel);
   border: 1px solid var(--line-dark);
-  box-shadow: 0.45rem 0.45rem 0 var(--cyan);
   color: var(--text);
   display: grid;
   grid-template-columns: 4rem minmax(0, 1fr) auto;

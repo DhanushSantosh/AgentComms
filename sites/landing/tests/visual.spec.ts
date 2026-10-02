@@ -9,7 +9,7 @@ test("landing page visual baselines", async ({ page }) => {
   await expect(page).toHaveScreenshot("landing-hero.png", {
     timeout: visualSnapshotTimeoutMilliseconds
   });
-  await page.goto("/#protocol");
+  await page.goto("/#handoff");
   await expect(page).toHaveScreenshot("landing-protocol.png", {
     timeout: visualSnapshotTimeoutMilliseconds
   });

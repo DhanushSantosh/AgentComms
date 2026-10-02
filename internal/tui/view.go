@@ -904,6 +904,15 @@ func (m Model) tableDetailHeight(p palette, width, contentHeight int) int {
 	return min(wrappedHeight(detail, width), min(max(3, contentHeight/2), contentHeight-3))
 }
 
+// countOf renders a count with the noun form that agrees with it, so the
+// overview reads "1 open task", not "1 open tasks".
+func countOf(n int, singular, plural string) string {
+	if n == 1 {
+		return fmt.Sprintf("%d %s", n, singular)
+	}
+	return fmt.Sprintf("%d %s", n, plural)
+}
+
 func (m Model) overview(p palette) string {
 	contentWidth := m.contentWidth()
 	open, running, ready, online, inboxActions := 0, 0, 0, 0, 0
@@ -933,13 +942,22 @@ func (m Model) overview(p palette) string {
 			inboxActions++
 		}
 	}
+	agents := len(m.state.Agents)
 	status := fmt.Sprintf(
-		"%d agents  ·  %d can message  ·  %d online runtimes  ·  %d open tasks  ·  %d inbox actions  ·  %d running invocations",
-		len(m.state.Agents), ready, online, open, inboxActions, running,
+		"%s  ·  %d can message  ·  %s  ·  %s  ·  %s  ·  %s",
+		countOf(agents, "agent", "agents"), ready,
+		countOf(online, "online runtime", "online runtimes"),
+		countOf(open, "open task", "open tasks"),
+		countOf(inboxActions, "inbox action", "inbox actions"),
+		countOf(running, "running invocation", "running invocations"),
 	)
 	if contentWidth < 78 {
-		status = fmt.Sprintf("%d agents · %d message-ready · %d runtimes online\n%d open tasks · %d inbox actions · %d running invocations",
-			len(m.state.Agents), ready, online, open, inboxActions, running)
+		status = fmt.Sprintf("%s · %d message-ready · %s online\n%s · %s · %s",
+			countOf(agents, "agent", "agents"), ready,
+			countOf(online, "runtime", "runtimes"),
+			countOf(open, "open task", "open tasks"),
+			countOf(inboxActions, "inbox action", "inbox actions"),
+			countOf(running, "running invocation", "running invocations"))
 	}
 	workforceWidth := contentWidth
 	attentionWidth := contentWidth
@@ -1046,8 +1064,9 @@ func (m Model) workforce(p palette, width int) string {
 				signal = current.Status
 			}
 		}
+		// The most recently active work, not whichever ID sorts first.
 		work := "none"
-		for _, id := range service.SortedKeys(m.state.Invocations) {
+		for _, id := range model.SortedIDsBySequence(m.state.Invocations, func(inv model.Invocation) uint64 { return inv.UpdatedSequence }) {
 			invocation := m.state.Invocations[id]
 			if invocation.Target == agentID && (invocation.Status == "CLAIMED" || invocation.Status == "RUNNING" || invocation.Status == "WAITING") {
 				work = strings.ToLower(invocation.Status) + " · " + invocation.Instruction
@@ -1055,7 +1074,7 @@ func (m Model) workforce(p palette, width int) string {
 			}
 		}
 		if work == "none" {
-			for _, id := range service.SortedKeys(m.state.Tasks) {
+			for _, id := range model.SortedIDsBySequence(m.state.Tasks, func(t model.Task) uint64 { return t.UpdatedSequence }) {
 				task := m.state.Tasks[id]
 				if task.Owner == agentID && !task.Archived && task.Status != "COMPLETED" && task.Status != "CANCELLED" {
 					work = strings.ToLower(task.Status) + " · " + task.Title
@@ -1098,8 +1117,11 @@ func (m Model) workforce(p palette, width int) string {
 	return strings.Join(rows, "\n")
 }
 func (m Model) attentionRows() []string {
+	// RFC 0041: newest activity first within each kind of attention item,
+	// by signed event sequence. The preview shows only the first few rows,
+	// so order decides what is visible; IDs are caller-chosen, not a clock.
 	rows := []string{}
-	for _, id := range service.SortedKeys(m.state.Tasks) {
+	for _, id := range model.SortedIDsBySequence(m.state.Tasks, func(t model.Task) uint64 { return t.UpdatedSequence }) {
 		t := m.state.Tasks[id]
 		if t.Archived || t.Status == "COMPLETED" || t.Status == "CANCELLED" {
 			continue
@@ -1111,13 +1133,13 @@ func (m Model) attentionRows() []string {
 			rows = append(rows, "◷ Lease: "+t.Title+" · "+t.LeaseUntil.Local().Format("15:04"))
 		}
 	}
-	for _, id := range service.SortedKeys(m.state.Approvals) {
+	for _, id := range model.SortedIDsBySequence(m.state.Approvals, func(a model.Approval) uint64 { return a.UpdatedSequence }) {
 		a := m.state.Approvals[id]
 		if a.Status == "PENDING" {
 			rows = append(rows, "◆ "+a.ID+"  approval: "+a.Action)
 		}
 	}
-	for _, id := range service.SortedKeys(m.state.Invocations) {
+	for _, id := range model.SortedIDsBySequence(m.state.Invocations, func(inv model.Invocation) uint64 { return inv.UpdatedSequence }) {
 		invocation := m.state.Invocations[id]
 		switch invocation.Status {
 		case "WAITING":
@@ -1132,15 +1154,14 @@ func (m Model) attentionRows() []string {
 			rows = append(rows, "✕ "+delivery.InvocationID+"  delivery failed: "+delivery.Error)
 		}
 	}
-	for _, id := range service.SortedKeys(m.state.AgentRuntimes) {
+	for _, id := range model.SortedIDsBySequence(m.state.AgentRuntimes, func(rt model.AgentRuntime) uint64 { return rt.UpdatedSequence }) {
 		runtime := m.state.AgentRuntimes[id]
 		if runtime.Status != "REVOKED" && runtime.Health == "DEGRADED" {
 			rows = append(rows, "● "+runtime.ID+"  "+runtime.Status+" · "+runtime.Health)
 		}
 	}
-	messageIDs := service.SortedKeys(m.state.Messages)
-	for i := len(messageIDs) - 1; i >= 0; i-- {
-		message := m.state.Messages[messageIDs[i]]
+	for _, id := range model.SortedIDsBySequence(m.state.Messages, func(msg model.Message) uint64 { return msg.CreatedSequence }) {
+		message := m.state.Messages[id]
 		if len(messageActionsFor(message, m.actor)) > 0 {
 			rows = append(rows, "✉ "+message.Subject+" · from "+message.From)
 		}
@@ -1177,7 +1198,7 @@ func (m Model) attentionPreview(p palette, width int) string {
 
 func (m Model) blockers(p palette) string {
 	rows := []string{}
-	for _, id := range service.SortedKeys(m.state.Tasks) {
+	for _, id := range model.SortedIDsBySequence(m.state.Tasks, func(t model.Task) uint64 { return t.UpdatedSequence }) {
 		t := m.state.Tasks[id]
 		if t.Status == "BLOCKED" {
 			rows = append(rows, "! "+id+"  "+t.Title)
@@ -1554,6 +1575,7 @@ func (m Model) renderInspector(p palette, width int) string {
 	case "Tasks", "My work":
 		if t, ok := m.state.Tasks[id]; ok {
 			lines = append(lines, titleStyle.Render("Title: ")+t.Title)
+			lines = append(lines, entityTimesLine(mutedStyle, t.CreatedAt, t.UpdatedAt))
 			lines = append(lines, mutedStyle.Render(fmt.Sprintf("Status: %s  |  Owner: %s  |  Branch: %s", fmtStatus(t.Status), empty(t.Owner, "unassigned"), t.Branch)))
 			lines = append(lines, mutedStyle.Render("Resources: ")+strings.Join(t.Resources, ", "))
 			if !t.LeaseUntil.IsZero() {
@@ -1566,12 +1588,14 @@ func (m Model) renderInspector(p palette, width int) string {
 	case "Inbox":
 		if msg, ok := m.state.Messages[id]; ok {
 			lines = append(lines, titleStyle.Render("Subject: ")+msg.Subject)
+			lines = append(lines, entityTimesLine(mutedStyle, msg.CreatedAt, msg.UpdatedAt))
 			lines = append(lines, mutedStyle.Render(fmt.Sprintf("From: %s  ->  To: %s  |  Kind: %s  |  Status: %s", msg.From, strings.Join(msg.To, ", "), msg.Kind, fmtStatus(msg.Status))))
 			lines = append(lines, titleStyle.Render("Body: ")+msg.Body)
 		}
 	case "Invocations":
 		if inv, ok := m.state.Invocations[id]; ok {
 			lines = append(lines, titleStyle.Render("Instruction: ")+inv.Instruction)
+			lines = append(lines, entityTimesLine(mutedStyle, inv.CreatedAt, inv.UpdatedAt))
 			lines = append(lines, mutedStyle.Render(fmt.Sprintf("Target: %s  |  RequestedBy: %s  |  Priority: %s  |  Status: %s", inv.Target, inv.RequestedBy, inv.Priority, fmtStatus(inv.Status))))
 			lines = append(lines, mutedStyle.Render(fmt.Sprintf("Consumer Mode: %s  |  Preferred Runtime: %s", empty(string(inv.ConsumerMode), "EITHER"), empty(inv.PreferredRuntimeID, "automatic"))))
 			if inv.Reason != "" {
@@ -1581,6 +1605,7 @@ func (m Model) renderInspector(p palette, width int) string {
 	case "Agents":
 		if ag, ok := m.state.Agents[id]; ok {
 			lines = append(lines, titleStyle.Render("Display Name: ")+empty(ag.DisplayName, ag.ID))
+			lines = append(lines, entityTimesLine(mutedStyle, ag.CreatedAt, ag.UpdatedAt))
 			lines = append(lines, mutedStyle.Render(fmt.Sprintf("Status: %s  |  Role: %s  |  Type: %s", fmtStatus(ag.Status), string(ag.Role), string(ag.PrincipalType))))
 			lines = append(lines, mutedStyle.Render("Scopes: ")+strings.Join(ag.Scopes, ", "))
 			lines = append(lines, mutedStyle.Render("Capabilities: ")+strings.Join(ag.Capabilities, ", "))
@@ -1589,6 +1614,7 @@ func (m Model) renderInspector(p palette, width int) string {
 	case "Runtimes":
 		if r, ok := m.state.AgentRuntimes[id]; ok {
 			lines = append(lines, titleStyle.Render("Agent ID: ")+r.AgentID)
+			lines = append(lines, entityTimesLine(mutedStyle, r.CreatedAt, r.UpdatedAt))
 			lines = append(lines, mutedStyle.Render(fmt.Sprintf("Status: %s  |  Health: %s  |  Kind: %s  |  Connector: %s", fmtStatus(r.Status), r.Health, r.Kind, r.Connector)))
 			lines = append(lines, mutedStyle.Render("Host ID: ")+r.HostID)
 		}
@@ -1596,6 +1622,7 @@ func (m Model) renderInspector(p palette, width int) string {
 		if app, ok := m.state.Approvals[id]; ok {
 			status := approvalDisplayStatus(app, time.Now())
 			lines = append(lines, titleStyle.Render("Action: ")+app.Action)
+			lines = append(lines, entityTimesLine(mutedStyle, app.CreatedAt, app.UpdatedAt))
 			lines = append(lines, mutedStyle.Render(fmt.Sprintf("Tier: %s  |  Status: %s  |  Requester: %s", app.Tier, fmtStatus(status), app.Requester)))
 			lines = append(lines, titleStyle.Render("Reason: ")+app.Reason)
 			if app.ExpiresAt != nil {
@@ -1619,6 +1646,16 @@ func (m Model) renderInspector(p palette, width int) string {
 		BorderForeground(p.cyan).
 		PaddingLeft(1).
 		Render(strings.Join(lines, "\n"))
+}
+
+func entityTimesLine(style lipgloss.Style, created, updated time.Time) string {
+	format := func(at time.Time) string {
+		if at.IsZero() {
+			return "unknown"
+		}
+		return at.Local().Format(time.RFC3339)
+	}
+	return style.Render("Created: " + format(created) + "  |  Updated: " + format(updated))
 }
 
 func truncate(value string, width int) string {

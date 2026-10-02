@@ -1,18 +1,107 @@
 import { expect, test } from "@playwright/test";
 
-test("presents the product thesis and truthful lifecycle", async ({ page }) => {
+// The lower page is six numbered sections, one topic each, in this order.
+// Governance and the handoff story used to appear three times each; the
+// duplicates were merged at the owner's direction, so every topic below is
+// asserted exactly once.
+const productSections = [
+  { id: "ownership", label: "01 Ownership", heading: "Own the work.", path: "/guide/work/", art: "ownership" },
+  { id: "coordination", label: "02 Coordination", heading: "Reach the team.", path: "/guide/communication/", art: "coordination" },
+  { id: "handoff", label: "03 Handoff", heading: "Every handoff leaves a trail.", path: "/agents/invocations/", art: null },
+  { id: "control", label: "04 Governance", heading: "Human control when it matters.", path: "/guide/governance/", art: "governance" },
+  { id: "trust", label: "05 Trust", heading: "Trust is not a badge. It is the shape of every write.", path: "/security/integrity/", art: null },
+  { id: "deployment", label: "06 Deployment", heading: "One model. Two ways to run.", path: "/start/modes/", art: null }
+] as const;
+
+test("presents the product thesis and six product sections in order", async ({ page }) => {
   await page.goto("/");
 
   await expect(page.getByRole("heading", { level: 1, name: /Let agents work at once/ })).toBeVisible();
   await expect(page.getByText("Keep the project in one piece.")).toBeVisible();
-  await expect(page.getByRole("link", { name: /Install Agent Comms/ })).toHaveAttribute("href", "/download");
+  await expect(page.locator(".hero").getByRole("link", { name: /Install Agent Comms/ })).toHaveAttribute("href", "/download");
   await expect(page.getByRole("link", { name: "Docs", exact: true }).first()).toHaveAttribute("href", "https://agentcomms-docs.vercel.app");
+  await expect(page.getByRole("region", { name: "Product thesis" })).toContainText("Chat is where agents talk.");
 
-  const lifecycle = page.locator(".lifecycle-orbit");
-  await expect(lifecycle).toContainText("DELIVERED");
-  await expect(lifecycle).toContainText("ACKNOWLEDGED");
-  await expect(lifecycle).toContainText("COMPLETED");
-  await expect(page.getByText(/A transport can succeed while the agent never acknowledges/)).toBeVisible();
+  const ids = await page.locator("[data-product-section]").evaluateAll((sections) => sections.map((section) => section.id));
+  expect(ids).toEqual(productSections.map((section) => section.id));
+  // The navbar scroll loader and the final CTA stay removed.
+  expect(await page.locator(".site-header").evaluate((header) => getComputedStyle(header, "::after").content)).toBe("none");
+  expect(await page.locator(".site-header").evaluate((header) => getComputedStyle(header, "::before").content)).toBe("none");
+  await expect(page.locator(".cta-banner")).toHaveCount(0);
+});
+
+// One anatomy, one rhythm: every section has the same parts and the same
+// padding, heading size and label style. This is what failed before -- seven
+// blocks in five layouts -- so a section that drifts should fail here.
+test("all six sections share one anatomy and one rhythm", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/");
+  const measurements = await page.locator("[data-product-section]").evaluateAll((sections) => sections.map((section) => {
+    const style = getComputedStyle(section);
+    return {
+      id: section.id,
+      parts: [".ps-label", "h2", ".ps-body", ".ps-link", ".ps-visual"].map((selector) => section.querySelectorAll(selector).length),
+      paddingTop: style.paddingTop,
+      paddingBottom: style.paddingBottom,
+      headingSize: getComputedStyle(section.querySelector("h2")!).fontSize,
+      labelSize: getComputedStyle(section.querySelector(".ps-label")!).fontSize
+    };
+  }));
+  for (const section of measurements) {
+    expect(section.parts, `${section.id} anatomy`).toEqual([1, 1, 1, 1, 1]);
+  }
+  for (const key of ["paddingTop", "paddingBottom", "headingSize", "labelSize"] as const) {
+    expect(new Set(measurements.map((section) => section[key])).size, `${key} must be uniform`).toBe(1);
+  }
+
+  // Uniform padding is not enough: it was uniform when the spacing still
+  // looked inconsistent, because an illustration taller than its text pushed
+  // that text ~40px further from the borders than content sat elsewhere. What
+  // a reader sees is the gap between each border and the nearest content, so
+  // that is what must match -- section 02's, which the owner chose.
+  const clearances = await page.locator("[data-product-section]").evaluateAll((sections) => sections.map((section) => {
+    const box = section.getBoundingClientRect();
+    const copy = section.querySelector(".ps-copy")!.getBoundingClientRect();
+    const visual = section.querySelector(".ps-visual")!;
+    // Side by side, an illustration is size-contained and never sets the
+    // section's edge, so the text does. Stacked on phones, the illustration
+    // is ordinary content and counts like any other visual.
+    const contained = getComputedStyle(visual).contain.includes("size");
+    const edges = contained ? [copy] : [copy, visual.getBoundingClientRect()];
+    // Text and visual are centred on each other (the owner's choice), so
+    // where a step list is taller than its text the list sets the edge and
+    // the text sits slightly lower; the clearance is to the nearest content.
+    return {
+      id: section.id,
+      top: Math.min(...edges.map((edge) => edge.top)) - box.top,
+      bottom: box.bottom - Math.max(...edges.map((edge) => edge.bottom))
+    };
+  }));
+  const reference = clearances.find((section) => section.id === "coordination")!;
+  for (const section of clearances) {
+    expect(Math.abs(section.top - reference.top), `${section.id} top clearance`).toBeLessThanOrEqual(2);
+    expect(Math.abs(section.bottom - reference.bottom), `${section.id} bottom clearance`).toBeLessThanOrEqual(2);
+  }
+});
+
+test("every section reveals and its illustration stays within the size cap", async ({ page }) => {
+  await page.goto("/");
+  for (const { id, art } of productSections) {
+    const section = page.locator(`#${id}`);
+    // Text and visual reveal separately, each as it comes into view.
+    for (const part of ["copy", "visual"]) {
+      const element = section.locator(`.ps-${part}`);
+      await expect(element).toHaveAttribute("data-reveal", `${id}-${part}`);
+      await element.scrollIntoViewIfNeeded();
+      await expect(element).toHaveClass(/is-revealed/);
+    }
+    await expect(section.locator(".ps-link")).toHaveCSS("opacity", "1");
+    await expect(section.locator(".ps-visual")).toHaveCSS("opacity", "1");
+    if (art) {
+      const image = section.locator(".ps-art img");
+      expect(await image.evaluate((el) => el.getBoundingClientRect().width)).toBeLessThanOrEqual(576);
+    }
+  }
 });
 
 test("mobile navigation opens, closes, and preserves keyboard semantics", async ({ page, isMobile }) => {
@@ -24,8 +113,19 @@ test("mobile navigation opens, closes, and preserves keyboard semantics", async 
   await toggle.click();
   await expect(toggle).toHaveAttribute("aria-expanded", "true");
   await expect(page.getByRole("navigation", { name: "Primary navigation" })).toBeVisible();
-  await page.getByRole("link", { name: "Protocol" }).click();
+  await page.getByRole("navigation", { name: "Primary navigation" }).getByRole("link", { name: "Governance", exact: true }).click();
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
+});
+
+test("navigation anchors land on real sections, and Control room on the live TUI", async ({ page }) => {
+  await page.goto("/");
+  const hrefs = await page.locator("[data-site-navigation] a[href^='/#']").evaluateAll((links) => links.map((link) => link.getAttribute("href")));
+  expect(hrefs.length).toBeGreaterThan(0);
+  for (const href of hrefs) {
+    await expect(page.locator(href!.slice(1)), `${href} must exist`).toHaveCount(1);
+  }
+  // includeHidden: on phones the links sit inside the closed menu.
+  await expect(page.locator("[data-site-navigation]").getByRole("link", { name: "Control room", includeHidden: true }).first()).toHaveAttribute("href", "/#live-tui");
 });
 
 test("supports a keyboard skip path", async ({ page }) => {
@@ -37,86 +137,101 @@ test("supports a keyboard skip path", async ({ page }) => {
   await expect(page.locator("#main-content")).toBeFocused();
 });
 
-test("resolves a simulated scope collision", async ({ page }) => {
-  await page.goto("/#collision");
-
-  await expect(page.getByText("WITHOUT COORDINATION", { exact: true })).toBeVisible();
-  await expect(page.getByText("CONFLICT DETECTED", { exact: false })).toBeVisible();
-  await expect(page.getByText("WITH AGENT COMMS", { exact: true })).toBeVisible();
-  await expect(page.getByText("SCOPE LEASE GRANTED", { exact: false })).toBeVisible();
-});
-
-test("walkthrough scenes can be selected and replayed", async ({ page }) => {
-  await page.goto("/#demo");
-
-  const reel = page.locator("[data-demo-reel]");
-  await page.getByRole("button", { name: /03.*AGENT ACK/ }).click();
-  await expect(reel).toHaveAttribute("data-scene", "2");
-  await expect(reel.locator("[data-reel-live]")).toContainText(/explicitly accepts the obligation/);
-  await page.getByRole("button", { name: "Replay handoff evidence film" }).click();
-  await expect(reel).toHaveAttribute("data-scene", "0");
-});
-
-test("selected feature visuals preserve exact product semantics", async ({ page }) => {
+test("sections link to real documentation and use the approved illustrations", async ({ page }) => {
   await page.goto("/");
-
-  const orbit = page.locator(".lifecycle-orbit");
-  await expect(orbit.getByText("Delivered ≠ Acknowledged", { exact: true }).first()).toBeVisible();
-});
-
-test("relay separates transport from acknowledgement and returns a result", async ({ page }) => {
-  await page.goto("/#relay");
-
-  const relay = page.locator("[data-relay-sequence]");
-  const states = await page.evaluate(() => new Promise<string[]>((resolve, reject) => {
-    const sequence = document.querySelector("[data-relay-sequence]");
-    const replay = document.querySelector("[data-relay-replay]");
-    if (!(sequence instanceof HTMLElement) || !(replay instanceof HTMLButtonElement)) {
-      reject(new Error("Relay controls are missing"));
-      return;
+  for (const { id, label, heading, path, art } of productSections) {
+    const section = page.locator(`#${id}`);
+    await section.scrollIntoViewIfNeeded();
+    await expect(section.locator(".ps-label")).toHaveText(label);
+    await expect(section.getByRole("heading", { level: 2 })).toHaveText(heading);
+    await expect(section.locator(".ps-link")).toHaveAttribute("href", `https://agentcomms-docs.vercel.app${path}`);
+    if (art) {
+      await expect.poll(() => section.locator("img").evaluate((img) => (img as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
+      await expect(section.locator("img")).toHaveAttribute("src", `/illustrations/${art}.webp`);
     }
-
-    const observed: string[] = [];
-    const observer = new MutationObserver(() => {
-      const state = sequence.dataset.relayState;
-      if (state && observed.at(-1) !== state) observed.push(state);
-      if (state === "completed") {
-        window.clearTimeout(deadline);
-        observer.disconnect();
-        resolve(observed);
-      }
-    });
-    const deadline = window.setTimeout(() => {
-      observer.disconnect();
-      reject(new Error(`Relay did not complete; observed ${observed.join(", ")}`));
-    }, 10_000);
-    observer.observe(sequence, { attributes: true, attributeFilter: ["data-relay-state"] });
-    replay.click();
-  }));
-  expect(states).toEqual(["requested", "delivered", "claimed", "completed"]);
-  await expect(relay.getByText("DELIVERED ≠ ACKNOWLEDGED")).toBeVisible();
-  await expect(relay.getByText("24 / 24 auth tests pass", { exact: true })).toBeVisible();
+    expect(await section.evaluate((el) => el.getBoundingClientRect().right)).toBeLessThanOrEqual(page.viewportSize()!.width + 1);
+  }
 });
 
-// ControlRoomFrame's own static, pre-existing fake-approval simulation --
-// unrelated to the real WASM TUI below -- now only ever renders on
-// mobile/tablet viewports (CSS-toggled in globals.css at the same 60rem
-// breakpoint LiveControlRoom's own sizing already used): xterm's fixed
-// character grid doesn't have room to render the real product's
-// responsive layout below that width (see the real-TUI test's own comment
-// a few lines down), so small screens keep this recreation permanently
-// instead of a launch button that would open an unusable terminal.
-test("control room resolves a human-tier approval coherently", async ({ page, isMobile }) => {
-  test.skip(!isMobile, "the mobile-only static poster; desktop shows the real TUI instead");
-  await page.goto("/#control");
+// Claims the product cannot back must not come back: no simulated output
+// presented as recorded, no automatic reassignment of a refused claimant,
+// and no seamless personal-to-team migration. The accurate versions are
+// asserted in their place.
+test("product claims stay within what the product does", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator("[data-demo-reel], .lifecycle-orbit, [data-relay-sequence]")).toHaveCount(0);
+  await expect(page.getByText(/FOUR RECORDED FACTS|LIVE · SIMULATED|24 \/ 24 auth tests pass|ALTERNATE TASK ASSIGNED|without a mode switch/)).toHaveCount(0);
+  await expect(page.locator("#ownership")).toContainText("refused unless a shared-write approval allows it");
+  await expect(page.locator("#coordination")).toContainText("reached while its runtime is offline");
+  await expect(page.locator("#handoff")).toContainText("Delivery is not acknowledgement");
+  await expect(page.locator("#deployment")).toContainText("not an automatic migration of a personal project");
+});
 
-  const frame = page.locator("[data-tui-frame]");
-  await page.getByRole("button", { name: /approval-orchestrator-reviewer/ }).click();
-  await expect(page.getByText("HUMAN AUTHORITY REQUIRED")).toBeVisible();
-  await page.getByRole("button", { name: "Approve with human authority" }).click();
-  await expect(frame).toHaveAttribute("data-control-state", "approved");
-  await expect(frame.locator("[data-control-role]")).toHaveText("ORCHESTRATOR");
-  await expect(frame.locator("[data-control-event] b")).toHaveText("approval.approve");
+test("the deployment comparison is a table on wide screens and one block per mode on phones", async ({ page }) => {
+  await page.goto("/");
+  const table = page.locator("#deployment table");
+  const modes = page.locator("#deployment .ps-mode");
+  const narrow = (page.viewportSize()?.width ?? 1440) <= 768;
+  if (!narrow) {
+    await expect(table).toBeVisible();
+    await expect(modes.first()).toBeHidden();
+    await expect(table.getByRole("columnheader")).toHaveCount(3);
+    await expect(table.getByRole("rowheader")).toHaveText(["Best for", "Authority", "Setup", "Reads"]);
+    await expect(table.locator("td")).toHaveCount(8);
+    await expect(table.getByRole("cell", { name: "Service, PostgreSQL, authentication and backups" })).toBeVisible();
+  } else {
+    await expect(table).toBeHidden();
+    await expect(modes).toHaveCount(2);
+    for (const [index, name] of ["Your project. Your local agents.", "Your team. One shared authority."].entries()) {
+      const mode = modes.nth(index);
+      await expect(mode.getByRole("heading", { level: 3 })).toHaveText(name);
+      await expect(mode.locator("dt")).toHaveText(["Best for", "Authority", "Setup", "Reads"]);
+    }
+    await expect(modes.nth(1)).toContainText("Service, PostgreSQL, authentication and backups");
+  }
+});
+
+test("product sections remain readable without JavaScript", async ({ browser }) => {
+  const context = await browser.newContext({ javaScriptEnabled: false });
+  const page = await context.newPage();
+  await page.goto("http://127.0.0.1:4333/");
+  for (const { heading } of productSections) {
+    await expect(page.getByRole("heading", { level: 2, name: heading, exact: true })).toBeVisible();
+  }
+  await expect(page.locator(".cta-banner")).toHaveCount(0);
+  await expect(page.getByRole("contentinfo")).toBeVisible();
+  await context.close();
+});
+
+test("lower page works with reduced motion and a narrow viewport", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.setViewportSize({ width: 320, height: 740 });
+  await page.goto("/");
+  for (const { id } of productSections) {
+    const section = page.locator(`#${id}`);
+    await section.scrollIntoViewIfNeeded();
+    expect(await section.evaluate((el) => el.getBoundingClientRect().right)).toBeLessThanOrEqual(321);
+    await expect(section.locator(".ps-link")).toBeVisible();
+  }
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
+});
+
+// Small screens receive an authentic recording rather than a drifting
+// hand-authored TUI recreation. Nothing plays or downloads automatically.
+test("mobile control room uses the current recording without autoplay", async ({ page, isMobile }) => {
+  test.skip(!isMobile, "mobile recording; desktop retains the real interactive TUI");
+  await page.goto("/");
+  const video = page.locator("[data-tui-recording] video");
+  await expect(video).toBeVisible();
+  await expect(video).toHaveAttribute("poster", "/media/tui-overview.png");
+  await expect(video).toHaveAttribute("preload", "none");
+  await expect(video).toHaveAttribute("controls", "");
+  expect(await video.getAttribute("autoplay")).toBeNull();
+  await expect(video.locator("source")).toHaveAttribute("src", "/media/tui-demo.mp4");
+  const box = await video.boundingBox();
+  expect(box).not.toBeNull();
+  expect(box!.x + box!.width).toBeLessThanOrEqual(page.viewportSize()!.width + 1);
+  await expect(page.getByText("RECORDED FROM THE CURRENT TUI")).toBeVisible();
 });
 
 // This drives the *real*, WASM-compiled product TUI -- LiveControlRoom.tsx
@@ -166,7 +281,7 @@ test("launches the real TUI in the control room and can act on the seeded approv
   // product's own layout logic doesn't support this interaction at.
   test.skip(isMobile, "the real TUI's responsive layout needs more grid than a phone-sized terminal fits");
   await page.goto("/");
-  const controlSection = page.locator("#control");
+  const controlSection = page.locator("#live-tui");
   await controlSection.scrollIntoViewIfNeeded();
   await page.getByRole("button", { name: /Launch the Control Room/ }).click();
 
@@ -191,6 +306,18 @@ test("launches the real TUI in the control room and can act on the seeded approv
   // xterm.js DOM content, not the surrounding marketing page.
   await expect(terminal.getByText("reviewer", { exact: false }).first()).toBeVisible({ timeout: 20_000 });
   await expect(terminal.getByText("Approvals", { exact: false }).first()).toBeVisible();
+
+  // Every rendered row must start at the terminal's left edge. xterm.js
+  // trims trailing spaces, so an inherited text-align (the hero centres its
+  // text) used to centre each short row on its own and scatter the TUI.
+  const rowOffsets = await terminal.locator(".xterm-rows").evaluate((rows) => {
+    const left = rows.getBoundingClientRect().left;
+    return [...rows.children]
+      .filter((row) => row.textContent?.trim())
+      .map((row) => Math.round((row.firstElementChild ?? row).getBoundingClientRect().left - left));
+  });
+  expect(rowOffsets.length).toBeGreaterThan(10);
+  expect(Math.max(...rowOffsets)).toBeLessThanOrEqual(1);
 
   // Drive the real keybinding into the seeded Approvals row list and
   // confirm the pending approval is actually there and actionable.
@@ -224,15 +351,6 @@ test("launches the real TUI in the control room and can act on the seeded approv
   // a screenshot or a canned animation.
   await expect(terminal.getByText(/PEND/i)).toHaveCount(0, { timeout: 10_000 });
   await expect(terminal.getByText(/REJ/i).first()).toBeVisible();
-});
-
-test("keeps delivery evidence separate from acknowledgement", async ({ page }) => {
-  await page.goto("/#protocol");
-
-  const orbit = page.locator(".lifecycle-orbit");
-  await expect(orbit.getByText("DELIVERED", { exact: true })).toBeVisible();
-  await expect(orbit.getByText("ACKNOWLEDGED", { exact: true })).toBeVisible();
-  await expect(orbit.getByText("Delivered ≠ Acknowledged")).toBeVisible();
 });
 
 test("reveals the footer after a reload", async ({ page }) => {

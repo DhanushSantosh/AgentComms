@@ -66,6 +66,10 @@ func tools() []map[string]any {
 		tool("get_started", "Learn how to participate in this project right now: your current identity/registration state and the exact next steps", map[string]any{}),
 		tool("project_upgrade_status", "Read project compatibility and pending maintenance; this tool never applies an upgrade", map[string]any{}),
 		tool("status", "Read the governed project state", map[string]any{}),
+		tool("message_inbox", "List messages addressed to you, newest posted first; _meta.order gives the order", map[string]any{
+			"unread": map[string]any{"type": "boolean"}, "from": map[string]any{"type": "string"},
+			"limit": map[string]any{"type": "integer", "minimum": 0},
+		}),
 		tool("history", "Read a bounded page of immutable signed events", map[string]any{
 			"cursor": map[string]any{"type": "string"},
 			"limit":  map[string]any{"type": "integer", "minimum": 1, "maximum": controlplane.MaxPageSize},
@@ -226,13 +230,30 @@ func handle(s *service.Service, resolution identity.ActorResolution, serverVersi
 		if e != nil {
 			return rpcFail(r, -32000, e), true
 		}
+		// An ordered list keeps its entity map as structuredContent and
+		// carries its order in the result's reserved _meta (RFC 0041), so no
+		// entity ID can collide with an "order" key inside the map.
+		var meta map[string]any
+		if ordered, ok := v.(orderedResult); ok {
+			v, meta = ordered.Value, map[string]any{"order": ordered.Order}
+		}
 		b, _ := json.Marshal(v)
 		r.Result = map[string]any{"content": []map[string]any{{"type": "text", "text": string(b)}}, "structuredContent": v}
+		if meta != nil {
+			r.Result.(map[string]any)["_meta"] = meta
+		}
 	default:
 		return rpcFail(r, -32601, fmt.Errorf("method %s not found", q.Method)), true
 	}
 	return r, true
 }
+
+// orderedResult is a list result whose order travels in _meta.order.
+type orderedResult struct {
+	Value any
+	Order []string
+}
+
 func rpcFail(r response, code int, e error) response {
 	data := map[string]any{"code": failure.Code(e)}
 	// UX-14: keep MCP's error Data as machine-readable as the CLI's own
@@ -283,6 +304,21 @@ func call(s *service.Service, resolution identity.ActorResolution, p callParams)
 		return plan, e
 	case "status":
 		return s.State()
+	case "message_inbox":
+		state, e := s.State()
+		if e != nil {
+			return nil, e
+		}
+		limit := 0
+		if raw, ok := p.Arguments["limit"].(float64); ok {
+			if raw < 0 {
+				return nil, fmt.Errorf("limit must be zero or more")
+			}
+			limit = int(raw)
+		}
+		unread, _ := p.Arguments["unread"].(bool)
+		messages, order, _ := model.Inbox(state, actor, model.InboxOptions{Unread: unread, From: stringArg(p.Arguments, "from"), Limit: limit})
+		return orderedResult{Value: messages, Order: order}, nil
 	case "history":
 		limit := 0
 		if raw, ok := p.Arguments["limit"].(float64); ok {

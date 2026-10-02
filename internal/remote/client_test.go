@@ -19,7 +19,7 @@ func TestClientMapsStableError(t *testing.T) {
 		_, _ = w.Write([]byte(`{"error":{"code":"CONFLICT","message":"lease conflict","retry_after_ms":25}}`))
 	}))
 	defer server.Close()
-	client, err := New(server.URL, time.Second)
+	client, err := NewWithToken(server.URL, time.Second, "")
 	if err != nil {
 		t.Fatal(err)
 	}

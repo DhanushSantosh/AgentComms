@@ -14,7 +14,9 @@ func TestRowListShowsBoundedScrollPosition(t *testing.T) {
 	messages := map[string]model.Message{}
 	for i := 0; i < 12; i++ {
 		id := fmt.Sprintf("msg-%02d", i)
-		messages[id] = model.Message{ID: id, Kind: "FYI", To: []string{"reviewer"}, Subject: id}
+		// Posted in ID order, so newest-first puts msg-11 at the top and
+		// msg-00 in the last window.
+		messages[id] = model.Message{ID: id, Kind: "FYI", To: []string{"reviewer"}, Subject: id, CreatedSequence: uint64(i + 1)}
 	}
 	state := model.State{Messages: messages}
 	list := newRowList(messageRowSource{})
@@ -28,6 +30,29 @@ func TestRowListShowsBoundedScrollPosition(t *testing.T) {
 	last := list.View(colors(), state, "reviewer", 60, 5)
 	if !strings.Contains(last, "↕ 10–12/12") || !strings.Contains(last, "msg-00") {
 		t.Fatalf("list should reach the last bounded window:\n%s", last)
+	}
+}
+
+func TestRowListKeepsSelectedEntityWhenRecentActivityReordersRows(t *testing.T) {
+	state := model.State{Tasks: map[string]model.Task{
+		"older": {ID: "older", Status: "OPEN", EntityClock: model.EntityClock{UpdatedSequence: 1}},
+		"newer": {ID: "newer", Status: "OPEN", EntityClock: model.EntityClock{UpdatedSequence: 2}},
+	}}
+	list := newRowList(taskRowSource{})
+	list.Refresh(state, "owner")
+	list.SetCursor(1, 2)
+	if got := list.SelectedID(state, "owner"); got != "older" {
+		t.Fatalf("selected %q before update, want older", got)
+	}
+	task := state.Tasks["older"]
+	task.UpdatedSequence = 3
+	state.Tasks["older"] = task
+	list.Refresh(state, "owner")
+	if got := list.SelectedID(state, "owner"); got != "older" {
+		t.Fatalf("refresh changed selection to %q after reordering", got)
+	}
+	if got := list.Cursor(); got != 0 {
+		t.Fatalf("selected entity moved to row %d, want row 0", got)
 	}
 }
 

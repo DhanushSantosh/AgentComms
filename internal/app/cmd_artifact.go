@@ -9,14 +9,12 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
 	"github.com/DhanushSantosh/AgentComms/internal/cliui"
 	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
-	"github.com/DhanushSantosh/AgentComms/internal/service"
 	"github.com/DhanushSantosh/AgentComms/internal/store"
 	"github.com/spf13/cobra"
 )
@@ -195,13 +193,13 @@ func (c *cli) documentCmd() *cobra.Command {
 		if e != nil {
 			return e
 		}
-		ids := service.SortedKeys(st.Documents)
+		ids := model.SortedIDsBySequence(st.Documents, func(d model.Document) uint64 { return d.UpdatedSequence })
 		rows := make([][]string, 0, len(ids))
 		for _, id := range ids {
 			document := st.Documents[id]
-			rows = append(rows, []string{id, document.Title, document.Status, fmt.Sprint(document.Version), document.Author})
+			rows = append(rows, []string{id, document.Title, document.Status, fmt.Sprint(document.Version), document.Author, formatEntityTime(document.UpdatedAt)})
 		}
-		return c.emitTable("document.list", st.Documents, []string{"ID", "TITLE", "STATUS", "VERSION", "AUTHOR"}, rows)
+		return c.emitTableFullOrdered("document.list", st.Documents, ids, []string{"ID", "TITLE", "STATUS", "VERSION", "AUTHOR", "UPDATED"}, []int{4, 0, 1, 2, 3, 5}, "", rows)
 	}}
 	show := &cobra.Command{Use: "show", Short: "Show one governed document by ID", RunE: func(cmd *cobra.Command, args []string) error {
 		id, _ := cmd.Flags().GetString("id")
@@ -227,6 +225,8 @@ func (c *cli) documentCmd() *cobra.Command {
 				{Label: "Status", Value: d.Status},
 				{Label: "Version", Value: fmt.Sprint(d.Version)},
 				{Label: "Author", Value: d.Author},
+				{Label: "Created", Value: formatEntityTime(d.CreatedAt)},
+				{Label: "Updated", Value: formatEntityTime(d.UpdatedAt)},
 				{Label: "Tags", Value: strings.Join(d.Tags, ", ")},
 				{Label: "Body", Value: d.Body},
 			},
@@ -441,17 +441,13 @@ func (c *cli) envCmd() *cobra.Command {
 		if e != nil {
 			return e
 		}
-		keys := make([]string, 0, len(st.Env))
-		for key := range st.Env {
-			keys = append(keys, key)
-		}
-		sort.Strings(keys)
+		keys := model.SortedIDsBySequence(st.Env, func(entry model.EnvEntry) uint64 { return entry.UpdatedSequence })
 		rows := make([][]string, 0, len(keys))
 		for _, key := range keys {
 			entry := st.Env[key]
 			rows = append(rows, []string{key, entry.UpdatedBy, entry.UpdatedAt.Format(time.RFC3339)})
 		}
-		return c.emitTable("env.list", st.Env, []string{"KEY", "UPDATED BY", "UPDATED AT"}, rows)
+		return c.emitTableFullOrdered("env.list", st.Env, keys, []string{"KEY", "UPDATED BY", "UPDATED AT"}, nil, "", rows)
 	}}
 	root.AddCommand(set, get, del, list)
 	return root

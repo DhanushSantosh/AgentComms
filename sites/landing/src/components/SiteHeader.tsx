@@ -1,6 +1,6 @@
 import { BrandMark } from "@/components/BrandMark";
 
-export type SiteHeaderNavItem = {
+type SiteHeaderNavItem = {
   label: string;
   href: string;
 };
@@ -11,10 +11,12 @@ type SiteHeaderProperties = {
 };
 
 const defaultNavItems: readonly SiteHeaderNavItem[] = [
-  { label: "Collision control", href: "/#collision" },
-  { label: "Protocol", href: "/#protocol" },
-  { label: "Agent relay", href: "/#relay" },
-  { label: "Control room", href: "/#control" }
+  { label: "Ownership", href: "/#ownership" },
+  { label: "Coordination", href: "/#coordination" },
+  { label: "Governance", href: "/#control" },
+  // The live TUI in the hero, not the governance section: this pointed
+  // at #control, so "Control room" landed on approvals instead.
+  { label: "Control room", href: "/#live-tui" }
 ];
 
 export function SiteHeader({ documentationUrl, navItems = defaultNavItems }: SiteHeaderProperties) {

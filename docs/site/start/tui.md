@@ -4,7 +4,7 @@ description: Navigate the terminal interface, manage the project, and complete e
 section: Start here
 order: 5
 audience: Human operators
-lastVerified: 2026-09-29
+lastVerified: 2026-10-01
 related: [guide/agents, guide/governance, guide/maintenance, security/identity]
 ---
 
@@ -14,7 +14,11 @@ Launch the terminal control room from any initialized project:
 agent-comms tui
 ```
 
-![Agent Comms terminal control room showing tasks, agents, and invocation delivery](/tui-demo.gif)
+![Current overview separating message readiness and runtime presence, with work, attention, and signed history](/tui-overview.png)
+
+[Watch the terminal tour](/tui-demo.mp4) or open the
+[animated preview](/tui-demo.gif). These captures use the current real TUI and
+an isolated demo project; navigation pauses are shortened. There is no audio.
 
 ## Navigation
 
@@ -53,6 +57,10 @@ Approval requests can specify an expiry duration for any approval action. It is 
 The live overview separates message readiness from runtime presence and previews the highest-priority items needing attention. Open the Inbox for the full action queue, or select an agent to inspect its identity and runtime details. The layout adapts to terminal size; use the on-screen scroll marker when a pane has more content than fits.
 
 ## Sensitive actions
+
+![Current agent list with lifecycle, role, principal type, and scopes](/tui-agents.png)
+
+![Human-tier approval inspector showing the actual action, requester, and reason](/tui-approvals.png)
 
 Actions that require a passphrase-protected elevated human key -- granting Orchestrator, approving a HUMAN-tier approval, revoking another Orchestrator or HUMAN principal, and deleting a revoked identity -- have a masked "Elevated-key passphrase" field right in their TUI form. Typing your passphrase there completes the transition in the TUI itself; it is not a stand-in for something the CLI still has to finish. Leave the field blank and the TUI refuses cleanly with an exact CLI command instead, the same way it always has.
 

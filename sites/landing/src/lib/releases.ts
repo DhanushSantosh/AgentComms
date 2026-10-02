@@ -1,4 +1,4 @@
-export type Release = {
+type Release = {
   version: string;
   channel: "BETA" | "STABLE";
   name: string;
@@ -8,6 +8,20 @@ export type Release = {
 };
 
 export const releases: readonly Release[] = [
+  {
+    version: "v0.8.2",
+    channel: "BETA",
+    name: "Order of Arrival",
+    date: "2026-10-02",
+    dateLabel: "2 Oct 2026",
+    highlights: [
+      "Messages and every other project record carry created and updated times from their signed history, shown in the CLI, JSON, MCP and the TUI.",
+      "Breaking: lists show the newest first, and message inbox --limit returns the newest messages, so a recent message can no longer hide behind how its ID sorts.",
+      "Breaking: existing projects need a one-time project upgrade, and shared servers a confirmed migration, to backfill timestamps from verified history.",
+      "JSON lists include an order array, and the new MCP message_inbox tool returns the same order.",
+      "Fixes the overview's plural counts, daemon replacement on Windows, and prerelease version comparison."
+    ]
+  },
   {
     version: "v0.8.1",
     channel: "BETA",

@@ -228,7 +228,11 @@ func TestUpdateDoesNotReconcileProjectsWithTheOutgoingBinary(t *testing.T) {
 	root := c.root()
 	root.SetOut(&stdout)
 	root.SetErr(&stderr)
-	root.SetArgs([]string{"update", "--yes", "--current-project-only"})
+	// --project, not the working directory: tests run from internal/app,
+	// which is not an initialized project, so without it update took its
+	// "current directory is not an initialized project" branch, never
+	// reached the handoff, and the new-binary check below never ran.
+	root.SetArgs([]string{"update", "--yes", "--current-project-only", "--project", project})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("update: %v\nstderr: %s", err, stderr.String())
 	}
@@ -240,5 +244,11 @@ func TestUpdateDoesNotReconcileProjectsWithTheOutgoingBinary(t *testing.T) {
 	if strings.Contains(combined, "requires toolkit") {
 		t.Errorf("no toolkit-version warning should survive an update:\n%s", combined)
 	}
-	_ = handoffCalled
+	// The executable check above lives inside the handoff runner, so it
+	// only proves anything if the runner actually ran. Without this, an
+	// update that skipped the post-install reconcile entirely would pass
+	// -- the one outcome this test exists to rule out.
+	if !handoffCalled {
+		t.Error("update never handed the project reconcile to the installed binary")
+	}
 }

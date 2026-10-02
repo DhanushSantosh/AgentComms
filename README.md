@@ -10,9 +10,14 @@
 
 <br>
 
-<img src="docs/img/tui-demo.gif" alt="Agent Comms terminal control room — tasks, agents, and invocation delivery" width="820">
+<img src="docs/img/tui-overview.png" alt="Current Agent Comms overview — messaging readiness, runtime presence, work, attention, and signed history" width="820">
 
 </div>
+
+[Watch the current terminal tour](docs/img/tui-demo.mp4) ·
+[Animated preview](docs/img/tui-demo.gif). Recorded from the real TUI using an
+isolated demo project; navigation pauses are shortened. No private project
+messages or credentials appear in these captures.
 
 <br>
 
@@ -22,7 +27,7 @@ Run more than one coding agent on the same project and you already know the fail
 > No account, no cloud dependency, nothing to configure before this works. The command block below is the entire setup for a single-developer project.
 
 ```sh
-curl -fsSL "https://raw.githubusercontent.com/DhanushSantosh/AgentComms/v0.8.1/install.sh" | AGENT_COMMS_VERSION=v0.8.1 sh
+curl -fsSL "https://raw.githubusercontent.com/DhanushSantosh/AgentComms/v0.8.2/install.sh" | AGENT_COMMS_VERSION=v0.8.2 sh
 
 agent-comms init
 agent-comms tui

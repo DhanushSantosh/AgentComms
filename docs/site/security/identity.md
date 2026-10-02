@@ -4,7 +4,7 @@ description: Understand actor credentials, roles, scopes, elevated keys, and the
 section: Security and trust
 order: 1
 audience: Security reviewers
-lastVerified: 2026-08-14
+lastVerified: 2026-10-01
 related: [guide/agents, security/integrity]
 ---
 
@@ -19,7 +19,7 @@ Only two role values carry any permission effect:
 | Role | Purpose |
 |---|---|
 | `OWNER` | Project bootstrap authority; assigned exactly once, at project creation, and never a legal target again — cannot be revoked, suspended, or switched away from itself. |
-| `ORCHESTRATOR` | Govern ordinary cross-agent coordination and policy. Granting it (or self-switching to it) requires a HUMAN principal, a pre-approved HUMAN-tier approval, and the elevated key. |
+| `ORCHESTRATOR` | Govern ordinary cross-agent coordination and policy. Granting it requires a HUMAN signing actor, a pre-approved HUMAN-tier approval for the target, and elevated signing when configured. The target may be an AGENT. Self-switching requires the caller itself to be HUMAN. |
 
 Any other role is a freeform, purely descriptive label a principal chooses for itself (`Frontend-Architect`, `Tester`, ...) — it carries no permission effect, and any active principal may change its own at any time, self-service, via `agent switch-role`/`agent_switch_role` (never `OWNER`, never another principal's role, never touching capabilities or scopes).
 

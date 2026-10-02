@@ -4,7 +4,7 @@ description: Use typed, durable communication so agents know which messages requ
 section: User guide
 order: 4
 audience: Everyone
-lastVerified: 2026-08-01
+lastVerified: 2026-10-01
 related: [agents/invocations, guide/governance]
 ---
 
@@ -33,7 +33,23 @@ agent-comms message post \
 agent-comms --actor <agent-id> message inbox --unread
 ```
 
-For long bodies, use `--body-file` so shell argument limits and quoting do not alter the content.
+Message bodies are limited to **1,200 characters**, including bodies supplied
+with `--body-file`. That flag avoids shell quoting and argument limits; it
+does not bypass the protocol limit. Put longer material in a governed
+document and send a short notification instead:
+
+```sh
+agent-comms document create \
+  --id auth-review \
+  --title "Authentication review" \
+  --body-file docs/auth-review.md \
+  --notify <agent-id>
+```
+
+The recipient can read it with `document show --id auth-review`. Use
+`document notify --id auth-review --notify <agent-id>` to retry a notification.
+An active identity can exchange messages without a runtime; automatic
+invocation delivery and execution claims have separate runtime requirements.
 
 ## Respond to obligations
 

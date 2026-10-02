@@ -13,15 +13,15 @@ import (
 
 var inboxTestAnsi = regexp.MustCompile("\x1b\\[[0-9;]*m")
 
-func TestInboxPrioritizesActionableThenRecentMessages(t *testing.T) {
+func TestInboxOrdersNewestMessagesRegardlessOfObligation(t *testing.T) {
 	state := model.State{Messages: map[string]model.Message{
-		"msg-001": {ID: "msg-001", Kind: "FYI", To: []string{"reviewer"}},
-		"msg-002": {ID: "msg-002", Kind: "ACTION", To: []string{"reviewer"}, Recipients: []model.RecipientState{{Principal: "reviewer", Status: "PENDING"}}},
-		"msg-003": {ID: "msg-003", Kind: "FYI", To: []string{"reviewer"}},
-		"msg-004": {ID: "msg-004", Kind: "ACTION", To: []string{"reviewer"}, Recipients: []model.RecipientState{{Principal: "reviewer", Status: "PENDING"}}},
+		"msg-001": {ID: "msg-001", Kind: "FYI", To: []string{"reviewer"}, CreatedSequence: 1},
+		"msg-002": {ID: "msg-002", Kind: "ACTION", To: []string{"reviewer"}, CreatedSequence: 2, Recipients: []model.RecipientState{{Principal: "reviewer", Status: "PENDING"}}},
+		"msg-003": {ID: "msg-003", Kind: "FYI", To: []string{"reviewer"}, CreatedSequence: 3},
+		"msg-004": {ID: "msg-004", Kind: "ACTION", To: []string{"reviewer"}, CreatedSequence: 4, Recipients: []model.RecipientState{{Principal: "reviewer", Status: "PENDING"}}},
 	}}
 	ids := (messageRowSource{}).filteredIDs(state, "reviewer")
-	want := []string{"msg-004", "msg-002", "msg-003", "msg-001"}
+	want := []string{"msg-004", "msg-003", "msg-002", "msg-001"}
 	if !reflect.DeepEqual(ids, want) {
 		t.Fatalf("inbox order %v, want %v", ids, want)
 	}

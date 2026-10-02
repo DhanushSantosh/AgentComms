@@ -43,7 +43,7 @@
   text-transform: uppercase;
 }
 
-.summary > div:nth-child(1) h2 { color: var(--cyan-deep); }
+.summary > div:nth-child(1) h2 { color: var(--cyan); }
 .summary > div:nth-child(2) h2 { color: var(--blue); }
 
 .summary ul { list-style: none; margin: 0; padding: 0; }

@@ -10,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
+	"github.com/charmbracelet/x/ansi"
 )
 
 func TestControlRoomRendersWorkforceAndOperationalViews(t *testing.T) {
@@ -382,5 +383,28 @@ func TestControlRoomCreatesInvocationThroughGuidedForm(t *testing.T) {
 	}
 	if state.Invocations["inv-tui"].Priority != "HIGH" {
 		t.Fatalf("guided invocation was not created: %+v", state.Invocations["inv-tui"])
+	}
+}
+
+func TestOverviewCountsAgreeWithTheirNouns(t *testing.T) {
+	// A fresh project has exactly one principal: its owner.
+	m, err := New(newTestService(t), "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.width, m.height = 160, 40
+	out := ansi.Strip(m.overview(colors()))
+	for _, want := range []string{"1 agent ", "0 online runtimes", "0 open tasks", "0 running invocations"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("overview should read %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "1 agents") {
+		t.Fatalf("a single agent must not be pluralized:\n%s", out)
+	}
+	for n, want := range map[int]string{0: "0 open tasks", 1: "1 open task", 2: "2 open tasks"} {
+		if got := countOf(n, "open task", "open tasks"); got != want {
+			t.Errorf("countOf(%d) = %q, want %q", n, got, want)
+		}
 	}
 }

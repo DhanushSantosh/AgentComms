@@ -32,6 +32,7 @@ import (
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 	"github.com/DhanushSantosh/AgentComms/internal/runtimeinit"
 	"github.com/DhanushSantosh/AgentComms/internal/store"
+	"github.com/blang/semver"
 	"github.com/google/uuid"
 	_ "modernc.org/sqlite"
 )
@@ -150,27 +151,23 @@ func Inspect(root, version, buildID string) (Plan, store.Config, error) {
 	return plan, config, nil
 }
 
-// versionOlder reports whether toolkit version a is older than b, comparing
-// dotted numeric segments (e.g. "0.1.0" vs "0.2.0"). A non-numeric segment
-// compares as 0 rather than erroring, so an unexpected version string never
-// panics or blocks an upgrade -- it just can't win a comparison it can't
-// parse.
+// versionOlder compares toolkit versions using SemVer precedence, so a
+// prerelease of a newer version is not mistaken for version zero. An unknown
+// running version cannot satisfy a numeric minimum; matching non-version
+// labels (such as local "dev" builds) remain compatible with one another.
 func versionOlder(a, b string) bool {
-	as := strings.Split(a, ".")
-	bs := strings.Split(b, ".")
-	for i := 0; i < len(as) || i < len(bs); i++ {
-		var av, bv int
-		if i < len(as) {
-			av, _ = strconv.Atoi(as[i])
-		}
-		if i < len(bs) {
-			bv, _ = strconv.Atoi(bs[i])
-		}
-		if av != bv {
-			return av < bv
-		}
+	if a == b {
+		return false
 	}
-	return false
+	running, runningErr := semver.ParseTolerant(a)
+	minimum, minimumErr := semver.ParseTolerant(b)
+	if runningErr != nil {
+		return minimumErr == nil
+	}
+	if minimumErr != nil {
+		return false
+	}
+	return running.LT(minimum)
 }
 
 func Reconcile(ctx context.Context, options Options) (Result, error) {
@@ -180,7 +177,7 @@ func Reconcile(ctx context.Context, options Options) (Result, error) {
 	if options.Timeout <= 0 {
 		options.Timeout = 10 * time.Second
 	}
-	plan, config, err := Inspect(options.Root, options.Version, options.BuildID)
+	plan, _, err := Inspect(options.Root, options.Version, options.BuildID)
 	if err != nil {
 		return Result{}, err
 	}
@@ -200,7 +197,7 @@ func Reconcile(ctx context.Context, options Options) (Result, error) {
 		return result, err
 	}
 	defer unlockFile(lock)
-	plan, config, err = Inspect(options.Root, options.Version, options.BuildID)
+	plan, config, err := Inspect(options.Root, options.Version, options.BuildID)
 	if err != nil {
 		return result, err
 	}
@@ -338,7 +335,7 @@ func inspectDatabases(root string, config store.Config) ([]databaseVersion, erro
 		if err != nil {
 			return nil, err
 		}
-		result = append(result, databaseVersion{"personal_authority", version, PersonalAuthoritySchemaVersion, "apply transactional schema migrations", false})
+		result = append(result, databaseVersion{"personal_authority", version, PersonalAuthoritySchemaVersion, "apply transactional schema migrations and rebuild state from signed history", false})
 	}
 	cachePath, pathErr := projectionPath(root, config)
 	if pathErr != nil {
@@ -354,7 +351,7 @@ func inspectDatabases(root string, config store.Config) ([]databaseVersion, erro
 				version = ProjectionCacheSchemaVersion
 			}
 		}
-		result = append(result, databaseVersion{"projection_cache", version, ProjectionCacheSchemaVersion, "mark cache for rebuild", true})
+		result = append(result, databaseVersion{"projection_cache", version, ProjectionCacheSchemaVersion, "rebuild cache from its signed history", true})
 	}
 	draftPath := filepath.Join(root, store.Runtime, "data", "drafts.db")
 	draftVersion, err := sqliteVersion(draftPath)
@@ -485,6 +482,9 @@ func migrateDatabases(ctx context.Context, root string, config store.Config) err
 		if err := foldDecisionsIntoDocuments(path); err != nil {
 			return err
 		}
+		if err := rebuildSnapshotsFromEvents(ctx, path, personalAuthoritySnapshots); err != nil {
+			return err
+		}
 		if err := setSQLiteVersion("personal_authority", path, PersonalAuthoritySchemaVersion); err != nil {
 			return err
 		}
@@ -498,6 +498,9 @@ func migrateDatabases(ctx context.Context, root string, config store.Config) err
 	}
 	if _, statErr := os.Stat(cachePath); statErr == nil {
 		if err = foldDecisionsIntoDocuments(cachePath); err != nil {
+			return err
+		}
+		if err = rebuildSnapshotsFromEvents(ctx, cachePath, projectionCacheSnapshots); err != nil {
 			return err
 		}
 		if err = setSQLiteVersion("projection_cache", cachePath, ProjectionCacheSchemaVersion); err != nil {

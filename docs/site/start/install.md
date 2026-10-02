@@ -12,7 +12,11 @@ The installer places the CLI at user level. Existing managed projects reconcile 
 
 ## Before installation
 
-Nothing to install first. The commands below already point at the current release ({{LATEST_TAG}}) — copy, paste, and run. The installer verifies the tag-pinned digest of `agent-comms-verify` before using it to check the release signature; no separately installed Cosign is required (see [Verify a release](/security/releases)). Linux and macOS also require `curl` and Python 3.
+The commands below point at the current release ({{LATEST_TAG}}). Linux and
+macOS require `curl` and Python 3; Windows uses PowerShell. No separately
+installed Cosign is required: the installer verifies the tag-pinned digest of
+`agent-comms-verify` before using it to check the release signature (see
+[Verify a release](/security/releases)).
 
 ## Linux and macOS
 

@@ -14,7 +14,7 @@ import (
 //go:embed schema.sql
 var schema string
 
-const CurrentSchemaVersion = 6
+const CurrentSchemaVersion = 7
 
 const addActorKeyFingerprintMigration = `
 ALTER TABLE events
@@ -135,7 +135,16 @@ type schemaMigration struct {
 	Version   int
 	Name      string
 	Automatic bool
-	SQL       string
+	// SQL is executed, or, when Run is set, is only the stable text the
+	// migration's checksum is computed from.
+	SQL string
+	// Run performs a migration that needs Go rather than SQL (RFC 0041's
+	// replay of signed events through the projection).
+	Run func(context.Context, *sql.Tx) error
+	// NeedsConfirmation narrows a non-Automatic migration: when it reports
+	// false (for example, a fresh database with no history to replay) the
+	// migration applies at normal startup.
+	NeedsConfirmation func(context.Context, *sql.Tx) (bool, error)
 }
 
 var schemaMigrations = []schemaMigration{
@@ -145,6 +154,8 @@ var schemaMigrations = []schemaMigration{
 	{Version: 4, Name: "project-deletion-tombstone", Automatic: true, SQL: addDeletedProjectsMigration},
 	{Version: 5, Name: "drop-unconsumed-sessions", Automatic: true, SQL: dropSessionsMigration},
 	{Version: 6, Name: "consolidate-decisions-into-documents", Automatic: true, SQL: consolidateDecisionsMigration},
+	{Version: 7, Name: "backfill-entity-timestamps-from-history", Automatic: false, SQL: entityTimestampsBackfill,
+		Run: backfillEntityTimestamps, NeedsConfirmation: backfillNeedsConfirmation},
 }
 
 type SchemaMigrationStatus struct {
@@ -207,6 +218,15 @@ func ApplySchema(ctx context.Context, db *sql.DB, allowDisruptive bool) error {
 	)`); err != nil {
 		return err
 	}
+	// Refuse a database a newer binary has migrated: this binary would not
+	// know what those migrations changed (RFC 0041).
+	var newest int
+	if err = tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(version),0) FROM schema_migrations`).Scan(&newest); err != nil {
+		return err
+	}
+	if newest > CurrentSchemaVersion {
+		return fmt.Errorf("authority database schema is version %d, newer than this binary supports (%d); upgrade agent-comms-server", newest, CurrentSchemaVersion)
+	}
 	for _, migration := range schemaMigrations {
 		sum := sha256.Sum256([]byte(migration.SQL))
 		checksum := hex.EncodeToString(sum[:])
@@ -219,12 +239,22 @@ func ApplySchema(ctx context.Context, db *sql.DB, allowDisruptive bool) error {
 				return fmt.Errorf("authority migration %d checksum mismatch", migration.Version)
 			}
 		case queryErr == sql.ErrNoRows:
-			if !migration.Automatic && !allowDisruptive {
+			needsConfirmation := !migration.Automatic
+			if needsConfirmation && migration.NeedsConfirmation != nil {
+				if needsConfirmation, err = migration.NeedsConfirmation(ctx, tx); err != nil {
+					return err
+				}
+			}
+			if needsConfirmation && !allowDisruptive {
 				return fmt.Errorf(
 					"authority migration %d (%s) is disruptive and has not been applied; run `agent-comms-server migrate apply --yes --allow-disruptive`",
 					migration.Version, migration.Name)
 			}
-			if _, err = tx.ExecContext(ctx, migration.SQL); err != nil {
+			if migration.Run != nil {
+				if err = migration.Run(ctx, tx); err != nil {
+					return fmt.Errorf("authority migration %d (%s): %w", migration.Version, migration.Name, err)
+				}
+			} else if _, err = tx.ExecContext(ctx, migration.SQL); err != nil {
 				return err
 			}
 			if _, err = tx.ExecContext(ctx, `INSERT INTO schema_migrations

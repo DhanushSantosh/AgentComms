@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"strings"
 	"sync"
@@ -59,34 +60,43 @@ func runTUIAndCapture(t *testing.T, opts ...tea.ProgramOption) string {
 	}
 
 	pr, pw := io.Pipe()
+	defer pr.Close()
+	defer pw.Close()
 	out := &syncBuf{}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 
 	runDone := make(chan error, 1)
 	go func() {
-		runDone <- tui.Run(svc, demoOwner, pr, out, opts...)
+		options := append(opts, tea.WithContext(ctx))
+		runDone <- tui.Run(svc, demoOwner, pr, out, options...)
 	}()
 
 	go func() {
 		defer pw.Close()
-		_, _ = pw.Write(encodeWindowSizeEvent(100, 30))
-		// Wait for an observable model frame instead of assuming a cold CI
-		// runner will repaint within a fixed sleep. "LIVE" is emitted by the
-		// command rail in both colored and stripped output, so this synchronizes
-		// the color-profile tests without making either result the trigger.
-		// 8s, not the outer 10s tui.Run timeout below -- a loaded macOS CI
-		// runner has repeatedly taken longer than an earlier 2s deadline to
-		// deliver the first repaint (TestRunWithColorProfileTrueColorSurvivesToOutput
-		// flaked on macos-latest three times on 2026-09-03 alone, each time
-		// with an init/teardown sequence and no rendered frame in between --
-		// this loop hit its deadline and sent "q" before any paint happened,
-		// not a real color-detection bug). A too-short deadline here fails
-		// silently: "q" always gets sent either way, so the test only shows
-		// its real symptom (missing/unexpected SGR code) once quit races
-		// ahead of the first paint. Keep well under 10s so a genuine hang in
-		// tui.Run itself still fails loudly instead of always via this loop.
-		deadline := time.Now().Add(8 * time.Second)
-		for !strings.Contains(out.String(), "LIVE") && time.Now().Before(deadline) {
-			time.Sleep(10 * time.Millisecond)
+		resize := encodeWindowSizeEvent(100, 30)
+		_, _ = pw.Write(resize)
+		// "LIVE" appears in the first model frame in either color profile.
+		// Never send quit before it appears: a fixed repaint deadline made
+		// slow CI runners produce only initialization/teardown output.
+		//
+		// The size is resent until that frame appears. A pipe has no real
+		// terminal size, so this event is the only way the model learns one,
+		// and a macOS run once rendered nothing for 30s after the initial
+		// clear: the first event was lost during program startup. A resize
+		// is idempotent, and the WASM bridge likewise resends size changes.
+		ticker := time.NewTicker(10 * time.Millisecond)
+		defer ticker.Stop()
+		resend := time.NewTicker(500 * time.Millisecond)
+		defer resend.Stop()
+		for !strings.Contains(out.String(), "LIVE") {
+			select {
+			case <-ticker.C:
+			case <-resend.C:
+				_, _ = pw.Write(resize)
+			case <-ctx.Done():
+				return
+			}
 		}
 		_, _ = pw.Write([]byte("q")) // internal/tui/model.go: "q" -> tea.Quit
 	}()
@@ -96,11 +106,15 @@ func runTUIAndCapture(t *testing.T, opts ...tea.ProgramOption) string {
 		if err != nil {
 			t.Fatalf("tui.Run returned error: %v", err)
 		}
-	case <-time.After(10 * time.Second):
-		t.Fatal("timed out waiting for tui.Run to quit")
+	case <-ctx.Done():
+		t.Fatalf("timed out waiting for first paint and tui.Run to quit: %v; output: %q", ctx.Err(), out.String())
 	}
 
-	return out.String()
+	got := out.String()
+	if !strings.Contains(got, "LIVE") {
+		t.Fatalf("tui.Run exited before rendering a model frame: %q", got)
+	}
+	return got
 }
 
 // TestRunWithoutColorProfileStripsColor proves the bug the reviewer flagged:

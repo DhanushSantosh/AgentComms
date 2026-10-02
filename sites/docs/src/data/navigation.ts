@@ -1,9 +1,9 @@
-export type NavigationItem = {
+type NavigationItem = {
   title: string;
   href: string;
 };
 
-export type NavigationSection = {
+type NavigationSection = {
   title: string;
   shortTitle: string;
   items: NavigationItem[];

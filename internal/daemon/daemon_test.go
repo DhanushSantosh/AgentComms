@@ -43,7 +43,7 @@ func TestSyncPopulatesVerifiedCache(t *testing.T) {
 		})
 	}))
 	defer authority.Close()
-	client, _ := remote.New(authority.URL, time.Second)
+	client, _ := remote.NewWithToken(authority.URL, time.Second, "")
 	cache, err := localcache.Open(filepath.Join(t.TempDir(), "cache.db"), signer.PublicKey())
 	if err != nil {
 		t.Fatal(err)
@@ -74,7 +74,7 @@ func TestDeleteDraftRouteRemovesTheDraft(t *testing.T) {
 		http.Error(w, "unused", http.StatusNotFound)
 	}))
 	defer authority.Close()
-	client, _ := remote.New(authority.URL, time.Second)
+	client, _ := remote.NewWithToken(authority.URL, time.Second, "")
 	instance, err := New(cache, client)
 	if err != nil {
 		t.Fatal(err)

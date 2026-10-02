@@ -42,7 +42,18 @@ type Event struct {
 	Consistency    string                `json:"consistency,omitempty"`
 	Connectivity   string                `json:"connectivity,omitempty"`
 }
+
+// EntityClock is derived only from signed event time and sequence. The
+// sequence preserves causal order when wall-clock timestamps tie or regress.
+type EntityClock struct {
+	CreatedAt       time.Time `json:"created_at,omitzero"`
+	UpdatedAt       time.Time `json:"updated_at,omitzero"`
+	CreatedSequence uint64    `json:"created_sequence,omitempty"`
+	UpdatedSequence uint64    `json:"updated_sequence,omitempty"`
+}
+
 type Agent struct {
+	EntityClock
 	ID             string        `json:"id"`
 	DisplayName    string        `json:"display_name"`
 	Status         string        `json:"status"`
@@ -67,6 +78,7 @@ type Offer struct {
 	Status    string    `json:"status"`
 }
 type Task struct {
+	EntityClock
 	ID          string     `json:"id"`
 	Title       string     `json:"title"`
 	Summary     string     `json:"summary,omitempty"`
@@ -86,15 +98,19 @@ type Task struct {
 	Archived    bool       `json:"archived"`
 }
 type Message struct {
-	ID         string           `json:"id"`
-	Kind       string           `json:"kind"`
-	From       string           `json:"from"`
-	To         []string         `json:"to"`
-	Subject    string           `json:"subject"`
-	Body       string           `json:"body"`
-	TaskID     string           `json:"task_id,omitempty"`
-	Status     string           `json:"status"`
-	Recipients []RecipientState `json:"recipients"`
+	ID              string           `json:"id"`
+	Kind            string           `json:"kind"`
+	From            string           `json:"from"`
+	To              []string         `json:"to"`
+	Subject         string           `json:"subject"`
+	Body            string           `json:"body"`
+	TaskID          string           `json:"task_id,omitempty"`
+	Status          string           `json:"status"`
+	Recipients      []RecipientState `json:"recipients"`
+	CreatedAt       time.Time        `json:"created_at,omitzero"`
+	UpdatedAt       time.Time        `json:"updated_at,omitzero"`
+	CreatedSequence uint64           `json:"created_sequence,omitempty"`
+	UpdatedSequence uint64           `json:"updated_sequence,omitempty"`
 }
 type Invocation struct {
 	ID                 string       `json:"id"`
@@ -110,6 +126,9 @@ type Invocation struct {
 	PreferredRuntimeID string       `json:"preferred_runtime_id,omitempty"`
 	Status             string       `json:"status"`
 	CreatedAt          time.Time    `json:"created_at"`
+	UpdatedAt          time.Time    `json:"updated_at,omitzero"`
+	CreatedSequence    uint64       `json:"created_sequence,omitempty"`
+	UpdatedSequence    uint64       `json:"updated_sequence,omitempty"`
 	Deadline           *time.Time   `json:"deadline,omitempty"`
 	ClaimedBy          string       `json:"claimed_by,omitempty"`
 	ClaimedAt          *time.Time   `json:"claimed_at,omitempty"`
@@ -159,6 +178,10 @@ type AgentRuntime struct {
 	Scopes             []string                 `json:"scopes,omitempty"`
 	Capabilities       []string                 `json:"capabilities,omitempty"`
 	RegisteredAt       time.Time                `json:"registered_at"`
+	CreatedAt          time.Time                `json:"created_at,omitzero"`
+	UpdatedAt          time.Time                `json:"updated_at,omitzero"`
+	CreatedSequence    uint64                   `json:"created_sequence,omitempty"`
+	UpdatedSequence    uint64                   `json:"updated_sequence,omitempty"`
 	LastSeenAt         time.Time                `json:"last_seen_at,omitempty"`
 	LastChangedBy      string                   `json:"last_changed_by"`
 	Reason             string                   `json:"reason,omitempty"`
@@ -180,9 +203,13 @@ type InvocationPolicy struct {
 	PreferredInteractiveRuntimeID string         `json:"preferred_interactive_runtime_id,omitempty"`
 	RequireHumanForSensitive      bool           `json:"require_human_for_sensitive"`
 	UpdatedBy                     string         `json:"updated_by"`
+	CreatedAt                     time.Time      `json:"created_at,omitzero"`
+	CreatedSequence               uint64         `json:"created_sequence,omitempty"`
+	UpdatedSequence               uint64         `json:"updated_sequence,omitempty"`
 	UpdatedAt                     time.Time      `json:"updated_at"`
 }
 type Approval struct {
+	EntityClock
 	ID            string     `json:"id"`
 	Tier          string     `json:"tier"`
 	Action        string     `json:"action"`
@@ -196,13 +223,16 @@ type Approval struct {
 	Approver      string     `json:"approver,omitempty"`
 }
 type Artifact struct {
-	SHA256    string `json:"sha256"`
-	Size      int64  `json:"size"`
-	Name      string `json:"name"`
-	MediaType string `json:"media_type"`
-	Storage   string `json:"storage"`
+	CreatedAt       time.Time `json:"created_at,omitzero"`
+	CreatedSequence uint64    `json:"created_sequence,omitempty"`
+	SHA256          string    `json:"sha256"`
+	Size            int64     `json:"size"`
+	Name            string    `json:"name"`
+	MediaType       string    `json:"media_type"`
+	Storage         string    `json:"storage"`
 }
 type Document struct {
+	EntityClock
 	ID         string   `json:"id"`
 	Title      string   `json:"title"`
 	Body       string   `json:"body"`
@@ -213,10 +243,13 @@ type Document struct {
 	Supersedes string   `json:"supersedes,omitempty"`
 }
 type EnvEntry struct {
-	Key       string    `json:"key"`
-	Value     string    `json:"value"`
-	UpdatedAt time.Time `json:"updated_at"`
-	UpdatedBy string    `json:"updated_by"`
+	Key             string    `json:"key"`
+	Value           string    `json:"value"`
+	CreatedAt       time.Time `json:"created_at,omitzero"`
+	CreatedSequence uint64    `json:"created_sequence,omitempty"`
+	UpdatedSequence uint64    `json:"updated_sequence,omitempty"`
+	UpdatedAt       time.Time `json:"updated_at"`
+	UpdatedBy       string    `json:"updated_by"`
 }
 type Integrity struct {
 	Verified       bool   `json:"verified"`
@@ -238,7 +271,7 @@ type ProjectSettings struct {
 	ArtifactLimitBytes int64     `json:"artifact_limit_bytes"`
 	RequireReview      bool      `json:"require_review"`
 	UpdatedBy          string    `json:"updated_by,omitempty"`
-	UpdatedAt          time.Time `json:"updated_at,omitempty"`
+	UpdatedAt          time.Time `json:"updated_at,omitzero"`
 }
 
 func DefaultProjectSettings() ProjectSettings {

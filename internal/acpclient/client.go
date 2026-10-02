@@ -12,7 +12,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os/exec"
 	"strings"
 	"sync"
@@ -134,15 +133,6 @@ func Dial(ctx context.Context, config Config, resumeSessionID string) (*Session,
 		return nil, err
 	}
 	return session, nil
-}
-
-// newPipeSession wires a Session directly to a peer input/output pair,
-// bypassing process spawning, so the protocol plumbing can be exercised
-// against an in-process fake agent in tests.
-func newPipeSession(config Config, peerInput io.Writer, peerOutput io.Reader) *Session {
-	session := &Session{config: config}
-	session.conn = acpsdk.NewClientSideConnection(session, peerInput, peerOutput)
-	return session
 }
 
 func (s *Session) handshake(ctx context.Context, resumeSessionID string) error {

@@ -10,7 +10,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
-	"github.com/DhanushSantosh/AgentComms/internal/service"
 	"github.com/google/uuid"
 )
 
@@ -189,14 +188,15 @@ func (invocationRowSource) Columns(width int) []table.Column {
 	}
 }
 
+func (invocationRowSource) IDs(state model.State, actor string, mine bool) []string {
+	return invocationIDs(state, actor, mine)
+}
+
 func (invocationRowSource) Rows(state model.State, actor string, mine bool) []table.Row {
-	ids := service.SortedKeys(state.Invocations)
+	ids := invocationIDs(state, actor, mine)
 	rows := make([]table.Row, 0, len(ids))
 	for _, id := range ids {
 		invocation := state.Invocations[id]
-		if mine && invocation.Target != actor && invocation.RequestedBy != actor {
-			continue
-		}
 		rows = append(rows, table.Row{
 			fmtStatus(invocation.Status), invocation.Priority, invocation.Target,
 			invocation.RequestedBy, invocation.Instruction,
@@ -206,14 +206,13 @@ func (invocationRowSource) Rows(state model.State, actor string, mine bool) []ta
 }
 
 func invocationIDs(state model.State, actor string, mine bool) []string {
-	ids := make([]string, 0, len(state.Invocations))
-	for _, id := range service.SortedKeys(state.Invocations) {
-		invocation := state.Invocations[id]
+	visible := make(map[string]model.Invocation)
+	for id, invocation := range state.Invocations {
 		if !mine || invocation.Target == actor || invocation.RequestedBy == actor {
-			ids = append(ids, id)
+			visible[id] = invocation
 		}
 	}
-	return ids
+	return model.SortedIDsBySequence(visible, func(inv model.Invocation) uint64 { return inv.UpdatedSequence })
 }
 
 func (invocationRowSource) RowID(index int, state model.State, actor string, mine bool) string {

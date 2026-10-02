@@ -3,7 +3,6 @@ package app
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"strings"
 	"time"
 
@@ -95,14 +94,6 @@ func (c *cli) emitTable(command string, v any, headers []string, rows [][]string
 	return c.emitTableWithPriorities(command, v, headers, nil, rows, warnings...)
 }
 
-// emitTableWithEmpty is emitTable with an explicit zero-row message
-// (cliui.Table.Empty) instead of the generic "(no rows)". UX-15: use this
-// for any list a filter can narrow, so "nothing exists yet" and "nothing
-// matches your filter" read differently and name a next step.
-func (c *cli) emitTableWithEmpty(command string, v any, headers []string, empty string, rows [][]string, warnings ...string) error {
-	return c.emitTableFull(command, v, headers, nil, empty, rows, warnings...)
-}
-
 // emitTableWithPriorities is emitTable with explicit column-removal
 // priorities (cliui.Table.Priorities -- higher removes first under width
 // pressure). A nil priorities slice keeps emitTable's existing default
@@ -116,11 +107,20 @@ func (c *cli) emitTableWithPriorities(command string, v any, headers []string, p
 	return c.emitTableFull(command, v, headers, priorities, "", rows, warnings...)
 }
 
-// emitTableFull is emitTable/emitTableWithPriorities/emitTableWithEmpty's
-// shared implementation.
+// emitTableFull is emitTable/emitTableWithPriorities's shared
+// implementation.
 func (c *cli) emitTableFull(command string, v any, headers []string, priorities []int, empty string, rows [][]string, warnings ...string) error {
+	return c.emitTableFullOrdered(command, v, nil, headers, priorities, empty, rows, warnings...)
+}
+
+// emitTableFullOrdered also carries a list's display order (RFC 0041's
+// envelope `order`) and an explicit zero-row message. UX-15: pass a
+// non-empty `empty` for any list a filter can narrow, so "nothing exists
+// yet" and "nothing matches your filter" read differently and name a next
+// step.
+func (c *cli) emitTableFullOrdered(command string, v any, order []string, headers []string, priorities []int, empty string, rows [][]string, warnings ...string) error {
 	if c.json || c.quiet {
-		return c.emit(command, v, warnings...)
+		return c.emitWithDeliveryAndOrder(command, v, nil, order, warnings...)
 	}
 	if len(c.pendingWarnings) > 0 {
 		warnings = append(append([]string{}, c.pendingWarnings...), warnings...)
@@ -188,24 +188,18 @@ func (c *cli) emitTimeline(command string, value any, timeline cliui.Timeline, w
 	return c.renderWarnings(mode, warnings)
 }
 
-// renderTable writes headers and rows as a plain-text table, columns
-// padded to the widest cell in each column (header included), separated
-// by two spaces. Deliberately no box-drawing characters: those need
-// display-width handling for anything beyond plain ASCII to stay aligned,
-// and this output is meant to copy-paste cleanly into another command or
-// a message, which a bordered table doesn't do as well.
-func renderTable(out io.Writer, headers []string, rows [][]string) {
-	_ = (cliui.Presenter{Out: out, Mode: cliui.ModePlain}).RenderTable(cliui.Table{Headers: headers, Rows: rows})
+func (c *cli) emitWithDelivery(command string, v, delivery any, warnings ...string) error {
+	return c.emitWithDeliveryAndOrder(command, v, delivery, nil, warnings...)
 }
 
-func (c *cli) emitWithDelivery(command string, v, delivery any, warnings ...string) error {
+func (c *cli) emitWithDeliveryAndOrder(command string, v, delivery any, order []string, warnings ...string) error {
 	if c.json {
 		if len(c.pendingWarnings) > 0 {
 			warnings = append(append([]string{}, c.pendingWarnings...), warnings...)
 		}
 		return json.NewEncoder(c.out).Encode(Envelope{
 			APIVersion: APIVersion, OK: true, Command: command,
-			Result: v, Delivery: delivery, Warnings: warnings,
+			Result: v, Order: order, Delivery: delivery, Warnings: warnings,
 		})
 	}
 	if c.quiet {

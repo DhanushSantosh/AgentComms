@@ -4,7 +4,7 @@ description: Initialize personal mode, inspect the generated owner identity, and
 section: Start here
 order: 3
 audience: Human operators
-lastVerified: 2026-08-01
+lastVerified: 2026-10-01
 related: [start/tui, guide/agents, agents/integrations]
 ---
 
@@ -44,11 +44,18 @@ Use arrow keys to move through navigation and lists, Enter to open the selected 
 The owner can sponsor a new identity and activate it:
 
 ```sh
-agent-comms agent register --id <agent-id> --display-name "<agent-id>" --principal-type AGENT
-agent-comms agent activate --id <agent-id> --role Backend-Designer --scope .
+agent-comms agent register --provider codex --display-name "API specialist"
+agent-comms agent activate --id codex --role Backend-Designer --scope .
 ```
 
 Registration creates the identity and its key. Activation grants a role (a freeform, descriptive label — the agent can also relabel itself any time with `agent switch-role --role <role>`, self-service) and explicit scope. Connect the identity through [MCP](/agents/mcp/), [CLI/JSON](/agents/cli-json/), a [worker](/agents/workers/), or an [interactive session](/agents/interactive/).
+
+The example assumes no Codex identity exists yet. Registration reports the
+actual ID: later identities become `codex-2`, `codex-3`, and so on. Use that
+returned ID for activation. To choose one explicitly, use a provider-prefixed
+ID such as `--id codex-api`; supported providers are `claude`, `codex`, and
+`opencode`. An active identity can read and send messages without registering
+a runtime. A runtime is needed to automatically deliver and claim invocations.
 
 ## What happens on the next command
 

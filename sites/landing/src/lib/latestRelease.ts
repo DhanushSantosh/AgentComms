@@ -1,4 +1,7 @@
+import { get } from "node:https";
+
 const latestReleaseApiUrl = "https://api.github.com/repos/DhanushSantosh/AgentComms/releases/latest";
+let latestVersionRequest: Promise<string> | undefined;
 
 type GithubRelease = { tag_name: string };
 
@@ -11,15 +14,36 @@ type GithubRelease = { tag_name: string };
 // merge commit isn't reachable from dev, so dev's build kept resolving the
 // release before it). Reading GitHub's own "latest release" is correct
 // regardless of which ref or branch topology the build runs from.
-export async function getLatestVersion(): Promise<string> {
-  const response = await fetch(latestReleaseApiUrl, {
-    headers: { Accept: "application/vnd.github+json" }
+export function getLatestVersion(): Promise<string> {
+  // Share one lookup per build worker, never across separate builds.
+  return latestVersionRequest ??= loadLatestVersion();
+}
+
+async function loadLatestVersion(): Promise<string> {
+  // Native HTTPS is build-time I/O, not a Next dynamic fetch. This avoids
+  // persisted fetch-cache staleness while retaining static image routes.
+  const release = await new Promise<GithubRelease>((resolve, reject) => {
+    const request = get(latestReleaseApiUrl, {
+      headers: { Accept: "application/vnd.github+json", "User-Agent": "AgentComms-site-build" }
+    }, (response) => {
+      if (response.statusCode !== 200) {
+        response.resume();
+        reject(new Error(`GitHub releases API returned ${response.statusCode} for ${latestReleaseApiUrl}`));
+        return;
+      }
+      let body = "";
+      response.setEncoding("utf8");
+      response.on("data", (chunk: string) => { body += chunk; });
+      response.on("error", reject);
+      response.on("end", () => {
+        try { resolve(JSON.parse(body) as GithubRelease); } catch (error) { reject(error); }
+      });
+    });
+    request.setTimeout(15_000, () => request.destroy(new Error("GitHub release lookup timed out")));
+    request.on("error", reject);
   });
-
-  if (!response.ok) {
-    throw new Error(`GitHub releases API returned ${response.status} for ${latestReleaseApiUrl}`);
+  if (typeof release.tag_name !== "string" || !/^v?\d+\.\d+\.\d+/.test(release.tag_name)) {
+    throw new Error("GitHub releases API returned an invalid release tag");
   }
-
-  const release = (await response.json()) as GithubRelease;
   return release.tag_name.replace(/^v/, "");
 }
