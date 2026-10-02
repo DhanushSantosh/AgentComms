@@ -204,8 +204,9 @@ func TestPostgresToCacheToLocalConnectorDelivery(t *testing.T) {
 		}
 	}
 	// Queue a larger burst at authority without pushing those writes into the
-	// cache. Concurrent callers must share one sync, catch up, and deliver each
-	// request once to the correct target runtime.
+	// cache. Concurrent callers request synchronization; all must complete,
+	// catch up, and deliver each request once to the correct target runtime.
+	// This does not assert that the callers share a single underlying fetch.
 	applyToCache = false
 	for i := 0; i < 40; i++ {
 		target := "claude-builder"

@@ -12,9 +12,10 @@ areas, not release promotion or a claim about an arbitrary production load.
   every third request is committed to authority without first applying it to
   the cache. A subsequent burst queues 40 more requests at authority while
   the cache is behind, then four concurrent callers request synchronization.
-  The test proves the lag, verifies the received runtime for serial requests,
-  and checks exactly one authoritative delivery to the intended runtime plus
-  a `NOTIFIED` outcome for every queued request.
+  The test proves the lag, checks that all four calls complete, verifies the
+  received runtime for serial requests, and checks exactly one authoritative
+  delivery to the intended runtime plus a `NOTIFIED` outcome for every queued
+  request. It does not measure whether the four callers share one fetch.
 - The expanded Postgres test passed three consecutive runs with the race
   detector and three more without it. The coordinator's transient
   failure recovery test passed 100 runs. Service tests for lost-response
@@ -63,7 +64,7 @@ not compared as equal because each command is a separate write.
 
 No data loss, authorization bypass, or incorrect delivery was observed in
 these exercised cases. Follow-up product work is bounded, cursor-based entity
-listing, especially drafts beyond the first page. For release confidence, run
-the Postgres-backed test in CI and keep the existing platform, race, security,
-installer, and site checks green on the exact release candidate. A full
-production-scale soak with concurrent workers is still untested here.
+listing, especially drafts beyond the first page. For release confidence, keep
+the existing Postgres-backed integration CI job and the platform, race,
+security, installer, and site checks green on the exact release candidate.
+A full production-scale soak with concurrent workers is still untested here.

@@ -25,6 +25,27 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+func TestVersionOlderPrerelease(t *testing.T) {
+	for _, test := range []struct {
+		name, running, minimum string
+		want                   bool
+	}{
+		{"prerelease beats older stable", "0.8.2-dev", "0.8.1", false},
+		{"prerelease precedes matching stable", "0.8.2-dev", "0.8.2", true},
+		{"stable beats matching prerelease", "0.8.2", "0.8.2-dev", false},
+		{"build metadata does not change precedence", "v0.8.2+build.1", "0.8.2", false},
+		{"prerelease identifiers have precedence", "0.8.2-rc.1", "0.8.2-rc.2", true},
+		{"unknown running version cannot meet numeric minimum", "dev", "0.8.2", true},
+		{"equal development labels", "dev", "dev", false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := versionOlder(test.running, test.minimum); got != test.want {
+				t.Fatalf("versionOlder(%q, %q)=%v, want %v", test.running, test.minimum, got, test.want)
+			}
+		})
+	}
+}
+
 func TestReconcileUpgradesBaselineWithoutChangingSignedEventsOrDrafts(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("AGENT_COMMS_CREDENTIAL_DIR", filepath.Join(t.TempDir(), "credentials"))

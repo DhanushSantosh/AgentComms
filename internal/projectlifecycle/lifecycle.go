@@ -32,6 +32,7 @@ import (
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 	"github.com/DhanushSantosh/AgentComms/internal/runtimeinit"
 	"github.com/DhanushSantosh/AgentComms/internal/store"
+	"github.com/blang/semver"
 	"github.com/google/uuid"
 	_ "modernc.org/sqlite"
 )
@@ -150,27 +151,23 @@ func Inspect(root, version, buildID string) (Plan, store.Config, error) {
 	return plan, config, nil
 }
 
-// versionOlder reports whether toolkit version a is older than b, comparing
-// dotted numeric segments (e.g. "0.1.0" vs "0.2.0"). A non-numeric segment
-// compares as 0 rather than erroring, so an unexpected version string never
-// panics or blocks an upgrade -- it just can't win a comparison it can't
-// parse.
+// versionOlder compares toolkit versions using SemVer precedence, so a
+// prerelease of a newer version is not mistaken for version zero. An unknown
+// running version cannot satisfy a numeric minimum; matching non-version
+// labels (such as local "dev" builds) remain compatible with one another.
 func versionOlder(a, b string) bool {
-	as := strings.Split(a, ".")
-	bs := strings.Split(b, ".")
-	for i := 0; i < len(as) || i < len(bs); i++ {
-		var av, bv int
-		if i < len(as) {
-			av, _ = strconv.Atoi(as[i])
-		}
-		if i < len(bs) {
-			bv, _ = strconv.Atoi(bs[i])
-		}
-		if av != bv {
-			return av < bv
-		}
+	if a == b {
+		return false
 	}
-	return false
+	running, runningErr := semver.ParseTolerant(a)
+	minimum, minimumErr := semver.ParseTolerant(b)
+	if runningErr != nil {
+		return minimumErr == nil
+	}
+	if minimumErr != nil {
+		return false
+	}
+	return running.LT(minimum)
 }
 
 func Reconcile(ctx context.Context, options Options) (Result, error) {
