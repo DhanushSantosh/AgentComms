@@ -1,10 +1,11 @@
 # Product media
 
-Captured on 2026-10-01 from `dev` based on `d44140d` (v0.8.1 plus its three
-post-release follow-ups). The assets show the actual shared `internal/tui`
+Captured on 2026-10-02 from `dev` at `345c0c0` (v0.8.2 release candidate).
+The assets show the actual shared `internal/tui`
 renderer. The data is a synthetic, isolated project created through the same
 governed seed transitions used by the landing site's interactive WASM demo.
-They do not show the owner's working project or credentials.
+They do not show the owner's working project or credentials. The demo ran with
+`TZ=UTC`, so displayed timestamps reveal no local time zone.
 
 - `tui-overview.png`: messaging readiness, runtime presence, attention, work,
   and recent signed events.
@@ -24,7 +25,7 @@ Build the isolated native demo (the JS/WASM entrypoint is unchanged):
 
 ```sh
 go build -o /tmp/agent-comms-site-demo ./cmd/agent-comms-tui-wasm
-ttyd -i 127.0.0.1 -p 7681 -O -m 1 -W -t fontSize=16 /tmp/agent-comms-site-demo
+TZ=UTC ttyd -i 127.0.0.1 -p 7681 -O -m 1 -W -t fontSize=16 /tmp/agent-comms-site-demo
 ```
 
 `ttyd` is optional capture tooling, not a product or installation dependency.
