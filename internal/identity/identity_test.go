@@ -90,43 +90,6 @@ func TestElevatedActorIsDistinctFromPrimary(t *testing.T) {
 	}
 }
 
-func TestFindProfileByProjectAndHost(t *testing.T) {
-	profiles := map[string]Profile{
-		"p1:claude-axiom": {Name: "p1:claude-axiom", ProjectID: "p1", Actor: "claude-axiom", HostLabel: "claude"},
-		"p1:claude-damon": {Name: "p1:claude-damon", ProjectID: "p1", Actor: "claude-damon", HostLabel: "codex"},
-		"p2:claude-henry": {Name: "p2:claude-henry", ProjectID: "p2", Actor: "claude-henry", HostLabel: "claude"},
-	}
-	actor, ok := FindProfileByProjectAndHost(profiles, "p1", "claude")
-	if !ok || actor != "claude-axiom" {
-		t.Fatalf("expected AXIOM, got %q ok=%v", actor, ok)
-	}
-	actor, ok = FindProfileByProjectAndHost(profiles, "p1", "codex")
-	if !ok || actor != "claude-damon" {
-		t.Fatalf("expected DAMON, got %q ok=%v", actor, ok)
-	}
-	if _, ok = FindProfileByProjectAndHost(profiles, "p1", "opencode"); ok {
-		t.Fatal("expected no match for an unregistered host in a known project")
-	}
-	if _, ok = FindProfileByProjectAndHost(profiles, "p3", "claude"); ok {
-		t.Fatal("expected no match for an unknown project")
-	}
-}
-
-// TestFindProfileByProjectAndHostAmbiguous guards the deliberate design
-// choice not to guess: if a host somehow registered two agents in the same
-// project (two profiles sharing project+host), resolution must decline
-// rather than picking one arbitrarily, so callers fall back to existing
-// resolution behavior instead of silently binding to the wrong identity.
-func TestFindProfileByProjectAndHostAmbiguous(t *testing.T) {
-	profiles := map[string]Profile{
-		"p1:claude-axiom": {Name: "p1:claude-axiom", ProjectID: "p1", Actor: "claude-axiom", HostLabel: "claude"},
-		"p1:PRISM":        {Name: "p1:PRISM", ProjectID: "p1", Actor: "PRISM", HostLabel: "claude"},
-	}
-	if _, ok := FindProfileByProjectAndHost(profiles, "p1", "claude"); ok {
-		t.Fatal("expected ambiguous multi-match to return ok=false")
-	}
-}
-
 func TestResolveActorPrecedenceAndProjectIsolation(t *testing.T) {
 	config := UserConfig{
 		ActiveProfile: "other:WRONG",

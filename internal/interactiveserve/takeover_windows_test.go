@@ -122,3 +122,25 @@ func TestCurrentProcessRejectsReusedAncestorPID(t *testing.T) {
 		t.Fatalf("newly spawned child was misclassified as ancestor: descendant=%t determined=%t", descendant, determined)
 	}
 }
+
+// processAlive probes for pid's existence without terminating it, the
+// Windows counterpart of takeover.go's unix processAlive (Signal(0)); the
+// tests use it to observe Takeover. GetExitCodeProcess against
+// STILL_ACTIVE is the standard Windows equivalent -- opening the handle
+// alone doesn't tell you whether the process has already exited, since a
+// pid can be reused after the process table entry is reclaimed, but a
+// short-lived OpenProcess+GetExitCodeProcess pair right before use is the
+// same best-effort liveness check every caller of this package already
+// accepts on unix.
+func processAlive(pid int) bool {
+	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
+	if err != nil {
+		return false
+	}
+	defer windows.CloseHandle(handle)
+	var exitCode uint32
+	if err := windows.GetExitCodeProcess(handle, &exitCode); err != nil {
+		return false
+	}
+	return exitCode == 259 // STILL_ACTIVE
+}

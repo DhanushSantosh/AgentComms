@@ -35,7 +35,7 @@ func TestPostgresToCacheToLocalConnectorDelivery(t *testing.T) {
 	defer engine.Close()
 	server := httptest.NewServer(authority.NewHTTPServer(engine, authority.HTTPConfig{}).Handler())
 	defer server.Close()
-	client, err := remote.New(server.URL, 5*time.Second)
+	client, err := remote.NewWithToken(server.URL, 5*time.Second, "")
 	if err != nil {
 		t.Fatal(err)
 	}

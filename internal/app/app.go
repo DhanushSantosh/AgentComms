@@ -5,13 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/DhanushSantosh/AgentComms/internal/model"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/DhanushSantosh/AgentComms/internal/model"
 
 	"github.com/DhanushSantosh/AgentComms/internal/buildinfo"
 	"github.com/DhanushSantosh/AgentComms/internal/cliui"

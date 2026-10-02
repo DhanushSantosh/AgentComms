@@ -17,10 +17,6 @@ type Event struct {
 	Properties json.RawMessage `json:"properties"`
 }
 
-// PermissionAskedProperties decodes the Properties of a "permission.asked"
-// event into the same PermissionRequest shape ListPermissions returns.
-type PermissionAskedProperties = PermissionRequest
-
 func decodeInto(raw json.RawMessage, out any) error {
 	return json.Unmarshal(raw, out)
 }

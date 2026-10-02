@@ -180,7 +180,7 @@ func Reconcile(ctx context.Context, options Options) (Result, error) {
 	if options.Timeout <= 0 {
 		options.Timeout = 10 * time.Second
 	}
-	plan, config, err := Inspect(options.Root, options.Version, options.BuildID)
+	plan, _, err := Inspect(options.Root, options.Version, options.BuildID)
 	if err != nil {
 		return Result{}, err
 	}
@@ -200,7 +200,7 @@ func Reconcile(ctx context.Context, options Options) (Result, error) {
 		return result, err
 	}
 	defer unlockFile(lock)
-	plan, config, err = Inspect(options.Root, options.Version, options.BuildID)
+	plan, config, err := Inspect(options.Root, options.Version, options.BuildID)
 	if err != nil {
 		return result, err
 	}

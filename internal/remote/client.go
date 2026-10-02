@@ -25,10 +25,6 @@ type Client struct {
 	token   string
 }
 
-func New(baseURL string, timeout time.Duration) (*Client, error) {
-	return NewWithToken(baseURL, timeout, "")
-}
-
 func NewWithToken(baseURL string, timeout time.Duration, token string) (*Client, error) {
 	parsed, err := url.Parse(baseURL)
 	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {

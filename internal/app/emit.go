@@ -3,7 +3,6 @@ package app
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"strings"
 	"time"
 
@@ -187,16 +186,6 @@ func (c *cli) emitTimeline(command string, value any, timeline cliui.Timeline, w
 		}
 	}
 	return c.renderWarnings(mode, warnings)
-}
-
-// renderTable writes headers and rows as a plain-text table, columns
-// padded to the widest cell in each column (header included), separated
-// by two spaces. Deliberately no box-drawing characters: those need
-// display-width handling for anything beyond plain ASCII to stay aligned,
-// and this output is meant to copy-paste cleanly into another command or
-// a message, which a bordered table doesn't do as well.
-func renderTable(out io.Writer, headers []string, rows [][]string) {
-	_ = (cliui.Presenter{Out: out, Mode: cliui.ModePlain}).RenderTable(cliui.Table{Headers: headers, Rows: rows})
 }
 
 func (c *cli) emitWithDelivery(command string, v, delivery any, warnings ...string) error {

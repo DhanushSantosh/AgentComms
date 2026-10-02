@@ -56,11 +56,6 @@ func eligibleActionApprovalID(st model.State, action string, now time.Time) (str
 	return chosen, expired
 }
 
-func hasApproval(st model.State, action string, now time.Time) bool {
-	id, _ := eligibleActionApprovalID(st, action, now)
-	return id != ""
-}
-
 // ApprovalSubjectDigest returns the canonical digest that an approval must
 // carry for a later transition. It includes the requester, transition type,
 // entity ID, and submitted payload so an approval cannot be replayed for a
