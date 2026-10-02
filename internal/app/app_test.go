@@ -397,6 +397,19 @@ func TestQuietSuppressesSuccessButNotWarnings(t *testing.T) {
 }
 
 func TestMain(testingMain *testing.M) {
+	// Never touch the developer's real user config or credentials: a test
+	// that forgot its own t.Setenv wrote ~90 stale profiles into
+	// ~/.config/agent-comms over time. Tests that set their own directories
+	// still override these defaults.
+	isolated, err := os.MkdirTemp("", "agent-comms-app-test-")
+	if err != nil {
+		panic(err)
+	}
+	for name, dir := range map[string]string{"AGENT_COMMS_CONFIG_DIR": "user", "AGENT_COMMS_CREDENTIAL_DIR": "credentials"} {
+		if err = os.Setenv(name, filepath.Join(isolated, dir)); err != nil {
+			panic(err)
+		}
+	}
 	launchDaemonProcess = func(_, projectRoot string, output io.Writer) error {
 		projectStore := store.Open(projectRoot)
 		config, err := projectStore.Config()
@@ -434,7 +447,9 @@ func TestMain(testingMain *testing.M) {
 		}()
 		return nil
 	}
-	os.Exit(testingMain.Run())
+	code := testingMain.Run()
+	_ = os.RemoveAll(isolated)
+	os.Exit(code)
 }
 
 var testDaemonRuns sync.Map // project root -> daemon.Run completion channel
