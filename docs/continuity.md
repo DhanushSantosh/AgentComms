@@ -14,7 +14,7 @@ of something reconstructed under pressure.
 ## What actually needs a person, and who that is today
 
 As of 2026-08, the repository has exactly one collaborator
-(`DhanushSantosh`, admin) and exactly one required reviewer on the protected
+(the repository owner, admin) and exactly one required reviewer on the protected
 `release` GitHub environment (the same person). That is the entire
 bus-factor surface described below -- nothing here is hypothetical or
 padded.
@@ -24,7 +24,8 @@ padded.
 | What | Where it lives | Who can use/rotate it |
 |---|---|---|
 | Release binary signing | **Keyless** (Sigstore/Cosign OIDC via `sigstore/cosign-installer` in `release.yml`) -- there is no long-lived private key to lose, back up, or hand off. Any GitHub Actions run authorized to the `release` environment can sign, because the identity being attested *is* that workflow run, not a stored secret. | Nobody holds a key; access is controlled entirely by who can approve the `release` environment (below). |
-| `VERCEL_TOKEN` | GitHub Actions repository secret, used only by `deploy-sites.yml` to publish `sites/docs`/`sites/landing`. The only non-keyless secret this repository holds. | Rotate from the Vercel account's token settings, then `gh secret set VERCEL_TOKEN`. Losing it stops doc/landing site deploys, nothing else -- it has no access to signing, releases, or the authority/event log. |
+| `VERCEL_TOKEN` | GitHub Actions repository secret, used only by `deploy-sites.yml` to publish `sites/docs`/`sites/landing`. | Rotate from the Vercel account's token settings, then `gh secret set VERCEL_TOKEN`. Losing it stops doc/landing site deploys, nothing else -- it has no access to signing, releases, or the authority/event log. |
+| `DCO_OWNER_EMAILS` | Masked repository secret containing newline-separated historical and no-reply owner author identities. Contact information is not published in source. | The repository owner maintains the narrow allowlist with `gh secret set DCO_OWNER_EMAILS`. If absent, commits still require ordinary sign-offs; never add unrelated contributor identities to bypass DCO. |
 | Commit signing (SSH) | Per-machine/per-identity `~/.ssh/id_ed25519` (see CONTRIBUTING.md item 7), registered on GitHub as a *signing* key, not stored in this repository at all. | Each committer (human or agent identity) generates and registers their own; there is nothing central to hand off here by design. |
 | Project actor keys / elevated key | Platform credential store (OS keyring) per `docs/architecture.md`'s Integrity section, never in git history. Project-specific, not repository-specific. | Out of scope for repository continuity -- these belong to whoever runs a given Agent Comms *project*, not to this source repository. |
 
@@ -63,10 +64,10 @@ ignoring a red build.
 ## When to revisit the DCO owner-exemption
 
 `.github/workflows/dco.yml` exempts commits authored under
-`TRUSTED_OWNER_EMAIL` from the per-commit `Signed-off-by` trailer (see
+the private `DCO_OWNER_EMAILS` allowlist from the per-commit `Signed-off-by` trailer (see
 CONTRIBUTING.md item 6). This does **not** need a code change the moment an
-external contributor shows up -- the exemption already only matches one
-specific author email; anyone else's commit already requires its own real
+external contributor shows up -- the exemption only matches the owner's
+explicitly allowlisted author identities; anyone else's commit requires its own real
 sign-off today, unconditionally. There is exactly one situation that
 *would* need revisiting it: if a second person is ever given commit rights
 using a shared identity or the owner's own email/keys rather than their

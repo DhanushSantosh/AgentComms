@@ -10,7 +10,7 @@ func agents() map[string]Agent {
 		"claude-main":     {ID: "claude-main", DisplayName: "Atlas", Status: "ACTIVE"},
 		"codex-main":      {ID: "codex-main", DisplayName: "Beacon", Status: "ACTIVE"},
 		"claude-reviewer": {ID: "claude-reviewer", DisplayName: "", Status: "ACTIVE"},
-		"dhanush":         {ID: "dhanush", DisplayName: "Dhanush", Status: "ACTIVE"},
+		"alex":            {ID: "alex", DisplayName: "Alex", Status: "ACTIVE"},
 	}
 }
 
@@ -21,7 +21,7 @@ func TestResolvePrincipalPrefersActorIDOverDisplayName(t *testing.T) {
 		"Atlas":           "claude-main",
 		"atlas":           "claude-main",
 		"  Beacon  ":      "codex-main",
-		"dhanush":         "dhanush",
+		"alex":            "alex",
 	} {
 		got, err := ResolvePrincipal(agents(), reference)
 		if err != nil || got != want {

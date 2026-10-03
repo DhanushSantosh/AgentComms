@@ -360,7 +360,7 @@ one invocation genuinely pending so a live visitor can act on them."
 - [ ] **Step 1: Pin down the real WindowSizeEvent wire encoding**
 
 ```bash
-find /home/dhanush/go/pkg/mod/github.com/charmbracelet/ultraviolet* -iname "*.go" | xargs grep -ln "WindowSizeEvent"
+find /home/example/go/pkg/mod/github.com/charmbracelet/ultraviolet* -iname "*.go" | xargs grep -ln "WindowSizeEvent"
 ```
 Read whichever file(s) that finds, specifically the input parser's handling of in-band resize reports (likely a `CSI ... t` sequence per xterm's `report window size in characters` convention, or a Kitty-protocol-specific encoding — confirm which one ultraviolet actually implements before writing the encoder in Step 3; do not guess between the two).
 

@@ -2,7 +2,7 @@
 
 ## Status
 
-**Accepted, 2026-09-02.** Reviewed and accepted by the project owner (Dhanush Santosh) before
+**Accepted, 2026-09-02.** Reviewed and accepted by the project owner (the project maintainer) before
 implementation, per `docs/rfcs/README.md` and `docs/development-workflow.md`'s design-proposal
 rule. Follows the single-use approval design established by
 [RFC 0023](0023-single-use-orchestrator-grant-approval.md). Implementation follows this

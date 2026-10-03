@@ -96,8 +96,8 @@ func TestOpenCodeLiveSessionRoundTrips(t *testing.T) {
 // against the exact flags confirmed live via `opencode attach --help`:
 // --dir and --session, not positional arguments or anything invented.
 func TestOpenCodeAttachCommandMatchesRealCLIFlags(t *testing.T) {
-	got := openCodeAttachCommand("http://127.0.0.1:4096", "/home/dhanush/Projects/DeskCrafter", "ses_0762d1d0bffePMbwRdrPFzD2J9")
-	want := "opencode attach http://127.0.0.1:4096 --dir /home/dhanush/Projects/DeskCrafter --session ses_0762d1d0bffePMbwRdrPFzD2J9"
+	got := openCodeAttachCommand("http://127.0.0.1:4096", "/home/example/Projects/example-project", "ses_000000000000000000000000000001")
+	want := "opencode attach http://127.0.0.1:4096 --dir /home/example/Projects/example-project --session ses_000000000000000000000000000001"
 	if got != want {
 		t.Fatalf("openCodeAttachCommand() = %q, want %q", got, want)
 	}

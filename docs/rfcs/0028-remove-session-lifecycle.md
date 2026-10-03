@@ -2,7 +2,7 @@
 
 ## Status
 
-**Implemented, 2026-09-02.** Owner: Dhanush Santosh. Implementation branch:
+**Implemented, 2026-09-02.** Owner: the project maintainer. Implementation branch:
 `review/feature-validity`. The project owner accepted this before
 implementation began, per `docs/rfcs/README.md`.
 

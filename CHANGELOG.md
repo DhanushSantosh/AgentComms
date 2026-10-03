@@ -5,6 +5,15 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 
 ## [Unreleased]
 
+### Fixed
+- Codex live runtimes explicitly apply the requested sandbox on new and resumed
+  threads, and return terminal provider errors instead of waiting for a deadline.
+- Corrupt encrypted credential nonces are rejected without crashing decryption.
+
+### Maintenance
+- Documentation and test examples use synthetic identities and paths. Maintainer
+  attribution policy is configured privately rather than embedded in source.
+
 ### Changed
 - The landing release page presents stable releases only; beta release notes
   are preserved in the docs archive.

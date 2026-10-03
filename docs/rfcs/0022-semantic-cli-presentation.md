@@ -2,7 +2,7 @@
 
 ## Status
 
-**Implemented, 2026-08-26.** Owner: Dhanush Santosh. Implementation branch:
+**Implemented, 2026-08-26.** Owner: the project maintainer. Implementation branch:
 `codex/cli-ux-redesign`. The project owner accepted the output contract and
 the four public test seams before implementation began. The implementation is
 split into verified phase commits covering output modes, terminal capability
