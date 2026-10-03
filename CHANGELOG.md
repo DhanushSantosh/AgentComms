@@ -21,6 +21,8 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 - Corrupt encrypted credential nonces are rejected without crashing decryption.
 
 ### Maintenance
+- Update Go crypto and module dependencies to versions containing upstream
+  SSH denial-of-service and checksum-log verification fixes.
 - Documentation and test examples use synthetic identities and paths. Maintainer
   attribution policy is configured privately rather than embedded in source.
 

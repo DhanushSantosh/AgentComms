@@ -12,14 +12,14 @@ CI, not inferred from Linux cross-compilation.
 | --- | --- | --- |
 | Whole Go tree | Full suite, vet, race, staticcheck, coverage floors | Default full suite, vet and pinned-toolchain staticcheck passed; isolated app/doctor coverage passed; full uncached race and remaining coverage floors pending |
 | Identities, governance, protocol | Role/credential isolation, approval expiry/binding/consumption, replay and rejection cases | Protocol, projection, projectlifecycle, identity and personal authority packages passed three uncached repetitions; deeper source review pending |
-| Storage and upgrades | Signed-history replay, tamper rejection, SQLite/cache and Postgres timestamp migration | Tests identified; real Postgres suite running |
+| Storage and upgrades | Signed-history replay, tamper rejection, SQLite/cache and Postgres timestamp migration | Real Postgres suite passed; broader migration/recovery review pending |
 | Shared authority and recovery | Authentication, writes, idempotency, cache lag, retry, deletion, stream admission | Uncached Postgres authority/daemon suites passed; coverage 53.5% / 44.5%; race and further stress pending |
 | CLI/MCP | Actual adapter writes, result/order/history parity, generated reference consistency, failure semantics | Isolated authoritative adapter parity passed uncached (12.743 seconds); broader runtime checks pending |
 | TUI | Navigation/actions, constrained panes, resize, ordering, approvals, runtime-independent messaging | Full TUI suite passed uncached (91.617 seconds); fresh-binary PTY navigation/resize/quit and runtime-independent overview passed; remaining interaction/source review pending |
-| Runtime/providers | Local-process lifecycle, durable delivery and real installed provider smoke | Claude and explicit-model Codex live two-turn smokes passed; OpenCode no-tool worker smoke passed; extra-root fix verified; ignore-user-config remains unresolved |
+| Runtime/providers | Local-process lifecycle, durable delivery and real installed provider smoke | Claude and explicit-model Codex live two-turn smokes passed; OpenCode no-tool worker smoke passed; extra-root, accepted RFC 0042 isolation rejection and acknowledged-crash fixes tested; broader adapter review pending |
 | Installation and release trust | Authentic installer bootstrap, genuine signature acceptance, tamper/identity/issuer rejection | Live releaseverify suite passed uncached, including all four genuine-release subtests |
 | Platforms | Native Linux/Windows/macOS tests, Windows pipe-close regression, six-target/four-binary builds | All three platform jobs and cross-build passed on ed4d57d in CI 37147761316 |
-| Go dependencies | govulncheck and direct/transitive exposure review | govulncheck passed: zero called vulnerabilities; unreachable dependency advisories need review |
+| Go dependencies | govulncheck and direct/transitive exposure review | Compatible x/crypto and x/mod security updates validated; refreshed scan has no called/package findings, only upstream-test-only OpenPGP module advisory |
 | Site dependencies | npm audit, impact assessment and any fixes | High-severity unpatched advisory blocks current npm gate; fast-uri lock upgraded to patched 3.1.8 and moderate advisory cleared |
 | Docs/landing | Build, content generation, keyboard/mobile/desktop/browser/visual and Lighthouse checks | Pre-push browser suites passed (docs 45, landing 71); candidate CI site jobs failed npm audit |
 | Production deployment | Exact candidate deploy and release/version correctness | Token regression tests and production build pass; both site deployments passed on e573c90 in workflow 37146103139 |
@@ -218,6 +218,57 @@ This enforces the existing crash-retry contract, not a new retry policy.
 
 ## Closure requirements
 
+### Postgres timeout and contention evidence
+
+The new `TestPostgresMutationLockTimeoutIsRecoverable` passed with race
+instrumentation in 1.16 seconds against the disposable Postgres 17 service.
+It holds the actual project serialization row lock, verifies a valid signed
+write times out as `UNAVAILABLE` without advancing history, releases the lock,
+and retries the identical idempotent command successfully with a verified
+receipt. Its one-second timeout is test-only; production defaults are unchanged.
+
+The existing 100-writer workload now also has a four-connection variant.
+The paired uncached race invocation
+`go test -race -count=1 -v ./internal/authority -run
+'^TestPostgresTransactionalAuthority(BoundedPool)?$'` passed: the default
+pool took 8.60 seconds and the bounded pool 7.42 seconds. Both retained the
+same writer count and engine statement timeout. This does not establish that
+pool size caused the earlier intermittent failures or certify server-default
+five-second timeout behavior; stress diagnosis remains open.
+After the dependency updates, the combined uncached race run passed again:
+default pool 11.74 seconds, bounded pool 9.33 seconds, timeout recovery 1.13
+seconds (23.263 seconds for the package).
+
+### Go dependency exposure follow-up
+
+The pinned Go 1.26.6 govulncheck run reported no called vulnerable symbols,
+but found installed `golang.org/x/crypto` 0.55.0 and `golang.org/x/mod` 0.38.0
+advisories at module/package level. Narrow updates to 0.56.0 and 0.40.0,
+respectively, retain Go 1.26 compatibility. Upstream advisories are
+[GO-2026-6354](https://pkg.go.dev/vuln/GO-2026-6354),
+[GO-2026-6355](https://pkg.go.dev/vuln/GO-2026-6355),
+[GO-2026-6179](https://pkg.go.dev/vuln/GO-2026-6179), and
+[GO-2026-6180](https://pkg.go.dev/vuln/GO-2026-6180).
+The SSH package enters through Sigstore's signature dependencies; no vulnerable
+SSH connection symbols were reported reachable. The vulnerable sumdb client
+and tile-verification packages are not in the application's package graph
+(Sigstore uses the separate sumdb/note package). The unmaintained OpenPGP advisory
+[GO-2026-5932](https://pkg.go.dev/vuln/GO-2026-5932) enters only through an
+upstream dependency's test graph, not an application import. After the update,
+pinned govulncheck exited successfully with only that module-level OpenPGP
+record and no package/called-symbol findings. The opt-in uncached live
+releaseverify suite passed in 21.287 seconds, including genuine artifact
+acceptance, tamper/identity/issuer rejection and verifier substitution tests.
+The identity suite passed in 6.141 seconds; focused vet and diff checks passed.
+Evidence logs: `/tmp/agc-security-dependency-validation-20261004.log` and
+`/tmp/agc-govuln-updated-20261004.json`. No advisory gate was suppressed.
+All packages compiled with `go test -run '^$' -p 1 ./...`; this is compile-only
+evidence, not another full test-suite pass. Fresh focused race tests passed
+for codexserve (3.804 seconds), worker (25.893 seconds), protocol (1.075 seconds)
+and projection (1.118 seconds). `go mod verify` passed. The Postgres regressions
+are committed separately as `929ec24`; dependency changes do not alter public
+commands, durable schemas or production pool/timeout defaults.
+
 CI `37145634511` completed: Ubuntu, Windows, macOS, PostgreSQL, security and
 cross-build passed; docs and landing failed the npm advisory gate. Fix revision
 `e573c90` has CI `37146103289` completed with all native/core/security/build
@@ -243,9 +294,17 @@ revision so ongoing source fixes cannot produce mixed-build evidence.
 CI `37149065437` on `1b7ee9d` completed: all three native platforms, security,
 Postgres and cross-build passed; both site jobs failed the known npm gate.
 The accepted runtime-isolation/startup candidate is `492958d`. Deployment
-workflow `37150049615` passed both sites. CI `37150049666` is in progress:
+workflow `37150049615` passed both sites. CI `37150049666` completed:
 all three native platforms, security, Postgres and cross-build passed;
 the run completed with both site jobs failing the unchanged npm gate.
+
+The acknowledged-turn crash fix is pushed as `ff682f8`. The immutable source
+export is `/tmp/agc-frozen-release-BzlcAI`; its `race.log` is the durable
+evidence for the new full uncached race run. The export contains committed
+source only, not real project runtime data or an additional Git worktree.
+This run is still in progress and is not counted as a pass.
+Its CI `37150910694` completed with Linux, Windows, macOS, Postgres, security
+and cross-build passing; both site jobs failed the unchanged npm gate.
 
 Complete the pending ledger with exact commands, revisions and outcomes;
 resolve validated release blockers without weakening integrity or security
