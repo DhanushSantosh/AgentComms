@@ -138,7 +138,7 @@ func (p *Process) start(ctx context.Context) error {
 		// starting a fresh thread below, rather than failing outright --
 		// same principle opencode-live's session fallback already uses.
 	}
-	started, err := p.call(ctx, "thread/start", map[string]any{"cwd": p.config.WorkDir})
+	started, err := p.call(ctx, "thread/start", p.threadParams(""))
 	if err != nil {
 		return fmt.Errorf("codexserve: thread/start: %w", err)
 	}
@@ -157,7 +157,17 @@ func (p *Process) start(ctx context.Context) error {
 }
 
 func (p *Process) threadParams(threadID string) map[string]any {
-	return map[string]any{"threadId": threadID, "cwd": p.config.WorkDir}
+	params := map[string]any{
+		"cwd": p.config.WorkDir, "sandbox": p.config.Sandbox,
+		"approvalPolicy": "never",
+	}
+	if threadID != "" {
+		params["threadId"] = threadID
+	}
+	if p.config.Model != "" {
+		params["model"] = p.config.Model
+	}
+	return params
 }
 
 func (p *Process) readLoop(command *exec.Cmd, stdout io.Reader) {
@@ -344,7 +354,11 @@ func (p *Process) sendOnce(ctx context.Context, text string) (string, error) {
 			var notification struct {
 				Method string `json:"method"`
 				Params struct {
-					Item struct {
+					Error struct {
+						Message string `json:"message"`
+					} `json:"error"`
+					WillRetry bool `json:"willRetry"`
+					Item      struct {
 						Type  string `json:"type"`
 						Phase string `json:"phase"`
 						Text  string `json:"text"`
@@ -353,6 +367,9 @@ func (p *Process) sendOnce(ctx context.Context, text string) (string, error) {
 			}
 			if err := json.Unmarshal(line, &notification); err != nil {
 				continue
+			}
+			if notification.Method == "error" && !notification.Params.WillRetry {
+				return "", fmt.Errorf("codexserve: provider rejected turn: %s", notification.Params.Error.Message)
 			}
 			// The authoritative "this turn's answer is ready" signal,
 			// confirmed live: an item/completed notification whose item

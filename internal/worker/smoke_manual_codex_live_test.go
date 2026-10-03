@@ -28,6 +28,9 @@ func TestManualSmokeCodexLive(t *testing.T) {
 	runtimeID := "codex-live-smoke-" + uuid.NewString()
 	process, err := codexserve.Start(context.Background(), codexserve.ProcessConfig{
 		Executable: codex, WorkDir: root, Sandbox: "workspace-write",
+		// Keep the user's normal config untouched when the local default
+		// model is unavailable to the account used for this optional smoke.
+		Model: os.Getenv("AGENTCOMMS_CODEX_SMOKE_MODEL"),
 	})
 	if err != nil {
 		t.Fatal(err)

@@ -6,12 +6,13 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"testing"
 	"time"
 )
 
 func TestGenerateEncryptedRoundTripsWithCorrectPassphrase(t *testing.T) {
-	c, err := GenerateEncrypted("proj", "Dhanush:elevated", "correct horse battery staple")
+	c, err := GenerateEncrypted("proj", "Alex:elevated", "correct horse battery staple")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +46,7 @@ func TestGenerateEncryptedRoundTripsWithCorrectPassphrase(t *testing.T) {
 }
 
 func TestDecryptedRejectsWrongPassphrase(t *testing.T) {
-	c, err := GenerateEncrypted("proj", "Dhanush:elevated", "the real passphrase")
+	c, err := GenerateEncrypted("proj", "Alex:elevated", "the real passphrase")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,8 +55,29 @@ func TestDecryptedRejectsWrongPassphrase(t *testing.T) {
 	}
 }
 
+func TestDecryptedRejectsMalformedNonceWithoutPanic(t *testing.T) {
+	c, err := GenerateEncrypted("proj", "actor:elevated", "synthetic-passphrase")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, size := range []int{0, 1, 11, 13} {
+		t.Run(strconv.Itoa(size), func(t *testing.T) {
+			broken := c
+			broken.Nonce = base64.StdEncoding.EncodeToString(make([]byte, size))
+			defer func() {
+				if recovered := recover(); recovered != nil {
+					t.Fatalf("corrupt nonce length %d panicked instead of returning an error: %v", size, recovered)
+				}
+			}()
+			if _, err := broken.Decrypted("synthetic-passphrase"); err == nil {
+				t.Fatal("corrupt nonce must be rejected")
+			}
+		})
+	}
+}
+
 func TestDecryptedDetectsCiphertextTampering(t *testing.T) {
-	c, err := GenerateEncrypted("proj", "Dhanush:elevated", "the real passphrase")
+	c, err := GenerateEncrypted("proj", "Alex:elevated", "the real passphrase")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +93,7 @@ func TestDecryptedDetectsCiphertextTampering(t *testing.T) {
 }
 
 func TestDecryptedIsNoOpOnUnencryptedCredential(t *testing.T) {
-	c, err := Generate("proj", "Dhanush")
+	c, err := Generate("proj", "Alex")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,8 +107,8 @@ func TestDecryptedIsNoOpOnUnencryptedCredential(t *testing.T) {
 }
 
 func TestElevatedActorIsDistinctFromPrimary(t *testing.T) {
-	if got := ElevatedActor("Dhanush"); got == "Dhanush" || got != "Dhanush:elevated" {
-		t.Fatalf("ElevatedActor(%q) = %q, want a distinct, stable account name", "Dhanush", got)
+	if got := ElevatedActor("Alex"); got == "Alex" || got != "Alex:elevated" {
+		t.Fatalf("ElevatedActor(%q) = %q, want a distinct, stable account name", "Alex", got)
 	}
 }
 

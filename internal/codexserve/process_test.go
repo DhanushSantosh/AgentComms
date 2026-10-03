@@ -38,8 +38,14 @@ func init() {
 		case "initialized":
 			// notification, no response
 		case "thread/start":
+			if path := os.Getenv("AGENTCOMMS_FAKE_CODEX_THREAD_PARAMS"); path != "" {
+				_ = os.WriteFile(path, request.Params, 0o600)
+			}
 			fmt.Printf(`{"jsonrpc":"2.0","id":%d,"result":{"thread":{"id":"fake-thread-1"}}}`+"\n", *request.ID)
 		case "thread/resume":
+			if path := os.Getenv("AGENTCOMMS_FAKE_CODEX_THREAD_PARAMS"); path != "" {
+				_ = os.WriteFile(path, request.Params, 0o600)
+			}
 			fmt.Printf(`{"jsonrpc":"2.0","id":%d,"result":{"thread":{"id":"fake-thread-1"}}}`+"\n", *request.ID)
 		case "turn/start":
 			// A crash marker means "crash on the first turn/start this
@@ -56,6 +62,10 @@ func init() {
 			}
 			turn++
 			fmt.Printf(`{"jsonrpc":"2.0","id":%d,"result":{"turn":{"id":"turn-%d","status":"inProgress"}}}`+"\n", *request.ID, turn)
+			if os.Getenv("AGENTCOMMS_FAKE_CODEX_TERMINAL_FAILURE") == "1" {
+				fmt.Println(`{"jsonrpc":"2.0","method":"error","params":{"error":{"message":"synthetic provider rejection"},"willRetry":false}}`)
+				continue
+			}
 			fmt.Printf(`{"jsonrpc":"2.0","method":"item/completed","params":{"item":{"type":"userMessage","content":[{"type":"text","text":"input %d"}]}}}`+"\n", turn)
 			fmt.Printf(`{"jsonrpc":"2.0","method":"item/completed","params":{"item":{"type":"agentMessage","phase":"final_answer","text":"turn %d"}}}`+"\n", turn)
 		}
@@ -70,6 +80,53 @@ func fakeProcessConfig(t *testing.T) ProcessConfig {
 		t.Fatal(err)
 	}
 	return ProcessConfig{Executable: executable, WorkDir: t.TempDir(), Sandbox: "workspace-write"}
+}
+
+func TestProcessPinsSandboxOnStartAndResume(t *testing.T) {
+	for _, resume := range []bool{false, true} {
+		t.Run(fmt.Sprint(resume), func(t *testing.T) {
+			t.Setenv("AGENTCOMMS_FAKE_CODEX_PROCESS", "1")
+			path := filepath.Join(t.TempDir(), "thread-params.json")
+			t.Setenv("AGENTCOMMS_FAKE_CODEX_THREAD_PARAMS", path)
+			config := fakeProcessConfig(t)
+			config.Sandbox = "read-only"
+			config.Model = "synthetic-model"
+			if resume {
+				config.ThreadID = "existing-thread"
+			}
+			process, err := Start(context.Background(), config)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = process.Close() }()
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var params map[string]any
+			if err := json.Unmarshal(data, &params); err != nil {
+				t.Fatal(err)
+			}
+			if params["sandbox"] != "read-only" || params["cwd"] != config.WorkDir || params["approvalPolicy"] != "never" || params["model"] != config.Model {
+				t.Fatalf("requested runtime boundary omitted: %s", data)
+			}
+		})
+	}
+}
+
+func TestProcessReturnsTerminalProviderError(t *testing.T) {
+	t.Setenv("AGENTCOMMS_FAKE_CODEX_PROCESS", "1")
+	t.Setenv("AGENTCOMMS_FAKE_CODEX_TERMINAL_FAILURE", "1")
+	process, err := Start(context.Background(), fakeProcessConfig(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = process.Close() }()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if _, err := process.Send(ctx, "synthetic prompt"); err == nil || !strings.Contains(err.Error(), "synthetic provider rejection") {
+		t.Fatalf("terminal provider error must be returned instead of a deadline: %v", err)
+	}
 }
 
 func TestProcessPersistsAcrossTurnsAndBroadcasts(t *testing.T) {

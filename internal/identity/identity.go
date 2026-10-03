@@ -117,6 +117,11 @@ func (c Credential) Decrypted(passphrase string) (Credential, error) {
 	if e != nil {
 		return Credential{}, e
 	}
+	// Open panics on the wrong nonce length. Corrupt credential-store data
+	// must fail as an error, not terminate the CLI or elevated-key prompt.
+	if len(nonce) != gcm.NonceSize() {
+		return Credential{}, errors.New("invalid nonce length")
+	}
 	raw, e := gcm.Open(nil, nonce, ciphertext, nil)
 	if e != nil {
 		return Credential{}, errors.New("incorrect passphrase")
