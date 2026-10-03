@@ -15,7 +15,7 @@ CI, not inferred from Linux cross-compilation.
 | Storage and upgrades | Signed-history replay, tamper rejection, SQLite/cache and Postgres timestamp migration | Tests identified; real Postgres suite running |
 | Shared authority and recovery | Authentication, writes, idempotency, cache lag, retry, deletion, stream admission | Uncached Postgres authority/daemon suites passed; coverage 53.5% / 44.5%; race and further stress pending |
 | CLI/MCP | Actual adapter writes, result/order/history parity, generated reference consistency, failure semantics | Isolated authoritative adapter parity passed uncached (12.743 seconds); broader runtime checks pending |
-| TUI | Navigation/actions, constrained panes, resize, ordering, approvals, runtime-independent messaging | Full TUI suite passed uncached (91.617 seconds); interactive PTY and source review pending |
+| TUI | Navigation/actions, constrained panes, resize, ordering, approvals, runtime-independent messaging | Full TUI suite passed uncached (91.617 seconds); fresh-binary PTY navigation/resize/quit and runtime-independent overview passed; remaining interaction/source review pending |
 | Runtime/providers | Local-process lifecycle, durable delivery and real installed provider smoke | Claude and explicit-model Codex live two-turn smokes passed; OpenCode no-tool worker smoke passed; extra-root fix verified; ignore-user-config remains unresolved |
 | Installation and release trust | Authentic installer bootstrap, genuine signature acceptance, tamper/identity/issuer rejection | Live releaseverify suite passed uncached, including all four genuine-release subtests |
 | Platforms | Native Linux/Windows/macOS tests, Windows pipe-close regression, six-target/four-binary builds | All three platform jobs and cross-build passed on ed4d57d in CI 37147761316 |
@@ -139,7 +139,33 @@ to terminate the helper even when a test fails. All three cases pass after the
 fix; the package race repetitions and real context-continuity smoke above
 cover the changed lifecycle. No temporary debug tracing remains.
 
+### AUD-06: an acknowledged Codex turn hangs after process exit
+
+A fake provider acknowledged turn/start and then exited without an answer.
+The prior Send waited until its deadline instead of entering the existing
+resume/retry path; the regression reproduced `context deadline exceeded`.
+The process reader now signals its own generation's exit, and the current
+turn drains its buffered notifications before treating that signal as EOF.
+Persistent external observers remain subscribed across restart. An older
+reader cannot clear a newer process's pending calls. Ten race repetitions
+passed for acknowledged-crash recovery and final-answer-before-exit handling;
+the complete codexserve package also passed with race, and vet passed.
+This enforces the existing crash-retry contract, not a new retry policy.
+
 ### Additional runtime/stress evidence
+
+- Fresh binary built from `492958d` was exercised in an isolated personal
+  project with separate config/credential directories. A real PTY rendered
+  the overview, navigated Agents/Inbox/Invocations, resized to 80x24, 60x16,
+  160x48, 40x12 and 120x32, and quit with exit 0. Resize checks establish live
+  survival and repaint, not exhaustive visual bounds; unit layout tests cover
+  bounds separately. Two synthetic active agents without runtimes posted,
+  acknowledged and replied to messages and requested/inspected a governed
+  invocation. The queued request has no delivery evidence, as expected without
+  a consumer. The live overview rendered both agents READY with NO RUNTIME and
+  the explanation that messaging is independent of runtime presence. Fixture
+  signed-history integrity verified all 11 events. Its own daemon was stopped;
+  real project history and credentials were not used for the fixture.
 
 - The real Claude process preserved context across two turns (24 seconds).
 - The first Codex live smoke hit a provider rejection of the user's configured
@@ -202,17 +228,24 @@ audit. The
 default local suite passed with `internal/app` taking 469 seconds; some other
 packages used cached results, so this is not described as a wholly uncached
 run. The next race run explicitly uses `-count=1` and CI's Go 1.26.6.
-The restarted full race run on source candidate `1b7ee9d` uses
+The restarted full race run initially on source candidate `1b7ee9d` used
 `GOMAXPROCS=2 GOTOOLCHAIN=go1.26.6 go test -race -count=1 -p 1 ./...`.
-Its durable evidence log is `/tmp/agc-final-race-8vlNe1.log`; the run is
-in progress and is not counted as a pass.
-Runtime source changed while this run was live. Its completed package results
-must therefore be treated as mixed-source evidence, not an immutable
-`1b7ee9d` full-suite certification. The committed runtime fixes require their
-own exact-candidate checks and CI.
+Its durable evidence log is `/tmp/agc-final-race-8vlNe1.log`. It completed
+with exit 1: worker compilation used the new isolation error reference against
+the previously compiled codexserve package, which lacked that symbol. Runtime
+source changed while this run was live. This mixed-build failure invalidates
+the full-suite result; it is not counted as a pass. Individual package output
+includes app 599.102 seconds and TUI 326.311 seconds, but is not an immutable
+candidate certification. A fresh coupled worker/codexserve build and focused
+tests pass. Subsequent full runs use an immutable Git archive of the committed
+revision so ongoing source fixes cannot produce mixed-build evidence.
 
 CI `37149065437` on `1b7ee9d` completed: all three native platforms, security,
 Postgres and cross-build passed; both site jobs failed the known npm gate.
+The accepted runtime-isolation/startup candidate is `492958d`. Deployment
+workflow `37150049615` passed both sites. CI `37150049666` is in progress:
+all three native platforms, security, Postgres and cross-build passed;
+the run completed with both site jobs failing the unchanged npm gate.
 
 Complete the pending ledger with exact commands, revisions and outcomes;
 resolve validated release blockers without weakening integrity or security

@@ -52,6 +52,7 @@ type Process struct {
 	cmd      *exec.Cmd
 	stdin    io.WriteCloser
 	dead     error
+	done     <-chan struct{}
 	nextID   int64
 	pending  map[int64]chan rpcEnvelope
 	threadID string
@@ -135,8 +136,10 @@ func (p *Process) start(ctx context.Context) (startErr error) {
 	p.cmd = command
 	p.stdin = stdin
 	p.dead = nil
+	done := make(chan struct{})
+	p.done = done
 	p.mu.Unlock()
-	go p.readLoop(command, stdout)
+	go p.readLoop(command, stdout, done)
 
 	if _, err := p.call(ctx, "initialize", map[string]any{
 		"clientInfo": map[string]any{"name": "agent-comms-codex-live", "title": "Agent Comms", "version": "0.0.1"},
@@ -196,7 +199,8 @@ func (p *Process) threadParams(threadID string) map[string]any {
 	return params
 }
 
-func (p *Process) readLoop(command *exec.Cmd, stdout io.Reader) {
+func (p *Process) readLoop(command *exec.Cmd, stdout io.Reader, done chan struct{}) {
+	defer close(done)
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 0, 64*1024), maxStreamLineBytes)
 	for scanner.Scan() {
@@ -227,9 +231,11 @@ func (p *Process) readLoop(command *exec.Cmd, stdout io.Reader) {
 		err = io.EOF
 	}
 	p.mu.Lock()
-	if p.cmd == command {
-		p.dead = err
+	if p.cmd != command {
+		p.mu.Unlock()
+		return
 	}
+	p.dead = err
 	pending := p.pending
 	p.pending = make(map[int64]chan rpcEnvelope)
 	p.mu.Unlock()
@@ -348,6 +354,7 @@ func (p *Process) Send(ctx context.Context, text string) (string, error) {
 func (p *Process) sendOnce(ctx context.Context, text string) (string, error) {
 	p.mu.Lock()
 	threadID := p.threadID
+	processDone := p.done
 	p.mu.Unlock()
 	if threadID == "" {
 		return "", errors.New("codexserve: no active thread")
@@ -370,6 +377,12 @@ func (p *Process) sendOnce(ctx context.Context, text string) (string, error) {
 		select {
 		case <-ctx.Done():
 			return "", ctx.Err()
+		case <-processDone:
+			// Drain this turn's buffered notifications before reporting EOF:
+			// a final answer may have arrived immediately before process exit.
+			// Other observers stay subscribed across the restart.
+			cancel()
+			processDone = nil
 		case line, ok := <-events:
 			if !ok {
 				p.mu.Lock()

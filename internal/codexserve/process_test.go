@@ -85,12 +85,21 @@ func init() {
 			}
 			turn++
 			fmt.Printf(`{"jsonrpc":"2.0","id":%d,"result":{"turn":{"id":"turn-%d","status":"inProgress"}}}`+"\n", *request.ID, turn)
+			if path := os.Getenv("AGENTCOMMS_FAKE_CODEX_CRASH_AFTER_ACK_MARKER"); path != "" {
+				if _, err := os.Stat(path); os.IsNotExist(err) {
+					_ = os.WriteFile(path, []byte("crashed"), 0o600)
+					os.Exit(9)
+				}
+			}
 			if os.Getenv("AGENTCOMMS_FAKE_CODEX_TERMINAL_FAILURE") == "1" {
 				fmt.Println(`{"jsonrpc":"2.0","method":"error","params":{"error":{"message":"synthetic provider rejection"},"willRetry":false}}`)
 				continue
 			}
 			fmt.Printf(`{"jsonrpc":"2.0","method":"item/completed","params":{"item":{"type":"userMessage","content":[{"type":"text","text":"input %d"}]}}}`+"\n", turn)
 			fmt.Printf(`{"jsonrpc":"2.0","method":"item/completed","params":{"item":{"type":"agentMessage","phase":"final_answer","text":"turn %d"}}}`+"\n", turn)
+			if os.Getenv("AGENTCOMMS_FAKE_CODEX_EXIT_AFTER_FINAL") == "1" {
+				os.Exit(0)
+			}
 		}
 	}
 	os.Exit(0)
@@ -296,6 +305,57 @@ func TestProcessRetriesOnceAfterCrash(t *testing.T) {
 	output, err := process.Send(context.Background(), "recover")
 	if err != nil || output != "turn 1" {
 		t.Fatalf("Send() after crash = (%q, %v)", output, err)
+	}
+}
+
+func TestProcessRetriesAfterAcknowledgedTurnCrashes(t *testing.T) {
+	t.Setenv("AGENTCOMMS_FAKE_CODEX_PROCESS", "1")
+	t.Setenv("AGENTCOMMS_FAKE_CODEX_CRASH_AFTER_ACK_MARKER", filepath.Join(t.TempDir(), "crashed"))
+	process, err := Start(context.Background(), fakeProcessConfig(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = process.Close() }()
+	events, stopObserving := process.Subscribe()
+	defer stopObserving()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	output, err := process.Send(ctx, "recover after acknowledgement")
+	if err != nil || output != "turn 1" {
+		t.Fatalf("acknowledged turn crash did not resume/retry: output=%q error=%v", output, err)
+	}
+	for {
+		select {
+		case event, ok := <-events:
+			if !ok {
+				t.Fatal("restart disconnected the persistent observer")
+			}
+			if strings.Contains(string(event), `"text":"turn 1"`) {
+				return
+			}
+		case <-ctx.Done():
+			t.Fatal("persistent observer did not receive the recovered answer")
+		}
+	}
+}
+
+func TestProcessKeepsFinalAnswerBeforeExit(t *testing.T) {
+	t.Setenv("AGENTCOMMS_FAKE_CODEX_PROCESS", "1")
+	t.Setenv("AGENTCOMMS_FAKE_CODEX_EXIT_AFTER_FINAL", "1")
+	process, err := Start(context.Background(), fakeProcessConfig(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = process.Close() }()
+	pid := process.cmd.Process.Pid
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	output, err := process.Send(ctx, "return answer before exit")
+	if err != nil || output != "turn 1" {
+		t.Fatalf("answer immediately before exit was lost: output=%q error=%v", output, err)
+	}
+	if process.cmd.Process.Pid != pid {
+		t.Fatal("completed turn was needlessly retried after its final answer")
 	}
 }
 

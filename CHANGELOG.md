@@ -9,6 +9,8 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
   native app-server cannot honor it; use the Codex exec adapter for isolation.
 - Failed Codex live startup terminates its subprocess instead of leaving an
   unregistered provider running after handshake failure or timeout.
+- Codex live detects a crash after turn acknowledgement and resumes/retries
+  promptly, preserving observers and any final answer received before exit.
 
 - Codex live runtimes propagate additional writable directories on both new
   and resumed threads and reject invalid directory paths before launch.
