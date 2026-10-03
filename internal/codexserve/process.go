@@ -79,6 +79,15 @@ func validateProcessConfig(config ProcessConfig) error {
 	if config.Sandbox != "read-only" && config.Sandbox != "workspace-write" {
 		return errors.New("codexserve: sandbox must be read-only or workspace-write")
 	}
+	for _, directory := range config.AddDirs {
+		if !filepath.IsAbs(directory) {
+			return errors.New("codexserve: additional directories must be absolute")
+		}
+		info, err := os.Stat(directory)
+		if err != nil || !info.IsDir() {
+			return fmt.Errorf("codexserve: additional directory must exist and be a directory: %q", directory)
+		}
+	}
 	return nil
 }
 
@@ -166,6 +175,11 @@ func (p *Process) threadParams(threadID string) map[string]any {
 	}
 	if p.config.Model != "" {
 		params["model"] = p.config.Model
+	}
+	if len(p.config.AddDirs) > 0 {
+		params["config"] = map[string]any{
+			"sandbox_workspace_write.writable_roots": p.config.AddDirs,
+		}
 	}
 	return params
 }

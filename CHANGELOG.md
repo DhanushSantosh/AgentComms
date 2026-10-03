@@ -5,6 +5,9 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 
 ## [Unreleased]
 
+- Codex live runtimes propagate additional writable directories on both new
+  and resumed threads and reject invalid directory paths before launch.
+
 ### Fixed
 - Codex live runtimes explicitly apply the requested sandbox on new and resumed
   threads, and return terminal provider errors instead of waiting for a deadline.

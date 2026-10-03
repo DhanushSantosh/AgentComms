@@ -129,6 +129,59 @@ func TestProcessReturnsTerminalProviderError(t *testing.T) {
 	}
 }
 
+func TestProcessPassesAdditionalRootsOnStartAndResume(t *testing.T) {
+	for _, resume := range []bool{false, true} {
+		t.Run(fmt.Sprint(resume), func(t *testing.T) {
+			t.Setenv("AGENTCOMMS_FAKE_CODEX_PROCESS", "1")
+			path := filepath.Join(t.TempDir(), "thread-params.json")
+			t.Setenv("AGENTCOMMS_FAKE_CODEX_THREAD_PARAMS", path)
+			config := fakeProcessConfig(t)
+			config.AddDirs = []string{t.TempDir(), t.TempDir()}
+			if resume {
+				config.ThreadID = "existing-thread"
+			}
+			process, err := Start(context.Background(), config)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = process.Close() }()
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var params struct {
+				Config map[string][]string `json:"config"`
+			}
+			if err := json.Unmarshal(data, &params); err != nil {
+				t.Fatal(err)
+			}
+			roots := params.Config["sandbox_workspace_write.writable_roots"]
+			if len(roots) != len(config.AddDirs) {
+				t.Fatalf("additional roots omitted: %s", data)
+			}
+			for i, root := range roots {
+				if root != config.AddDirs[i] {
+					t.Fatalf("additional root changed: %s", data)
+				}
+			}
+		})
+	}
+}
+
+func TestProcessRejectsInvalidAdditionalRoots(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(file, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, root := range []string{"relative", filepath.Join(t.TempDir(), "missing"), file} {
+		config := fakeProcessConfig(t)
+		config.AddDirs = []string{root}
+		if err := validateProcessConfig(config); err == nil {
+			t.Errorf("accepted invalid additional root %q", root)
+		}
+	}
+}
+
 func TestProcessPersistsAcrossTurnsAndBroadcasts(t *testing.T) {
 	t.Setenv("AGENTCOMMS_FAKE_CODEX_PROCESS", "1")
 	process, err := Start(context.Background(), fakeProcessConfig(t))
