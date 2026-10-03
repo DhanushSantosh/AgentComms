@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "node scripts/build-tui-wasm.mjs && next build",
-    "check": "tsc --noEmit && npm run build",
+    "check": "node --test tests/latest-release.test.mjs && tsc --noEmit && npm run build",
     "preview": "node scripts/serve.mjs",
     "test:e2e": "npm run build && playwright test",
     "test:e2e:update": "npm run build && playwright test --update-snapshots",
