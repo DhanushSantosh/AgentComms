@@ -4,13 +4,16 @@ description: What changed in each tagged release, why it matters, and where to f
 section: Releases
 order: 1
 audience: Everyone
-lastVerified: 2026-10-02
+lastVerified: 2026-10-03
 related: [guide/maintenance, security/releases]
 ---
 
 Every tagged release is signed and dated. This page summarizes what changed and why; the repository's [CHANGELOG.md](https://github.com/DhanushSantosh/AgentComms/blob/main/CHANGELOG.md) carries the exhaustive per-change detail this page intentionally leaves out.
 
-Every release below is **Beta** — before v1.0.0, SemVer's own 0.x.y convention means anything may still change without notice. There is no Stable channel yet; that label only becomes accurate once a 1.x release ships.
+Stable releases appear first. The **Beta release archive** preserves the
+pre-1.0 history separately; choose a release from its dropdown to read one
+entry at a time. Beta releases may contain breaking changes between minor
+versions. Published notes remain available as historical reference.
 
 ## v0.8.2 — "Order of Arrival" — Beta — 2026-10-02
 

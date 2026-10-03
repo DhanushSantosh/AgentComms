@@ -2,6 +2,28 @@
   padding-top: clamp(2rem, 4vw, 3rem);
 }
 
-.page :global(.release-list) {
-  margin-top: clamp(1.5rem, 3vw, 2.5rem);
+.selector {
+  display: grid;
+  gap: 0.75rem;
+  max-width: 32rem;
+  margin-bottom: 2rem;
+}
+.selector label { color: var(--steel); font-family: var(--mono); }
+.selector select {
+  width: 100%; min-height: 3rem; padding: 0.75rem;
+  border: 1px solid var(--line-light);
+  background: var(--ink); color: var(--text); font: inherit;
+}
+.selector select:focus-visible { outline: 2px solid var(--blue); outline-offset: 4px; }
+.selected {
+  display: grid;
+  grid-template-columns: minmax(10rem, 1fr) minmax(0, 2fr);
+  gap: clamp(1.5rem, 4vw, 4rem);
+  padding: 2rem 0; border-block: 1px solid var(--line-light);
+}
+.empty { max-width: 48rem; padding: 2rem 0; border-block: 1px solid var(--line-light); }
+.empty h2 { font-size: clamp(1.4rem, 3vw, 2rem); margin-bottom: 1rem; }
+.empty p { color: var(--steel); line-height: 1.7; }
+@media (max-width: 640px) {
+  .selected { grid-template-columns: 1fr; }
 }

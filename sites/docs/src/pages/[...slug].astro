@@ -3,6 +3,7 @@ import { getCollection, render } from "astro:content";
 import DocsLayout from "@layouts/DocsLayout.astro";
 import CommandReference from "@components/CommandReference.astro";
 import MCPReference from "@components/MCPReference.astro";
+import ReleaseBrowser from "@components/ReleaseBrowser.astro";
 import reference from "../generated/reference.json";
 
 export async function getStaticPaths() {
@@ -21,10 +22,10 @@ const { Content, headings } = await render(entry);
   audience={entry.data.audience}
   lastVerified={entry.data.lastVerified}
   slug={entry.id}
-  headings={headings}
+  headings={entry.id === "releases/changelog" ? headings.filter((heading) => !heading.text.startsWith("v")) : headings}
   related={entry.data.related}
 >
-  <Content />
+  {entry.id === "releases/changelog" ? <ReleaseBrowser><Content /></ReleaseBrowser> : <Content />}
   {entry.data.template === "cli-reference" && <CommandReference commands={reference.commands} />}
   {entry.data.template === "mcp-reference" && <MCPReference tools={reference.mcp_tools} />}
 </DocsLayout>

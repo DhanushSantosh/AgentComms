@@ -5,6 +5,13 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 
 ## [Unreleased]
 
+### Changed
+- The landing release page presents stable releases only; beta release notes
+  are preserved in the docs archive.
+- Both sites present one selected release at a time. The docs keep beta
+  history in a collapsed archive with a release dropdown, preserving direct
+  links and the complete Markdown history.
+
 ## [0.8.2] - 2026-10-02 — “Order of Arrival”
 
 *Messages and every other project record now carry real timestamps from their

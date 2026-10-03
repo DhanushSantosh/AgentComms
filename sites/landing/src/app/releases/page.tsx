@@ -2,13 +2,14 @@ import type { Metadata } from "next";
 import { PageBreadcrumb } from "@/components/PageBreadcrumb";
 import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
+import { ReleaseHistory } from "@/components/ReleaseHistory";
 import { releases } from "@/lib/releases";
 import { documentationPage, site, utilityNavItems } from "@/lib/site";
 import contentStyles from "@/styles/content-page.module.css";
 import styles from "./releases.module.css";
 
 const pageTitle = "Agent Comms releases";
-const pageDescription = "Every tagged Agent Comms release, dated and signed, with a written record of what actually changed.";
+const pageDescription = "Published stable Agent Comms releases, with a written record of what changed. Beta history is archived in the documentation.";
 
 export const metadata: Metadata = {
   title: pageTitle,
@@ -33,32 +34,17 @@ export default function ReleasesPage() {
         <PageBreadcrumb label="Releases" />
 
         <header className={contentStyles.intro} data-reveal="releases-intro">
-          <p className="eyebrow">Every release, dated and signed</p>
+          <p className="eyebrow">Stable releases</p>
           <h1>Nothing ships without a changelog.</h1>
-          <p>{releases.length} tagged releases so far, each backed by a signed history and a written record of what actually changed — not a marketing recap. Every one is <strong>Beta</strong>: before v1.0.0, anything may still change without notice.</p>
+          <p>Choose a stable release to read what changed. Earlier beta releases are kept in the documentation archive.</p>
         </header>
 
         <section className="releases" data-reveal="releases-list">
-          <ol className="release-list">
-            {releases.map((release) => (
-              <li className="release" key={release.version}>
-                <div className="release-head">
-                  <span className="release-version">{release.version}</span>
-                  <span className="release-channel">{release.channel}</span>
-                  <span className="release-name">“{release.name}”</span>
-                  <time className="release-date" dateTime={release.date}>{release.dateLabel}</time>
-                </div>
-                <ul className="release-highlights">
-                  {release.highlights.map((highlight) => (
-                    <li key={highlight}>{highlight}</li>
-                  ))}
-                </ul>
-              </li>
-            ))}
-          </ol>
+          <ReleaseHistory releases={releases} />
           <div className="releases-links">
             <a className="action action--ink" href={documentationPage("/releases/changelog/")}>Read the full changelog <span>↗</span></a>
           </div>
+          <p><a href={documentationPage("/releases/changelog/#beta-archive")}>Browse the beta release archive ↗</a></p>
           <p className={contentStyles.externalLabel}>Compare tags</p>
           <div className={contentStyles.externalAction}>
             <code id="compare-tags-url">https://github.com/DhanushSantosh/AgentComms/releases</code>
