@@ -14,8 +14,8 @@ CI, not inferred from Linux cross-compilation.
 | Identities, governance, protocol | Role/credential isolation, approval expiry/binding/consumption, replay and rejection cases | Protocol, projection, projectlifecycle, identity and personal authority packages passed three uncached repetitions; deeper source review pending |
 | Storage and upgrades | Signed-history replay, tamper rejection, SQLite/cache and Postgres timestamp migration | Tests identified; real Postgres suite running |
 | Shared authority and recovery | Authentication, writes, idempotency, cache lag, retry, deletion, stream admission | Uncached Postgres authority/daemon suites passed; coverage 53.5% / 44.5%; race and further stress pending |
-| CLI/MCP | Actual adapter writes, result/order/history parity, generated reference consistency, failure semantics | Existing parity test inspected; broader runtime checks pending |
-| TUI | Navigation/actions, constrained panes, resize, ordering, approvals, runtime-independent messaging | Default suite running; interactive PTY and source review pending |
+| CLI/MCP | Actual adapter writes, result/order/history parity, generated reference consistency, failure semantics | Isolated authoritative adapter parity passed uncached (12.743 seconds); broader runtime checks pending |
+| TUI | Navigation/actions, constrained panes, resize, ordering, approvals, runtime-independent messaging | Full TUI suite passed uncached (91.617 seconds); interactive PTY and source review pending |
 | Runtime/providers | Local-process lifecycle, durable delivery and real installed provider smoke | Claude and explicit-model Codex live two-turn smokes passed; OpenCode no-tool worker smoke passed; extra-root fix verified; ignore-user-config remains unresolved |
 | Installation and release trust | Authentic installer bootstrap, genuine signature acceptance, tamper/identity/issuer rejection | Live releaseverify suite passed uncached, including all four genuine-release subtests |
 | Platforms | Native Linux/Windows/macOS tests, Windows pipe-close regression, six-target/four-binary builds | All three platform jobs and cross-build passed on ed4d57d in CI 37147761316 |
@@ -117,6 +117,27 @@ repetitions and vet after the fix. Ignore-user-config remains unresolved:
 installed Codex 0.149.1 exposes the isolation flag on exec, but not app-server
 or the generated thread/start and thread/resume schema. Do not silently treat
 this option as implemented or change user config to work around it.
+The owner accepted RFC 0042 in the project chat. Worker validation and direct
+broker registration now reject the unsupported option before launch; red tests
+first proved both accepted it and the broker launched a provider. The broker
+regression checks a child-start marker and the registration map. Default live
+validation and the exec isolation flag remain covered. Public help, provider
+instructions, site worker docs and generated CLI reference are updated;
+reference generation/check pass. Full codexserve and worker packages pass
+three race repetitions and vet after this change. A real explicit-model Codex
+two-turn smoke also passed in 17.95 seconds on the changed source.
+
+### AUD-05: failed Codex startup leaves an unregistered subprocess running
+
+A synthetic subprocess lifetime socket reproduced leakage after initialize
+rejection, thread/start rejection and initialize deadline. Successful processes
+must outlive their registration request; attaching them indiscriminately to
+that request context is not the fix. Startup now closes the child on failure,
+including failed restart handshakes, while preserving persistent successful
+runs. The regression is portable and closes its synthetic control connection
+to terminate the helper even when a test fails. All three cases pass after the
+fix; the package race repetitions and real context-continuity smoke above
+cover the changed lifecycle. No temporary debug tracing remains.
 
 ### Additional runtime/stress evidence
 
@@ -151,6 +172,13 @@ this option as implemented or change user config to work around it.
   Subsequent attempts exist too. This is a separate incomplete-delivery result,
   not proof of a connector denial or a harmless test timeout. Diagnosis remains
   required before assigning cause or changing retry/error behavior.
+  A daemon-only race rerun passed in 88.32 seconds with temporary tracing at
+  remote-command and cache-apply errors; neither boundary logged an error.
+  Tracing was removed afterward. This narrows the reproducibility evidence but
+  does not explain the previous incomplete delivery or close the finding.
+  The same 100-writer authority test passed without race instrumentation in
+  3.47 seconds, without increasing statement timeout or reducing writer count.
+  Race overhead versus lock/pool waiting still needs isolation.
 - The concurrent local coverage-floor run failed: the app package hit its
   ten-minute timeout and doctor was killed. The host was at load 20 with swap
   use while multiple heavy suites ran. This is not a coverage-floor pass or
@@ -174,6 +202,17 @@ audit. The
 default local suite passed with `internal/app` taking 469 seconds; some other
 packages used cached results, so this is not described as a wholly uncached
 run. The next race run explicitly uses `-count=1` and CI's Go 1.26.6.
+The restarted full race run on source candidate `1b7ee9d` uses
+`GOMAXPROCS=2 GOTOOLCHAIN=go1.26.6 go test -race -count=1 -p 1 ./...`.
+Its durable evidence log is `/tmp/agc-final-race-8vlNe1.log`; the run is
+in progress and is not counted as a pass.
+Runtime source changed while this run was live. Its completed package results
+must therefore be treated as mixed-source evidence, not an immutable
+`1b7ee9d` full-suite certification. The committed runtime fixes require their
+own exact-candidate checks and CI.
+
+CI `37149065437` on `1b7ee9d` completed: all three native platforms, security,
+Postgres and cross-build passed; both site jobs failed the known npm gate.
 
 Complete the pending ledger with exact commands, revisions and outcomes;
 resolve validated release blockers without weakening integrity or security

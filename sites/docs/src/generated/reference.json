@@ -8768,7 +8768,7 @@
         },
         {
           "name": "codex-ignore-user-config",
-          "usage": "isolate autonomous runs from user MCP and tool configuration",
+          "usage": "isolate codex exec runs from user MCP and tool configuration (unsupported by codex-live)",
           "default": "false",
           "type": "bool"
         },

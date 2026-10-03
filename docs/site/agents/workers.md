@@ -39,6 +39,11 @@ OpenCode uses `--adapter opencode`. Its session continuity is stored in a local 
 
 - `claude`, `codex`, `opencode`: proven direct CLI execution.
 - `claude-live`, `codex-live`, `opencode-live`: persistent provider processes. The supported broker event viewer is `live attach --provider claude|codex --runtime <runtime-id>`; there is no OpenCode attach provider.
+
+Codex live applies `--codex-sandbox` and `--codex-add-dir`, but uses the
+provider's normal user configuration. `--codex-ignore-user-config` is rejected
+before launch for `codex-live`; use `--adapter codex` for exec-based runs that
+require user MCP/tool configuration isolation.
 - `claude-acp`, `codex-acp`, `opencode-acp`: Agent Client Protocol integrations with provider-specific permission limits.
 
 Claude and Codex can bind a valid existing conversation with `--session-id`. Provider rules differ: Claude can create a caller-chosen UUID; Codex normally resumes an ID it previously minted. Never process an interactive turn in the same conversation while its worker is active.

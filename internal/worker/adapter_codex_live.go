@@ -29,6 +29,9 @@ import (
 type codexLiveAdapter struct{}
 
 func (codexLiveAdapter) Validate(config *Config) error {
+	if config.CodexIgnoreUserConfig {
+		return codexserve.ErrUserConfigIsolationUnsupported
+	}
 	if config.Model != "" {
 		return errors.New("codex-live adapter does not yet support --model overrides")
 	}

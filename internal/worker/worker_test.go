@@ -38,6 +38,17 @@ func TestWorkerExecutesPublishesAndCompletesInvocation(t *testing.T) {
 	}
 }
 
+func TestCodexLiveRejectsUnsupportedUserConfigIsolation(t *testing.T) {
+	config := Config{Sandbox: "read-only", CodexIgnoreUserConfig: true}
+	if err := (codexLiveAdapter{}).Validate(&config); err == nil || !strings.Contains(err.Error(), "codex exec") {
+		t.Fatalf("unsupported live isolation must fail before execution with an exec alternative: %v", err)
+	}
+	config.CodexIgnoreUserConfig = false
+	if err := (codexLiveAdapter{}).Validate(&config); err != nil {
+		t.Fatalf("ordinary live configuration must remain supported: %v", err)
+	}
+}
+
 func TestWorkerMovesFailedExecutionToWaiting(t *testing.T) {
 	instance, root := workerService(t)
 	worker := newTestWorker(t, instance, root)

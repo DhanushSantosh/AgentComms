@@ -412,7 +412,10 @@ to creating (and caching) a fresh one if it no longer resolves.
 
 `--codex-sandbox` and `--codex-add-dir` apply the same as they do for the
 exec-based `codex` adapter. `--model` is not yet supported for `codex-live`
-and is rejected at startup. Turn completion is detected from an
+and is rejected at startup. `--codex-ignore-user-config` is also rejected
+before launch: the native app-server cannot provide that isolation. Choose
+`--adapter codex` when user-config isolation is required; ordinary live runs
+use the provider's normal user configuration. Turn completion is detected from an
 `item/completed` notification whose item is an `agentMessage` in its
 `final_answer` phase — confirmed live across two sequential turns on one
 process ("remember PICKLE" → "PICKLE"), though this was verified only
@@ -513,10 +516,11 @@ general shell commands or bypass Claude's remaining permission rules.
 Codex workers that invoke Agent Comms may need its local configuration
 directory passed explicitly with `--codex-add-dir`; each path must already
 exist and be absolute.
-Use `--codex-ignore-user-config` for a deterministic worker that resumes the
+With `--adapter codex`, use `--codex-ignore-user-config` for a worker that resumes the
 conversation history without loading unrelated user MCP servers or tool
 configuration. Codex authentication and repository instructions remain
-available.
+available. This isolation option is unavailable for `codex-live`, which
+rejects it before launch rather than silently ignoring it.
 
 Agent-to-agent follow-ups do not require provider shell or MCP access. When an
 agent decides another agent must act, it returns one bounded single-line

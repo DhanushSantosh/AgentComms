@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,6 +23,20 @@ func init() {
 		return
 	}
 	marker := os.Getenv("AGENTCOMMS_FAKE_CODEX_CRASH_MARKER")
+	if path := os.Getenv("AGENTCOMMS_FAKE_CODEX_START_MARKER"); path != "" {
+		_ = os.WriteFile(path, []byte("started"), 0o600)
+	}
+	if address := os.Getenv("AGENTCOMMS_FAKE_CODEX_LIFETIME_SOCKET"); address != "" {
+		connection, err := net.Dial("tcp", address)
+		if err != nil {
+			os.Exit(2)
+		}
+		_, _ = connection.Write([]byte{1})
+		go func() {
+			_, _ = io.Copy(io.Discard, connection)
+			os.Exit(0)
+		}()
+	}
 	scanner := bufio.NewScanner(os.Stdin)
 	turn := 0
 	for scanner.Scan() {
@@ -30,6 +46,13 @@ func init() {
 			Params json.RawMessage `json:"params"`
 		}
 		if err := json.Unmarshal(scanner.Bytes(), &request); err != nil {
+			continue
+		}
+		if request.Method == os.Getenv("AGENTCOMMS_FAKE_CODEX_REJECT_METHOD") {
+			fmt.Printf(`{"jsonrpc":"2.0","id":%d,"error":{"code":-32000,"message":"synthetic handshake rejection"}}`+"\n", *request.ID)
+			continue
+		}
+		if request.Method == "initialize" && os.Getenv("AGENTCOMMS_FAKE_CODEX_IGNORE_INITIALIZE") == "1" {
 			continue
 		}
 		switch request.Method {
@@ -109,6 +132,52 @@ func TestProcessPinsSandboxOnStartAndResume(t *testing.T) {
 			}
 			if params["sandbox"] != "read-only" || params["cwd"] != config.WorkDir || params["approvalPolicy"] != "never" || params["model"] != config.Model {
 				t.Fatalf("requested runtime boundary omitted: %s", data)
+			}
+		})
+	}
+}
+
+func TestProcessFailedStartTerminatesChild(t *testing.T) {
+	for _, failure := range []string{"initialize", "thread/start", "deadline"} {
+		t.Run(failure, func(t *testing.T) {
+			t.Setenv("AGENTCOMMS_FAKE_CODEX_PROCESS", "1")
+			listener, err := net.Listen("tcp", "127.0.0.1:0")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer listener.Close()
+			t.Setenv("AGENTCOMMS_FAKE_CODEX_LIFETIME_SOCKET", listener.Addr().String())
+			if failure == "deadline" {
+				t.Setenv("AGENTCOMMS_FAKE_CODEX_IGNORE_INITIALIZE", "1")
+			} else {
+				t.Setenv("AGENTCOMMS_FAKE_CODEX_REJECT_METHOD", failure)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			process, err := Start(ctx, fakeProcessConfig(t))
+			if err == nil || process != nil {
+				if process != nil {
+					_ = process.Close()
+				}
+				t.Fatalf("failed handshake returned (%v, %v)", process, err)
+			}
+			_ = listener.(*net.TCPListener).SetDeadline(time.Now().Add(time.Second))
+			connection, err := listener.Accept()
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Closing this synthetic control socket terminates a leaked helper
+			// after a failed assertion, so the regression itself cannot orphan it.
+			defer connection.Close()
+			_ = connection.SetReadDeadline(time.Now().Add(time.Second))
+			var ready [1]byte
+			if _, err := io.ReadFull(connection, ready[:]); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := connection.Read(ready[:]); err == nil {
+				t.Fatal("unexpected child lifetime data")
+			} else if timeout, ok := err.(net.Error); ok && timeout.Timeout() {
+				t.Fatal("failed Start left the provider subprocess running")
 			}
 		})
 	}

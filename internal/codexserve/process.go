@@ -19,6 +19,8 @@ const (
 	maxStreamLineBytes = 2 * 1024 * 1024
 )
 
+var ErrUserConfigIsolationUnsupported = errors.New("codex-live cannot isolate user configuration with the native app-server; use --adapter codex (codex exec) for --codex-ignore-user-config")
+
 // ProcessConfig describes one persistent Codex app-server process.
 type ProcessConfig struct {
 	Executable       string   `json:"executable"`
@@ -73,6 +75,9 @@ func Start(ctx context.Context, config ProcessConfig) (*Process, error) {
 }
 
 func validateProcessConfig(config ProcessConfig) error {
+	if config.IgnoreUserConfig {
+		return ErrUserConfigIsolationUnsupported
+	}
 	if !filepath.IsAbs(config.Executable) || !filepath.IsAbs(config.WorkDir) {
 		return errors.New("codexserve: executable and working directory must be absolute")
 	}
@@ -99,7 +104,14 @@ func (p *Process) ThreadID() string {
 	return p.threadID
 }
 
-func (p *Process) start(ctx context.Context) error {
+func (p *Process) start(ctx context.Context) (startErr error) {
+	// A persistent child intentionally outlives the request context, but a
+	// failed handshake must never leave that unregistered child running.
+	defer func() {
+		if startErr != nil {
+			_ = p.Close()
+		}
+	}()
 	arguments := []string{"app-server"}
 	command := exec.CommandContext(context.WithoutCancel(ctx), p.config.Executable, arguments...)
 	command.Dir = p.config.WorkDir
