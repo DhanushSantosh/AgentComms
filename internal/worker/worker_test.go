@@ -371,6 +371,10 @@ func newTestWorker(t *testing.T, instance *service.Service, root string) *Worker
 }
 
 func workerService(t *testing.T) (*service.Service, string) {
+	return workerServiceWithInstruction(t, "Review the implementation")
+}
+
+func workerServiceWithInstruction(t *testing.T, instruction string) (*service.Service, string) {
 	t.Helper()
 	instance, root := testsupport.StartPersonalProject(t)
 	if _, err := instance.Register("claude-axiom", "claude-axiom", model.PrincipalAgent); err != nil {
@@ -399,7 +403,7 @@ func workerService(t *testing.T) (*service.Service, string) {
 	}
 	if _, err := instance.Execute("owner", "invocation.request", "inv-worker",
 		model.InvocationRequested{
-			Target: "claude-axiom", Instruction: "Review the implementation",
+			Target: "claude-axiom", Instruction: instruction,
 			ExpectedResult: "Post a verified result", Priority: "NORMAL",
 		}); err != nil {
 		t.Fatal(err)

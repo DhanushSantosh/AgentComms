@@ -16,7 +16,7 @@ CI, not inferred from Linux cross-compilation.
 | Shared authority and recovery | Authentication, writes, idempotency, cache lag, retry, deletion, stream admission | Uncached Postgres authority/daemon suites passed; coverage 53.5% / 44.5%; race and further stress pending |
 | CLI/MCP | Actual adapter writes, result/order/history parity, generated reference consistency, failure semantics | Existing parity test inspected; broader runtime checks pending |
 | TUI | Navigation/actions, constrained panes, resize, ordering, approvals, runtime-independent messaging | Default suite running; interactive PTY and source review pending |
-| Runtime/providers | Local-process lifecycle, durable delivery and real installed provider smoke | Claude and explicit-model Codex live two-turn smokes passed; OpenCode stopped on denied tool requests; extra-root fix verified; ignore-user-config remains unresolved |
+| Runtime/providers | Local-process lifecycle, durable delivery and real installed provider smoke | Claude and explicit-model Codex live two-turn smokes passed; OpenCode no-tool worker smoke passed; extra-root fix verified; ignore-user-config remains unresolved |
 | Installation and release trust | Authentic installer bootstrap, genuine signature acceptance, tamper/identity/issuer rejection | Live releaseverify suite passed uncached, including all four genuine-release subtests |
 | Platforms | Native Linux/Windows/macOS tests, Windows pipe-close regression, six-target/four-binary builds | All three platform jobs and cross-build passed on ed4d57d in CI 37147761316 |
 | Go dependencies | govulncheck and direct/transitive exposure review | govulncheck passed: zero called vulnerabilities; unreachable dependency advisories need review |
@@ -130,6 +130,13 @@ this option as implemented or change user config to work around it.
   The permission boundary stayed enforced; this run does not prove successful
   execution/result publication. Its generic implementation-review fixture
   requires closer inspection before repeating the success case.
+  The replacement opt-in fixture requests a synthetic no-tool receipt rather
+  than a review of nonexistent implementation files. With
+  `AGENTCOMMS_OPENCODE_SMOKE=1 GOTOOLCHAIN=go1.26.6 go test -count=1 -v
+  ./internal/worker -run '^TestManualSmokeOpenCodeExec$'`, the real worker
+  claimed, completed and published the requested receipt in 20.95 seconds.
+  Ordinary worker tests also pass uncached after the fixture change. This
+  establishes no-tool provider/result plumbing, not arbitrary tool execution.
 - Claude's reported delivery-failure flake passed 20 race-enabled repetitions
   (`TestInvocationDeliveryFailureDoesNotTerminateObligation`). No timing
   relaxation was applied; success repetitions do not establish flake absence.
@@ -139,6 +146,11 @@ this option as implemented or change user config to work around it.
   The bounded-parallelism repeat also failed the 100-concurrent-invocation
   authority case with SQLSTATE 57014 (statement timeout); no timeout was raised
   and this failure remains open despite native CI's passing non-race run.
+  The same rerun's daemon integration failed queued notification: a delivery
+  attempt exists for inv-queued-05 but no notify/failure event followed it.
+  Subsequent attempts exist too. This is a separate incomplete-delivery result,
+  not proof of a connector denial or a harmless test timeout. Diagnosis remains
+  required before assigning cause or changing retry/error behavior.
 - The concurrent local coverage-floor run failed: the app package hit its
   ten-minute timeout and doctor was killed. The host was at load 20 with swap
   use while multiple heavy suites ran. This is not a coverage-floor pass or
