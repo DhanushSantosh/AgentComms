@@ -319,7 +319,8 @@ func (d *Dispatcher) Dispatch(ctx context.Context, projectID string, state model
 	if err := d.reloadConfigs(); err != nil {
 		return fmt.Errorf("reload connector configuration: %w", err)
 	}
-	if err := d.expireAttempts(ctx, projectID, state); err != nil {
+	expiredInvocations, err := d.expireAttempts(ctx, projectID, state)
+	if err != nil {
 		return err
 	}
 	invocationIDs := make([]string, 0, len(state.Invocations))
@@ -329,7 +330,10 @@ func (d *Dispatcher) Dispatch(ctx context.Context, projectID string, state model
 	sort.Strings(invocationIDs)
 	for _, invocationID := range invocationIDs {
 		invocation := state.Invocations[invocationID]
-		if invocation.Status != "PENDING" || deliveryRetryPending(state, invocation.ID, d.now()) {
+		// Expiry submits a new failure/backoff event, but this dispatch still
+		// owns the pre-submit snapshot. Defer those invocations until the next
+		// sync reads that event rather than bypassing its retry timestamp.
+		if expiredInvocations[invocationID] || invocation.Status != "PENDING" || deliveryRetryPending(state, invocation.ID, d.now()) {
 			continue
 		}
 		runtime, config, found := d.selectRuntime(state, invocation)
@@ -465,8 +469,9 @@ func (d *Dispatcher) recordDeliveryFailure(
 		})
 }
 
-func (d *Dispatcher) expireAttempts(ctx context.Context, projectID string, state model.State) error {
+func (d *Dispatcher) expireAttempts(ctx context.Context, projectID string, state model.State) (map[string]bool, error) {
 	now := d.now()
+	expiredInvocations := make(map[string]bool)
 	for _, delivery := range state.InvocationDeliveries {
 		if delivery.Status != "ATTEMPTED" || delivery.AttemptUntil == nil ||
 			delivery.AttemptUntil.After(now) {
@@ -489,10 +494,11 @@ func (d *Dispatcher) expireAttempts(ctx context.Context, projectID string, state
 				Attempt: delivery.Attempt, Error: "delivery attempt lease expired",
 				NextRetry: retryAt, Final: final,
 			}); err != nil {
-			return err
+			return nil, err
 		}
+		expiredInvocations[delivery.InvocationID] = true
 	}
-	return nil
+	return expiredInvocations, nil
 }
 
 func (d *Dispatcher) selectRuntime(state model.State, invocation model.Invocation) (model.AgentRuntime, ConnectorConfig, bool) {

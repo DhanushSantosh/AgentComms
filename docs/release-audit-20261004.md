@@ -692,3 +692,52 @@ checks eight concurrent closes, actual prompt output, reaped ProcessState,
 connection shutdown and repeated-close behavior. Full ACP/worker race suites
 passed (1.229s/21.296s); vet and Windows test-binary compilation passed.
 Exact candidate native CI remains required after pushing this correction.
+
+## Candidate 6a0e7b8 and renewed Claude evidence
+
+Candidate `6a0e7b80386f7db62fde4ed00791ea247ef09b88` is pushed to `dev`,
+GitHub reports its signature verified, and exact CI `37186153227` passed all
+eight jobs, including native Windows/macOS and unchanged coverage gates.
+The superseded `55fa95e` CI passed seven jobs including Windows/macOS; its
+Ubuntu job was cancelled by the newer push, so that run is not a full pass.
+
+An immutable Git archive at `/tmp/agc-final-6a0e7b8-1npcrG` is running the
+complete uncached race suite with CI's Go 1.26.6, `GOMAXPROCS=2`, `-p 1`,
+and a local 20-minute package observation bound. No repository assertion or
+CI timeout was changed. Its app package passed in 593.488 seconds; the whole
+invocation is not yet terminal and must not be reported as a full pass.
+
+Claude's two inbox updates were read in sequence: desktop authentication did
+not authenticate a standalone CLI, then the owner completed local CLI login.
+A fresh status check confirmed `loggedIn=true`, without reading or copying
+credential values. The existing real project-scoped two-turn HTTP smoke passed
+with race instrumentation (12.221 seconds). It uses a temporary project,
+`dontAsk`, a USD 0.50 budget, and no-tool instructions. This proves persistent
+conversation context, not arbitrary tool execution or a signed worker lifecycle.
+
+## Delivery lease recovery: stale-snapshot backoff bypass
+
+A deterministic regression injects the uncertain-response boundary: a delivery
+reservation passes real protocol validation and is projected successfully, but
+submission returns `context.DeadlineExceeded`. The dispatcher does not launch
+an unconfirmed reservation and avoids duplicates before its lease expires.
+However, at expiry it records a failure with a future retry timestamp, then
+uses its independent pre-submit snapshot to launch another attempt immediately.
+The regression failed with `expiry skipped backoff: deliveries=2 launches=1`
+(0.015 seconds), without time sleeps or load-sensitive assertions.
+
+Expiry now returns the affected invocation IDs. The current dispatch defers
+those IDs until a later sync reads the newly recorded failure/backoff, leaving
+unrelated pending invocations eligible. No retry duration, automatic-attempt
+limit, lease duration, authority schema, or public protocol was changed.
+The regression checks reservation expiry equality, the exact backoff,
+no early retry, and successful notification at the retry boundary. Three
+uncached race repetitions of all Dispatcher tests passed (1.080 seconds).
+The unrelated-invocation regression also passes: expiry defers only the affected
+request while another request is reserved, launched and notified. Final full
+daemon/remote packages passed three uncached race repetitions (5.099s/1.042s);
+vet and diff checks passed. New exact-candidate native CI remains required.
+
+This establishes a recovery-policy defect independently of the historical
+Postgres stress result. It is not evidence that the earlier missing notify
+event was caused by an HTTP timeout, and does not close that investigation.

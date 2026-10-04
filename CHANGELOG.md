@@ -23,6 +23,8 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
   and resumed threads and reject invalid directory paths before launch.
 
 ### Fixed
+- Expired delivery reservations honor their newly recorded retry backoff rather
+  than immediately launching another attempt from an outdated cache snapshot.
 - ACP sessions reap their spawned provider process on close, including failed
   handshakes, and safely share cleanup across repeated or concurrent calls.
 - Exec-provider cancellation terminates invocation-owned process groups/jobs
