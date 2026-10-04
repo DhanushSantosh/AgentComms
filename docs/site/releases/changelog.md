@@ -10,10 +10,9 @@ related: [guide/maintenance, security/releases]
 
 Every tagged release is signed and dated. This page summarizes what changed and why; the repository's [CHANGELOG.md](https://github.com/DhanushSantosh/AgentComms/blob/main/CHANGELOG.md) carries the exhaustive per-change detail this page intentionally leaves out.
 
-Stable releases appear first. The **Beta release archive** preserves the
-pre-1.0 history separately; choose a release from its dropdown to read one
-entry at a time. Beta releases may contain breaking changes between minor
-versions. Published notes remain available as historical reference.
+The current stable release is shown first. The beta archive below keeps every
+pre-1.0 release; open one to read its notes. Published notes remain available
+as historical reference.
 
 ## v1.0.0 — "Pilot" — Stable — 2026-10-04
 
