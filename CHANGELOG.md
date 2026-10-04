@@ -23,6 +23,8 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
   and resumed threads and reject invalid directory paths before launch.
 
 ### Fixed
+- OpenCode live permission watchers answer only their own provider session;
+  event subscriptions preserve the project directory used by REST calls.
 - Reject trailing JSON values or garbage in structured agent follow-up actions
   instead of executing the first value and silently ignoring the remainder.
 - Expired delivery reservations honor their newly recorded retry backoff rather

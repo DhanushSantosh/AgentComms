@@ -843,4 +843,69 @@ test cache, so this is the actual coverage command's result, not a new fully
 uncached invocation. Authority's unit-only coverage remains intentionally
 excluded; its real Postgres gate and isolated race evidence are separate.
 The final Linux-scoped regression passed again with race (5.232s).
-Resulting candidate CI is required after committing this gate correction.
+Commit `c6ed603` candidate CI `37188895812` completed successfully across all
+eight jobs, including native Windows/macOS and the actual Linux coverage gate.
+
+## OpenCode live permission-routing finding
+
+On `c6ed603`, three deterministic repetitions reproduced missing SSE directory
+routing (subscription HTTP 400) and cross-session authorization at the actual
+live-adapter call site. A synthetic shared stream emitted a foreign-session
+edit before an owned-session read control; the runtime answered the foreign
+edit with `once` using its own acceptEdits mode (worker 0.029s, client 0.011s).
+No real provider, permission, credential or account configuration was changed.
+The probes were removed after recording their result so no deliberately red
+test is committed. This describes the pre-implementation finding;
+[RFC 0048](rfcs/0048-opencode-live-permission-routing.md) was subsequently
+accepted by the maintainer on 2026-10-04.
+The release audit remains open; this finding is not cleared by prior single-
+session smokes or green CI. Real provider default permission behavior is also
+a separate required check, not proven by session filtering alone.
+
+### RFC 0048 implementation and additional native-provider blocker
+
+SSE now uses the same directory-header helper as REST. Each watcher has an
+immutable exact session binding, supplied by the live adapter before its
+subscription/prompt. Foreign, absent, null, non-string and malformed session
+identities never reach classification, edit gating, governance, reply or denial
+tracking; an empty watcher binding answers nothing. Owned category decisions
+are unchanged. New regressions cover conflicting edit gates on a broadcast,
+malformed identities, encoded/empty directory headers, created/resumed adapter
+sessions, an owned read/result control and stream cleanup. Three focused race
+repetitions passed (client 1.235s, worker 1.140s).
+
+The first restored worker fixture incorrectly treated `/global/health` as the
+health endpoint. Actual `Health` uses unscoped GET `/session`; rejecting that
+request caused fallback to the existing local server on port 4096 and synthetic
+prompt attempts there. These were test setup failures, not routing evidence.
+No shared server was stopped or its sessions subsequently altered. The fixture
+now explicitly serves and prechecks its correct health endpoint before Execute;
+the passing repetitions use only its owned httptest endpoint. This mistake is
+recorded rather than calling the initial failures product regressions.
+
+An opt-in real-provider regression starts its own ephemeral-port OpenCode
+1.18.33 server in a disposable directory, verifies distinct directories/session
+IDs and resumed identity, subscribes with the scoped client and installs a
+deny-edit watcher. It inherits the same configuration as the production live
+server; it does not force permission requests in the test environment. The
+actual race run failed in 23.206s: the requested synthetic file existed despite
+the deny-edit watcher. The owned server was cancelled/reaped and its temporary
+directory removed. No existing provider server or account config was changed
+by this real-provider probe. The earlier fixture fallback is disclosed above.
+
+This is a separate **open release blocker**: native server permission defaults
+can bypass the watcher policy rather than emitting requests the watcher can
+decide. RFC 0048 fixes request routing, not request emission. Do not claim full
+OpenCode live policy coverage, clear the release audit or relax permissions to
+turn this red opt-in green. A separate accepted policy/lifecycle design and
+native allow/deny/reuse controls are required before closure.
+
+The fresh independent read-only candidate review found no actionable routing
+bypass or introduced regression. It correctly distinguishes direct adapter
+resume coverage from the public worker configuration path: existing worker
+validation requires UUID session IDs, whereas native OpenCode IDs use `ses_*`.
+That pre-existing explicit-resume compatibility limitation was not changed or
+claimed covered by this patch. Ignored lookup response ID/directory is another
+pre-existing seam requiring actual-provider evidence before any exploit claim.
+The full affected package race run passed (client 1.188s, worker 22.082s);
+affected vet and diff checks passed. Native candidate CI remains required.

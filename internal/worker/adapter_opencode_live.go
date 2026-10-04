@@ -84,6 +84,7 @@ func (openCodeLiveAdapter) Execute(ctx context.Context, config Config, invocatio
 
 	watcher := opencodeclient.NewPermissionWatcher(
 		client,
+		sessionID,
 		func() bool { return config.PermissionMode == "acceptEdits" },
 		denyGovernanceOpenCode{},
 	)
