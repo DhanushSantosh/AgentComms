@@ -3,10 +3,22 @@ package worker
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 )
+
+func TestDeclarativePromptDistinguishesExecutorAndRequester(t *testing.T) {
+	adapter := declarativeAdapter{spec: DeclarativeSpec{Name: "synthetic"}}
+	prompt := adapter.Prompt("executor", model.Invocation{RequestedBy: "requester", Instruction: "synthetic instruction"})
+	if !strings.Contains(prompt, "runtime for agent executor.") {
+		t.Fatal("executor identity missing")
+	}
+	if !strings.Contains(prompt, "Requester: requester\n") || strings.Contains(prompt, "Requester: executor\n") {
+		t.Fatal("requester replaced with executor")
+	}
+}
 
 func TestDeclarativeAdapterAgyEquivalence(t *testing.T) {
 	spec := DeclarativeSpec{

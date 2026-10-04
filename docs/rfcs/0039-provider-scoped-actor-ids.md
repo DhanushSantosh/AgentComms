@@ -40,7 +40,7 @@ and either name can be used to refer to a principal.
 
 Lowercase; `<suffix>` is `[a-z0-9][a-z0-9-]*`. HUMAN principals are
 unaffected and keep free-form IDs — a person is not a provider, and the
-owner `dhanush` must stay valid.
+owner `alex` must stay valid.
 
 Every actor ID already in this project satisfies this, deliberately: the
 grammar was chosen to ratify the existing convention rather than force a
@@ -140,7 +140,7 @@ signed by the principal's own key.
 
 - Grammar: `claude`, `claude-main`, `codex-reviewer` accepted;
   `reviewer`, `Claude-Main`, `claude_main`, `claude-` rejected.
-- HUMAN principals keep free-form IDs; `dhanush` still registers.
+- HUMAN principals keep free-form IDs; `alex` still registers.
 - `--id` omitted defaults to `<provider>`, then `<provider>-2` when taken.
 - A mismatched `--id` names both the given and the expected form.
 - Registering a declarative adapter does NOT extend the provider set: the

@@ -8,14 +8,14 @@ import (
 
 func TestOpenCodeLiveAdapterRejectsModelOverride(t *testing.T) {
 	config := &Config{Model: "gpt-5"}
-	if err := (openCodeLiveAdapter{}).Validate(config); err == nil {
+	if err := (&openCodeLiveAdapter{}).Validate(config); err == nil {
 		t.Fatal("expected an error when Model is set")
 	}
 }
 
 func TestOpenCodeLiveAdapterDefaultsPermissionMode(t *testing.T) {
 	config := &Config{}
-	if err := (openCodeLiveAdapter{}).Validate(config); err != nil {
+	if err := (&openCodeLiveAdapter{}).Validate(config); err != nil {
 		t.Fatal(err)
 	}
 	if config.PermissionMode != "acceptEdits" {
@@ -25,7 +25,7 @@ func TestOpenCodeLiveAdapterDefaultsPermissionMode(t *testing.T) {
 
 func TestOpenCodeLiveAdapterRejectsBypassPermissions(t *testing.T) {
 	config := &Config{PermissionMode: "bypassPermissions"}
-	if err := (openCodeLiveAdapter{}).Validate(config); err == nil {
+	if err := (&openCodeLiveAdapter{}).Validate(config); err == nil {
 		t.Fatal("expected an error for a permission-bypassing mode")
 	}
 }
@@ -50,7 +50,7 @@ func TestOpenCodeLiveRegisteredUnderDistinctAdapterName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := adapter.(openCodeLiveAdapter); !ok {
+	if _, ok := adapter.(*openCodeLiveAdapter); !ok {
 		t.Fatalf("expected openCodeLiveAdapter, got %T", adapter)
 	}
 	// opencode-acp must remain untouched and registered under its own name.
@@ -96,8 +96,8 @@ func TestOpenCodeLiveSessionRoundTrips(t *testing.T) {
 // against the exact flags confirmed live via `opencode attach --help`:
 // --dir and --session, not positional arguments or anything invented.
 func TestOpenCodeAttachCommandMatchesRealCLIFlags(t *testing.T) {
-	got := openCodeAttachCommand("http://127.0.0.1:4096", "/home/dhanush/Projects/DeskCrafter", "ses_0762d1d0bffePMbwRdrPFzD2J9")
-	want := "opencode attach http://127.0.0.1:4096 --dir /home/dhanush/Projects/DeskCrafter --session ses_0762d1d0bffePMbwRdrPFzD2J9"
+	got := openCodeAttachCommand("http://127.0.0.1:4096", "/home/example/Projects/example-project", "ses_000000000000000000000000000001")
+	want := "opencode attach http://127.0.0.1:4096 --dir /home/example/Projects/example-project --session ses_000000000000000000000000000001"
 	if got != want {
 		t.Fatalf("openCodeAttachCommand() = %q, want %q", got, want)
 	}

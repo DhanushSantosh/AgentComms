@@ -1,5 +1,40 @@
 import { expect, test } from "@playwright/test";
 
+test("beta archive displays one selected release and preserves direct links", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto("/releases/changelog/");
+  const archive = page.locator("#beta-archive");
+  const stable = page.locator('[data-release-group="stable"]');
+  await expect(stable.locator('[data-release-panel="v1.0.0"]')).toBeVisible();
+  await expect(page.getByLabel("Stable release", { exact: true })).toHaveValue("v1.0.0");
+  await expect(page.locator("[data-release-panel]:visible")).toHaveCount(1);
+  await expect(archive).not.toHaveAttribute("open");
+  await archive.locator("summary").click();
+  const picker = page.getByLabel("Beta release", { exact: true });
+  await expect(picker.locator("option")).toHaveCount(12);
+  await expect(archive.locator("[data-release-panel]:visible")).toHaveCount(1);
+  await picker.selectOption("v0.1.0");
+  const oldest = archive.locator('[data-release-panel="v0.1.0"]');
+  await expect(oldest).toBeVisible();
+  await expect(archive.locator("[data-release-panel]:visible")).toHaveCount(1);
+  const anchor = await oldest.locator("h2").getAttribute("id");
+  expect(anchor).toBeTruthy();
+  await page.reload();
+  await expect(oldest).toBeVisible();
+  await expect(picker).toHaveValue("v0.1.0");
+  await expect(archive.locator("[data-release-panel]:visible")).toHaveCount(1);
+  await expect(page.getByRole("link", { name: /Read the complete archive as Markdown/ })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await archive.locator("summary").focus();
+  await page.keyboard.press("Enter");
+  await expect(archive).not.toHaveAttribute("open");
+  await expect(stable).toBeVisible();
+  await expect(archive.locator("[data-release-panel]:visible")).toHaveCount(0);
+  await expect(page.locator("[data-release-panel]:visible")).toHaveCount(1);
+  expect(errors).toEqual([]);
+});
+
 test("the home page gives humans and agents separate starting paths", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Know who owns the work. Prove what happened next." })).toBeVisible();

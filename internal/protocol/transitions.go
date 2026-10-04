@@ -147,20 +147,25 @@ func OrchestratorGrantApprovalID(id string) string { return "grant-orchestrator-
 // (APPROVED -> CONSUMED) exactly the approval this function required to
 // exist and be APPROVED, the moment it authorizes a grant, so it can never
 // satisfy this check a second time.
-func hasOrchestratorGrantApproval(st model.State, principalID string) bool {
+func hasOrchestratorGrantApproval(st model.State, principalID string, now time.Time) bool {
 	approval, exists := st.Approvals[OrchestratorGrantApprovalID(principalID)]
 	return exists && approval.Tier == "HUMAN" && approval.Status == "APPROVED" &&
-		approval.Action == OrchestratorGrantApprovalAction(principalID)
+		approval.Action == OrchestratorGrantApprovalAction(principalID) &&
+		(approval.ExpiresAt == nil || approval.ExpiresAt.After(now))
 }
 
-// canReplaceConsumedOrchestratorGrantApproval is the sole exception to
+// canReplaceOrchestratorGrantApproval is the sole exception to
 // approval IDs being immutable. RFC 0023 requires each later orchestrator
 // grant to use a fresh approval, while also requiring the one conventional
 // ID for that principal. Re-requesting that exact ID after its previous
-// record reached CONSUMED starts a new PENDING lifecycle; the event log still
-// retains the complete history. No other terminal approval can be replaced.
-func canReplaceConsumedOrchestratorGrantApproval(id string, existing model.Approval, request model.ApprovalRequested) bool {
-	if existing.Status != "CONSUMED" || existing.Tier != "HUMAN" || request.Tier != "HUMAN" ||
+// record reached CONSUMED, or expired while PENDING/APPROVED (RFC 0046),
+// starts a new PENDING lifecycle; the event log retains the complete history.
+// No unrelated or rejected approval can be replaced.
+func canReplaceOrchestratorGrantApproval(id string, existing model.Approval, request model.ApprovalRequested, now time.Time) bool {
+	expired := existing.ExpiresAt != nil && !existing.ExpiresAt.After(now)
+	recoverable := existing.Status == "CONSUMED" ||
+		(expired && (existing.Status == "PENDING" || existing.Status == "APPROVED"))
+	if !recoverable || existing.Tier != "HUMAN" || request.Tier != "HUMAN" ||
 		existing.Action != request.Action {
 		return false
 	}
@@ -580,8 +585,8 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 		// manually approve (e.g. in the TUI) before the grant can proceed,
 		// rather than a single self-contained command completing the whole
 		// escalation unattended.
-		if activation.Role == model.RoleOrchestrator && !hasOrchestratorGrantApproval(st, id) {
-			return nil, fmt.Errorf("granting the orchestrator role to %s requires an approved HUMAN-tier approval first: run `approval request --id %s --tier HUMAN --action %s`, then have a human approve it separately", id, OrchestratorGrantApprovalID(id), OrchestratorGrantApprovalAction(id))
+		if activation.Role == model.RoleOrchestrator && !hasOrchestratorGrantApproval(st, id, now) {
+			return nil, fmt.Errorf("granting the orchestrator role to %s requires an approved, unexpired HUMAN-tier approval first (an expired approval must be re-requested): run `approval request --id %s --tier HUMAN --action %s`, then have a human approve it separately", id, OrchestratorGrantApprovalID(id), OrchestratorGrantApprovalAction(id))
 		}
 	}
 	if typ == "agent.switch-role" {
@@ -629,8 +634,8 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 			if st.Agents[actor].PrincipalType != model.PrincipalHuman {
 				return nil, errors.New("human principal required to switch to the orchestrator role")
 			}
-			if !hasOrchestratorGrantApproval(st, actor) {
-				return nil, fmt.Errorf("switching to the orchestrator role requires an approved HUMAN-tier approval first: run `approval request --id %s --tier HUMAN --action %s`, then have a human approve it separately", OrchestratorGrantApprovalID(actor), OrchestratorGrantApprovalAction(actor))
+			if !hasOrchestratorGrantApproval(st, actor, now) {
+				return nil, fmt.Errorf("switching to the orchestrator role requires an approved, unexpired HUMAN-tier approval first (an expired approval must be re-requested): run `approval request --id %s --tier HUMAN --action %s`, then have a human approve it separately", OrchestratorGrantApprovalID(actor), OrchestratorGrantApprovalAction(actor))
 			}
 		}
 		payload = switched
@@ -1597,7 +1602,7 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 			return nil, errors.New("contract and invocation approvals require a subject digest and future expiry")
 		}
 		if existing, exists := st.Approvals[id]; exists &&
-			!canReplaceConsumedOrchestratorGrantApproval(id, existing, request) {
+			!canReplaceOrchestratorGrantApproval(id, existing, request, now) {
 			return nil, errors.New("approval already exists")
 		}
 	}

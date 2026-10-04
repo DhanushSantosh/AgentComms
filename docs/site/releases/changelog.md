@@ -4,13 +4,60 @@ description: What changed in each tagged release, why it matters, and where to f
 section: Releases
 order: 1
 audience: Everyone
-lastVerified: 2026-10-02
+lastVerified: 2026-10-04
 related: [guide/maintenance, security/releases]
 ---
 
 Every tagged release is signed and dated. This page summarizes what changed and why; the repository's [CHANGELOG.md](https://github.com/DhanushSantosh/AgentComms/blob/main/CHANGELOG.md) carries the exhaustive per-change detail this page intentionally leaves out.
 
-Every release below is **Beta** — before v1.0.0, SemVer's own 0.x.y convention means anything may still change without notice. There is no Stable channel yet; that label only becomes accurate once a 1.x release ships.
+Stable releases appear first. The **Beta release archive** preserves the
+pre-1.0 history separately; choose a release from its dropdown to read one
+entry at a time. Beta releases may contain breaking changes between minor
+versions. Published notes remain available as historical reference.
+
+## v1.0.0 — "Pilot" — Stable — 2026-10-04
+
+The first stable release. Every provider turn now runs under processes and
+permissions the worker owns: OpenCode edits are allowed only when the policy
+says so, one session can no longer approve another's request, and cancelled
+or closed providers are cleaned up. From here on, breaking changes to the
+public contract require a new major version.
+
+**Breaking**
+
+- Stop old Codex and Claude live workers and recycle their brokers before
+  upgrading. Live runtimes are scoped per project, so independent projects can
+  reuse runtime IDs; new workers do not adopt legacy processes, and
+  `live attach --unscoped` reaches old ones.
+- Codex live and Codex ACP reject `--codex-ignore-user-config` instead of
+  silently ignoring it. Use the Codex exec adapter for that isolation.
+- Restart OpenCode live workers to get policy enforcement. Each worker now owns
+  its native server; attach with the `opencode attach` command it reports.
+
+**Security**
+
+- OpenCode live resets its own instance before every turn, installs restrictive
+  rules that preserve native denies, and reads them back before prompting.
+  Edits are allowed only in `acceptEdits`, and earlier "always" approvals do
+  not carry over.
+- OpenCode permission prompts are answered only for the session that owns them.
+- Orchestrator-grant approvals honor their expiry; an expired grant needs a
+  fresh human approval.
+
+**Fixed**
+
+- Cancelled or closed providers are terminated, including their child
+  processes, instead of overrunning their deadline.
+- Malformed agent follow-up actions are rejected instead of half-executed.
+- Expired deliveries wait out their retry backoff.
+- The TUI stays within the terminal on tiny resizes.
+- Replacing an incompatible daemon no longer fails with `SQLITE_BUSY`.
+
+There is no new schema migration since v0.8.2. The release targets trusted
+self-hosted teams, not mutually untrusted tenants. For OpenCode live, use the
+full `opencode attach` TUI (not `--mini`), leave `--session-id` unset, and
+expect about ten seconds of preparation per turn. Windows Authenticode and
+Apple notarization are deferred.
 
 ## v0.8.2 — "Order of Arrival" — Beta — 2026-10-02
 

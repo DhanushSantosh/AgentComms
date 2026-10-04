@@ -15,7 +15,7 @@ silently signed under a different agent's identity.
 
 Confirmed live, immediately after shipping RFC 0018: the project owner, running `agent-comms
 tui` in a plain terminal against a project with several locally-registered identities
-(`Dhanush`, `HADES`, `THOR`, `ZEUS`), hit this exact refusal trying to approve a HUMAN-tier
+(`Alex`, `HADES`, `THOR`, `ZEUS`), hit this exact refusal trying to approve a HUMAN-tier
 approval -- as themselves, the actual owner, sitting at the keyboard. `agent-comms tui` has no
 recognized provider session ID any more than a session-less agent script does (it's launched
 as a plain terminal program, not from inside a Claude Code or Codex session), so it falls into

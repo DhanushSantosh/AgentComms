@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -27,7 +28,9 @@ func TestManualSmokeOpenCodeExec(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	instance, root := workerService(t)
+	const receipt = "AGC_OPENCODE_SMOKE_OK"
+	instance, root := workerServiceWithInstruction(t,
+		"This is a synthetic communication smoke test, not a code review. Do not use tools, read files, run commands, or delegate. Reply with exactly "+receipt+".")
 	worker, err := New(Config{
 		Service: instance, Actor: "claude-axiom", RuntimeID: "runtime-axiom",
 		Adapter: "opencode", Executable: executable, WorkDir: root,
@@ -51,5 +54,8 @@ func TestManualSmokeOpenCodeExec(t *testing.T) {
 		t.Fatalf("invocation was not completed with evidence: %+v", invocation)
 	}
 	result := state.Messages[invocation.ResultMessageID]
+	if !strings.Contains(result.Body, receipt) {
+		t.Fatal("completed invocation did not publish the requested synthetic receipt")
+	}
 	t.Logf("result: %s", result.Body)
 }

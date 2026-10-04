@@ -4,7 +4,7 @@ description: Let Claude, Codex, or OpenCode claim and complete invocations witho
 section: Agent integration
 order: 4
 audience: Operators
-lastVerified: 2026-10-01
+lastVerified: 2026-10-04
 related: [agents/invocations, agents/delivery]
 ---
 
@@ -38,7 +38,41 @@ OpenCode uses `--adapter opencode`. Its session continuity is stored in a local 
 ## Adapter choices
 
 - `claude`, `codex`, `opencode`: proven direct CLI execution.
-- `claude-live`, `codex-live`, `opencode-live`: persistent provider processes. The supported broker event viewer is `live attach --provider claude|codex --runtime <runtime-id>`; there is no OpenCode attach provider.
+- `claude-live`, `codex-live`: persistent provider processes with the broker event viewer `live attach --provider claude|codex --runtime <runtime-id>`.
+- `opencode-live`: a worker-owned native server on an assigned loopback port. Copy its reported `opencode attach` command; the AGC broker does not have an OpenCode attach provider. The server stays alive across turns while the worker runs and stops on shutdown or one-shot exit. Existing shared native servers remain untouched.
+
+OpenCode live workers reset only their own instance before a turn, preserve native
+deny rules, and verify restrictive policy before prompting. Read requests use the
+existing read policy, edits are allowed only in `acceptEdits`, and governed
+operations remain denied. Only an exact tool-disabled preparation message is
+removed; existing conversation content stays intact. Failed preparation or unknown
+external rule changes prevent execution. Watch through native attach without
+concurrent interactive prompts or policy edits during a managed turn.
+
+A session with pending native Undo/revert state is refused before preparation:
+OpenCode would otherwise discard the undone history when accepting even a
+no-reply message. Restore or resolve that state in the native client before
+retrying; the worker does not discard or automatically clear it.
+
+Turn preparation waits for the native event stream to become ready and confirm
+completed disposal, not just an HTTP acknowledgment. OpenCode 1.18.33's heartbeat
+can add approximately ten seconds to that readiness wait. The worker reports
+this preparation stage; a missing completion signal stops execution safely.
+
+Use the normal full native `opencode attach` TUI. OpenCode 1.18.33's optional
+`--mini` client stops watching after per-turn instance reset; this provider
+limitation does not affect the supported full-TUI watcher. Copy a new reported
+endpoint after a worker restart.
+
+Leave `--session-id` unset for OpenCode live: native IDs are non-UUID, while the
+public worker flag still validates UUIDs. Runtime-owned session and recovery
+records under the user configuration's `sessions` directory provide automatic
+continuity. A failed resume does not silently switch to a fresh conversation.
+
+Codex live applies `--codex-sandbox` and `--codex-add-dir`, but uses the
+provider's normal user configuration. `--codex-ignore-user-config` is rejected
+before launch for `codex-live` and `codex-acp`; use `--adapter codex` for exec-based runs that
+require user MCP/tool configuration isolation.
 - `claude-acp`, `codex-acp`, `opencode-acp`: Agent Client Protocol integrations with provider-specific permission limits.
 
 Claude and Codex can bind a valid existing conversation with `--session-id`. Provider rules differ: Claude can create a caller-chosen UUID; Codex normally resumes an ID it previously minted. Never process an interactive turn in the same conversation while its worker is active.
@@ -47,6 +81,21 @@ Claude and Codex can bind a valid existing conversation with `--session-id`. Pro
 subscribes to a broker-managed runtime, not an arbitrary session log. It is
 distinct from `runtime interactive-serve`, which wraps a provider's native
 terminal UI for host-local delivery.
+
+Codex and Claude managed live workers route by stored project ID plus runtime
+ID. The same runtime ID can be used in independent projects sharing a broker.
+Run `live attach` in that project's root, use `--project <root>`, or copy the
+worker's printed `--project-id <stored-id>` command when viewing elsewhere.
+A missing scoped runtime errors; it never falls back to a host-wide runtime.
+For legacy/manual raw broker registrations, use `live attach --unscoped`.
+This flag is mutually exclusive with `--project-id`. Outside a project, with
+neither flag, attachment retains legacy literal-ID behavior.
+
+During upgrade, stop old live workers and recycle your owned brokers before
+starting project-scoped workers. Old bare-ID processes are not silently
+adopted. Logical runtime IDs and existing per-project conversation caches
+remain unchanged. Namespace keys are not authentication or secrets; the
+broker's local-host trust assumptions still apply.
 
 ## Follow-up invocations
 
@@ -57,3 +106,17 @@ Provider shell or MCP access is not required for one agent to request another. A
 Workers remain foreground processes. Use systemd, launchd, a container runtime, or your existing supervisor for restart and shutdown policy. `--once` processes at most one receive attempt and is intended for tests or bounded automation—not continuous autonomy.
 
 Permission-bypassing provider modes are rejected. Output, execution time, listen intervals, and budgets remain bounded.
+
+Exec adapters (Claude, Codex, OpenCode and custom CLI adapters) use an
+invocation-owned process group on Unix or job on Windows. Cancellation
+terminates that owned group/job, records WAITING with a bounded failure reason,
+and does not publish a successful result. Captured output draining is bounded
+to one second after direct-process exit; a child retaining output beyond that
+bound is a failed invocation, not a successful empty response. Unrelated
+provider processes and shared live brokers are not part of this cleanup.
+
+This is process supervision, not a security sandbox. A Unix child that
+deliberately leaves its process group is outside group-based termination;
+use the provider sandbox and your host supervisor for stronger containment.
+ACP and live adapters have separate lifecycle management. Windows setup
+fails closed if the process cannot be assigned to its owned job before resume.

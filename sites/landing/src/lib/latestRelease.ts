@@ -20,11 +20,17 @@ export function getLatestVersion(): Promise<string> {
 }
 
 async function loadLatestVersion(): Promise<string> {
+  // Server-only build credential: never expose this through NEXT_PUBLIC_*.
+  // CI runners share anonymous API limits, so authenticated builds are preferred.
+  const token = process.env.AGENT_COMMS_RELEASE_API_TOKEN;
   // Native HTTPS is build-time I/O, not a Next dynamic fetch. This avoids
   // persisted fetch-cache staleness while retaining static image routes.
   const release = await new Promise<GithubRelease>((resolve, reject) => {
     const request = get(latestReleaseApiUrl, {
-      headers: { Accept: "application/vnd.github+json", "User-Agent": "AgentComms-site-build" }
+      headers: {
+        Accept: "application/vnd.github+json", "User-Agent": "AgentComms-site-build",
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
+      }
     }, (response) => {
       if (response.statusCode !== 200) {
         response.resume();

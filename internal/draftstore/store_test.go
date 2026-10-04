@@ -2,6 +2,7 @@ package draftstore
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"os"
@@ -13,6 +14,48 @@ import (
 
 	"github.com/DhanushSantosh/AgentComms/internal/controlplane"
 )
+
+func TestOpenWaitsForTransientInitializationLock(t *testing.T) {
+	for _, journal := range []string{"DELETE", "WAL"} {
+		t.Run(journal, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "drafts.db")
+			blocker, err := sql.Open("sqlite", path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer blocker.Close()
+			blocker.SetMaxOpenConns(1)
+			if _, err := blocker.Exec("PRAGMA journal_mode=" + journal + "; CREATE TABLE fixture_lock (id INTEGER)"); err != nil {
+				t.Fatal(err)
+			}
+			connection, err := blocker.Conn(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer connection.Close()
+			if _, err := connection.ExecContext(context.Background(), "PRAGMA locking_mode=EXCLUSIVE; BEGIN EXCLUSIVE"); err != nil {
+				t.Fatal(err)
+			}
+			unlocked := make(chan error, 1)
+			time.AfterFunc(150*time.Millisecond, func() {
+				_, rollbackErr := connection.ExecContext(context.Background(), "ROLLBACK")
+				unlocked <- errors.Join(rollbackErr, connection.Close(), blocker.Close())
+			})
+			opened, openErr := Open(path)
+			if err := <-unlocked; err != nil {
+				t.Fatal(err)
+			}
+			if openErr != nil {
+				t.Fatalf("initialization did not honor its existing busy timeout: %v", openErr)
+			}
+			defer opened.Close()
+			var mode string
+			if err := opened.db.QueryRow("PRAGMA journal_mode").Scan(&mode); err != nil || mode != "wal" {
+				t.Fatalf("successful initialization lost WAL policy: mode=%q error=%v", mode, err)
+			}
+		})
+	}
+}
 
 func TestSaveAndListDraftsRoundTrip(t *testing.T) {
 	store, err := Open(filepath.Join(t.TempDir(), "drafts.db"))

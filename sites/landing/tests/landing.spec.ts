@@ -447,14 +447,13 @@ test("waits for meaningful viewport entry before revealing main sections", async
   await expect(statement).toHaveClass(/is-active/);
 });
 
-test("reveals the release list on the releases page", async ({ page }) => {
+test("reveals the releases page", async ({ page }) => {
   await page.goto("/releases");
 
   const releases = page.locator('[data-reveal="releases-list"]');
   await releases.scrollIntoViewIfNeeded();
   await expect(releases).toHaveClass(/is-revealed/);
   await expect(releases).toHaveClass(/is-active/);
-  await expect.poll(() => releases.locator(".release-list").evaluate((element) => getComputedStyle(element, "::after").animationName)).toBe("release-ledger-scan");
 });
 
 test("returns a branded not-found response", async ({ page }) => {
@@ -485,14 +484,14 @@ test("footer links to native pages instead of bouncing straight to GitHub", asyn
   await expect(footer.getByRole("link", { name: "GitHub", exact: true })).toHaveAttribute("href", "https://github.com/DhanushSantosh/AgentComms");
 });
 
-test("lists every tagged release on the releases page", async ({ page }) => {
+test("keeps beta history on docs and shows the stable releases", async ({ page }) => {
   await page.goto("/releases");
 
   await expect(page.getByRole("heading", { level: 1, name: /Nothing ships without a changelog/ })).toBeVisible();
-  await expect(page.getByText("v0.3.0", { exact: true })).toBeVisible();
-  await expect(page.getByText("v0.2.1", { exact: true })).toBeVisible();
-  await expect(page.getByText("v0.2.0", { exact: true })).toBeVisible();
-  await expect(page.getByText("v0.1.0", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "v1.0.0", exact: true })).toBeVisible();
+  await expect(page.getByRole("article")).toContainText("Pilot");
+  await expect(page.locator("main")).not.toContainText(/v0\.\d+\.\d+/);
+  await expect(page.getByRole("link", { name: /Browse the beta release archive/ })).toHaveAttribute("href", "https://agentcomms-docs.vercel.app/releases/changelog/#beta-archive");
   await expect(page.getByRole("link", { name: /Read the full changelog/ })).toBeVisible();
 });
 

@@ -7,7 +7,7 @@
     "dev": "astro dev",
     "build": "astro build && pagefind --site dist",
     "preview": "astro preview",
-    "check": "astro check && astro build && pagefind --site dist && node scripts/verify-content.mjs",
+    "check": "node --test rehype-release-browser.test.mjs cache-policy.test.mjs && astro check && astro build && pagefind --site dist && node scripts/verify-content.mjs",
     "test:e2e": "npm run build && playwright test",
     "test:e2e:update": "npm run build && playwright test --update-snapshots",
     "lighthouse": "node scripts/lighthouse.mjs"

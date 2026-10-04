@@ -1,0 +1,7 @@
+        // Repository security patch: max-stale must not bypass reuse restrictions.
+        if (!this.storable() || this._rescc['no-cache'] ||
+            (this._isShared && (this._rescc['proxy-revalidate'] ||
+                (this._resHeaders['set-cookie'] && !this._rescc.public && !this._rescc.immutable)))) {
+            return this._evaluateRequestMissResult(req);
+        }
+

@@ -158,7 +158,7 @@ export default async function DownloadPage() {
 
         <nav className={styles.supportLinks} aria-label="Installation support links" data-reveal="download-links">
           <a href={documentationPage("/start/install/")}><span>Installation guide</span><i>Paths and prerequisites</i><b>↗</b></a>
-          <a href="/releases"><span>All releases</span><i>Channels and history</i><b>↗</b></a>
+          <a href="/releases"><span>Stable releases</span><i>Release notes and highlights</i><b>↗</b></a>
           <a href={documentationPage("/security/releases/")}><span>Verify a release</span><i>Checksums, signatures, provenance</i><b>↗</b></a>
         </nav>
       </main>

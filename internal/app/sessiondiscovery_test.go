@@ -132,11 +132,11 @@ func TestDiscoverSessionIDDispatchesOpencodeGracefullyWhenCLIUnavailable(t *test
 // TestParseOpencodeSessionListJSONParsesARealCapturedSample uses the exact
 // raw output PETER (running opencode live) captured 2026-08-07 from
 // `opencode session list --format json --max-count 1`, run from this
-// project's own root -- a real sample, not a guessed shape.
+// project's own root, with identifying values replaced by synthetic fixtures.
 func TestParseOpencodeSessionListJSONParsesARealCapturedSample(t *testing.T) {
-	raw := []byte(`[{"id":"ses_032d59696ffepgBGk73AiMF00F","title":"Register agent as PETER with agent-comms","updated":1786110988269,"created":1785853536617,"projectId":"79a8a333323ffb5e54a60c4293dadad014b4363c","directory":"/home/dhanush/Projects/AgentComms"}]`)
+	raw := []byte(`[{"id":"ses_000000000000000000000000000000","title":"Example session","updated":1700000001000,"created":1700000000000,"projectId":"1111111111111111111111111111111111111111","directory":"/home/example/Projects/example-project"}]`)
 	id, ok := parseOpencodeSessionListJSON(raw)
-	if !ok || id != "ses_032d59696ffepgBGk73AiMF00F" {
+	if !ok || id != "ses_000000000000000000000000000000" {
 		t.Fatalf("got ok=%v id=%q", ok, id)
 	}
 }

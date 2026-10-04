@@ -102,6 +102,28 @@ func TestBrokerRejectsConflictingRuntimeRegistration(t *testing.T) {
 	}
 }
 
+func TestBrokerRejectsUnsupportedUserConfigIsolationBeforeLaunch(t *testing.T) {
+	t.Setenv("AGENTCOMMS_FAKE_CODEX_PROCESS", "1")
+	marker := filepath.Join(t.TempDir(), "provider-started")
+	t.Setenv("AGENTCOMMS_FAKE_CODEX_START_MARKER", marker)
+	broker := NewBroker()
+	defer broker.Close()
+	server := httptest.NewServer(broker.Handler())
+	defer server.Close()
+	config := fakeProcessConfig(t)
+	config.IgnoreUserConfig = true
+	_, err := New(server.URL).Register(context.Background(), "runtime-isolation", config)
+	if err == nil || !strings.Contains(err.Error(), "codex exec") {
+		t.Errorf("direct broker isolation request must fail: %v", err)
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Errorf("rejected isolation request launched a provider: %v", err)
+	}
+	if len(broker.processes) != 0 {
+		t.Error("rejected isolation request registered a runtime")
+	}
+}
+
 func TestBrokerRegisterReturnsBoundThreadID(t *testing.T) {
 	t.Setenv("AGENTCOMMS_FAKE_CODEX_PROCESS", "1")
 	executable, err := filepath.Abs(os.Args[0])

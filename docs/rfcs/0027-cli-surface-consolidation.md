@@ -2,7 +2,7 @@
 
 ## Status
 
-**Implemented, 2026-09-02.** Owner: Dhanush Santosh. Implementation branch:
+**Implemented, 2026-09-02.** Owner: the project maintainer. Implementation branch:
 `review/cli-commands`. The project owner accepted the command-surface
 changes and the three resolved questions below before implementation began,
 per `docs/rfcs/README.md` and `docs/development-workflow.md`.

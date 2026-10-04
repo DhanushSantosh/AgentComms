@@ -45,6 +45,9 @@ import (
 type codexACPAdapter struct{}
 
 func (codexACPAdapter) Validate(config *Config) error {
+	if config.CodexIgnoreUserConfig {
+		return errors.New("codex-acp cannot isolate user configuration; use --adapter codex for native exec --ignore-user-config support")
+	}
 	if config.Model != "" {
 		return errors.New("codex-acp adapter does not yet support --model overrides")
 	}

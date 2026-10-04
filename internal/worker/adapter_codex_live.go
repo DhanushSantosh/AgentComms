@@ -29,6 +29,9 @@ import (
 type codexLiveAdapter struct{}
 
 func (codexLiveAdapter) Validate(config *Config) error {
+	if config.CodexIgnoreUserConfig {
+		return codexserve.ErrUserConfigIsolationUnsupported
+	}
 	if config.Model != "" {
 		return errors.New("codex-live adapter does not yet support --model overrides")
 	}
@@ -36,6 +39,10 @@ func (codexLiveAdapter) Validate(config *Config) error {
 }
 
 func (codexLiveAdapter) Execute(ctx context.Context, config Config, invocation model.Invocation) (string, error) {
+	projectID, err := liveBrokerProjectID(config)
+	if err != nil {
+		return "", fmt.Errorf("codex-live: project identity: %w", err)
+	}
 	baseURL, err := codexserve.EnsureServer(ctx, config.WorkDir, config.WorkDir)
 	if err != nil {
 		return "", fmt.Errorf("codex-live: ensure broker: %w", err)
@@ -44,7 +51,10 @@ func (codexLiveAdapter) Execute(ctx context.Context, config Config, invocation m
 	if err != nil {
 		return "", fmt.Errorf("codex-live: locate Codex executable: %w", err)
 	}
-	client := codexserve.New(baseURL)
+	client, err := codexserve.NewForProject(baseURL, projectID)
+	if err != nil {
+		return "", err
+	}
 
 	threadID := config.SessionID
 	if threadID == "" {
@@ -64,7 +74,7 @@ func (codexLiveAdapter) Execute(ctx context.Context, config Config, invocation m
 			return "", fmt.Errorf("codex-live: persist thread id: %w", err)
 		}
 	}
-	config.Status("watch this runtime's Codex activity live in a terminal: agent-comms live attach --provider codex --runtime " + config.RuntimeID + " --server " + baseURL)
+	config.Status("watch this runtime's Codex activity live in a terminal: agent-comms live attach --provider codex --runtime " + config.RuntimeID + " --project-id " + projectID + " --server " + baseURL)
 
 	output, err := client.Prompt(ctx, config.RuntimeID, codexPrompt(config.Actor, invocation))
 	if err != nil {

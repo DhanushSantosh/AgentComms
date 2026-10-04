@@ -45,6 +45,10 @@ TUI, agent controls, command palette, and resilient local control plane.
    and known limitations — including any new optional runtime dependency a
    worker adapter now requires (for example, Node.js/npm for the `claude-acp`
    and `codex-acp` ACP adapters, or the `opencode` binary for `opencode-acp`).
+   Update `docs/site/releases/changelog.md` with the same published version.
+   The docs view groups all pre-1.0 and prerelease entries in its beta archive
+   and displays one selected release at a time. Add only published stable
+   releases to `sites/landing/src/lib/releases.ts`; beta notes stay on docs.
 4. Choose the release version in the release pull request, run
    `./scripts/generate-verifier-checksums.sh vX.Y.Z > release-verifier-checksums.txt`,
    review the six platform pins, and commit the resulting manifest.

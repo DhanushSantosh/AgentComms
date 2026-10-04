@@ -20,10 +20,9 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_AUTHOR: ${{ github.event.pull_request.user.login }}
-          # The repo owner's own git author email -- see CONTRIBUTING.md's
-          # DCO section for why commits under it are exempt from the
-          # per-commit trailer this check otherwise requires.
-          TRUSTED_OWNER_EMAIL: dhanushsantoshs05@gmail.com
+          # Private allowlist preserves historical owner attribution without
+          # publishing personal contact information in repository files/logs.
+          TRUSTED_OWNER_EMAILS: ${{ secrets.DCO_OWNER_EMAILS }}
         run: |
           set -euo pipefail
           if [ "$PR_AUTHOR" = "dependabot[bot]" ]; then
@@ -39,7 +38,7 @@ jobs:
               continue
             fi
             author_email="$(git show -s --format=%ae "$commit")"
-            if [ "$author_email" = "$TRUSTED_OWNER_EMAIL" ]; then
+            if printf '%s\n' "$TRUSTED_OWNER_EMAILS" | grep -Fxq -- "$author_email"; then
               # DCO's actual purpose -- certifying the submitter has the
               # right to contribute this code -- is already unambiguously
               # satisfied by the commit's own author field when that author

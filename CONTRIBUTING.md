@@ -11,7 +11,7 @@ Just want to run what's on `dev` right now, not submit a change? Skip ahead to [
 3. Keep each pull request coherent. Large feature pull requests are welcome when splitting would create incomplete or misleading states; include a review map.
 4. Add focused tests and update documentation for changed behavior.
 5. Keep fixtures synthetic and project-agnostic. Never commit real runtime history, credentials, leases, or private communication.
-6. Sign every commit under the [Developer Certificate of Origin](https://developercertificate.org/) using `git commit -s`. Exception: commits authored under the repo owner's own git identity (`dhanushsantoshs05@gmail.com` -- covers the owner and any AI agent operating under their direction/account) are exempt from the per-commit trailer, since DCO's actual purpose -- certifying the submitter's right to contribute -- is already unambiguous when the author field already identifies the sole rights-holder. `.github/workflows/dco.yml` enforces this distinction automatically; a commit from anyone else still needs its own sign-off already, unconditionally -- no code change is needed the day an external contributor shows up. See [docs/continuity.md](docs/continuity.md#when-to-revisit-the-dco-owner-exemption) for the one situation that actually would require revisiting it.
+6. Sign every commit under the [Developer Certificate of Origin](https://developercertificate.org/) using `git commit -s`. Historical repository-owner identities are privately allowlisted in the `DCO_OWNER_EMAILS` repository secret; no personal contact address belongs in source files. Other contributors require a sign-off. Prefer GitHub's verified no-reply email for commit authorship. See [maintainer continuity](docs/continuity.md#when-to-revisit-the-dco-owner-exemption) for the owner-exemption policy.
 7. Every commit must also carry a real cryptographic signature (SSH or GPG) -- distinct from the DCO sign-off above, which is a text trailer, not a verifiable signature. Both `dev` and `main` require this (`required_signatures`). Set up SSH signing once per machine/agent identity:
    ```sh
    git config --global gpg.format ssh
@@ -60,6 +60,14 @@ done
 To put your build on `PATH` instead of running it from `./bin`, either copy it into a directory already on `PATH` (e.g. `~/.local/bin` on Linux/macOS), or run `go install ./cmd/agent-comms`, which places it in `$(go env GOBIN)` or `$(go env GOPATH)/bin`. The signed-release installers also put a short `agc` alias beside `agent-comms`. For a source build, add your own: `ln -s agent-comms <dir>/agc` on Linux/macOS, or place an `agc.cmd` file next to `agent-comms.exe` on Windows containing `@"%~dp0agent-comms.exe" %*`. If you replace a dev binary manually, keep that shim in the same directory; `agent-comms update` does not create it.
 
 ## Rules for any change
+
+Postgres-backed tests opt in through `AGENT_COMMS_TEST_POSTGRES_URL`. Use a
+disposable PostgreSQL 17 database and a test role with `CREATEDB`, never a
+production database. Schema-mutating authority tests create isolated
+databases and remove only their own generated fixtures; daemon and ordinary
+authority tests may run concurrently against the configured database. CI's
+Postgres service provides these test-only privileges. The production server
+does not require `CREATEDB`.
 
 Do not weaken authorization, integrity verification, authority transactions, release verification, or the contamination guard.
 

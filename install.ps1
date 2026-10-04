@@ -1,5 +1,5 @@
 param(
-  [ValidatePattern('^v[0-9]+\.[0-9]+\.[0-9]+(?:-(?:preview|rc)\.[0-9]+)?$')][string]$Version = 'v0.8.2',
+  [ValidatePattern('^v[0-9]+\.[0-9]+\.[0-9]+(?:-(?:preview|rc)\.[0-9]+)?$')][string]$Version = 'v1.0.0',
   [string]$InstallDir = "$env:LOCALAPPDATA\Programs\AgentComms"
 )
 $ErrorActionPreference = 'Stop'

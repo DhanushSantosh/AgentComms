@@ -10,16 +10,41 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/DhanushSantosh/AgentComms/internal/brokeridentity"
 )
 
 // Client talks to one local Claude live broker.
 type Client struct {
-	baseURL string
-	http    *http.Client
+	baseURL   string
+	http      *http.Client
+	projectID string
 }
 
 func New(baseURL string) *Client {
 	return &Client{baseURL: strings.TrimRight(baseURL, "/"), http: &http.Client{}}
+}
+
+// NewForProject routes every runtime operation through the stored project
+// identity. It never falls back to the legacy literal-ID namespace.
+func NewForProject(baseURL, projectID string) (*Client, error) {
+	if _, err := brokeridentity.RuntimeKey(projectID, "validation"); err != nil {
+		return nil, err
+	}
+	client := New(baseURL)
+	client.projectID = projectID
+	return client, nil
+}
+
+func (c *Client) runtimePath(runtimeID string) (string, error) {
+	if c.projectID != "" {
+		key, err := brokeridentity.RuntimeKey(c.projectID, runtimeID)
+		if err != nil {
+			return "", err
+		}
+		return runtimePath(key), nil
+	}
+	return runtimePath(runtimeID), nil
 }
 
 func (c *Client) Health(ctx context.Context) error {
@@ -27,14 +52,22 @@ func (c *Client) Health(ctx context.Context) error {
 }
 
 func (c *Client) Register(ctx context.Context, runtimeID string, config ProcessConfig) error {
-	return c.do(ctx, http.MethodPost, runtimePath(runtimeID)+"/register", config, nil)
+	path, err := c.runtimePath(runtimeID)
+	if err != nil {
+		return err
+	}
+	return c.do(ctx, http.MethodPost, path+"/register", config, nil)
 }
 
 func (c *Client) Prompt(ctx context.Context, runtimeID, text string) (string, error) {
+	path, err := c.runtimePath(runtimeID)
+	if err != nil {
+		return "", err
+	}
 	var response struct {
 		Output string `json:"output"`
 	}
-	if err := c.do(ctx, http.MethodPost, runtimePath(runtimeID)+"/prompt", map[string]string{"text": text}, &response); err != nil {
+	if err := c.do(ctx, http.MethodPost, path+"/prompt", map[string]string{"text": text}, &response); err != nil {
 		return "", err
 	}
 	return response.Output, nil
@@ -80,7 +113,11 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any) err
 
 // Subscribe opens the read-only SSE stream for one runtime.
 func (c *Client) Subscribe(ctx context.Context, runtimeID string) (<-chan []byte, error) {
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+runtimePath(runtimeID)+"/events", nil)
+	path, err := c.runtimePath(runtimeID)
+	if err != nil {
+		return nil, err
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+path+"/events", nil)
 	if err != nil {
 		return nil, err
 	}

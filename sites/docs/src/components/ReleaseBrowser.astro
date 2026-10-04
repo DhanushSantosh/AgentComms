@@ -1,0 +1,59 @@
+<slot />
+<p><a href="/raw/releases/changelog.md">Read the complete archive as Markdown ↗</a></p>
+<noscript><p>Enable JavaScript to switch releases, or read the complete archive as Markdown.</p></noscript>
+
+<script>
+  const archive = document.querySelector<HTMLDetailsElement>("#beta-archive");
+  const stable = document.querySelector<HTMLElement>('[data-release-group="stable"]');
+  function selectRelease(group: Element, version: string) {
+    group.querySelectorAll<HTMLElement>("[data-release-panel]").forEach((panel) => {
+      panel.hidden = panel.dataset.releasePanel !== version;
+    });
+    const select = group.querySelector<HTMLSelectElement>("[data-release-select]");
+    if (select) select.value = version;
+  }
+  document.querySelectorAll<HTMLSelectElement>("[data-release-select]").forEach((select) => {
+    select.addEventListener("change", () => {
+      const group = select.closest("[data-release-group]");
+      if (!group) return;
+      selectRelease(group, select.value);
+      const panel = [...group.querySelectorAll<HTMLElement>("[data-release-panel]")].find((entry) => !entry.hidden);
+      const anchor = panel?.querySelector("h2")?.id || panel?.id;
+      if (anchor) history.replaceState(null, "", `#${anchor}`);
+    });
+  });
+  function restoreAnchor() {
+    let id;
+    try { id = decodeURIComponent(location.hash.slice(1)); } catch { return; }
+    if (!id) return;
+    const target = document.getElementById(id);
+    if (id === "beta-archive" && archive) archive.open = true;
+    const panel = target?.closest<HTMLElement>("[data-release-panel]");
+    const group = panel?.closest("[data-release-group]");
+    if (panel && group) {
+      selectRelease(group, panel.dataset.releasePanel!);
+      if (group === archive && archive) archive.open = true;
+      target?.scrollIntoView({ block: "start" });
+    }
+    if (stable && archive) stable.hidden = archive.open;
+  }
+  archive?.addEventListener("toggle", () => { if (stable) stable.hidden = archive.open; });
+  window.addEventListener("hashchange", restoreAnchor);
+  restoreAnchor();
+</script>
+
+<style is:global>
+  .release-picker { display: grid; gap: 0.6rem; margin-block: 1.5rem; }
+  .release-picker label { font-weight: 600; }
+  .release-picker select {
+    width: 100%; max-width: 100%; min-height: 3rem; padding: 0.75rem;
+    font: inherit; color: var(--ink); background: var(--surface-raised);
+    border: 1px solid var(--line); border-radius: 0.4rem;
+  }
+  .release-picker select:focus-visible { outline: 2px solid var(--brand-strong); outline-offset: 3px; }
+  .release-panel[hidden], [data-release-group][hidden] { display: none !important; }
+  .beta-archive { border-block: 1px solid var(--line); padding-block: 1.25rem; margin-block: 2rem; }
+  .beta-archive > summary { cursor: pointer; font-weight: 600; padding-block: 0.25rem; }
+  .beta-archive > summary:focus-visible { outline: 2px solid var(--brand-strong); outline-offset: 4px; }
+  .release-panel h2 { overflow-wrap: anywhere; }
+</style>

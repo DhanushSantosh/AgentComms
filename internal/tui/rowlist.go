@@ -762,7 +762,8 @@ func (m Model) dispatchEventWithPassphrase(typ, id string, payload any, passphra
 func hasApprovedOrchestratorGrant(st model.State, id string) bool {
 	approval, exists := st.Approvals[protocol.OrchestratorGrantApprovalID(id)]
 	return exists && approval.Tier == "HUMAN" && approval.Status == "APPROVED" &&
-		approval.Action == protocol.OrchestratorGrantApprovalAction(id)
+		approval.Action == protocol.OrchestratorGrantApprovalAction(id) &&
+		(approval.ExpiresAt == nil || approval.ExpiresAt.After(time.Now()))
 }
 
 // dispatchOrchestratorApprovalChain runs the two steps

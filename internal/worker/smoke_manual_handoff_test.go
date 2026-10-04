@@ -53,9 +53,10 @@ func handoffWorkerService(t *testing.T, instruction, expectedResult string) (*se
 	return instance, root
 }
 
-const handoffInstruction = `Please delegate verification of this change to DAMON ` +
+const handoffInstruction = `Synthetic handoff test only. Do not use tools, read files or run commands. ` +
+	`Please delegate verification of this change to claude-damon ` +
 	`rather than checking it yourself. Follow your operating instructions for ` +
-	`creating exactly one follow-up action, targeting DAMON, with instruction ` +
+	`creating exactly one follow-up action, targeting claude-damon (the exact registered principal ID; do not abbreviate it), with instruction ` +
 	`"Confirm the implementation compiles" and expected_result "Acknowledge ` +
 	`receipt". Then end your turn with a short confirmation that you delegated ` +
 	`the work.`
@@ -65,7 +66,7 @@ func runHandoffSmoke(t *testing.T, adapter string, timeout time.Duration) {
 	if os.Getenv("AGENTCOMMS_ACP_SMOKE") != "1" {
 		t.Skip("set AGENTCOMMS_ACP_SMOKE=1 to run this against the real provider")
 	}
-	instance, root := handoffWorkerService(t, handoffInstruction, "Delegate to DAMON")
+	instance, root := handoffWorkerService(t, handoffInstruction, "Delegate to claude-damon")
 	worker, err := New(Config{
 		Service: instance, Actor: "claude-axiom", RuntimeID: "runtime-axiom",
 		Adapter: adapter, WorkDir: root,
@@ -76,16 +77,19 @@ func runHandoffSmoke(t *testing.T, adapter string, timeout time.Duration) {
 	}
 	runErr := worker.Run(context.Background())
 	if runErr != nil {
-		t.Logf("worker.Run error (non-fatal, inspecting state anyway): %v", runErr)
+		t.Fatalf("handoff worker failed: %v", runErr)
 	}
 	state, err := instance.State()
 	if err != nil {
 		t.Fatal(err)
 	}
 	invocation := state.Invocations["inv-worker"]
-	t.Logf("invocation status: %s reason: %s", invocation.Status, invocation.Reason)
-	if invocation.ResultMessageID != "" {
-		t.Logf("result: %s", state.Messages[invocation.ResultMessageID].Body)
+	if invocation.Status != "COMPLETED" || invocation.ResultMessageID == "" {
+		t.Fatalf("handoff invocation lacks completion evidence: %+v", invocation)
+	}
+	result, exists := state.Messages[invocation.ResultMessageID]
+	if !exists || result.From != "claude-axiom" || strings.TrimSpace(result.Body) == "" {
+		t.Fatal("handoff invocation lacks a result published under the worker identity")
 	}
 
 	foundHandoff := false

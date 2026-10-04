@@ -3,7 +3,7 @@
 ## Status
 
 **Implemented on `dev`, 2026-08-26.** Direction confirmed by the project owner after live
-testing on a real project (`/home/dhanush/Projects/Portfolio`) surfaced the exact gap this RFC
+testing on a real project (path omitted for privacy) surfaced the exact gap this RFC
 closes. Per `docs/rfcs/README.md` and `docs/development-workflow.md`'s design-proposal rule,
 reviewed and accepted before implementation began. The design was built as proposed, with one
 real bug found during implementation, recorded here rather than silently fixed in passing:

@@ -31,6 +31,7 @@ func Subscribe(ctx context.Context, client *Client) (<-chan Event, error) {
 		return nil, err
 	}
 	req.Header.Set("Accept", "text/event-stream")
+	client.setDirectoryHeader(req)
 	resp, err := client.http.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("opencodeclient: subscribe: %w", err)

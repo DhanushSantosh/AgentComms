@@ -135,7 +135,7 @@ func messageActionsFor(m model.Message, actor string) []RowAction {
 
 // messageRowSource.owner is the real project owner's principal ID
 // (store.Config().Owner), never the literal string "owner" -- a project's
-// owner can be registered under any ID (e.g. "Dhanush"), and comparing the
+// owner can be registered under any ID (e.g. "Alex"), and comparing the
 // viewing actor against a hardcoded "owner" would silently never grant the
 // owner visibility into every message on a real project.
 type messageRowSource struct{ owner string }

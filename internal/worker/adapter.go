@@ -48,7 +48,7 @@ type cliAdapter interface {
 func runCLIAdapter(ctx context.Context, config Config, adapter cliAdapter, invocation model.Invocation) (string, error) {
 	prompt := adapter.Prompt(config.Actor, invocation)
 	arguments := adapter.Arguments(config)
-	command := exec.CommandContext(ctx, config.Executable, arguments...)
+	command := exec.Command(config.Executable, arguments...)
 	command.Dir = config.WorkDir
 	command.Env = os.Environ()
 	command.Stdin = strings.NewReader(prompt)
@@ -56,7 +56,7 @@ func runCLIAdapter(ctx context.Context, config Config, adapter cliAdapter, invoc
 	stderr := &boundedBuffer{limit: maxAgentOutputBytes}
 	command.Stdout = stdout
 	command.Stderr = stderr
-	err := command.Run()
+	err := runOwnedCommand(ctx, command)
 	if ctx.Err() != nil {
 		return "", fmt.Errorf("execution deadline reached: %w", ctx.Err())
 	}
@@ -127,7 +127,7 @@ var adapters = map[string]Adapter{
 	"claude-acp":    claudeACPAdapter{},
 	"opencode-acp":  openCodeACPAdapter{},
 	"codex-acp":     codexACPAdapter{},
-	"opencode-live": openCodeLiveAdapter{},
+	"opencode-live": &openCodeLiveAdapter{},
 	"claude-live":   claudeLiveAdapter{},
 	"codex-live":    codexLiveAdapter{},
 }
@@ -151,6 +151,9 @@ func resolveAdapter(name string) (Adapter, error) {
 	adapter, ok := adapters[name]
 	if !ok {
 		return nil, fmt.Errorf("worker adapter must be one of: %s", strings.Join(adapterNames(), ", "))
+	}
+	if _, owned := adapter.(*openCodeLiveAdapter); owned {
+		return &openCodeLiveAdapter{}, nil
 	}
 	return adapter, nil
 }

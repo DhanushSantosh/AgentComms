@@ -19,6 +19,8 @@ const (
 	maxStreamLineBytes = 2 * 1024 * 1024
 )
 
+var ErrUserConfigIsolationUnsupported = errors.New("codex-live cannot isolate user configuration with the native app-server; use --adapter codex (codex exec) for --codex-ignore-user-config")
+
 // ProcessConfig describes one persistent Codex app-server process.
 type ProcessConfig struct {
 	Executable       string   `json:"executable"`
@@ -50,6 +52,7 @@ type Process struct {
 	cmd      *exec.Cmd
 	stdin    io.WriteCloser
 	dead     error
+	done     <-chan struct{}
 	nextID   int64
 	pending  map[int64]chan rpcEnvelope
 	threadID string
@@ -73,11 +76,23 @@ func Start(ctx context.Context, config ProcessConfig) (*Process, error) {
 }
 
 func validateProcessConfig(config ProcessConfig) error {
+	if config.IgnoreUserConfig {
+		return ErrUserConfigIsolationUnsupported
+	}
 	if !filepath.IsAbs(config.Executable) || !filepath.IsAbs(config.WorkDir) {
 		return errors.New("codexserve: executable and working directory must be absolute")
 	}
 	if config.Sandbox != "read-only" && config.Sandbox != "workspace-write" {
 		return errors.New("codexserve: sandbox must be read-only or workspace-write")
+	}
+	for _, directory := range config.AddDirs {
+		if !filepath.IsAbs(directory) {
+			return errors.New("codexserve: additional directories must be absolute")
+		}
+		info, err := os.Stat(directory)
+		if err != nil || !info.IsDir() {
+			return fmt.Errorf("codexserve: additional directory must exist and be a directory: %q", directory)
+		}
 	}
 	return nil
 }
@@ -90,7 +105,14 @@ func (p *Process) ThreadID() string {
 	return p.threadID
 }
 
-func (p *Process) start(ctx context.Context) error {
+func (p *Process) start(ctx context.Context) (startErr error) {
+	// A persistent child intentionally outlives the request context, but a
+	// failed handshake must never leave that unregistered child running.
+	defer func() {
+		if startErr != nil {
+			_ = p.Close()
+		}
+	}()
 	arguments := []string{"app-server"}
 	command := exec.CommandContext(context.WithoutCancel(ctx), p.config.Executable, arguments...)
 	command.Dir = p.config.WorkDir
@@ -114,8 +136,10 @@ func (p *Process) start(ctx context.Context) error {
 	p.cmd = command
 	p.stdin = stdin
 	p.dead = nil
+	done := make(chan struct{})
+	p.done = done
 	p.mu.Unlock()
-	go p.readLoop(command, stdout)
+	go p.readLoop(command, stdout, done)
 
 	if _, err := p.call(ctx, "initialize", map[string]any{
 		"clientInfo": map[string]any{"name": "agent-comms-codex-live", "title": "Agent Comms", "version": "0.0.1"},
@@ -138,7 +162,7 @@ func (p *Process) start(ctx context.Context) error {
 		// starting a fresh thread below, rather than failing outright --
 		// same principle opencode-live's session fallback already uses.
 	}
-	started, err := p.call(ctx, "thread/start", map[string]any{"cwd": p.config.WorkDir})
+	started, err := p.call(ctx, "thread/start", p.threadParams(""))
 	if err != nil {
 		return fmt.Errorf("codexserve: thread/start: %w", err)
 	}
@@ -157,10 +181,26 @@ func (p *Process) start(ctx context.Context) error {
 }
 
 func (p *Process) threadParams(threadID string) map[string]any {
-	return map[string]any{"threadId": threadID, "cwd": p.config.WorkDir}
+	params := map[string]any{
+		"cwd": p.config.WorkDir, "sandbox": p.config.Sandbox,
+		"approvalPolicy": "never",
+	}
+	if threadID != "" {
+		params["threadId"] = threadID
+	}
+	if p.config.Model != "" {
+		params["model"] = p.config.Model
+	}
+	if len(p.config.AddDirs) > 0 {
+		params["config"] = map[string]any{
+			"sandbox_workspace_write.writable_roots": p.config.AddDirs,
+		}
+	}
+	return params
 }
 
-func (p *Process) readLoop(command *exec.Cmd, stdout io.Reader) {
+func (p *Process) readLoop(command *exec.Cmd, stdout io.Reader, done chan struct{}) {
+	defer close(done)
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 0, 64*1024), maxStreamLineBytes)
 	for scanner.Scan() {
@@ -191,9 +231,11 @@ func (p *Process) readLoop(command *exec.Cmd, stdout io.Reader) {
 		err = io.EOF
 	}
 	p.mu.Lock()
-	if p.cmd == command {
-		p.dead = err
+	if p.cmd != command {
+		p.mu.Unlock()
+		return
 	}
+	p.dead = err
 	pending := p.pending
 	p.pending = make(map[int64]chan rpcEnvelope)
 	p.mu.Unlock()
@@ -312,6 +354,7 @@ func (p *Process) Send(ctx context.Context, text string) (string, error) {
 func (p *Process) sendOnce(ctx context.Context, text string) (string, error) {
 	p.mu.Lock()
 	threadID := p.threadID
+	processDone := p.done
 	p.mu.Unlock()
 	if threadID == "" {
 		return "", errors.New("codexserve: no active thread")
@@ -334,6 +377,12 @@ func (p *Process) sendOnce(ctx context.Context, text string) (string, error) {
 		select {
 		case <-ctx.Done():
 			return "", ctx.Err()
+		case <-processDone:
+			// Drain this turn's buffered notifications before reporting EOF:
+			// a final answer may have arrived immediately before process exit.
+			// Other observers stay subscribed across the restart.
+			cancel()
+			processDone = nil
 		case line, ok := <-events:
 			if !ok {
 				p.mu.Lock()
@@ -344,7 +393,11 @@ func (p *Process) sendOnce(ctx context.Context, text string) (string, error) {
 			var notification struct {
 				Method string `json:"method"`
 				Params struct {
-					Item struct {
+					Error struct {
+						Message string `json:"message"`
+					} `json:"error"`
+					WillRetry bool `json:"willRetry"`
+					Item      struct {
 						Type  string `json:"type"`
 						Phase string `json:"phase"`
 						Text  string `json:"text"`
@@ -353,6 +406,9 @@ func (p *Process) sendOnce(ctx context.Context, text string) (string, error) {
 			}
 			if err := json.Unmarshal(line, &notification); err != nil {
 				continue
+			}
+			if notification.Method == "error" && !notification.Params.WillRetry {
+				return "", fmt.Errorf("codexserve: provider rejected turn: %s", notification.Params.Error.Message)
 			}
 			// The authoritative "this turn's answer is ready" signal,
 			// confirmed live: an item/completed notification whose item

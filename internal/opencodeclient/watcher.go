@@ -17,13 +17,14 @@ type GovernanceApprover interface {
 }
 
 // PermissionWatcher applies the hybrid approval policy (Classify +
-// EditGate + GovernanceApprover) to every "permission.asked" event it sees
+// EditGate + GovernanceApprover) to its bound session's "permission.asked" events
 // on a server's SSE stream, replying through the same Client. It must be
 // running (via Run, in its own goroutine) before a blocking Prompt call
 // that might raise a mid-turn permission request, or that request would
 // never get answered and Prompt would hang until the turn's own timeout.
 type PermissionWatcher struct {
 	client     *Client
+	sessionID  string
 	allowEdits EditGate
 	governance GovernanceApprover
 
@@ -31,14 +32,15 @@ type PermissionWatcher struct {
 	deniedKinds []string
 }
 
-// NewPermissionWatcher constructs a watcher bound to client, deciding
+// NewPermissionWatcher constructs a watcher bound to an exact provider session, deciding
 // mode-gated requests via allowEdits and governed requests via governance.
-func NewPermissionWatcher(client *Client, allowEdits EditGate, governance GovernanceApprover) *PermissionWatcher {
-	return &PermissionWatcher{client: client, allowEdits: allowEdits, governance: governance}
+// An empty session binding answers nothing. Foreign requests remain untouched.
+func NewPermissionWatcher(client *Client, sessionID string, allowEdits EditGate, governance GovernanceApprover) *PermissionWatcher {
+	return &PermissionWatcher{client: client, sessionID: sessionID, allowEdits: allowEdits, governance: governance}
 }
 
 // Run processes events until the channel closes or ctx is cancelled,
-// replying to every "permission.asked" event it observes. Intended to run
+// replying only to its session's "permission.asked" events. Intended to run
 // in its own goroutine for the duration of one Prompt call.
 func (w *PermissionWatcher) Run(ctx context.Context, events <-chan Event) {
 	for {
@@ -59,7 +61,8 @@ func (w *PermissionWatcher) Run(ctx context.Context, events <-chan Event) {
 
 func (w *PermissionWatcher) handle(ctx context.Context, event Event) {
 	var request PermissionRequest
-	if err := decodeInto(event.Properties, &request); err != nil || request.ID == "" {
+	if err := decodeInto(event.Properties, &request); err != nil || request.ID == "" ||
+		w.sessionID == "" || request.SessionID != w.sessionID {
 		return
 	}
 	approved, err := w.decide(ctx, request)

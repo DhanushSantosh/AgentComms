@@ -397,6 +397,12 @@ func TestQuietSuppressesSuccessButNotWarnings(t *testing.T) {
 }
 
 func TestMain(testingMain *testing.M) {
+	// Test binaries usually have no VCS metadata. Resolving their identity
+	// then hashes the entire executable, which became the dominant cost of
+	// repeated CLI/daemon fixture calls under -race. Retain this executable's
+	// actual resolved identity once; never substitute an invented constant or
+	// alter production fingerprint/daemon compatibility behavior.
+	buildinfo.BuildID = buildinfo.ResolvedBuildID()
 	// Never touch the developer's real user config or credentials: a test
 	// that forgot its own t.Setenv wrote ~90 stale profiles into
 	// ~/.config/agent-comms over time. Tests that set their own directories
@@ -453,6 +459,33 @@ func TestMain(testingMain *testing.M) {
 }
 
 var testDaemonRuns sync.Map // project root -> daemon.Run completion channel
+
+func TestTestHarnessBuildIdentityPreservesExecutableFingerprint(t *testing.T) {
+	id := buildinfo.BuildID
+	if id == "" || buildinfo.ResolvedBuildID() != id {
+		t.Fatal("test harness must retain its resolved real build identity")
+	}
+	if !strings.HasPrefix(id, "dev-") {
+		// Linker/VCS identities retain their existing precedence.
+		return
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.Open(executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		t.Fatal(err)
+	}
+	if want := fmt.Sprintf("dev-%x", hash.Sum(nil)[:8]); id != want {
+		t.Fatalf("cached test identity differs from executable content: got=%s want=%s", id, want)
+	}
+}
 
 // testDaemonShutdownBudget is how long cleanup waits for the test daemon
 // to finish and release its SQLite files before t.TempDir() tries to

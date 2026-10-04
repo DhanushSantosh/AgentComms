@@ -5,6 +5,149 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-10-04 — “Pilot”
+
+*The first stable release. Every provider turn now runs under processes and
+permissions the worker owns: OpenCode edits are allowed only when the policy
+says so, one session can no longer approve another's request, and cancelled
+or closed providers are cleaned up. From here on, breaking changes to the
+public contract require a new major version.*
+
+**Breaking**
+- **Breaking:** stop old Codex/Claude live workers and recycle their brokers
+  before upgrading; live runtimes are now scoped per project, and new workers
+  do not adopt legacy processes (`live attach --unscoped` reaches old ones).
+- **Breaking:** `--codex-ignore-user-config` is rejected by Codex live and
+  Codex ACP instead of being silently ignored; use the Codex exec adapter.
+- **Breaking:** restart OpenCode live workers to get policy enforcement; each
+  now owns its native server, so attach with the `opencode attach` command
+  the worker reports.
+
+**Security**
+- OpenCode live enforces the permission mode on every turn and preserves
+  native deny rules; only `acceptEdits` allows edits.
+- OpenCode permission prompts are answered only for the session that owns them.
+- Orchestrator-grant approvals honor their expiry.
+
+**Fixed**
+- Cancelled or closed providers are terminated, including their child
+  processes, instead of overrunning their deadline.
+- Malformed agent follow-up actions are rejected instead of half-executed.
+- Expired deliveries wait out their retry backoff.
+- The TUI stays within the terminal on tiny resizes.
+- Replacing an incompatible daemon no longer fails with `SQLITE_BUSY`.
+
+### Security
+- OpenCode live policy enforcement (RFC 0049). Each OpenCode live worker owns
+  a native server on an assigned loopback port for as long as it runs and
+  stops it on shutdown or one-shot exit; existing shared native servers are
+  untouched. Before every turn the worker resets only its own instance,
+  installs restrictive rules that preserve native denies, and reads them back
+  before prompting. Reads use the existing read policy, edits are allowed only
+  in `acceptEdits`, and governed operations stay denied. Earlier "always"
+  approvals, from a previous turn or another runtime, do not carry over.
+  Original and managed rules are recorded durably, guarded by an OS lock, and
+  recovered after a crash or a lost response. Failed preparation or an unknown
+  external rule change stops the turn safely.
+- OpenCode live permission routing (RFC 0048). Permission watchers answer only
+  their own provider session; foreign, missing or malformed session IDs get no
+  reply, governance record or denial tracking. Event subscriptions send the
+  same project directory header as REST calls.
+- Optional orchestrator-grant approval expiry is enforced on activation and
+  role switching (RFC 0046). An expired conventional grant can be re-requested
+  but needs a fresh human approval; historical replay and approvals without an
+  expiry are unchanged.
+- Codex live explicitly applies the requested sandbox on new and resumed
+  threads and fails closed when the requested isolation is unsupported.
+- Corrupt encrypted credential nonces are rejected without crashing
+  decryption.
+
+### Changed
+- Managed Codex and Claude live runtimes use project-scoped broker keys
+  (RFC 0045), so independent projects can reuse runtime IDs without
+  collisions. `live attach` resolves the local project or accepts
+  `--project-id`; `--unscoped` explicitly selects legacy or manual
+  registrations. Stop old workers and recycle their owned brokers before
+  upgrading; new scoped workers do not adopt legacy processes.
+- Codex live and Codex ACP reject `--codex-ignore-user-config` before launch
+  (RFC 0042, RFC 0044), because neither can honor it; choose the native Codex
+  exec adapter for isolation.
+- Codex live runtimes propagate additional writable directories on new and
+  resumed threads and reject invalid directory paths before launch.
+- The landing release page presents stable releases only; beta release notes
+  are preserved in the docs archive.
+- Both sites present one selected release at a time. The docs keep beta
+  history in a collapsed archive with a release dropdown, preserving direct
+  links and the complete Markdown history.
+
+### Fixed
+- Exec-provider cancellation terminates invocation-owned process groups
+  (Unix) and jobs (Windows) and bounds output draining, instead of waiting
+  indefinitely on pipes inherited by child processes (RFC 0047).
+- ACP sessions reap their spawned provider process on close, including failed
+  handshakes, and safely share cleanup across repeated or concurrent calls.
+- Failed Codex live startup terminates its subprocess instead of leaving an
+  unregistered provider running after a handshake failure or timeout.
+- Codex live detects a crash after turn acknowledgement and resumes or retries
+  promptly, preserving observers and any final answer received before exit.
+- Codex live returns terminal provider errors instead of waiting for the
+  deadline.
+- Structured agent follow-up actions with trailing JSON values or garbage are
+  rejected instead of executing the first value and ignoring the rest.
+- Expired delivery reservations honor their newly recorded retry backoff
+  rather than immediately launching another attempt from an outdated cache
+  snapshot.
+- Custom adapter prompts identify the actual invocation requester separately
+  from the executing agent.
+- The final TUI frame, including overlays, is bounded to the actual terminal
+  size, and navigation state survives tiny or zero-area resizes.
+- The draft store sets its busy timeout before its first database operation,
+  so a replacement daemon no longer fails to start with `SQLITE_BUSY` while
+  the old one is still exiting.
+
+### Maintenance
+- Apply a temporary, integrity-pinned cache-policy security patch during site
+  dependency installation (RFC 0043); retain upstream provenance and tests
+  until a behaviorally verified upstream release replaces it.
+- Update Go crypto and module dependencies to versions containing upstream
+  SSH denial-of-service and checksum-log verification fixes.
+- The coverage gate fails when a declared package measurement is missing,
+  instead of passing on absent output.
+- Documentation and test examples use synthetic identities and paths.
+  Maintainer attribution policy is configured privately rather than embedded
+  in source.
+
+### Compatibility
+- Stable SemVer applies from this release: breaking changes to the CLI, JSON
+  envelopes, MCP tools, signed event formats and on-disk schemas require a new
+  major version. The current stable minor is supported, and the previous
+  stable minor receives critical security fixes for six months after it is
+  replaced.
+- No new schema migration since v0.8.2. Projects already upgraded for v0.8.2
+  need no further `project upgrade`; projects still on v0.8.1 or earlier run it
+  once, as described in the v0.8.2 notes.
+- OpenCode live is verified against OpenCode 1.18.33.
+
+### Known limitations
+- The release targets trusted self-hosted teams, not mutually untrusted
+  tenants. Operator-managed authority tokens and local host and provider trust
+  remain part of the deployment model; stronger tenant quotas and separation
+  are deferred.
+- OpenCode live: use the normal full `opencode attach` TUI; the `--mini`
+  client stops watching after the per-turn reset. Leave `--session-id` unset,
+  because native `ses_*` IDs fail the public UUID validation; automatic owned
+  session continuity works. Turn preparation adds about ten seconds per turn
+  while the native event stream becomes ready. A session with pending native
+  Undo/revert state is refused until it is resolved in the native client.
+- Windows Authenticode signing and Apple notarization are deferred; verified
+  downloads can still show OS warnings.
+- Real-provider tests ran on Linux; green Windows and macOS CI does not mean
+  real providers were exercised there.
+- Lists remain unpaginated full-state reads, interactive PTY delivery still
+  uses echo heuristics, custom provider identities remain limited to the
+  built-in set, and hosted project joining and first-class worker supervision
+  remain deferred.
+
 ## [0.8.2] - 2026-10-02 — “Order of Arrival”
 
 *Messages and every other project record now carry real timestamps from their
@@ -1652,7 +1795,9 @@ deterministic JSON CLI/MCP surface.
 - Governed mutations revalidate authorization, leases, scopes, and conflicts
   inside the authoritative transaction.
 
-[Unreleased]: https://github.com/DhanushSantosh/AgentComms/compare/v0.8.1...HEAD
+[Unreleased]: https://github.com/DhanushSantosh/AgentComms/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/DhanushSantosh/AgentComms/compare/v0.8.2...v1.0.0
+[0.8.2]: https://github.com/DhanushSantosh/AgentComms/compare/v0.8.1...v0.8.2
 [0.8.1]: https://github.com/DhanushSantosh/AgentComms/compare/v0.8.0...v0.8.1
 [0.4.0]: https://github.com/DhanushSantosh/AgentComms/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/DhanushSantosh/AgentComms/compare/v0.2.1...v0.3.0

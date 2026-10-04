@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 	"github.com/DhanushSantosh/AgentComms/internal/opencodeclient"
@@ -27,13 +28,19 @@ import (
 // alongside "opencode-acp" — neither replaces the other. Use opencode-acp
 // for ordinary automated invocations; use opencode-live specifically when
 // someone needs to watch this runtime's activity live via `opencode
-// attach`. The persistent server this adapter starts survives past any
-// single invocation by design (see opencodeclient.EnsureServer) — that's
-// what keeps the same session attachable across repeated invocations, the
-// opposite lifecycle from every other adapter in this package.
-type openCodeLiveAdapter struct{}
+// attach`. Its server is private to one worker and persists across its turns,
+// not past worker shutdown. No shared server URL is adopted or disposed.
+type openCodeLiveAdapter struct {
+	mu                                        sync.Mutex
+	server                                    *ownedLiveServer
+	start                                     func(context.Context, string) (*ownedLiveServer, error)
+	workDir, runtimeID, recordPath, sessionID string
+	runtimeLock, sessionLock                  *os.File
+	closed                                    bool
+	cleanupErr                                error
+}
 
-func (openCodeLiveAdapter) Validate(config *Config) error {
+func (*openCodeLiveAdapter) Validate(config *Config) error {
 	if config.Model != "" {
 		return errors.New("opencode-live adapter does not yet support --model overrides")
 	}
@@ -48,67 +55,111 @@ func (openCodeLiveAdapter) Validate(config *Config) error {
 	return nil
 }
 
-func (openCodeLiveAdapter) Execute(ctx context.Context, config Config, invocation model.Invocation) (string, error) {
-	baseURL, err := opencodeclient.EnsureServer(ctx, config.WorkDir, config.WorkDir)
-	if err != nil {
-		return "", fmt.Errorf("opencode-live: ensure server: %w", err)
+func (a *openCodeLiveAdapter) Execute(ctx context.Context, config Config, invocation model.Invocation) (output string, result error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.closed {
+		return "", errors.New("opencode-live worker has closed")
 	}
-	client := opencodeclient.New(baseURL, config.WorkDir)
-
-	sessionID := config.SessionID
-	if sessionID == "" {
-		sessionID = loadOpenCodeLiveSessionID(config.WorkDir, config.RuntimeID)
+	if a.cleanupErr != nil {
+		return "", fmt.Errorf("opencode-live owned cleanup requires attention: %w", a.cleanupErr)
 	}
-	if sessionID != "" {
-		if _, err := client.GetSession(ctx, sessionID); err != nil {
-			// OpenCode mints its own session IDs; unlike Claude's
-			// --session-id, there is no way to create a session at a
-			// caller-chosen ID. A configured or previously-cached ID that no
-			// longer resolves (server restarted, history pruned) falls back
-			// to creating a fresh one below rather than failing the
-			// invocation outright.
-			sessionID = ""
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	if err := a.initialize(config); err != nil {
+		return "", err
+	}
+	if a.server == nil {
+		start := a.start
+		if start == nil {
+			start = startOpenCodeOwnedServer
 		}
-	}
-	if sessionID == "" {
-		session, err := client.CreateSession(ctx, config.WorkDir)
+		server, err := start(ctx, a.workDir)
 		if err != nil {
-			return "", fmt.Errorf("opencode-live: create session: %w", err)
+			return "", fmt.Errorf("opencode-live owned startup: %w", err)
 		}
-		sessionID = session.ID
-		if err := saveOpenCodeLiveSessionID(config.WorkDir, config.RuntimeID, sessionID); err != nil {
-			return "", fmt.Errorf("opencode-live: persist session id: %w", err)
-		}
+		a.server = server
 	}
-	config.Status("watch this runtime's OpenCode activity live in a terminal: " + openCodeAttachCommand(baseURL, config.WorkDir, sessionID))
+	server := a.server
+	stopCancellation := context.AfterFunc(ctx, server.cancel)
+	defer func() {
+		stopCancellation()
+		if result != nil || ctx.Err() != nil {
+			result = errors.Join(result, ctx.Err(), a.closeServer())
+		}
+	}()
+	client := opencodeclient.New(server.baseURL, a.workDir)
+	if config.Status != nil {
+		config.Status("preparing owned OpenCode runtime: waiting for native reset readiness and completion")
+	}
+	if err := client.DisposeInstance(ctx); err != nil {
+		return "", fmt.Errorf("opencode-live owned instance reset failed; prompt refused: %w", err)
+	}
+	sessionID, agent, err := a.prepareSession(ctx, client, config)
+	if err != nil {
+		return "", fmt.Errorf("opencode-live preparation: %w", err)
+	}
+	if config.Status != nil {
+		config.Status("watch this runtime's OpenCode activity live in a terminal: " + openCodeAttachCommand(server.baseURL, a.workDir, sessionID))
+	}
 
 	watcher := opencodeclient.NewPermissionWatcher(
 		client,
+		sessionID,
 		func() bool { return config.PermissionMode == "acceptEdits" },
 		denyGovernanceOpenCode{},
 	)
 	watchCtx, cancelWatch := context.WithCancel(ctx)
-	defer cancelWatch()
+	watcherDone := make(chan struct{})
 	events, err := opencodeclient.Subscribe(watchCtx, client)
 	if err != nil {
+		cancelWatch()
 		return "", fmt.Errorf("opencode-live: subscribe to events: %w", err)
 	}
-	go watcher.Run(watchCtx, events)
+	go func() { defer close(watcherDone); watcher.Run(watchCtx, events) }()
+	defer func() { cancelWatch(); <-watcherDone }()
 	watcher.ResetTurn()
 
 	resp, err := client.Prompt(ctx, sessionID, opencodeclient.PromptRequest{
 		Parts:  []opencodeclient.TextPart{opencodeclient.NewTextPart(claudeUserPrompt(invocation))},
 		System: claudeSystemPrompt(config.Actor),
+		Agent:  agent,
 	})
 	if err != nil {
 		return "", fmt.Errorf("opencode-live: %w", err)
 	}
-	output := resp.Text()
+	output = resp.Text()
 	if strings.TrimSpace(output) == "" && watcher.Denied() {
 		return "", fmt.Errorf("agent produced no result after a permission request was denied for: %s",
 			strings.Join(watcher.DeniedKinds(), ", "))
 	}
 	return output, nil
+}
+
+func (a *openCodeLiveAdapter) closeServer() error {
+	if a.server == nil {
+		return nil
+	}
+	err := a.server.Close()
+	a.server = nil
+	if err != nil {
+		a.cleanupErr = errors.Join(a.cleanupErr, err)
+	}
+	return err
+}
+
+// Close is called on every Worker.Run exit, including one-shot and errors.
+func (a *openCodeLiveAdapter) Close() error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.closed {
+		return a.cleanupErr
+	}
+	a.closed = true
+	a.cleanupErr = errors.Join(a.cleanupErr, a.closeServer(), unlockOpenCodeFile(a.sessionLock), unlockOpenCodeFile(a.runtimeLock))
+	a.sessionLock, a.runtimeLock = nil, nil
+	return a.cleanupErr
 }
 
 // openCodeAttachCommand builds the exact `opencode attach` invocation that

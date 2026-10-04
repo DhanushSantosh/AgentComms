@@ -46,9 +46,13 @@ func New(baseURL, directory string) *Client {
 
 // Session is the subset of OpenCode's session.Info this package uses.
 type Session struct {
-	ID        string `json:"id"`
-	Directory string `json:"directory"`
-	Title     string `json:"title"`
+	ID         string           `json:"id"`
+	Directory  string           `json:"directory"`
+	Title      string           `json:"title"`
+	Permission []PermissionRule `json:"permission,omitempty"`
+	// Preserve unknown revert shapes: any non-null state must be handled by
+	// the native operator before a synthetic prompt can mutate history.
+	Revert json.RawMessage `json:"revert,omitempty"`
 }
 
 // CreateSession creates a new session rooted at directory.
@@ -64,7 +68,7 @@ func (c *Client) CreateSession(ctx context.Context, directory string) (Session, 
 // GetSession fetches a session by ID, confirming it exists before resuming it.
 func (c *Client) GetSession(ctx context.Context, id string) (Session, error) {
 	var session Session
-	if err := c.do(ctx, http.MethodGet, "/session/"+id, nil, &session); err != nil {
+	if err := c.do(ctx, http.MethodGet, "/session/"+url.PathEscape(id), nil, &session); err != nil {
 		return Session{}, fmt.Errorf("opencodeclient: get session %s: %w", id, err)
 	}
 	return session, nil
@@ -82,6 +86,7 @@ func NewTextPart(text string) TextPart { return TextPart{Type: "text", Text: tex
 // PromptRequest is the payload for sending one prompt turn.
 type PromptRequest struct {
 	Parts []TextPart `json:"parts"`
+	Agent string     `json:"agent,omitempty"`
 	// System, if set, is delivered as this turn's system prompt — the
 	// OpenCode analogue of Claude's `_meta.systemPrompt.append` extension,
 	// used to carry the runtime operating-convention framing on a channel

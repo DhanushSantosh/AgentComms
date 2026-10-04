@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"testing"
@@ -13,9 +14,8 @@ import (
 )
 
 // TestManualSmokeCodexLive is intentionally gated because it uses a real
-// Codex subscription. It verifies two turns share one persistent process;
-// attach behavior is exercised by running `agent-comms codex attach` while
-// this test is active.
+// Codex subscription. It verifies project-scoped broker registration and
+// two HTTP prompt turns sharing one persistent provider conversation.
 func TestManualSmokeCodexLive(t *testing.T) {
 	if os.Getenv("AGENTCOMMS_CODEX_LIVE_SMOKE") != "1" {
 		t.Skip("set AGENTCOMMS_CODEX_LIVE_SMOKE=1 to run the real Codex live smoke test")
@@ -26,26 +26,38 @@ func TestManualSmokeCodexLive(t *testing.T) {
 	}
 	root := t.TempDir()
 	runtimeID := "codex-live-smoke-" + uuid.NewString()
-	process, err := codexserve.Start(context.Background(), codexserve.ProcessConfig{
+	broker := codexserve.NewBroker()
+	defer broker.Close()
+	server := httptest.NewServer(broker.Handler())
+	defer server.Close()
+	client, err := codexserve.NewForProject(server.URL, "smoke-project-"+uuid.NewString())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	threadID, err := client.Register(ctx, runtimeID, codexserve.ProcessConfig{
 		Executable: codex, WorkDir: root, Sandbox: "workspace-write",
+		// Keep the user's normal config untouched when the local default
+		// model is unavailable to the account used for this optional smoke.
+		Model: os.Getenv("AGENTCOMMS_CODEX_SMOKE_MODEL"),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = process.Close() }()
-	t.Logf("runtime %s bound to thread %s", runtimeID, process.ThreadID())
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
-	defer cancel()
-	first, err := process.Send(ctx, codexPrompt("SMOKE", model.Invocation{
+	if threadID == "" {
+		t.Fatal("broker did not bind a provider thread")
+	}
+	first, err := client.Prompt(ctx, runtimeID, codexPrompt("SMOKE", model.Invocation{
 		ID: "inv-one", RequestedBy: "TEST", Priority: "NORMAL",
-		Instruction: "Remember the word BANANA. Reply only with REMEMBERED.",
+		Instruction: "Do not use tools or read files. Remember the word BANANA. Reply only with REMEMBERED.",
 	}))
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := process.Send(ctx, codexPrompt("SMOKE", model.Invocation{
+	second, err := client.Prompt(ctx, runtimeID, codexPrompt("SMOKE", model.Invocation{
 		ID: "inv-two", RequestedBy: "TEST", Priority: "NORMAL",
-		Instruction: "What word did I ask you to remember? Reply with only that word.",
+		Instruction: "Do not use tools or read files. What word did I ask you to remember? Reply with only that word.",
 	}))
 	if err != nil {
 		t.Fatal(err)

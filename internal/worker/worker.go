@@ -131,7 +131,10 @@ func validateConfig(config *Config) error {
 	return nil
 }
 
-func (w *Worker) Run(ctx context.Context) error {
+func (w *Worker) Run(ctx context.Context) (result error) {
+	if lifecycle, ok := w.adapter.(interface{ Close() error }); ok {
+		defer func() { result = errors.Join(result, lifecycle.Close()) }()
+	}
 	state, err := w.config.Service.State()
 	if err != nil {
 		return err
@@ -315,6 +318,10 @@ func decodeInvocationAction(raw string) (*invocationAction, error) {
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&action); err != nil {
 		return nil, fmt.Errorf("decode follow-up action: %w", err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return nil, errors.New("follow-up action must contain exactly one JSON value")
 	}
 	if strings.TrimSpace(action.Target) == "" || strings.TrimSpace(action.Instruction) == "" {
 		return nil, errors.New("follow-up target and instruction are required")

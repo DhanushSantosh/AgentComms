@@ -163,6 +163,13 @@ func (m Model) View() tea.View {
 	if m.palette {
 		screen = m.renderPalette(p, screen)
 	}
+	// Pane floors keep layout calculations safe, but cannot enlarge the
+	// actual terminal. Apply the physical bounds after every overlay too.
+	if m.width <= 0 || m.height <= 0 {
+		screen = ""
+	} else {
+		screen = lipgloss.NewStyle().MaxWidth(m.width).MaxHeight(m.height).Render(screen)
+	}
 	v := tea.NewView(screen)
 	// BackgroundColor/ForegroundColor deliberately left nil: the TUI
 	// never sets the terminal's own colors, so what it draws sits on

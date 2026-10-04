@@ -161,6 +161,8 @@ jobs:
   landing:
     timeout-minutes: 30
     runs-on: ubuntu-latest
+    env:
+      AGENT_COMMS_RELEASE_API_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
         with: {fetch-depth: 0}

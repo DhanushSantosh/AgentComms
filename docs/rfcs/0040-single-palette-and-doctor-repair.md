@@ -2,7 +2,7 @@
 
 ## Status and owners
 
-**Accepted, 2026-09-29.** Owner: Dhanush Santosh. Drafted by codex-main.
+**Accepted, 2026-09-29.** Owner: the project maintainer. Drafted by codex-main.
 The owner accepted this contract conditional on matching the implementation;
 the CLI help, TUI palette and legacy-config behavior, doctor repair branches,
 structured output, regression tests, generated reference, and repository-wide

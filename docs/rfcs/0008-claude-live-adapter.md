@@ -334,7 +334,7 @@ change in this project has touched, in the same style already established:
   serve`/`claude attach` commands.
 - Rebuild and reinstall the CLI binary
   (`go build -o /tmp/agent-comms-rebuild ./cmd/agent-comms && mv
-  /tmp/agent-comms-rebuild /home/dhanush/.local/bin/agent-comms` — `mv`, not
+  /tmp/agent-comms-rebuild /home/example/.local/bin/agent-comms` — `mv`, not
   `cp`, onto a binary that may currently be loaded by a running process) —
   this project has been bitten twice this session by testing against a
   stale installed binary; don't skip this step.

@@ -1,169 +1,27 @@
-type Release = {
+export type Release = {
   version: string;
-  channel: "BETA" | "STABLE";
+  channel: "STABLE";
   name: string;
   date: string;
   dateLabel: string;
   highlights: readonly string[];
 };
 
+// Published stable releases only. Add a release during promotion; beta history
+// is preserved in docs/site/releases/changelog.md and is not bundled here.
 export const releases: readonly Release[] = [
   {
-    version: "v0.8.2",
-    channel: "BETA",
-    name: "Order of Arrival",
-    date: "2026-10-02",
-    dateLabel: "2 Oct 2026",
+    version: "v1.0.0",
+    channel: "STABLE",
+    name: "Pilot",
+    date: "2026-10-04",
+    dateLabel: "4 Oct 2026",
     highlights: [
-      "Messages and every other project record carry created and updated times from their signed history, shown in the CLI, JSON, MCP and the TUI.",
-      "Breaking: lists show the newest first, and message inbox --limit returns the newest messages, so a recent message can no longer hide behind how its ID sorts.",
-      "Breaking: existing projects need a one-time project upgrade, and shared servers a confirmed migration, to backfill timestamps from verified history.",
-      "JSON lists include an order array, and the new MCP message_inbox tool returns the same order.",
-      "Fixes the overview's plural counts, daemon replacement on Windows, and prerelease version comparison."
-    ]
-  },
-  {
-    version: "v0.8.1",
-    channel: "BETA",
-    name: "Room to Work",
-    date: "2026-10-01",
-    dateLabel: "1 Oct 2026",
-    highlights: [
-      "The TUI keeps tables, inspectors, and scrollable panes inside the terminal, with aligned key hints and the complete project ID.",
-      "doctor --fix repairs routine project-lifecycle findings and recovers an unavailable local daemon while preserving confirmation boundaries.",
-      "Breaking: config theme and the TUI theme toggle are removed; the single palette uses the terminal's background and ignores older theme values.",
-      "Principal display names resolve consistently, and ambiguous names stop the operation rather than choosing an identity.",
-      "Corrects a confirmed Windows named-pipe shutdown deadlock and hardens daemon and delivery regression tests.",
-      "Updates Next.js to 16.3.8 to address the reported advisory."
-    ]
-  },
-  {
-    version: "v0.8.0",
-    channel: "BETA",
-    name: "Roll Call",
-    date: "2026-09-27",
-    dateLabel: "27 Sep 2026",
-    highlights: [
-      "An agent's ID now names the AI provider behind it \u2014 claude, claude-2, codex-reviewer \u2014 so which runtime produced an event is answerable from the identity itself. Registering one no longer requires inventing an ID.",
-      "Display names are free-form and optional, and a principal can be addressed by display name anywhere an actor ID is accepted; the signed record still stores the actor ID.",
-      "Team mode against a shared authority works: every command in a service-mode project previously failed with 401, because the daemon was never given the authority token.",
-      "draft delete removes one local draft and releases the count and storage quota it held.",
-      "Action-scoped approvals now honour the expiry they were given, and asking for one that has already closed is refused instead of silently never expiring."
-    ]
-  },
-  {
-    version: "v0.7.1",
-    channel: "BETA",
-    name: "Wrong Door",
-    date: "2026-09-19",
-    dateLabel: "19 Sep 2026",
-    highlights: [
-      "Every per-project session cache (live-serve tracking, runtime session bindings) now lives outside the project directory entirely, so a stray non-project folder can no longer be corrupted by it.",
-      "A command run outside any Agent Comms project now fails immediately with a clear NOT_A_PROJECT error and a next step, instead of a raw filesystem error.",
-      "update check and update apply are merged into one interactive update command that checks first, then prompts to install.",
-      "Removes the duplicate project upgrade status command."
-    ]
-  },
-  {
-    version: "v0.7.0",
-    channel: "BETA",
-    name: "Read Receipt",
-    date: "2026-09-17",
-    dateLabel: "17 Sep 2026",
-    highlights: [
-      "Removes agent-comms live tail in favor of live attach, the one supported way to watch a live agent session for both Claude and Codex.",
-      "Every CLI command now documents itself under --help, with examples for the non-obvious lifecycle and approval commands.",
-      "document notify retries a stuck document acknowledgement without duplicating one already sent; message show reads a message directly.",
-      "agc, a short alias for agent-comms, installed alongside the main binary.",
-      "TUI document-update edits no longer silently corrupt untouched fields — a real, confirmed bug now fixed end to end."
-    ]
-  },
-  {
-    version: "v0.6.0",
-    channel: "BETA",
-    name: "Chain of Trust",
-    date: "2026-09-03",
-    dateLabel: "3 Sep 2026",
-    highlights: [
-      "Approvals for contract publication and approval-gated invocations now bind to a SHA-256 digest of the exact operation and an expiry — a later, differing operation can no longer ride an approval issued for something else.",
-      "Standalone installers are now version-pinned and verify the release verifier's own digest against a value committed in the release tag, closing the prior circular trust in first-install verification.",
-      "The shared authority service now supports an application-level bearer token (AGENT_COMMS_AUTHORITY_TOKEN), required in production alongside existing TLS and signing-key requirements.",
-      "Orchestrator-grant and task-takeover approvals are now single-use — a matching approval is consumed once used and can no longer be replayed to re-authorize the same grant or takeover indefinitely.",
-      "Fixes two high-severity CVEs (google.golang.org/grpc, fast-uri)."
-    ]
-  },
-  {
-    version: "v0.5.0",
-    channel: "BETA",
-    name: "Plain Speech",
-    date: "2026-08-26",
-    dateLabel: "26 Aug 2026",
-    highlights: [
-      "Every command's default human output changes from a raw JSON dump to a readable summary — semantic status, tables, and next-action hints — while --json stays byte-compatible.",
-      "New --output human|plain|json|jsonl contract: plain is the stable uncolored fallback for redirected output, jsonl is a new versioned stream contract for watch and invocation listen.",
-      "agent-comms project delete permanently deletes a project, local and remote, with no automatic backup — OWNER-only, elevated-key required, no scripted path."
-    ]
-  },
-  {
-    version: "v0.4.0",
-    channel: "BETA",
-    name: "Proof of Presence",
-    date: "2026-08-14",
-    dateLabel: "14 Aug 2026",
-    highlights: [
-      "Identity resolution can no longer silently misattribute a signed action to the wrong actor — closes a real, confirmed incident across the CLI, MCP, and TUI.",
-      "Self-service role switching (agent switch-role): any principal can relabel its own role, including freeform custom labels, with no owner/orchestrator elevation required.",
-      "interactive-serve now works on Windows, built on ConPTY in place of a unix domain socket and POSIX signals.",
-      "install.sh/install.ps1 and agent-comms update no longer need a separately installed cosign CLI to verify a release.",
-      "A deep TUI interaction audit: real mouse support in the command palette, a dead keybinding collision fixed, and a real focused-tab indicator."
-    ]
-  },
-  {
-    version: "v0.3.0",
-    channel: "BETA",
-    name: "Point and Click",
-    date: "2026-08-08",
-    dateLabel: "8 Aug 2026",
-    highlights: [
-      "Full native mouse support across the TUI, which now scales to a real terminal size instead of requiring a desktop-sized minimum.",
-      "Session-pinned interactive delivery — a restarted session resumes the exact right conversation instead of racing each provider CLI's own guess.",
-      "A declarative JSON adapter system: add a new CLI provider without touching Go.",
-      "A public marketing site and docs site."
-    ]
-  },
-  {
-    version: "v0.2.1",
-    channel: "BETA",
-    name: "The Missing Bundle",
-    date: "2026-08-02",
-    dateLabel: "2 Aug 2026",
-    highlights: [
-      "Hotfix: restored the Cosign-signed CLI installer bundles v0.2.0's release was missing, so install.sh/install.ps1 work again."
-    ]
-  },
-  {
-    version: "v0.2.0",
-    channel: "BETA",
-    name: "Chain of Custody",
-    date: "2026-07-31",
-    dateLabel: "31 Jul 2026",
-    highlights: [
-      "One-command project upgrades, with automatic backup and full post-upgrade verification.",
-      "Orchestrator grants now require a separate, human-approved decision.",
-      "A passphrase-protected elevated key gates the most sensitive actions.",
-      "Interactive delivery is a real, auditable state machine — no connector can fake a delivery."
-    ]
-  },
-  {
-    version: "v0.1.0",
-    channel: "BETA",
-    name: "The Control Room",
-    date: "2026-07-19",
-    dateLabel: "19 Jul 2026",
-    highlights: [
-      "First tagged release: signed events, protected work leases, typed messages, approvals.",
-      "Zero-setup SQLite personal authority, or a shared PostgreSQL team authority.",
-      "Full console TUI across Command, Work, Team, Relay, and Project hubs."
+      "The first stable release: from here on, breaking changes to the public contract require a new major version.",
+      "OpenCode live enforces the permission mode on every turn, preserves native deny rules and allows edits only in acceptEdits.",
+      "Permission prompts are answered only for the session that owns them, and orchestrator-grant approvals honor their expiry.",
+      "Cancelled or closed providers are terminated, including their child processes, instead of overrunning their deadline.",
+      "Breaking: restart live workers after upgrading; Codex and Claude live runtimes are scoped per project, and each OpenCode live worker owns its native server."
     ]
   }
-] as const;
+];

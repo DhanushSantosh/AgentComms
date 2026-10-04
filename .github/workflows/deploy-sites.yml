@@ -37,6 +37,7 @@ jobs:
         working-directory: sites/${{ matrix.site }}
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          AGENT_COMMS_RELEASE_API_TOKEN: ${{ github.token }}
           DOCS_SITE_URL: https://agentcomms-docs.vercel.app
           PUBLIC_MARKETING_SITE_URL: https://agentcomms-cli.vercel.app
           NEXT_PUBLIC_DOCS_URL: https://agentcomms-docs.vercel.app

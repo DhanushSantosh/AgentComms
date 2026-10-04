@@ -118,8 +118,8 @@ func TestOwnerSeesEveryMessageByRealOwnerID(t *testing.T) {
 			"msg-1": {Kind: "ACTION", From: "claude-builder", Subject: "narrow", To: []string{"claude-builder"}},
 		},
 	}
-	source := messageRowSource{owner: "Dhanush"}
-	if ids := source.filteredIDs(state, "Dhanush"); len(ids) != 1 {
+	source := messageRowSource{owner: "Alex"}
+	if ids := source.filteredIDs(state, "Alex"); len(ids) != 1 {
 		t.Fatalf("real owner should see every message regardless of To; got %v", ids)
 	}
 	if ids := source.filteredIDs(state, "owner"); len(ids) != 0 {

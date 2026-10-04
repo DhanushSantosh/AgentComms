@@ -2,7 +2,7 @@
 
 ## Status and owners
 
-**Accepted, 2026-10-02.** Owner: Dhanush Santosh. Drafted by codex-main and
+**Accepted, 2026-10-02.** Owner: the project maintainer. Drafted by codex-main and
 reviewed by claude-main. The owner accepted the design through the governed
 Agent Comms decision `msg-rfc0041-accepted-20261002`; the review decisions in
 document `rfc0041-review-20261002` are incorporated below.

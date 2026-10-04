@@ -3,6 +3,7 @@ package authority
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"sync"
@@ -15,12 +16,22 @@ import (
 )
 
 func TestPostgresTransactionalAuthority(t *testing.T) {
+	testPostgresTransactionalAuthority(t, 0)
+}
+
+// The same workload with fewer connections separates application-level pool
+// queueing from time spent waiting on the project's serialization row lock.
+func TestPostgresTransactionalAuthorityBoundedPool(t *testing.T) {
+	testPostgresTransactionalAuthority(t, 4)
+}
+
+func testPostgresTransactionalAuthority(t *testing.T, maxConnections int) {
 	databaseURL := os.Getenv("AGENT_COMMS_TEST_POSTGRES_URL")
 	if databaseURL == "" {
 		t.Skip("AGENT_COMMS_TEST_POSTGRES_URL is not configured")
 	}
 	serviceSigner, _ := controlplane.GenerateSigner()
-	engine, err := Open(context.Background(), Config{DatabaseURL: databaseURL}, serviceSigner)
+	engine, err := Open(context.Background(), Config{DatabaseURL: databaseURL, MaxConnections: maxConnections}, serviceSigner)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,6 +273,82 @@ func TestPostgresTransactionalAuthority(t *testing.T) {
 	}
 }
 
+func TestPostgresMutationLockTimeoutIsRecoverable(t *testing.T) {
+	databaseURL := os.Getenv("AGENT_COMMS_TEST_POSTGRES_URL")
+	if databaseURL == "" {
+		t.Skip("AGENT_COMMS_TEST_POSTGRES_URL is not configured")
+	}
+	signer, err := controlplane.GenerateSigner()
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine, err := Open(context.Background(), Config{
+		DatabaseURL: databaseURL, StatementTimeout: time.Second,
+	}, signer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer engine.Close()
+	projectID := "lock-timeout-" + uuid.NewString()
+	if err := engine.CreateProject(context.Background(), projectID, "owner"); err != nil {
+		t.Fatal(err)
+	}
+	ownerSigner, err := controlplane.GenerateSigner()
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := model.EncodePayload("agent.register", model.AgentRegistered{
+		PublicKey: ownerSigner.PublicKey(), PrincipalType: model.PrincipalHuman,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	command := controlplane.Command{
+		ProjectID: projectID, Actor: "owner", Type: "agent.register", EntityID: "owner",
+		PublicKey: ownerSigner.PublicKey(), Payload: payload,
+		IdempotencyKey: uuid.NewString(), IssuedAt: time.Now().UTC(),
+	}
+	if err := command.Sign(ownerSigner.PrivateKey()); err != nil {
+		t.Fatal(err)
+	}
+	lock, err := engine.db.BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Rollback()
+	var owner string
+	if err := lock.QueryRow(`SELECT owner_id FROM projects WHERE project_id=$1 FOR UPDATE`, projectID).Scan(&owner); err != nil {
+		t.Fatal(err)
+	}
+	// The blocked valid request must not append an event on timeout, and the
+	// exact same idempotent command must remain retryable once the lock clears.
+	_, _, err = engine.Mutate(context.Background(), command)
+	var failure *controlplane.Error
+	if !errors.As(err, &failure) || failure.Code != controlplane.CodeUnavailable {
+		t.Fatalf("serialization timeout must be recoverable UNAVAILABLE: %v", err)
+	}
+	if err := lock.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	_, metadata, err := engine.State(context.Background(), projectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if metadata.ServerSequence != 0 {
+		t.Fatalf("timed-out mutation changed signed history: sequence=%d", metadata.ServerSequence)
+	}
+	event, receipt, err := engine.Mutate(context.Background(), command)
+	if err != nil {
+		t.Fatalf("valid command could not recover after serialization timeout: %v", err)
+	}
+	if event.Sequence != 1 || !controlplane.VerifyReceipt(receipt, signer.PublicKey()) {
+		t.Fatal("recovered mutation did not produce the first signed event/receipt")
+	}
+	if err := engine.Healthy(context.Background()); err != nil {
+		t.Fatalf("serialization timeout poisoned the authority connection pool: %v", err)
+	}
+}
+
 func TestConcurrentSchemaInitializationIsSerialized(t *testing.T) {
 	databaseURL := os.Getenv("AGENT_COMMS_TEST_POSTGRES_URL")
 	if databaseURL == "" {
@@ -305,10 +392,7 @@ func TestConcurrentSchemaInitializationIsSerialized(t *testing.T) {
 // applied when the caller passes allowDisruptive=true -- the same flag
 // `agent-comms-server migrate apply --yes --allow-disruptive` sets.
 func TestApplySchemaSkipsDisruptiveMigrationWithoutAllowFlag(t *testing.T) {
-	databaseURL := os.Getenv("AGENT_COMMS_TEST_POSTGRES_URL")
-	if databaseURL == "" {
-		t.Skip("AGENT_COMMS_TEST_POSTGRES_URL is not configured")
-	}
+	databaseURL := migrationDatabaseURL(t)
 	db, err := sql.Open("pgx", databaseURL)
 	if err != nil {
 		t.Fatal(err)

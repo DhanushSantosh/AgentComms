@@ -402,9 +402,9 @@ kept:
 - **No `agent-comms live serve --provider opencode` is correct, not a
   gap.** `claudeserve`/`codexserve` exist because the `claude` and
   `codex` CLIs have no live-attach story of their own; OpenCode ships
-  `opencode serve` + `opencode attach` natively, which
-  `opencodeclient.EnsureServer` and the `opencode-live` adapter use
-  directly. RFC 0027's `live` group is scoped to claude/codex on
+  `opencode serve` + `opencode attach` natively, which the `opencode-live`
+  adapter uses through its worker-owned server (RFC 0049). RFC 0027's
+  `live` group is scoped to claude/codex on
   purpose; `--provider opencode` is rejected by the `provider()` helper.
 - **Team mode (`internal/authority`, Postgres, deploy/recovery guides,
   integration tests) is kept.** The stated default is personal mode, but

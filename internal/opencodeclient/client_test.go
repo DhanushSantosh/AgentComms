@@ -297,7 +297,7 @@ func TestPermissionWatcherAutoApprovesReadCategory(t *testing.T) {
 	client := New(server.URL, "")
 
 	approver := &fixedApprover{approve: false}
-	watcher := NewPermissionWatcher(client, func() bool { return false }, approver)
+	watcher := NewPermissionWatcher(client, "ses_test1", func() bool { return false }, approver)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	events, err := Subscribe(ctx, client)
@@ -329,7 +329,7 @@ func TestPermissionWatcherRoutesBashThroughGovernance(t *testing.T) {
 	client := New(server.URL, "")
 
 	approver := &fixedApprover{approve: false}
-	watcher := NewPermissionWatcher(client, func() bool { return true }, approver)
+	watcher := NewPermissionWatcher(client, "ses_test1", func() bool { return true }, approver)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	events, err := Subscribe(ctx, client)
@@ -363,7 +363,7 @@ func TestPermissionWatcherModeGatedEditRespectsAllowEdits(t *testing.T) {
 	defer server.Close()
 	client := New(server.URL, "")
 
-	watcher := NewPermissionWatcher(client, func() bool { return true }, &fixedApprover{approve: false})
+	watcher := NewPermissionWatcher(client, "ses_test1", func() bool { return true }, &fixedApprover{approve: false})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	events, err := Subscribe(ctx, client)
@@ -388,7 +388,7 @@ func TestPermissionWatcherResetTurnClearsDenials(t *testing.T) {
 	defer server.Close()
 	client := New(server.URL, "")
 
-	watcher := NewPermissionWatcher(client, func() bool { return false }, &fixedApprover{approve: false})
+	watcher := NewPermissionWatcher(client, "ses_test1", func() bool { return false }, &fixedApprover{approve: false})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	events, err := Subscribe(ctx, client)
