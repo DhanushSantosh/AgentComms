@@ -392,10 +392,7 @@ func TestConcurrentSchemaInitializationIsSerialized(t *testing.T) {
 // applied when the caller passes allowDisruptive=true -- the same flag
 // `agent-comms-server migrate apply --yes --allow-disruptive` sets.
 func TestApplySchemaSkipsDisruptiveMigrationWithoutAllowFlag(t *testing.T) {
-	databaseURL := os.Getenv("AGENT_COMMS_TEST_POSTGRES_URL")
-	if databaseURL == "" {
-		t.Skip("AGENT_COMMS_TEST_POSTGRES_URL is not configured")
-	}
+	databaseURL := migrationDatabaseURL(t)
 	db, err := sql.Open("pgx", databaseURL)
 	if err != nil {
 		t.Fatal(err)

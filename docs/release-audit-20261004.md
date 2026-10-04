@@ -13,17 +13,17 @@ CI, not inferred from Linux cross-compilation.
 | Whole Go tree | Full suite, vet, race, staticcheck, coverage floors | Immutable ff682f8 full uncached race passed; 498e070 native matrix (including coverage gate), security and cross-build passed; audit source/behavior review continues |
 | Identities, governance, protocol | Role/credential isolation, approval expiry/binding/consumption, replay and rejection cases | Protocol, projection, projectlifecycle, identity and personal authority packages passed three uncached repetitions; deeper source review pending |
 | Storage and upgrades | Signed-history replay, tamper rejection, SQLite/cache and Postgres timestamp migration | Fresh SQLite/cache lifecycle race suite passed; actual Postgres migration/confirmation/future-schema checks and new corrupt-history/projection rejection tests passed |
-| Shared authority and recovery | Authentication, writes, idempotency, cache lag, retry, deletion, stream admission | Uncached Postgres authority/daemon suites passed; coverage 53.5% / 44.5%; race and further stress pending |
+| Shared authority and recovery | Authentication, writes, idempotency, cache lag, retry, deletion, stream admission | Fresh parallel uncached Postgres authority/daemon race passed after test-fixture isolation (28.406 / 89.451 seconds); exact CI coverage command passed at 54.4% / 44.5%; broader source review continues |
 | CLI/MCP | Actual adapter writes, result/order/history parity, generated reference consistency, failure semantics | Isolated authoritative adapter parity passed uncached (12.743 seconds); broader runtime checks pending |
 | TUI | Navigation/actions, constrained panes, resize, ordering, approvals, runtime-independent messaging | Full TUI suite passed uncached (91.617 seconds); fresh-binary PTY navigation/resize/quit and runtime-independent overview passed; remaining interaction/source review pending |
 | Runtime/providers | Local-process lifecycle, durable delivery and real installed provider smoke | Claude and explicit-model Codex live two-turn smokes passed; OpenCode no-tool worker smoke passed; extra-root, accepted RFC 0042 isolation rejection and acknowledged-crash fixes tested; broader adapter review pending |
 | Installation and release trust | Authentic installer bootstrap, genuine signature acceptance, tamper/identity/issuer rejection | Live releaseverify suite passed uncached, including all four genuine-release subtests |
 | Platforms | Native Linux/Windows/macOS tests, Windows pipe-close regression, six-target/four-binary builds | All three platform jobs and cross-build passed on 498e070 in CI 37152023503 |
 | Go dependencies | govulncheck and direct/transitive exposure review | Compatible x/crypto and x/mod security updates validated; refreshed scan has no called/package findings, only upstream-test-only OpenPGP module advisory |
-| Site dependencies | npm audit, impact assessment and any fixes | Accepted RFC 0043 pinned patch passes 20 behavior/maintenance checks and unchanged npm audit; complete site and candidate CI verification in progress |
-| Docs/landing | Build, content generation, keyboard/mobile/desktop/browser/visual and Lighthouse checks | Post-patch checks/builds, docs 45/landing 71 browser tests and unchanged Lighthouse thresholds passed locally; exact patch CI pending |
-| Production deployment | Exact candidate deploy and release/version correctness | Token regression tests and production build pass; both site deployments passed on e573c90 in workflow 37146103139 |
-| Repository coordination | Inbox obligations, integrity, doctor, task state and exact Git/CI refs | Claude informed before audit and updated with blockers; integrity verified, doctor clear; 2521418 and e573c90 pushed to dev |
+| Site dependencies | npm audit, impact assessment and any fixes | Accepted RFC 0043 pinned patch passes 20 behavior/maintenance checks and unchanged npm audit; c50385a docs/landing/security CI jobs passed |
+| Docs/landing | Build, content generation, keyboard/mobile/desktop/browser/visual and Lighthouse checks | Post-patch checks/builds, docs 45/landing 71 browser tests and unchanged Lighthouse thresholds passed locally; both site CI jobs passed on c50385a |
+| Production deployment | Exact candidate deploy and release/version correctness | Both site deployments passed on c50385a in workflow 37178144647; live landing download reports v0.8.2 and docs releases/changelog serves the beta archive |
+| Repository coordination | Inbox obligations, integrity, doctor, task state and exact Git/CI refs | Claude updated through sequence 516; integrity verified through 514; c50385a confirmed on origin/dev. CI 37178144687 completed successfully across all eight jobs |
 
 ## Findings under investigation
 
@@ -386,6 +386,58 @@ The Go-dependency candidate `498e070` CI `37152023503` completed: all native
 platform, Postgres, security and cross-build jobs passed, with both site jobs
 failing the prior locked 4.2.0 advisory. The newly reproduced 4.3.0 behavioral
 failure was discovered locally afterward and remains a distinct repair gate.
+
+## Postgres migration fixture isolation
+
+The authority and daemon integration packages run concurrently against one
+configured test database in CI. Three authority tests changed global
+`schema_migrations` entries: backfill restoration removed version 7,
+future-schema refusal inserted version 900002, and disruptive-confirmation
+inserted version 900001. Their project UUIDs did not isolate those global
+changes from the other package's authority startup or mutation traffic.
+
+A deterministic regression first reproduced contamination: with a synthetic
+future-version fixture active, an unrelated `ApplySchema` rejected the shared
+database as newer than this binary. The test-only helper now creates a fresh
+database for each schema-mutating test, preserves connection settings, and
+drops only its generated database after deferred engine/connection closure.
+The regression retains future-schema refusal in the fixture while requiring
+the shared database's migration check and a real unrelated `Open` to succeed.
+The test role requires `CREATEDB`; the production server does not. Contributor
+guidance requires a disposable test database and CI's existing role supplies
+the privilege. Production code, timeout budgets and package parallelism are
+unchanged.
+
+The four targeted tests passed three race-enabled repetitions (20.783
+seconds). After adding the real authority startup assertion, the full
+parallel `go test -race -count=1 -v ./internal/authority/...
+./internal/daemon/...` passed against disposable Postgres 17: authority
+28.406 seconds, daemon 89.451 seconds. The actual 61-invocation lag/burst
+test passed in 87.00 seconds. A direct database inventory afterward found
+zero `agc_migration_*` databases. Vet and diff checks passed. Durable log:
+`/tmp/agc-pg-isolated-migrations-race-20261004.log`.
+
+The unchanged parallel CI coverage command also passed uncached: authority
+14.167 seconds / 54.4%, daemon 7.841 seconds / 44.5%. Log:
+`/tmp/agc-pg-isolated-migrations-coverage-20261004.log`.
+
+This closes a reproduced fixture-isolation fault, not a proven explanation
+of the earlier SQLSTATE 57014 or queued-delivery timeout. Those observations
+remain recorded; one successful combined run does not establish zero flakes.
+
+## ACP capability follow-up
+
+Fresh `GOMAXPROCS=2 go test -race -count=1 ./internal/acpclient
+./internal/worker` passed on c50385a (1.178 / 14.388 seconds). Separate source
+review found that the public worker CLI forwards `CodexIgnoreUserConfig`
+to codex-acp, which accepts the option without implementing or forwarding it.
+A temporary direct regression expecting rejection failed with exit one:
+`codexACPAdapter.Validate` returned nil for read-only sandbox plus requested
+user-config isolation. The owned temporary probe was removed afterward.
+This is a reproduced false capability assurance, not a demonstrated exploit.
+RFC 0044 proposes the same fail-before-launch rule as RFC 0042, with native
+Codex exec as the explicit supported alternative. It is proposed, not
+accepted or implemented; this follow-up remains open.
 
 Complete the pending ledger with exact commands, revisions and outcomes;
 resolve validated release blockers without weakening integrity or security

@@ -20,10 +20,7 @@ import (
 // replay, and the confirmed migration restores exactly the times the live
 // projection records.
 func TestBackfillRestoresEntityTimestampsFromHistory(t *testing.T) {
-	databaseURL := os.Getenv("AGENT_COMMS_TEST_POSTGRES_URL")
-	if databaseURL == "" {
-		t.Skip("AGENT_COMMS_TEST_POSTGRES_URL is not configured")
-	}
+	databaseURL := migrationDatabaseURL(t)
 	ctx := context.Background()
 	serviceSigner, _ := controlplane.GenerateSigner()
 	engine, err := Open(ctx, Config{DatabaseURL: databaseURL}, serviceSigner)
@@ -118,10 +115,7 @@ func TestBackfillRestoresEntityTimestampsFromHistory(t *testing.T) {
 // TestNewerSchemaIsRefused proves an older binary will not run against a
 // database a newer one has migrated.
 func TestNewerSchemaIsRefused(t *testing.T) {
-	databaseURL := os.Getenv("AGENT_COMMS_TEST_POSTGRES_URL")
-	if databaseURL == "" {
-		t.Skip("AGENT_COMMS_TEST_POSTGRES_URL is not configured")
-	}
+	databaseURL := migrationDatabaseURL(t)
 	ctx := context.Background()
 	db, err := sql.Open("pgx", databaseURL)
 	if err != nil {

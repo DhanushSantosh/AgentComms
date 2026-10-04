@@ -61,6 +61,14 @@ To put your build on `PATH` instead of running it from `./bin`, either copy it i
 
 ## Rules for any change
 
+Postgres-backed tests opt in through `AGENT_COMMS_TEST_POSTGRES_URL`. Use a
+disposable PostgreSQL 17 database and a test role with `CREATEDB`, never a
+production database. Schema-mutating authority tests create isolated
+databases and remove only their own generated fixtures; daemon and ordinary
+authority tests may run concurrently against the configured database. CI's
+Postgres service provides these test-only privileges. The production server
+does not require `CREATEDB`.
+
 Do not weaken authorization, integrity verification, authority transactions, release verification, or the contamination guard.
 
 Public contracts, schemas, governance, signing, storage transactions, installation security, supported platforms, and major TUI navigation require an accepted RFC before implementation. See [development workflow](docs/development-workflow.md), [RFC guidance](docs/rfcs/README.md), and [maintainer guidance](docs/maintainers.md).
