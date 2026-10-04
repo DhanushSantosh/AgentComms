@@ -673,3 +673,22 @@ The separately observed full app race suite completed successfully (583.425s)
 on the c7c486e source state. Its 20-minute local observation window changed no
 assertion or CI timeout. c7c486e passed exact CI 37184821421, and ea3c99f passed
 exact CI 37185155412. Later source changes still need their own candidate CI.
+
+## ACP direct-process reaping
+
+A real spawned synthetic ACP agent completed initialize/new-session/prompt,
+then failed the Close-reaping regression in three uncached repetitions
+(0.056s): ProcessState remained nil. The red fixture explicitly reaped its
+own child during cleanup so investigation did not leave zombies.
+
+Close now kills and waits for the directly owned process once, closing its
+command pipes and releasing the CommandContext wait machinery. Expected
+termination exit status is cleanup success; other kill/wait errors remain
+errors. Pipe-wired sessions retain their non-owning no-op close behavior.
+This changes no provider child-tree policy or protocol permission rules.
+
+Focused three-repeat race verification passed (1.184s). The final fixture
+checks eight concurrent closes, actual prompt output, reaped ProcessState,
+connection shutdown and repeated-close behavior. Full ACP/worker race suites
+passed (1.229s/21.296s); vet and Windows test-binary compilation passed.
+Exact candidate native CI remains required after pushing this correction.

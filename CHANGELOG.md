@@ -23,6 +23,8 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
   and resumed threads and reject invalid directory paths before launch.
 
 ### Fixed
+- ACP sessions reap their spawned provider process on close, including failed
+  handshakes, and safely share cleanup across repeated or concurrent calls.
 - Exec-provider cancellation terminates invocation-owned process groups/jobs
   and bounds output draining instead of waiting indefinitely on inherited pipes.
 - Custom adapter prompts identify the actual invocation requester separately

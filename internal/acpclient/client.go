@@ -12,6 +12,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -93,6 +94,8 @@ type Session struct {
 	cmd       *exec.Cmd
 	conn      *acpsdk.ClientSideConnection
 	sessionID acpsdk.SessionId
+	closeOnce sync.Once
+	closeErr  error
 
 	mu          sync.Mutex
 	output      strings.Builder
@@ -247,13 +250,25 @@ func (s *Session) Cancel(ctx context.Context) error {
 	return s.conn.Cancel(ctx, acpsdk.CancelNotification{SessionId: s.sessionID})
 }
 
-// Close terminates the agent subprocess spawned by Dial. It is a no-op for
+// Close terminates and reaps the agent subprocess spawned by Dial. Repeated
+// calls share the same cleanup result. It is a no-op for
 // pipe-wired sessions, which own no process.
 func (s *Session) Close() error {
 	if s.cmd == nil || s.cmd.Process == nil {
 		return nil
 	}
-	return s.cmd.Process.Kill()
+	s.closeOnce.Do(func() {
+		killErr := s.cmd.Process.Kill()
+		waitErr := s.cmd.Wait()
+		if killErr != nil && !errors.Is(killErr, os.ErrProcessDone) {
+			s.closeErr = killErr
+		}
+		var exitErr *exec.ExitError
+		if waitErr != nil && !errors.As(waitErr, &exitErr) {
+			s.closeErr = errors.Join(s.closeErr, waitErr)
+		}
+	})
+	return s.closeErr
 }
 
 // SessionUpdate implements acpsdk.Client: it accumulates agent-message text
