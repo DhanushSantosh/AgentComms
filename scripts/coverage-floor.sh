@@ -74,6 +74,7 @@ else
 fi
 
 failed=0
+declare -A MEASURED=()
 while IFS= read -r line; do
   case "$line" in
     ok\ *coverage:*'% of statements') ;;
@@ -83,11 +84,19 @@ while IFS= read -r line; do
   pct=$(grep -oE 'coverage: [0-9.]+%' <<<"$line" | grep -oE '[0-9.]+')
   floor="${FLOORS[$pkg]:-}"
   [ -z "$floor" ] && continue
+  MEASURED["$pkg"]=1
   below=$(awk -v p="$pct" -v f="$floor" 'BEGIN{print (p+0 < f+0) ? 1 : 0}')
   if [ "$below" = "1" ]; then
     echo "::error::$pkg coverage ${pct}% is below its floor of ${floor}%"
     failed=1
   fi
 done <<<"$output"
+
+for pkg in "${!FLOORS[@]}"; do
+  if [ -z "${MEASURED[$pkg]:-}" ]; then
+    echo "::error::$pkg has no coverage measurement for its required floor of ${FLOORS[$pkg]}%"
+    failed=1
+  fi
+done
 
 exit "$failed"

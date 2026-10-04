@@ -803,3 +803,44 @@ stress failure or proof that a timing-sensitive flake can never recur.
 Candidate `ae6a741a5227d468c56f50e69f094876c0907916` is signed/verified,
 pushed, and passed all eight CI jobs in `37187258162`, including the delivery
 lease-backoff fix. The newer strict-decoding change still requires its own CI.
+
+## Candidate 171fdec and remaining provider paths
+
+Candidate `171fdec48b16bdfe9025d26b668cdeb3891b9232` is pushed with a verified
+signature and passed all eight native/site/security/Postgres/build jobs in
+CI `37188004826`. This verifies the strict single-value action decoder and
+stronger ACP handoff fixture on the actual candidate, not just its predecessor.
+
+The real OpenCode ACP handoff and execute-denied tests both passed under race
+instrumentation on this source (32.983 seconds). They use disposable projects,
+90-second invocation budgets and the existing governance-deny policy. Handoff
+requires a completed parent, worker-authored result and a correctly routed
+follow-up; the denied shell invocation must enter WAITING with a denial reason,
+not silently report completion. No provider credentials/config were changed.
+These are separate from the earlier plain OpenCode exec receipt test.
+
+## Coverage-gate evidence completeness
+
+The gate audit reproduced a false-positive path in `coverage-floor.sh`:
+it checks only parsed `ok` measurements and did not require every declared
+floor to appear. The real script returned exit 0 for a missing required package,
+empty successful output and a zero-coverage no-test line it did not parse.
+Valid full measurements, a below-floor result and upstream exit 3 controls
+behaved correctly. The synthetic real-script regression was red (3.161s).
+
+The script now tracks measured required packages and fails if any declared
+floor has no measurement. Thresholds, exclusions, test commands and failure
+propagation are unchanged. The regression uses a disposable fake `go` executable
+only in its child environment; it cannot invoke the developer's actual tests
+recursively. It checks all positive/negative controls and is Linux-only because
+the Bash coverage gate is Linux CI's contract, not a new Windows/macOS shell
+dependency. Three race repetitions passed (9.656 seconds); syntax, focused vet
+and diff checks passed. A fresh actual `GOMAXPROCS=2 GOTOOLCHAIN=go1.26.6
+./scripts/coverage-floor.sh` completed with exit 0 and unchanged default package
+deadlines. All declared floors had measurements and passed; app 342.879s/66.2%,
+TUI 101.712s/80.5%, worker 6.078s/67.3%. Some unchanged packages reused Go's
+test cache, so this is the actual coverage command's result, not a new fully
+uncached invocation. Authority's unit-only coverage remains intentionally
+excluded; its real Postgres gate and isolated race evidence are separate.
+The final Linux-scoped regression passed again with race (5.232s).
+Resulting candidate CI is required after committing this gate correction.
