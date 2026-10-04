@@ -1103,3 +1103,24 @@ change thresholds, skip the timed-out test, extend its deadline, or replace
 real native policy controls with mocks. This closes the local gate, not the
 whole-project release audit; new exact-SHA native platform/site/security/
 Postgres CI and final requirement reconciliation remain open.
+
+### Candidate 236175c macOS routing-fixture failure
+
+The two signed/DCO commits f59f438 and 236175c were pushed to dev. Both SSH
+signatures verified locally against the configured public signing key. GitHub
+reported administrative bypass of the PR/check requirements; this is not CI or
+release approval. Exact CI 37212879862 passed security and Postgres, but the
+macOS portable worker test failed: its fixture expected `/var/...` while the
+worker correctly resolved the project to `/private/var/...`.
+
+An explicit Linux directory-symlink case reproduced that same header mismatch
+for both created and resumed sessions (red in 0.050s). The fixture now resolves
+its expected native project identity but still supplies the original alias to
+the worker. It retains exact header, session, disposal-event, foreign-request
+and stream-closure assertions. Both direct and aliased paths passed twenty
+uncached race repetitions in 3.486s. Production routing and permissions did not
+change. A fresh exact-candidate macOS run is required before closure; the
+original failed job is not silently rerun or counted as green.
+
+Full affected-package uncached race passed after the fixture correction (worker
+24.140s, client 2.048s); affected vet, staticcheck and whitespace checks passed.

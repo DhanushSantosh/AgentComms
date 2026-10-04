@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -18,9 +20,28 @@ import (
 )
 
 func TestOpenCodeLiveDoesNotApproveForeignSession(t *testing.T) {
-	for _, resumed := range []bool{false, true} {
-		t.Run(fmt.Sprintf("resumed=%v", resumed), func(t *testing.T) {
+	for _, scenario := range []struct{ resumed, symlink bool }{{false, false}, {true, false}, {false, true}, {true, true}} {
+		t.Run(fmt.Sprintf("resumed=%v/symlink=%v", scenario.resumed, scenario.symlink), func(t *testing.T) {
 			root := t.TempDir()
+			if scenario.symlink {
+				if runtime.GOOS == "windows" {
+					t.Skip("creating directory symlinks requires optional Windows privileges; direct routing remains covered")
+				}
+				alias := filepath.Join(t.TempDir(), "project alias")
+				if err := os.Symlink(root, alias); err != nil {
+					t.Fatal(err)
+				}
+				root = alias
+			}
+			workDir := root
+			// The worker uses canonical project identity. Native macOS temp
+			// directories (/var -> /private/var) and explicit aliases must
+			// route to that exact directory, not the fixture's spelling.
+			var err error
+			root, err = filepath.EvalSymlinks(root)
+			if err != nil {
+				t.Fatal(err)
+			}
 			t.Setenv("AGENT_COMMS_CONFIG_DIR", filepath.Join(root, "user"))
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
@@ -141,8 +162,8 @@ func TestOpenCodeLiveDoesNotApproveForeignSession(t *testing.T) {
 				}
 			}))
 			defer server.Close()
-			config := Config{Actor: "synthetic-agent", RuntimeID: "owned-runtime", WorkDir: root, PermissionMode: "acceptEdits", Status: func(string) {}}
-			if resumed {
+			config := Config{Actor: "synthetic-agent", RuntimeID: "owned-runtime", WorkDir: workDir, PermissionMode: "acceptEdits", Status: func(string) {}}
+			if scenario.resumed {
 				config.SessionID = "ses-owned"
 			}
 			adapter := &openCodeLiveAdapter{start: func(context.Context, string) (*ownedLiveServer, error) {
