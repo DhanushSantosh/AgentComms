@@ -10,18 +10,18 @@ CI, not inferred from Linux cross-compilation.
 
 | Surface | Required evidence | Current state |
 | --- | --- | --- |
-| Whole Go tree | Full suite, vet, race, staticcheck, coverage floors | Default full suite, vet and pinned-toolchain staticcheck passed; isolated app/doctor coverage passed; full uncached race and remaining coverage floors pending |
+| Whole Go tree | Full suite, vet, race, staticcheck, coverage floors | Immutable ff682f8 full uncached race passed; 498e070 native matrix (including coverage gate), security and cross-build passed; audit source/behavior review continues |
 | Identities, governance, protocol | Role/credential isolation, approval expiry/binding/consumption, replay and rejection cases | Protocol, projection, projectlifecycle, identity and personal authority packages passed three uncached repetitions; deeper source review pending |
-| Storage and upgrades | Signed-history replay, tamper rejection, SQLite/cache and Postgres timestamp migration | Real Postgres suite passed; broader migration/recovery review pending |
+| Storage and upgrades | Signed-history replay, tamper rejection, SQLite/cache and Postgres timestamp migration | Fresh SQLite/cache lifecycle race suite passed; actual Postgres migration/confirmation/future-schema checks and new corrupt-history/projection rejection tests passed |
 | Shared authority and recovery | Authentication, writes, idempotency, cache lag, retry, deletion, stream admission | Uncached Postgres authority/daemon suites passed; coverage 53.5% / 44.5%; race and further stress pending |
 | CLI/MCP | Actual adapter writes, result/order/history parity, generated reference consistency, failure semantics | Isolated authoritative adapter parity passed uncached (12.743 seconds); broader runtime checks pending |
 | TUI | Navigation/actions, constrained panes, resize, ordering, approvals, runtime-independent messaging | Full TUI suite passed uncached (91.617 seconds); fresh-binary PTY navigation/resize/quit and runtime-independent overview passed; remaining interaction/source review pending |
 | Runtime/providers | Local-process lifecycle, durable delivery and real installed provider smoke | Claude and explicit-model Codex live two-turn smokes passed; OpenCode no-tool worker smoke passed; extra-root, accepted RFC 0042 isolation rejection and acknowledged-crash fixes tested; broader adapter review pending |
 | Installation and release trust | Authentic installer bootstrap, genuine signature acceptance, tamper/identity/issuer rejection | Live releaseverify suite passed uncached, including all four genuine-release subtests |
-| Platforms | Native Linux/Windows/macOS tests, Windows pipe-close regression, six-target/four-binary builds | All three platform jobs and cross-build passed on ed4d57d in CI 37147761316 |
+| Platforms | Native Linux/Windows/macOS tests, Windows pipe-close regression, six-target/four-binary builds | All three platform jobs and cross-build passed on 498e070 in CI 37152023503 |
 | Go dependencies | govulncheck and direct/transitive exposure review | Compatible x/crypto and x/mod security updates validated; refreshed scan has no called/package findings, only upstream-test-only OpenPGP module advisory |
-| Site dependencies | npm audit, impact assessment and any fixes | High-severity unpatched advisory blocks current npm gate; fast-uri lock upgraded to patched 3.1.8 and moderate advisory cleared |
-| Docs/landing | Build, content generation, keyboard/mobile/desktop/browser/visual and Lighthouse checks | Pre-push browser suites passed (docs 45, landing 71); candidate CI site jobs failed npm audit |
+| Site dependencies | npm audit, impact assessment and any fixes | Accepted RFC 0043 pinned patch passes 20 behavior/maintenance checks and unchanged npm audit; complete site and candidate CI verification in progress |
+| Docs/landing | Build, content generation, keyboard/mobile/desktop/browser/visual and Lighthouse checks | Post-patch checks/builds, docs 45/landing 71 browser tests and unchanged Lighthouse thresholds passed locally; exact patch CI pending |
 | Production deployment | Exact candidate deploy and release/version correctness | Token regression tests and production build pass; both site deployments passed on e573c90 in workflow 37146103139 |
 | Repository coordination | Inbox obligations, integrity, doctor, task state and exact Git/CI refs | Claude informed before audit and updated with blockers; integrity verified, doctor clear; 2521418 and e573c90 pushed to dev |
 
@@ -52,6 +52,53 @@ is evidence about reachability, not permission to suppress the audit gate.
 The resolution, continued upstream monitoring and full dependency assessment
 remain open. The separate fast-uri moderate advisory was cleared with the
 compatible lockfile update from 3.1.7 to 3.1.8.
+
+Follow-up: the registry now publishes 4.3.0. A targeted lockfile update and
+clean `npm ci --ignore-scripts` report zero vulnerabilities. Nevertheless,
+`node --test sites/docs/cache-policy.test.mjs` fails for shared private-cookie,
+`proxy-revalidate` and `no-cache` max-stale reuse, while normal public reuse
+passes. The installed file matches the upstream published-source digest.
+This is behaviorally reproduced dependency risk, not a validated site exploit:
+Astro's current build path uses TTL methods, not the vulnerable request-reuse
+method. [RFC 0043](rfcs/0043-pinned-cache-policy-security-patch.md) proposes a
+bounded, provenance/hash-checked patch accepted by the owner in this chat.
+The dependency upgrade alone is not a verified security fix. The regression
+was observed red before patching and now passes after the bounded guard is
+applied. The repository-wide audit gate remains unchanged. Both public and
+immutable cookie opt-ins, ordinary expired public max-stale reuse and private
+cache proxy-revalidate behavior still pass. Non-storable responses are refused.
+
+Root `postinstall` applies an atomic, idempotent patch only to the reviewed
+version/source digest and runs maintenance tests. It verifies Astro resolves
+that same patched copy and rejects unknown versions/hashes, missing files,
+external path resolution and a separate consumer dependency copy. All 20
+behavior/maintenance cases pass. Clean normal `npm ci` applied the initial
+patch automatically; the subsequent consumer-resolution check and its fixtures
+pass too. A second clean normal `npm ci` of the final hook applied the patch
+and passed all nine maintenance tests, including consumer-copy confinement.
+Fresh candidate CI must still verify the final lifecycle hook on Node 22.
+Unchanged `npm audit --audit-level=high` reports zero vulnerabilities.
+License, source commit and both digests are retained under
+`third_party/http-cache-semantics/PATCH.md`. Lifecycle-disabled installations
+must explicitly run `npm run deps:patch`; the lockfile alone is not remediation.
+
+Post-patch docs generation/check/build passed, validating 30 product pages,
+32 rendered pages, 123 CLI commands and 30 MCP tools. Landing release-lookup
+tests, TypeScript, WASM generation and production export passed. The unchanged
+browser suites passed on the resulting built assets: docs 45 / one expected
+desktop/mobile-only skip (1.6 minutes), landing 71 / three device-specific
+skips (4.6 minutes). The desktop live WASM TUI approval interaction passed;
+mobile uses the recording instead. No baseline regeneration or tolerance
+change was made. Logs: `/tmp/agc-docs-cache-patch-browser-20261004.log` and
+`/tmp/agc-landing-cache-patch-browser-20261004.log`. Contamination tests passed.
+Unchanged Lighthouse gates passed: docs' four three-run page medians had
+performance 1.0, accessibility 1.0 / 0.96 / 0.95 / 0.96, and best-practices/SEO
+1.0 throughout; landing's three-run median was performance 0.97 and all other
+categories 1.0. The one docs-home performance outlier (0.62) is retained in
+the evidence, not removed; the pre-existing median-of-three gate passed.
+Logs: `/tmp/agc-docs-cache-patch-lighthouse-20261004.log` and
+`/tmp/agc-landing-cache-patch-lighthouse-20261004.log`. New exact-candidate CI
+remains separate required evidence.
 
 ## Execution notes
 
@@ -218,6 +265,33 @@ This enforces the existing crash-retry contract, not a new retry policy.
 
 ## Closure requirements
 
+### Storage migration and recovery checks
+
+On the updated Go-dependency candidate, `go test -race -count=1 -v
+./internal/projectlifecycle ./internal/localcache ./internal/store` passed
+(7.688, 1.306 and 1.047 seconds). This exercises migration resume from all five
+journal stages, concurrent reconciliation, partial backup recovery, disruptive
+confirmation, future-version refusal, symlink refusal, signed-history replay,
+legacy timestamp restoration, tampered authority refusal and disposable-cache
+refetch behavior. It also covers offline cache state and draft quota recovery.
+Durable log: `/tmp/agc-storage-recovery-audit-20261004.log`.
+
+Against actual disposable Postgres 17, concurrent schema initialization,
+disruptive migration confirmation, timestamp restoration from history and
+newer-schema refusal passed under race instrumentation (4.032 seconds).
+Log: `/tmp/agc-pg-migration-audit-20261004.log`. Added SQL-backed migration-boundary
+negative backfill cases for changed event contents, a deleted event, a wrong
+head and a missing stored projection; all passed (1.964 seconds). They verify
+the expected unverifiable-history error, roll back the transaction, and compare
+state, signed events/receipts and recorded head with the baseline. These are
+direct migration-boundary tests, not a new manual CLI-upgrade smoke. The schema
+application code was inspected: migration execution and its version record
+share one advisory-locked transaction with rollback on error. Focused vet and
+diff checks passed. No database schema or migration checksum was changed.
+Three uncached race repetitions of the corruption and lock-timeout recovery
+regressions passed together (5.366 seconds); the corruption tests are committed
+as `4e19790`.
+
 ### Postgres timeout and contention evidence
 
 The new `TestPostgresMutationLockTimeoutIsRecoverable` passed with race
@@ -302,9 +376,16 @@ The acknowledged-turn crash fix is pushed as `ff682f8`. The immutable source
 export is `/tmp/agc-frozen-release-BzlcAI`; its `race.log` is the durable
 evidence for the new full uncached race run. The export contains committed
 source only, not real project runtime data or an additional Git worktree.
-This run is still in progress and is not counted as a pass.
+This run completed with exit zero: the full uncached race suite passed on
+immutable `ff682f8`, including app 557.738 seconds and TUI 328.854 seconds.
+Optional live provider/real Postgres tests require separate opt-in evidence;
+this run does not silently count skipped tests as exercised.
 Its CI `37150910694` completed with Linux, Windows, macOS, Postgres, security
 and cross-build passing; both site jobs failed the unchanged npm gate.
+The Go-dependency candidate `498e070` CI `37152023503` completed: all native
+platform, Postgres, security and cross-build jobs passed, with both site jobs
+failing the prior locked 4.2.0 advisory. The newly reproduced 4.3.0 behavioral
+failure was discovered locally afterward and remains a distinct repair gate.
 
 Complete the pending ledger with exact commands, revisions and outcomes;
 resolve validated release blockers without weakening integrity or security

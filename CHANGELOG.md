@@ -21,6 +21,9 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 - Corrupt encrypted credential nonces are rejected without crashing decryption.
 
 ### Maintenance
+- Apply a temporary, integrity-pinned cache-policy security patch during site
+  dependency installation (RFC 0043); retain upstream provenance and tests
+  until a behaviorally verified upstream release replaces it.
 - Update Go crypto and module dependencies to versions containing upstream
   SSH denial-of-service and checksum-log verification fixes.
 - Documentation and test examples use synthetic identities and paths. Maintainer
