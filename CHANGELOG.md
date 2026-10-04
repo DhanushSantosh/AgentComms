@@ -5,6 +5,11 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 
 ## [Unreleased]
 
+- Managed Codex and Claude live runtimes use project-scoped broker keys, so
+  independent projects can reuse runtime IDs without collisions. `live attach`
+  resolves the local project or accepts `--project-id`; `--unscoped` explicitly
+  selects legacy/manual registrations. Stop old workers and recycle their owned
+  brokers before upgrading; new scoped workers do not adopt legacy processes.
 - Codex ACP now rejects `--codex-ignore-user-config` before launch rather than
   silently ignoring it; choose the native Codex exec adapter for isolation.
 - Codex live now rejects `--codex-ignore-user-config` before launch because the

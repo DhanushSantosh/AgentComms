@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/DhanushSantosh/AgentComms/internal/brokeridentity"
 	"github.com/DhanushSantosh/AgentComms/internal/buildinfo"
 	"github.com/DhanushSantosh/AgentComms/internal/claudeserve"
 	"github.com/DhanushSantosh/AgentComms/internal/claudetail"
@@ -146,9 +147,14 @@ func (c *cli) liveCmd() *cobra.Command {
 	serve.Flags().StringVar(&serveProvider, "provider", "claude", "claude or codex")
 	serve.Flags().StringVar(&listenAddress, "listen", "", "loopback listen address (provider default when omitted)")
 
-	var attachProvider, runtimeID, serverURL string
+	var attachProvider, runtimeID, serverURL, projectID string
+	var unscoped bool
 	attach := &cobra.Command{Use: "attach", Args: cobra.NoArgs, Short: "Watch a provider live runtime's event stream", RunE: func(cmd *cobra.Command, args []string) error {
 		name, err := provider(attachProvider)
+		if err != nil {
+			return err
+		}
+		scopeID, err := c.liveAttachProjectID(projectID, cmd.Flags().Changed("project-id"), unscoped, runtimeID)
 		if err != nil {
 			return err
 		}
@@ -157,7 +163,14 @@ func (c *cli) liveCmd() *cobra.Command {
 			if url == "" {
 				url = codexserve.DefaultServeBaseURL()
 			}
-			events, subErr := codexserve.New(url).Subscribe(cmd.Context(), runtimeID)
+			client := codexserve.New(url)
+			if scopeID != "" {
+				client, err = codexserve.NewForProject(url, scopeID)
+				if err != nil {
+					return err
+				}
+			}
+			events, subErr := client.Subscribe(cmd.Context(), runtimeID)
 			if subErr != nil {
 				return subErr
 			}
@@ -174,7 +187,14 @@ func (c *cli) liveCmd() *cobra.Command {
 		if url == "" {
 			url = claudeserve.DefaultServeBaseURL()
 		}
-		events, subErr := claudeserve.New(url).Subscribe(cmd.Context(), runtimeID)
+		client := claudeserve.New(url)
+		if scopeID != "" {
+			client, err = claudeserve.NewForProject(url, scopeID)
+			if err != nil {
+				return err
+			}
+		}
+		events, subErr := client.Subscribe(cmd.Context(), runtimeID)
 		if subErr != nil {
 			return subErr
 		}
@@ -191,9 +211,43 @@ func (c *cli) liveCmd() *cobra.Command {
 	attach.Flags().StringVar(&runtimeID, "runtime", "", "registered Agent Comms runtime ID")
 	_ = attach.MarkFlagRequired("runtime")
 	attach.Flags().StringVar(&serverURL, "server", "", "live broker base URL (provider default when omitted)")
+	attach.Flags().StringVar(&projectID, "project-id", "", "stored project ID for a scoped runtime outside its checkout")
+	attach.Flags().BoolVar(&unscoped, "unscoped", false, "attach to a legacy/manual host-wide runtime ID")
+	attach.MarkFlagsMutuallyExclusive("project-id", "unscoped")
 
 	root.AddCommand(serve, attach)
 	return root
+}
+
+func (c *cli) liveAttachProjectID(explicit string, explicitSet, unscoped bool, runtimeID string) (string, error) {
+	if unscoped {
+		if explicitSet {
+			return "", errors.New("--project-id and --unscoped are mutually exclusive")
+		}
+		return "", nil
+	}
+	if !explicitSet {
+		root := c.project
+		if root == "" {
+			var err error
+			root, err = os.Getwd()
+			if err != nil {
+				return "", err
+			}
+		}
+		cfg, err := store.Open(root).ConfigStrict()
+		if errors.Is(err, os.ErrNotExist) && c.project == "" {
+			return "", nil
+		}
+		if err != nil {
+			return "", fmt.Errorf("live attach: project identity: %w", err)
+		}
+		explicit = cfg.ProjectID
+	}
+	if _, err := brokeridentity.RuntimeKey(explicit, runtimeID); err != nil {
+		return "", err
+	}
+	return explicit, nil
 }
 func (c *cli) watchCmd() *cobra.Command {
 	var interval time.Duration

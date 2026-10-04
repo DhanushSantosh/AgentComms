@@ -11,11 +11,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/DhanushSantosh/AgentComms/internal/brokeridentity"
 	"github.com/DhanushSantosh/AgentComms/internal/sessioncache"
 )
 
@@ -31,8 +31,6 @@ const (
 	serverStartupTimeout = 30 * time.Second
 	maxRequestBytes      = 1024 * 1024
 )
-
-var runtimeIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 
 type ServerInfo struct {
 	BaseURL string `json:"base_url"`
@@ -179,7 +177,7 @@ func (b *Broker) Close() {
 
 func checkedRuntimeID(response http.ResponseWriter, request *http.Request) (string, bool) {
 	runtimeID := request.PathValue("runtimeID")
-	if !runtimeIDPattern.MatchString(runtimeID) {
+	if !brokeridentity.ValidRuntimeID(runtimeID) {
 		http.Error(response, "invalid runtime ID", http.StatusBadRequest)
 		return "", false
 	}

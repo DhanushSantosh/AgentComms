@@ -116,6 +116,10 @@ remains separate required evidence.
 - OCR scanned all 62 tracked non-icon PNG/WebP assets and found no matching
   personal-name/contact candidates. Video/animation metadata is checked
   separately; metadata scanning alone is not proof about every rendered frame.
+- Full MP4/GIF frame extraction produced 876 frames, deduplicated by SHA-256
+  to 751 unique frames. Tesseract scanned all 751 with zero matching candidate
+  filenames. This is automated OCR evidence, not a guarantee against OCR misses
+  or a history/archive privacy rewrite. Existing source media was unchanged.
 - The user interruption invalidated the remaining race/Postgres process
   handles, and no corresponding processes remain. Final results were not
   recoverable, so those runs are not counted as passes. Subsequent heavy gates
@@ -455,7 +459,24 @@ seconds. Native exec argument tests retain the genuine isolation flag.
 Flag help, generated CLI reference, worker docs and Unreleased notes are
 updated. Vet, generation consistency and diff checks passed. No provider
 config, credential, approval, event or schema changes. Exact resulting
-candidate CI remains required; broader adapter review remains separate.
+candidate b89250e passed all eight jobs in CI 37179579454. Broader adapter
+review remains separate; this fix does not imply the whole audit is complete.
+
+## Multi-project live broker routing follow-up
+
+A temporary direct broker HTTP test on b89250e registered one logical runtime
+ID in two independent temporary working directories. The second registration
+returned HTTP 409 because the host-shared Codex broker indexes processes by
+bare runtime ID. The first registration was not overwritten. The owned probe
+was removed after recording the result; no real provider ran. This proves a
+multi-project registration collision, not unauthorized data disclosure.
+The maintainer accepted RFC 0045. Both provider-specific permanent HTTP tests
+independently reproduced the collision before scoped clients were used.
+Project-aware transport keys are now shared by workers, clients and viewers,
+preserving logical signed IDs and same-project conflict protection. Both
+provider suites pass uncached race tests, including concurrent project prompts,
+distinct processes and scoped SSE subscriptions. Focused worker/viewer race
+tests and vet pass; broader candidate CI and final release closure remain pending.
 
 Complete the pending ledger with exact commands, revisions and outcomes;
 resolve validated release blockers without weakening integrity or security

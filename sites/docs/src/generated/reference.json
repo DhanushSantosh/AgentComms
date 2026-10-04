@@ -5912,6 +5912,12 @@
           "type": "string"
         },
         {
+          "name": "project-id",
+          "usage": "stored project ID for a scoped runtime outside its checkout",
+          "default": "",
+          "type": "string"
+        },
+        {
           "name": "provider",
           "usage": "claude or codex",
           "default": "claude",
@@ -5941,6 +5947,12 @@
           "usage": "transaction lock timeout",
           "default": "10s",
           "type": "duration"
+        },
+        {
+          "name": "unscoped",
+          "usage": "attach to a legacy/manual host-wide runtime ID",
+          "default": "false",
+          "type": "bool"
         },
         {
           "name": "verbose",
