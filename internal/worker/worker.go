@@ -316,6 +316,10 @@ func decodeInvocationAction(raw string) (*invocationAction, error) {
 	if err := decoder.Decode(&action); err != nil {
 		return nil, fmt.Errorf("decode follow-up action: %w", err)
 	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return nil, errors.New("follow-up action must contain exactly one JSON value")
+	}
 	if strings.TrimSpace(action.Target) == "" || strings.TrimSpace(action.Instruction) == "" {
 		return nil, errors.New("follow-up target and instruction are required")
 	}

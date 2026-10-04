@@ -70,10 +70,14 @@ func TestPostgresToCacheToLocalConnectorDelivery(t *testing.T) {
 		}
 		event, receipt, commandErr := client.Command(ctx, command)
 		if commandErr != nil {
+			t.Logf("connector fixture command %s/%s failed: %v", eventType, entityID, commandErr)
 			return commandErr
 		}
 		if applyToCache {
-			return cache.Apply(ctx, event, receipt)
+			if err := cache.Apply(ctx, event, receipt); err != nil {
+				t.Logf("connector fixture cache apply %s/%s failed: %v", eventType, entityID, err)
+				return err
+			}
 		}
 		return nil
 	}
@@ -262,6 +266,15 @@ func TestPostgresToCacheToLocalConnectorDelivery(t *testing.T) {
 			wantRuntime = "runtime-second"
 		}
 		if state.Invocations[id].Status != "NOTIFIED" {
+			for _, delivery := range state.InvocationDeliveries {
+				if delivery.InvocationID == id {
+					raw, err := json.Marshal(delivery)
+					if err != nil {
+						t.Fatal(err)
+					}
+					t.Logf("queued connector fixture delivery: %s", raw)
+				}
+			}
 			t.Fatalf("queued invocation %s status=%s, want NOTIFIED", id, state.Invocations[id].Status)
 		}
 		matches := 0

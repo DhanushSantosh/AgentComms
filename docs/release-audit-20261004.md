@@ -704,8 +704,12 @@ Ubuntu job was cancelled by the newer push, so that run is not a full pass.
 An immutable Git archive at `/tmp/agc-final-6a0e7b8-1npcrG` is running the
 complete uncached race suite with CI's Go 1.26.6, `GOMAXPROCS=2`, `-p 1`,
 and a local 20-minute package observation bound. No repository assertion or
-CI timeout was changed. Its app package passed in 593.488 seconds; the whole
-invocation is not yet terminal and must not be reported as a full pass.
+CI timeout was changed. The whole invocation terminated successfully with
+exit 0: app 593.488s, TUI 409.770s, worker 19.622s, and all remaining packages
+passed. Its full log is `full-race.log` in that archive. This proves that frozen
+revision; subsequent fixes require their own affected-package and candidate
+checks. Opt-in real-provider and Postgres checks are separate, not inferred
+from ordinary-suite skips.
 
 Claude's two inbox updates were read in sequence: desktop authentication did
 not authenticate a standalone CLI, then the owner completed local CLI login.
@@ -756,3 +760,46 @@ must not be counted as actual provider executions. This is real
 claim/execute/publish/complete evidence, not arbitrary tool-workflow coverage.
 The full ordinary worker package passed uncached with race instrumentation
 (25.557 seconds); vet and diff checks passed.
+
+## ACP handoff fixture and single-value action decoding
+
+The real Claude ACP handoff initially failed (46.196s): the parent entered
+WAITING with an invalid-target error and no child invocation. The fixture
+requested the nickname `DAMON` while registering `claude-damon`; protocol
+requires an exact active agent ID. The smoke instruction now names the exact
+registered principal and forbids tools/files/commands. It also requires Run
+success, a COMPLETED parent and a worker-authored nonempty result, rather than
+merely logging execution errors and inspecting the child. The corrected real
+Claude ACP smoke passed with race instrumentation (15.701s). Authorization,
+identity resolution and provider permissions were not relaxed.
+
+Follow-up source review found a separate strict-decoding gap: the decoder
+accepted the first action JSON value without checking end-of-input. Direct
+tests rejected neither a second JSON object, `null`, nor trailing garbage;
+the full Worker fixture also completed/published instead of rejecting a
+two-value action (red 0.218s). The decoder now requires EOF after exactly one
+JSON value, allowing trailing whitespace. The Worker regression requires
+WAITING with a reason, no result message and no additional invocation on
+malformed action. Valid structured routing remains covered. Three uncached
+race repetitions of these cases passed (5.794s). Full affected-package and
+native candidate checks remain required.
+
+Final changed-package race verification passed: worker 21.396s, ACP 1.156s,
+daemon 2.355s, remote 1.027s; vet and diff checks passed. The real Claude ACP
+handoff was repeated on the EOF-check source and passed (17.329s), with the
+strong completion/result/routing assertions enabled. New exact-candidate CI
+remains required after pushing this correction.
+
+After the frozen full suite finished, three isolated actual-Postgres race
+repetitions started for the default/bounded-pool 100-writer tests, mutation
+lock-timeout recovery and queued connector delivery. Limits and assertions are
+unchanged. The connector fixture now logs command/cache boundary errors and
+matching projected delivery evidence if a queued status assertion fails;
+diagnostics contain only synthetic fixture data. The invocation completed with
+exit 0: authority 44.821s and daemon 247.731s, all three repetitions each.
+This is fresh isolated success evidence, not a claimed cause of the earlier
+stress failure or proof that a timing-sensitive flake can never recur.
+
+Candidate `ae6a741a5227d468c56f50e69f094876c0907916` is signed/verified,
+pushed, and passed all eight CI jobs in `37187258162`, including the delivery
+lease-backoff fix. The newer strict-decoding change still requires its own CI.

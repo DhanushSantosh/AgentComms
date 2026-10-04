@@ -23,6 +23,8 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
   and resumed threads and reject invalid directory paths before launch.
 
 ### Fixed
+- Reject trailing JSON values or garbage in structured agent follow-up actions
+  instead of executing the first value and silently ignoring the remainder.
 - Expired delivery reservations honor their newly recorded retry backoff rather
   than immediately launching another attempt from an outdated cache snapshot.
 - ACP sessions reap their spawned provider process on close, including failed
