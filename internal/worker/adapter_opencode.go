@@ -143,7 +143,7 @@ type openCodeRunResult struct {
 func runOpenCode(ctx context.Context, config Config, invocation model.Invocation, sessionID string) (openCodeRunResult, string, error) {
 	config.SessionID = sessionID
 	arguments := openCodeAdapter{}.Arguments(config)
-	command := exec.CommandContext(ctx, config.Executable, arguments...)
+	command := exec.Command(config.Executable, arguments...)
 	command.Dir = config.WorkDir
 	command.Env = append(os.Environ(), opencodePermissionEnv(config.PermissionMode))
 	command.Stdin = strings.NewReader(claudeUserPrompt(invocation))
@@ -151,7 +151,7 @@ func runOpenCode(ctx context.Context, config Config, invocation model.Invocation
 	stderr := &boundedBuffer{limit: maxAgentOutputBytes}
 	command.Stdout = stdout
 	command.Stderr = stderr
-	runErr := command.Run()
+	runErr := runOwnedCommand(ctx, command)
 	if ctx.Err() != nil {
 		return openCodeRunResult{}, "", fmt.Errorf("execution deadline reached: %w", ctx.Err())
 	}

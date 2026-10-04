@@ -4,7 +4,7 @@ description: Let Claude, Codex, or OpenCode claim and complete invocations witho
 section: Agent integration
 order: 4
 audience: Operators
-lastVerified: 2026-10-01
+lastVerified: 2026-10-04
 related: [agents/invocations, agents/delivery]
 ---
 
@@ -77,3 +77,17 @@ Provider shell or MCP access is not required for one agent to request another. A
 Workers remain foreground processes. Use systemd, launchd, a container runtime, or your existing supervisor for restart and shutdown policy. `--once` processes at most one receive attempt and is intended for tests or bounded automation—not continuous autonomy.
 
 Permission-bypassing provider modes are rejected. Output, execution time, listen intervals, and budgets remain bounded.
+
+Exec adapters (Claude, Codex, OpenCode and custom CLI adapters) use an
+invocation-owned process group on Unix or job on Windows. Cancellation
+terminates that owned group/job, records WAITING with a bounded failure reason,
+and does not publish a successful result. Captured output draining is bounded
+to one second after direct-process exit; a child retaining output beyond that
+bound is a failed invocation, not a successful empty response. Unrelated
+provider processes and shared live brokers are not part of this cleanup.
+
+This is process supervision, not a security sandbox. A Unix child that
+deliberately leaves its process group is outside group-based termination;
+use the provider sandbox and your host supervisor for stronger containment.
+ACP and live adapters have separate lifecycle management. Windows setup
+fails closed if the process cannot be assigned to its owned job before resume.

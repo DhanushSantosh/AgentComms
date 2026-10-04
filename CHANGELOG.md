@@ -23,6 +23,10 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
   and resumed threads and reject invalid directory paths before launch.
 
 ### Fixed
+- Exec-provider cancellation terminates invocation-owned process groups/jobs
+  and bounds output draining instead of waiting indefinitely on inherited pipes.
+- Custom adapter prompts identify the actual invocation requester separately
+  from the executing agent.
 - Enforce optional orchestrator-grant approval expiry on activation and role
   switching. Expired conventional grants can be re-requested but require a
   fresh human approval; historical replay and no-expiry approvals are unchanged.

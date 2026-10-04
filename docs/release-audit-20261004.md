@@ -636,3 +636,40 @@ in the default suite; those default passes do not resolve that blocker.
 
 Repository integrity verified all 545 signed events; doctor is healthy with
 no findings for the installed v0.8.2 toolkit, not the newer source candidate.
+
+## RFC 0047 implementation validation
+
+The maintainer accepted RFC 0047. Exec adapters now share invocation-owned
+process supervision: Unix starts a new group; Windows starts suspended,
+assigns an unnamed kill-on-close job, and resumes only after ownership is
+established. Context cancellation kills that group/job; output drain is bounded
+to one second after direct-process exit. Shared live brokers are not killed.
+Windows ownership failure returns an error without running the provider.
+
+The original inherited-output regression passed three uncached race repetitions
+(2.266s), and is now always-on on POSIX. Native self-executing fixtures exercise
+both exec runners with children and grandchildren retaining output, cancellation,
+and a same-executable unrelated process that remains responsive. Three race
+repetitions passed (5.035s). Full claim/start/cancellation regressions passed
+three repetitions (3.867s), proving WAITING, bounded reason, no result message,
+and descendant connection closure. The first version of that fixture incorrectly
+expected a nil Run error; source confirmed WAITING intentionally returns a
+failure, and the corrected assertion requires that failure rather than hiding it.
+
+Final full worker/ACP race suites passed (23.066s/1.282s), including successful
+output, nonzero exit, cancel-before-start and large output/UTF-8 diagnostic
+bounds. Vet passed. The real read-only, ignore-user-config Codex exec worker
+smoke passed (16.098s). Windows test-binary cross-compilation passed; native
+Windows/macOS outcomes remain required on the pushed candidate. Docs generated
+reference consistency and complete docs check/build/content verification passed.
+
+This supervision is not a security sandbox: Unix children deliberately leaving
+the group require host/provider containment. An abrupt Windows parent crash
+between suspended creation and job assignment is not covered by ordinary
+cancellation proof; host supervision remains necessary. No ACP or shared broker
+crash-cleanup claim is inferred from these exec tests.
+
+The separately observed full app race suite completed successfully (583.425s)
+on the c7c486e source state. Its 20-minute local observation window changed no
+assertion or CI timeout. c7c486e passed exact CI 37184821421, and ea3c99f passed
+exact CI 37185155412. Later source changes still need their own candidate CI.

@@ -2,8 +2,8 @@
 
 ## Status
 
-Proposed, 2026-10-04. Author: codex-main. Requires maintainer acceptance
-before changing cross-platform provider process ownership.
+Accepted, 2026-10-04, by the maintainer's explicit design approval.
+Author: codex-main.
 
 ## Reproduced problem
 
@@ -65,6 +65,7 @@ broker cleanup.
 
 ## Open decision
 
-Accept the owned-tree cancellation and bounded-drain contract above. Final
+The maintainer accepted the owned-tree cancellation and bounded-drain contract.
+Final
 platform implementation must pass the ownership-before-execution checks;
 unavailable native proof remains a release blocker, not a waived check.

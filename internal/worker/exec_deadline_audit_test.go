@@ -12,12 +12,9 @@ import (
 	"github.com/DhanushSantosh/AgentComms/internal/model"
 )
 
-// Opt-in reproducer while the provider process-lifecycle audit is open.
+// Regression for inherited output retaining an invocation after its deadline.
 // Child exits independently after two seconds; no persistent provider is used.
-func TestManualAuditExecDeadlineWithInheritedOutput(t *testing.T) {
-	if os.Getenv("AGENTCOMMS_EXEC_DEADLINE_AUDIT") != "1" {
-		t.Skip("manual lifecycle audit")
-	}
+func TestExecDeadlineWithInheritedOutput(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("POSIX shell reproducer")
 	}
