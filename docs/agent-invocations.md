@@ -200,7 +200,7 @@ just fills the same gap `claude`/`codex` already had filled from day one.
 | `claude-acp` | Claude | ACP, via `npx @agentclientprotocol/claude-agent-acp` | Node.js/npm | No (session viewable afterward with [claude-code-viewer](https://github.com/d-kimuson/claude-code-viewer)) | Session-store-compatible with `claude` — the same conversation can be resumed by either adapter |
 | `opencode-acp` | OpenCode | ACP, via `opencode acp` | `opencode` binary | No (session viewable afterward via `opencode` itself, or a third-party viewer) | |
 | `codex-acp` | Codex | ACP, via `npx @agentclientprotocol/codex-acp` | Node.js/npm | No (viewable afterward with [codex-trace](https://github.com/PixelPaw-Labs/codex-trace)) | **Weaker tool-call permission enforcement than the other ACP adapters** — see below |
-| `opencode-live` | OpenCode | persistent `opencode serve` + REST/SSE | `opencode` binary | **Yes** — run the reported `opencode attach` command in a terminal while it runs | The server it starts outlives the invocation and is reused by later ones; every other adapter's process ends with the invocation |
+| `opencode-live` | OpenCode | worker-owned `opencode serve` + REST/SSE | `opencode` binary | **Yes** — run the reported `opencode attach` command in a terminal while it runs | Assigned loopback port, kept across turns while this worker runs; shutdown/one-shot exit stops its owned server |
 
 Pick `claude`/`codex`/`opencode` by default. Reach for another adapter only
 when you specifically need what it adds — e.g. `claude-live`, `codex-live`,
@@ -424,18 +424,22 @@ governed tool call.
 
 ### `opencode-live`: watching a runtime's activity as it happens
 
-Every adapter above runs its provider process only for the duration of one
-invocation. `opencode-live` is the exception: it starts a persistent
-`opencode serve` instance the first time it's needed, records its address at
-`.agent-comms/cache/opencode-server.json`, and reuses that same instance for
-every later invocation on this runtime — that persistence is what lets a
-terminal stay attached to one session and watch activity happen live, instead
-of only being able to read a result once an invocation completes. This
-persistent server always binds a fixed port (4096), not an OS-assigned one,
-and every invocation also probes that port directly before spawning a new
-instance — even with the cache file missing entirely, a server already
-running there is found and reused rather than orphaned behind a duplicate on
-a different port.
+The live adapters retain provider activity across invocations. `opencode-live`
+starts its own `opencode serve` on an OS-assigned loopback port and retains it
+while the worker runs. It does not adopt, reset or stop an existing shared server
+on port 4096. Worker shutdown, cancellation, failed preparation and one-shot exit
+stop/reap only that worker's owned server. A new worker may report a new attach
+endpoint while resuming its persisted conversation.
+
+Before each managed turn the worker resets only its owned project instance to
+clear saved native approvals, preserves original native restrictions, and
+installs/verifies restrictive rules. Native denies remain denied. Native allows
+become requests handled by the existing read/edit/governance policy. An empty,
+tool-disabled, no-reply preparation message supplies the native rule baseline;
+only that exact temporary message is deleted, never existing conversation
+content. Failed reset, identity lookup, rule verification or cleanup prevents
+the actual prompt. Unknown externally modified rules fail closed and require
+operator reconciliation; they are not silently discarded.
 
 ```sh
 agent-comms --project /srv/project --actor reviewer runtime worker \
@@ -447,18 +451,21 @@ agent-comms --project /srv/project --actor reviewer runtime worker \
 
 The worker's `Status` output reports the exact command to run, e.g. `watch
 this runtime's OpenCode activity live in a terminal: opencode attach
-http://127.0.0.1:4096 --dir /srv/project --session ses_...`. Run that in a
+http://127.0.0.1:<assigned-port> --dir /srv/project --session ses_...`. Run that in a
 second terminal while the worker is running. `--dir` and `--session` both
-matter: attaching with only the bare server URL lands on whatever session
-happened to be "current" on the server rather than this runtime's own —
-confirmed live, since a long-lived server ends up handling many unrelated
-sessions across however many projects and runtimes have used it over time.
-This was verified live: a session titled with the invocation's own
-instruction shows up in that server's own session list and is fully
-watchable with `opencode attach` while the invocation runs. Use this
+matter: copy the exact reported endpoint, directory and session. Watch rather
+than sending concurrent interactive prompts or changing native rules while a
+managed turn runs. Native attach is a trusted local operator capability, not
+an OS sandbox or endpoint authentication boundary. Use this
 specifically when a human needs to watch a runtime work, not as the
 default choice for routine automation — `opencode-acp` has no persistent
 process to manage and is the better fit when nobody needs to watch.
+
+Use the normal full native TUI command reported by the worker. OpenCode 1.18.33's
+optional `opencode attach --mini` transport stops watching after the required
+per-turn instance reset; it is not the supported continuous watcher. The full
+native TUI retains the endpoint and observes later turns across reset. Restarting
+a worker can still change its port: copy the newly reported attach command.
 
 The worker is intentionally foreground-only so systemd, launchd, a container
 runtime, or the agent host controls restarts and shutdown. Each process handles
@@ -492,12 +499,15 @@ How the ID is established differs by adapter:
   no equivalent of Claude's create-at-a-chosen-ID flag. Run once without
   `--session-id`, capture the thread ID Codex reports, then set
   `--session-id` to it for every later invocation of that runtime.
-- `opencode-live`: `--session-id` is optional. OpenCode also mints its own
-  session IDs, but the worker persists whichever one it creates at
-  `.agent-comms/cache/opencode-live-session-<runtime-id>.json` and reuses it
-  automatically on every later invocation of that runtime — no flag or manual
-  ID capture needed. Pass `--session-id` explicitly only to point the runtime
-  at a specific pre-existing OpenCode session instead of its own cached one.
+- `opencode-live`: leave `--session-id` unset. OpenCode mints non-UUID IDs; the
+  public worker flag still requires a UUID and cannot carry native `ses_*` IDs.
+  The worker instead persists its exact runtime/project/session, original native
+  rules and preparation recovery metadata under the user configuration's
+  `sessions` directory. It resumes that conversation across turns and worker
+  restarts. Existing runtime-local legacy ID records are read for migration,
+  but failed lookup never silently creates a replacement conversation. An
+  ownership lock prevents two managed workers using the same runtime/session;
+  a native session already assigned to another managed runtime is rejected.
 - `codex-live`: `--session-id` is also optional, for the same reason as
   `opencode-live` — Codex mints its own thread IDs. The thread this runtime
   creates on first use is cached at

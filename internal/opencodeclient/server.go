@@ -144,7 +144,7 @@ func spawnServer(ctx context.Context, workDir string) (string, error) {
 	go func() {
 		scanner := bufio.NewScanner(stdout)
 		for scanner.Scan() {
-			if url, ok := parseListeningURL(scanner.Text()); ok {
+			if url, ok := ParseListeningURL(scanner.Text()); ok {
 				urlCh <- url
 				return
 			}
@@ -165,9 +165,9 @@ func spawnServer(ctx context.Context, workDir string) (string, error) {
 	}
 }
 
-// parseListeningURL extracts the base URL from opencode serve's own log
+// ParseListeningURL extracts the base URL from opencode serve's own log
 // line, e.g. "opencode server listening on http://127.0.0.1:4098".
-func parseListeningURL(line string) (string, bool) {
+func ParseListeningURL(line string) (string, bool) {
 	const marker = "listening on "
 	index := strings.Index(line, marker)
 	if index < 0 {

@@ -131,7 +131,10 @@ func validateConfig(config *Config) error {
 	return nil
 }
 
-func (w *Worker) Run(ctx context.Context) error {
+func (w *Worker) Run(ctx context.Context) (result error) {
+	if lifecycle, ok := w.adapter.(interface{ Close() error }); ok {
+		defer func() { result = errors.Join(result, lifecycle.Close()) }()
+	}
 	state, err := w.config.Service.State()
 	if err != nil {
 		return err

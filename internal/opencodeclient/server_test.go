@@ -19,7 +19,7 @@ func TestParseListeningURL(t *testing.T) {
 		{"opencode server listening on https://0.0.0.0:9000", "https://0.0.0.0:9000", true},
 	}
 	for _, tc := range cases {
-		got, ok := parseListeningURL(tc.line)
+		got, ok := ParseListeningURL(tc.line)
 		if ok != tc.ok || got != tc.want {
 			t.Errorf("parseListeningURL(%q) = (%q, %v), want (%q, %v)", tc.line, got, ok, tc.want, tc.ok)
 		}

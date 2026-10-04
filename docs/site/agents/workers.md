@@ -38,7 +38,36 @@ OpenCode uses `--adapter opencode`. Its session continuity is stored in a local 
 ## Adapter choices
 
 - `claude`, `codex`, `opencode`: proven direct CLI execution.
-- `claude-live`, `codex-live`, `opencode-live`: persistent provider processes. The supported broker event viewer is `live attach --provider claude|codex --runtime <runtime-id>`; there is no OpenCode attach provider.
+- `claude-live`, `codex-live`: persistent provider processes with the broker event viewer `live attach --provider claude|codex --runtime <runtime-id>`.
+- `opencode-live`: a worker-owned native server on an assigned loopback port. Copy its reported `opencode attach` command; the AGC broker does not have an OpenCode attach provider. The server stays alive across turns while the worker runs and stops on shutdown or one-shot exit. Existing shared native servers remain untouched.
+
+OpenCode live workers reset only their own instance before a turn, preserve native
+deny rules, and verify restrictive policy before prompting. Read requests use the
+existing read policy, edits are allowed only in `acceptEdits`, and governed
+operations remain denied. Only an exact tool-disabled preparation message is
+removed; existing conversation content stays intact. Failed preparation or unknown
+external rule changes prevent execution. Watch through native attach without
+concurrent interactive prompts or policy edits during a managed turn.
+
+A session with pending native Undo/revert state is refused before preparation:
+OpenCode would otherwise discard the undone history when accepting even a
+no-reply message. Restore or resolve that state in the native client before
+retrying; the worker does not discard or automatically clear it.
+
+Turn preparation waits for the native event stream to become ready and confirm
+completed disposal, not just an HTTP acknowledgment. OpenCode 1.18.33's heartbeat
+can add approximately ten seconds to that readiness wait. The worker reports
+this preparation stage; a missing completion signal stops execution safely.
+
+Use the normal full native `opencode attach` TUI. OpenCode 1.18.33's optional
+`--mini` client stops watching after per-turn instance reset; this provider
+limitation does not affect the supported full-TUI watcher. Copy a new reported
+endpoint after a worker restart.
+
+Leave `--session-id` unset for OpenCode live: native IDs are non-UUID, while the
+public worker flag still validates UUIDs. Runtime-owned session and recovery
+records under the user configuration's `sessions` directory provide automatic
+continuity. A failed resume does not silently switch to a fresh conversation.
 
 Codex live applies `--codex-sandbox` and `--codex-add-dir`, but uses the
 provider's normal user configuration. `--codex-ignore-user-config` is rejected

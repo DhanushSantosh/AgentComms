@@ -11,8 +11,9 @@ import (
 // Output draining is a cleanup bound, not an extension of provider execution.
 const execOutputDrainTimeout = time.Second
 
-// runOwnedCommand supervises only the invocation's process group/job. Shared
-// live brokers intentionally do not use this invocation-owned lifecycle.
+// runOwnedCommand supervises only this command's process group/job. The context
+// is an invocation's or a private runtime server's lifetime, never the lifetime
+// of an unrelated/shared live broker.
 func runOwnedCommand(ctx context.Context, command *exec.Cmd) error {
 	if err := ctx.Err(); err != nil {
 		return err

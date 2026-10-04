@@ -8,14 +8,14 @@ import (
 
 func TestOpenCodeLiveAdapterRejectsModelOverride(t *testing.T) {
 	config := &Config{Model: "gpt-5"}
-	if err := (openCodeLiveAdapter{}).Validate(config); err == nil {
+	if err := (&openCodeLiveAdapter{}).Validate(config); err == nil {
 		t.Fatal("expected an error when Model is set")
 	}
 }
 
 func TestOpenCodeLiveAdapterDefaultsPermissionMode(t *testing.T) {
 	config := &Config{}
-	if err := (openCodeLiveAdapter{}).Validate(config); err != nil {
+	if err := (&openCodeLiveAdapter{}).Validate(config); err != nil {
 		t.Fatal(err)
 	}
 	if config.PermissionMode != "acceptEdits" {
@@ -25,7 +25,7 @@ func TestOpenCodeLiveAdapterDefaultsPermissionMode(t *testing.T) {
 
 func TestOpenCodeLiveAdapterRejectsBypassPermissions(t *testing.T) {
 	config := &Config{PermissionMode: "bypassPermissions"}
-	if err := (openCodeLiveAdapter{}).Validate(config); err == nil {
+	if err := (&openCodeLiveAdapter{}).Validate(config); err == nil {
 		t.Fatal("expected an error for a permission-bypassing mode")
 	}
 }
@@ -50,7 +50,7 @@ func TestOpenCodeLiveRegisteredUnderDistinctAdapterName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := adapter.(openCodeLiveAdapter); !ok {
+	if _, ok := adapter.(*openCodeLiveAdapter); !ok {
 		t.Fatalf("expected openCodeLiveAdapter, got %T", adapter)
 	}
 	// opencode-acp must remain untouched and registered under its own name.
