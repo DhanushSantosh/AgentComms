@@ -42,6 +42,10 @@ jobs:
           PUBLIC_MARKETING_SITE_URL: https://agentcomms-cli.vercel.app
           NEXT_PUBLIC_DOCS_URL: https://agentcomms-docs.vercel.app
           NEXT_PUBLIC_SITE_URL: https://agentcomms-cli.vercel.app
+          # The public docs are the only docs deployment and are built from dev,
+          # where astro.config.mjs would label a 1.x build "next". They document
+          # the latest published release, so label them stable.
+          PUBLIC_DOCS_CHANNEL: stable
         run: |
           set -euo pipefail
           npx vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
