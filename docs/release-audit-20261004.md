@@ -1,4 +1,4 @@
-# Major-release audit — in progress
+# Major-release audit — source candidate validated
 
 This record tracks the owner's final whole-project audit. It is not a release
 approval or proof that every workflow works. Baseline: `abfb99c` / v0.8.2;
@@ -6,24 +6,93 @@ release-history candidate: `2521418`. Audit fixes must be checked on their own
 resulting revision. Native Windows/macOS execution is provided by candidate
 CI, not inferred from Linux cross-compilation.
 
+## Final source verdict (2026-10-04)
+
+**Ready for the maintainer-led major-release process, within the documented
+trusted self-hosted deployment and supported provider scope.** Audited source
+revision: `fc73308931e8914bb88676ac66934afe70b0efd3`. Exact
+[CI 37214622492](https://github.com/DhanushSantosh/AgentComms/actions/runs/37214622492)
+passed all eight jobs, including native Linux/Windows/macOS, race/static gates,
+real PostgreSQL, genuine release verification, both sites and six-target builds.
+This report-only closure does not change that source. It is not a new release,
+a guarantee of zero undiscovered defects, or permission to skip protected
+review/environment gates.
+
+The audit covered the fourteen surfaces below. Findings were resolved through
+accepted designs where required, red/green regressions, actual provider/runtime
+controls and subsequent candidate CI. Failed and partial runs remain in the
+chronological record; a prior green revision or skipped opt-in is not substituted
+for the evidence of the path it does not exercise.
+
+The final additional source-built CLI smoke used two binaries compiled from
+this same source with distinct compatibility build IDs. In a disposable personal
+project it verified the actual stale-ID daemon, real process replacement,
+signed message writes before and after replacement, signed-history verification
+and shutdown. It did not use the app test launch override and did not claim to
+exercise a historical-release binary or production credentials.
+
+Both sites deployed from the exact audited source in
+[deployment 37215057559](https://github.com/DhanushSantosh/AgentComms/actions/runs/37215057559).
+Direct live HTTP checks confirmed the worker-owned server, Undo/revert refusal
+and heartbeat-wait guidance on the worker page, and the still-current v0.8.2
+download/changelog content. The public page-reader tool was unavailable; those
+checks used direct HTTPS, not its cached/error output. Exact candidate site CI
+passed 45 docs and 71 landing browser tests and unchanged Lighthouse gates.
+
+### Known limits retained, not presented as completed features
+
+- The release targets trusted self-hosted teams, not mutually untrusted tenants.
+  Operator-managed authority tokens and local host/provider trust remain part
+  of the deployment model; stronger tenant quotas/separation are deferred.
+- OpenCode live was actually verified against 1.18.33. The normal full native
+  TUI works across resets. The owner accepted the documented `--mini` limitation;
+  it is not certified as a continuous watcher after reset.
+- Leave OpenCode live `--session-id` unset: public UUID validation cannot accept
+  native `ses_*` IDs. Automatic owned-session continuation works and was tested;
+  this audit does not claim the explicit flag limitation is fixed.
+- Native event readiness adds approximately ten seconds per managed OpenCode
+  turn. Pending native Undo must be restored/resolved by the operator, not
+  silently discarded. Unknown policy/capability changes fail closed.
+- Windows Authenticode and Apple notarization are deferred. Verified downloads
+  can still show OS warnings. Linux real-provider opt-ins are not claimed as
+  real-provider executions on Windows/macOS merely because CI is green.
+- Historical startup/coordinator flake causes are not all proved. The current
+  candidate passes; any recurrence with new evidence must be triaged, not hidden
+  behind another timeout increase or a claim that flakes can never return.
+
+### Release handoff boundary
+
+The owner assigned the final release to Claude after this audit. Claude should
+review the report and final dev state, prepare the major-version changelog and
+compatibility notes, follow `docs/releasing.md` for dev-to-main promotion, generate
+and review the exact-version verifier pins, bump README/installer defaults,
+obtain required reviews/environment approval, publish through the release
+workflow, verify the newly published assets/clean install, refresh both sites
+after the new tag exists, and merge main back into dev. Existing v0.8.2 asset
+verification cannot certify assets that have not yet been built/published.
+No tag, main promotion or new release was performed by this audit.
+
+Earlier pending/blocked statements below are dated checkpoints, superseded by
+this final source verdict where the corresponding current evidence is listed.
+
 ## Coverage and evidence ledger
 
 | Surface | Required evidence | Current state |
 | --- | --- | --- |
-| Whole Go tree | Full suite, vet, race, staticcheck, coverage floors | Immutable 6a0e7b8 full uncached race passed; c6ed603 actual coverage command measured every declared floor and passed; 150b693 exact eight-job CI passed. Later changes need their own gates; whole-project completion review remains open |
-| Identities, governance, protocol | Role/credential isolation, approval expiry/binding/consumption, replay and rejection cases | Role/requester fixes and accepted RFC 0046 grant expiry have focused/replay/real-Postgres evidence and native CI; prior no-expiry behavior retained. Full audit closure remains pending |
+| Whole Go tree | Full suite, vet, race, staticcheck, coverage floors | Expanded RFC 0049 full uncached race passed; final draft/app/daemon uncached race and exact coverage script passed with retained terminal logs. All eight jobs passed on fc73308, including native portable/race/static and unchanged coverage gates |
+| Identities, governance, protocol | Role/credential isolation, approval expiry/binding/consumption, replay and rejection cases | Role/requester fixes and accepted RFC 0046 grant expiry have focused/replay/real-Postgres evidence; final native and Postgres CI passed. Prior no-expiry behavior retained, with explicitly accepted trusted-team policies |
 | Storage and upgrades | Signed-history replay, tamper rejection, SQLite/cache and Postgres timestamp migration | Fresh SQLite/cache lifecycle race suite passed; actual Postgres migration/confirmation/future-schema checks and new corrupt-history/projection rejection tests passed |
 | Shared authority and recovery | Authentication, writes, idempotency, cache lag, retry, deletion, stream admission | Lost-response/lease-expiry backoff regression fixed; three actual isolated Postgres race repetitions passed (authority 44.821s / daemon 247.731s), including sustained writes/cache lag. Historical coordinator-first flake cause remains unproved |
-| CLI/MCP | Actual adapter writes, result/order/history parity, generated reference consistency, failure semantics | Isolated actual authoritative adapter parity passed again on ced2173 (43.663s); latest generated-reference and platform CI passed. Final requirement-by-requirement closure remains pending |
+| CLI/MCP | Actual adapter writes, result/order/history parity, generated reference consistency, failure semantics | Actual authoritative adapter parity passed on ced2173 (43.663s); final generated-reference/platform CI passed. Additional fc73308 source-built CLI process replacement, signed writes and history verification passed |
 | TUI | Navigation/actions, constrained panes, resize, ordering, approvals, runtime-independent messaging | Actual isolated PTY navigation/resize at five sizes, signed actions and runtime-independent messaging passed; final frame-bounds fix ee6b7c4 passed exact CI. Full frozen 6a0e7b8 TUI race passed (409.770s); later candidate platform CI passed |
-| Runtime/providers | Local-process lifecycle, durable delivery and real installed provider smoke | Actual Codex exec/live, Claude native exec/live/ACP and OpenCode exec/ACP evidence recorded; RFC 0047 owned trees/ACP reaping and RFC 0048 routing tested. RFC 0049 is wired and independently reviewed; native reset completion, Undo preservation, observed-request saved-approval isolation, final mode/governance/full-attach/continuity and same-ID/two-project controls pass. Expanded candidate full uncached race and local gates pass; exact candidate CI remains open |
+| Runtime/providers | Local-process lifecycle, durable delivery and real installed provider smoke | Actual Codex exec/live, Claude native exec/live/ACP and OpenCode exec/ACP evidence recorded. RFC 0047 ownership/reaping and RFC 0048 routing tested. RFC 0049 independently reviewed; actual reset completion, Undo preservation, observed-request approval isolation, modes/governance/full-attach/continuity and same-ID/two-project controls passed, followed by final fc73308 native CI |
 | Installation and release trust | Authentic installer bootstrap, genuine signature acceptance, tamper/identity/issuer rejection | Live releaseverify suite passed uncached, including all four genuine-release subtests |
-| Platforms | Native Linux/Windows/macOS tests, Windows pipe-close regression, six-target/four-binary builds | All three native platform jobs and cross-build passed on 150b693 in CI 37189925642; this does not execute Linux-only real-provider opt-ins on Windows/macOS |
+| Platforms | Native Linux/Windows/macOS tests, Windows pipe-close regression, six-target/four-binary builds | All three native platform jobs, Windows nested-module pipe-close repetitions and cross-build passed on fc73308 in CI 37214622492; Linux-only real-provider opt-ins are not inferred as Windows/macOS executions |
 | Go dependencies | govulncheck and direct/transitive exposure review | Compatible x/crypto and x/mod security updates validated; refreshed scan has no called/package findings, only upstream-test-only OpenPGP module advisory |
-| Site dependencies | npm audit, impact assessment and any fixes | Accepted RFC 0043 pinned patch passes 20 behavior/maintenance checks and unchanged npm audit; c50385a docs/landing/security CI jobs passed |
-| Docs/landing | Build, content generation, keyboard/mobile/desktop/browser/visual and Lighthouse checks | Post-patch checks/builds, docs 45/landing 71 browser tests and unchanged Lighthouse thresholds passed locally; both site CI jobs passed on c50385a |
-| Production deployment | Exact candidate deploy and release/version correctness | Both site deployments passed on c50385a in workflow 37178144647; live landing download reports v0.8.2 and docs releases/changelog serves the beta archive |
-| Repository coordination | Inbox obligations, integrity, doctor, task state and exact Git/CI refs | 150b693 is on origin/dev and exact CI 37189925642 passed all eight jobs; integrity verified through 572 and installed v0.8.2 doctor healthy. Installed runtime is not the newer source candidate. Claude updated; audit task remains IN_PROGRESS |
+| Site dependencies | npm audit, impact assessment and any fixes | Accepted RFC 0043 pinned patch passes 20 behavior/maintenance checks; final fc73308 docs/landing/security CI and unchanged npm audit passed |
+| Docs/landing | Build, content generation, keyboard/mobile/desktop/browser/visual and Lighthouse checks | Final fc73308 static/content checks, 45 docs and 71 landing browser tests and unchanged Lighthouse gates passed; preceding independent browser/visual evidence retained below |
+| Production deployment | Exact candidate deploy and release/version correctness | Both site deployments passed on fc73308 in workflow 37215057559; direct live worker-page checks show the new policy guidance. v0.8.2 remains the published release; new major-version assets/pages require the release workflow |
+| Repository coordination | Inbox obligations, integrity, doctor, task state and exact Git/CI refs | fc73308 pushed with verified signatures and exact eight-job CI green; project integrity verified through sequence 602 and installed v0.8.2 doctor healthy. Installed runtime is distinguished from source-built smoke. Final report/handoff does not authorize bypassing release gates |
 
 The test-fixture candidate c30cae7 subsequently passed all eight CI jobs in
 workflow 37179122223, including the unchanged parallel Postgres coverage gate.
