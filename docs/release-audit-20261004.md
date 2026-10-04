@@ -1124,3 +1124,39 @@ original failed job is not silently rerun or counted as green.
 
 Full affected-package uncached race passed after the fixture correction (worker
 24.140s, client 2.048s); affected vet, staticcheck and whitespace checks passed.
+
+### Candidate f5ee62e Linux draft-store initialization failure
+
+Exact CI 37213162194 passed seven of eight jobs: native Windows/macOS,
+security, Postgres, docs, landing and cross-build. Linux's ordinary suite and
+race suite passed, but the final unchanged coverage command failed
+TestEnsureDaemonReplacesIncompatibleDaemon. Its replacement daemon exited with
+`initialize draft store: database is locked (5) (SQLITE_BUSY)`; the caller then
+exhausted its unchanged 40-second readiness deadline. This is a failed gate,
+not a low-coverage result. Postgres authority coverage measured 53.9% against
+the unchanged 40% floor; docs had 45 and landing 71 browser tests pass.
+
+Thirty isolated local coverage repetitions of the daemon replacement test
+passed in 4.546s. Therefore the CI lock holder/timing has not been independently
+identified. A separate deterministic real-SQLite startup-lock control reproduced
+the same initialization error in both DELETE and WAL mode, three repetitions
+red in 0.938s. The first journal operation ran before the schema's busy-timeout
+pragma, so it used SQLite's zero-wait default. The cache and personal-authority
+stores already configure that timeout before touching their databases.
+
+Draft Open now configures the same existing five-second wait before any database
+operation. No timeout value, schema, transaction algorithm, lock ownership or
+CI gate changed. The transient-lock test requires successful initialization
+after the controlled holder closes and retains WAL mode. Ten uncached race
+repetitions passed in 5.150s. Full affected-package race, the actual coverage
+script and static gates are running; new exact candidate CI remains required.
+This corrects a reproduced initialization ordering defect, not proof that all
+historical daemon-startup flakes share this cause or can never recur.
+
+An interruption removed the first validation session handles without retained
+terminal output, so those partial runs were not counted as passes. The rerun
+retained logs under `/tmp/agc-draft-final-gates-qP0nyl`: full affected-package
+uncached race passed (draftstore 152.235s, app 80.646s, daemon 2.568s), and the
+unchanged whole-tree coverage script passed every floor (TUI 111.186s/80.5%,
+worker 13.866s/73.6%). Both logs end with `gate_exit_code=0`. Whole-tree vet,
+staticcheck and whitespace checks passed. Fresh exact-SHA CI remains required.

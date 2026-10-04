@@ -54,6 +54,13 @@ func Open(path string) (*Store, error) {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
+	// Set the existing wait policy before touching the database. A replaced
+	// daemon can still hold a transient lock after its listener closes; the
+	// first journal-mode operation otherwise uses SQLite's zero wait default.
+	if _, err = db.Exec(`PRAGMA busy_timeout=5000`); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("set draft store busy timeout: %w", err)
+	}
 	if _, err = db.Exec(schema); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("initialize draft store: %w", err)
