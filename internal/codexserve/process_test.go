@@ -32,6 +32,12 @@ func init() {
 			os.Exit(2)
 		}
 		_, _ = connection.Write([]byte{1})
+		// Acknowledge readiness before serving RPCs. A failed handshake can
+		// otherwise kill us before Windows delivers the buffered ready byte.
+		var acknowledged [1]byte
+		if _, err := io.ReadFull(connection, acknowledged[:]); err != nil {
+			os.Exit(2)
+		}
 		go func() {
 			_, _ = io.Copy(io.Discard, connection)
 			os.Exit(0)
@@ -163,13 +169,16 @@ func TestProcessFailedStartTerminatesChild(t *testing.T) {
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer cancel()
-			process, err := Start(ctx, fakeProcessConfig(t))
-			if err == nil || process != nil {
-				if process != nil {
-					_ = process.Close()
-				}
-				t.Fatalf("failed handshake returned (%v, %v)", process, err)
+			type startResult struct {
+				process *Process
+				err     error
 			}
+			result := make(chan startResult, 1)
+			config := fakeProcessConfig(t)
+			go func() {
+				process, err := Start(ctx, config)
+				result <- startResult{process, err}
+			}()
 			_ = listener.(*net.TCPListener).SetDeadline(time.Now().Add(time.Second))
 			connection, err := listener.Accept()
 			if err != nil {
@@ -183,6 +192,17 @@ func TestProcessFailedStartTerminatesChild(t *testing.T) {
 			if _, err := io.ReadFull(connection, ready[:]); err != nil {
 				t.Fatal(err)
 			}
+			if _, err := connection.Write([]byte{1}); err != nil {
+				t.Fatal(err)
+			}
+			started := <-result
+			if started.err == nil || started.process != nil {
+				if started.process != nil {
+					_ = started.process.Close()
+				}
+				t.Fatalf("failed handshake returned (%v, %v)", started.process, started.err)
+			}
+			_ = connection.SetReadDeadline(time.Now().Add(time.Second))
 			if _, err := connection.Read(ready[:]); err == nil {
 				t.Fatal("unexpected child lifetime data")
 			} else if timeout, ok := err.(net.Error); ok && timeout.Timeout() {
