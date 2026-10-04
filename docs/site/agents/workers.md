@@ -42,7 +42,7 @@ OpenCode uses `--adapter opencode`. Its session continuity is stored in a local 
 
 Codex live applies `--codex-sandbox` and `--codex-add-dir`, but uses the
 provider's normal user configuration. `--codex-ignore-user-config` is rejected
-before launch for `codex-live`; use `--adapter codex` for exec-based runs that
+before launch for `codex-live` and `codex-acp`; use `--adapter codex` for exec-based runs that
 require user MCP/tool configuration isolation.
 - `claude-acp`, `codex-acp`, `opencode-acp`: Agent Client Protocol integrations with provider-specific permission limits.
 

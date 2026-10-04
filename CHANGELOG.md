@@ -5,6 +5,8 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 
 ## [Unreleased]
 
+- Codex ACP now rejects `--codex-ignore-user-config` before launch rather than
+  silently ignoring it; choose the native Codex exec adapter for isolation.
 - Codex live now rejects `--codex-ignore-user-config` before launch because the
   native app-server cannot honor it; use the Codex exec adapter for isolation.
 - Failed Codex live startup terminates its subprocess instead of leaving an

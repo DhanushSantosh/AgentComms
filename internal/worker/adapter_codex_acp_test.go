@@ -1,9 +1,56 @@
 package worker
 
 import (
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
+
+func TestCodexACPAdapterRejectsUnsupportedUserConfigIsolation(t *testing.T) {
+	for _, sandbox := range []string{"", "read-only", "workspace-write"} {
+		t.Run(sandbox, func(t *testing.T) {
+			config := &Config{Sandbox: sandbox, CodexIgnoreUserConfig: true}
+			err := (codexACPAdapter{}).Validate(config)
+			if err == nil || !strings.Contains(err.Error(), "codex-acp") || !strings.Contains(err.Error(), "--adapter codex") {
+				t.Fatalf("unsupported isolation must name the adapter and supported exec alternative: %v", err)
+			}
+			config.CodexIgnoreUserConfig = false
+			if err = (codexACPAdapter{}).Validate(config); err != nil {
+				t.Fatalf("ordinary ACP sandbox must remain supported: %v", err)
+			}
+		})
+	}
+}
+
+func TestCodexACPWorkerRejectsIsolationBeforeExecution(t *testing.T) {
+	instance, root := workerService(t)
+	before, err := instance.State()
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := Config{
+		Service: instance, Actor: "claude-axiom", RuntimeID: "runtime-axiom",
+		Adapter: "codex-acp", WorkDir: root, Sandbox: "read-only",
+		ListenWait: time.Second, ExecutionTimeout: time.Minute, Once: true,
+		CodexIgnoreUserConfig: true,
+	}
+	worker, err := New(config)
+	if worker != nil || err == nil || !strings.Contains(err.Error(), "--adapter codex") {
+		t.Fatalf("unsupported isolation must return no executable worker: worker=%v err=%v", worker != nil, err)
+	}
+	after, err := instance.State()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(before, after) {
+		t.Fatal("rejected configuration changed project state")
+	}
+	config.CodexIgnoreUserConfig = false
+	if worker, err = New(config); worker == nil || err != nil {
+		t.Fatalf("ordinary ACP worker must remain supported: %v", err)
+	}
+}
 
 func TestCodexACPAdapterRejectsModelOverride(t *testing.T) {
 	config := &Config{Model: "o3"}

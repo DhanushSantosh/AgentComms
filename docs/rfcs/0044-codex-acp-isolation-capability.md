@@ -2,8 +2,9 @@
 
 ## Status and owners
 
-Proposed, 2026-10-04. Owner: the project maintainer; author: codex-main.
-Implementation requires acceptance. This extends RFC 0042's fail-closed
+Accepted, 2026-10-04. Owner: the project maintainer; author: codex-main.
+The owner accepted this design in the project chat ("RFC 44 accepted").
+This extends RFC 0042's fail-closed
 capability rule to the separately registered `codex-acp` adapter.
 
 ## Problem and desired outcome

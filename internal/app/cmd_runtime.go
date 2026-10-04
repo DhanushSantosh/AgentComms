@@ -228,7 +228,7 @@ func (c *cli) runtimeCmd() *cobra.Command {
 	workerCommand.Flags().StringVar(&permissionMode, "claude-permission-mode", "acceptEdits", "Claude permission mode without bypass")
 	workerCommand.Flags().StringVar(&sandbox, "codex-sandbox", "workspace-write", "Codex read-only or workspace-write sandbox")
 	workerCommand.Flags().StringSliceVar(&codexAddDirs, "codex-add-dir", nil, "additional absolute writable directory for Codex (repeatable)")
-	workerCommand.Flags().BoolVar(&codexIgnoreUserConfig, "codex-ignore-user-config", false, "isolate codex exec runs from user MCP and tool configuration (unsupported by codex-live)")
+	workerCommand.Flags().BoolVar(&codexIgnoreUserConfig, "codex-ignore-user-config", false, "isolate codex exec runs from user MCP and tool configuration (unsupported by codex-live and codex-acp)")
 	workerCommand.Flags().DurationVar(&executionTimeout, "execution-timeout", 30*time.Minute, "per-invocation execution timeout")
 	workerCommand.Flags().DurationVar(&listenWait, "listen-wait", controlplane.MaxInvocationListen, "bounded invocation listen duration")
 	workerCommand.Flags().Float64Var(&claudeBudget, "claude-max-budget-usd", 1, "Claude spend ceiling (per invocation for claude; per process for claude-live)")

@@ -25,6 +25,10 @@ CI, not inferred from Linux cross-compilation.
 | Production deployment | Exact candidate deploy and release/version correctness | Both site deployments passed on c50385a in workflow 37178144647; live landing download reports v0.8.2 and docs releases/changelog serves the beta archive |
 | Repository coordination | Inbox obligations, integrity, doctor, task state and exact Git/CI refs | Claude updated through sequence 516; integrity verified through 514; c50385a confirmed on origin/dev. CI 37178144687 completed successfully across all eight jobs |
 
+The test-fixture candidate c30cae7 subsequently passed all eight CI jobs in
+workflow 37179122223, including the unchanged parallel Postgres coverage gate.
+This does not certify later source changes until their own candidate CI runs.
+
 ## Findings under investigation
 
 ### AUD-01: build-time GitHub lookup can exhaust anonymous quota
@@ -435,9 +439,23 @@ A temporary direct regression expecting rejection failed with exit one:
 `codexACPAdapter.Validate` returned nil for read-only sandbox plus requested
 user-config isolation. The owned temporary probe was removed afterward.
 This is a reproduced false capability assurance, not a demonstrated exploit.
-RFC 0044 proposes the same fail-before-launch rule as RFC 0042, with native
-Codex exec as the explicit supported alternative. It is proposed, not
-accepted or implemented; this follow-up remains open.
+The owner accepted RFC 0044 in this project chat. The permanent regression
+first failed for default, read-only and workspace-write ACP configurations,
+and `worker.New` incorrectly returned an executable worker. Validation now
+rejects the requested option with the adapter name and native Codex exec
+alternative before returning a worker. The real-service test proves project
+state remains unchanged and ordinary ACP configurations stay accepted.
+
+Three uncached race repetitions passed for worker (76.550 seconds) and
+acpclient (2.463 seconds). A public-CLI regression initializes a disposable
+project and proves `runtime worker --adapter codex-acp
+--codex-ignore-user-config` returns the isolation diagnostic before execution
+even for an unregistered runtime; three race repetitions passed in 12.173
+seconds. Native exec argument tests retain the genuine isolation flag.
+Flag help, generated CLI reference, worker docs and Unreleased notes are
+updated. Vet, generation consistency and diff checks passed. No provider
+config, credential, approval, event or schema changes. Exact resulting
+candidate CI remains required; broader adapter review remains separate.
 
 Complete the pending ledger with exact commands, revisions and outcomes;
 resolve validated release blockers without weakening integrity or security
