@@ -29,6 +29,12 @@ The test-fixture candidate c30cae7 subsequently passed all eight CI jobs in
 workflow 37179122223, including the unchanged parallel Postgres coverage gate.
 This does not certify later source changes until their own candidate CI runs.
 
+Candidate 7315f3a (accepted RFC 0045) passed all eight CI jobs in workflow
+37180918042 and both site deployments in 37180918041. A fresh full uncached
+race run of that exact revision is live from an immutable Git archive at
+`/tmp/agc-release-candidate-7315f3a-HstUsH`, with output in `race.log`.
+Do not treat a running handle or partial package output as a completed pass.
+
 ## Findings under investigation
 
 ### AUD-01: build-time GitHub lookup can exhaust anonymous quota
@@ -477,6 +483,47 @@ preserving logical signed IDs and same-project conflict protection. Both
 provider suites pass uncached race tests, including concurrent project prompts,
 distinct processes and scoped SSE subscriptions. Focused worker/viewer race
 tests and vet pass; broader candidate CI and final release closure remain pending.
+
+## Orchestrator grant expiry follow-up
+
+On 7315f3a, a disposable direct-transition regression reproduced acceptance
+of an expired conventional HUMAN approval for both `agent.activate` and
+`agent.switch-role`, including equality at the fixed authority time. All
+four rejection assertions failed identically in three runs. Separate controls
+prove future-approved acceptance and PENDING/CONSUMED/REJECTED rejection, with
+the expiry field retained. The grant helper omits deadline validation.
+The owned failing probe was removed after recording the evidence, so no
+deliberately red test is committed. No real approval or principal was changed.
+[RFC 0046](rfcs/0046-orchestrator-grant-approval-expiry.md) proposes honoring
+expiry at new-command validation and bounded conventional-ID re-request
+recovery. It is proposed, not implemented or accepted. This remains a release
+audit finding requiring governance approval, not an unauthenticated escalation.
+
+## Remaining delivery and real-provider verification
+
+The exact historical delivery-failure regression passed 20 uncached race
+repetitions on 7315f3a (`GOMAXPROCS=2 go test -race -count=20 -run
+'^TestInvocationDeliveryFailureDoesNotTerminateObligation$' ./internal/service`),
+40.127 seconds. This raises confidence but does not reproduce, diagnose or
+resolve the previously reported intermittent failure. No retry or timeout
+assertion was weakened.
+
+Opt-in Codex/Claude smoke fixtures now exercise an owned ephemeral HTTP broker
+and project-scoped register/prompt calls for two conversation turns, rather
+than only the native Process.Send interface. They request no tools/file reads,
+retain provider permissions/budgets, and close only their owned brokers.
+The fresh Claude run registered successfully but its first prompt returned
+HTTP 502 with the provider diagnostic “OAuth session expired and could not
+be refreshed” (5.021 seconds). Current real-Claude scoped end-to-end evidence
+is therefore incomplete pending local provider authentication. User credentials
+and configuration were not changed. Earlier direct-process success is retained
+as historical evidence, not substituted for this current failure.
+
+The real Codex scoped HTTP smoke passed both turns and preserved the requested
+conversation word (22.032 seconds), using the test-only explicit `gpt-5.5`
+model without altering the user's default model. This proves real scoped
+registration/prompt continuity, separately from fake-process collision/SSE
+tests and separately from the full claim/publish worker pipeline.
 
 Complete the pending ledger with exact commands, revisions and outcomes;
 resolve validated release blockers without weakening integrity or security
