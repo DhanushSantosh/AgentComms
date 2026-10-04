@@ -109,7 +109,7 @@ func defaultPrompt(actor string, invocation model.Invocation, header string) str
 	body.WriteString("Do not ask the user to relay messages to another agent. Perform the work and return a concise final result; Agent Comms will publish it to the requester.\n\n")
 
 	body.WriteString("Requester: ")
-	body.WriteString(actor)
+	body.WriteString(invocation.RequestedBy)
 	body.WriteString("\nPriority: ")
 	body.WriteString(string(invocation.Priority))
 	body.WriteString("\n\nInstruction:\n")

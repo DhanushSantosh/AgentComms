@@ -31,15 +31,14 @@ This does not certify later source changes until their own candidate CI runs.
 
 Candidate 7315f3a (accepted RFC 0045) passed all eight CI jobs in workflow
 37180918042 and both site deployments in 37180918041. A fresh full uncached
-race run of that exact revision is live from an immutable Git archive at
+race run of that exact revision finished from an immutable Git archive at
 `/tmp/agc-release-candidate-7315f3a-HstUsH`, with output in `race.log`.
-Do not treat a running handle or partial package output as a completed pass.
 The app package subsequently hit its default ten-minute test-process deadline
 (600.890 seconds); the active test had run eight seconds at the timeout.
 The dump includes runnable executable-content hashing, not evidence that this
-specific test deadlocked. This full invocation is not a pass. Other packages
-continue in the same live process; retain its log and terminal result before
-deciding the scope of an isolated rerun. Do not weaken repository assertions
+specific test deadlocked. This full invocation is not a pass. All remaining
+packages passed in that invocation; its terminal exit was 1 and the original
+log is retained. Do not weaken repository assertions
 or CI timeouts to suppress this outcome.
 
 ## Findings under investigation
@@ -611,3 +610,29 @@ the previous process was absent. Original whole-suite 600s timeout evidence
 remains recorded; no repository timeout or assertion was weakened.
 
 TUI frame candidate ee6b7c4 completed exact CI 37182600329 successfully.
+
+## Exec-provider cancellation blocker
+
+On c7c486e the opt-in worker audit regression reproduced a 100ms deadline
+returning after about two seconds on both Codex and OpenCode exec paths, in
+three uncached repetitions (12.087s total). Changing only child output to
+`/dev/null` made both controls return in 0.10s, while inherited-output cases
+remained red at 2.02s/2.01s. Direct process cancellation does not bound Go's
+output-copy wait when a descendant retains the pipe. RFC 0047 proposes owned
+tree cleanup plus bounded drain; closing the pipes alone is not child cleanup.
+The reproducer is explicitly opt-in while this design is proposed, not counted
+as a passed default-suite check. Native Windows, ACP and live broker behavior
+are separate evidence requirements. The audit remains incomplete.
+
+## Declarative prompt identity correction
+
+Source review found the declarative prompt using the executor actor for its
+Requester field. A regression with distinct synthetic principals reproduced
+the error. The field now uses invocation.RequestedBy, matching native provider
+prompts while preserving the executor preamble and existing signed routing.
+The full uncached worker/ACP race suites passed (18.452s/1.209s); vet passed.
+The opt-in deadline audit remains intentionally red when enabled and skipped
+in the default suite; those default passes do not resolve that blocker.
+
+Repository integrity verified all 545 signed events; doctor is healthy with
+no findings for the installed v0.8.2 toolkit, not the newer source candidate.
