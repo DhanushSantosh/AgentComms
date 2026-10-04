@@ -574,3 +574,40 @@ resolve validated release blockers without weakening integrity or security
 gates; repeat affected checks after fixes; verify candidate platform CI and
 site deployment; report any explicit supported-scope limits. Do not call the
 audit complete while a required surface is untested or a gate remains red.
+
+## RFC 0046 accepted expiry enforcement
+
+The maintainer accepted RFC 0046. Before editing, regressions reproduced past
+and equal expiry acceptance on both grant routes, and rejected recovery of
+expired PENDING/APPROVED records. Personal-authority regressions independently
+reproduced both expired grants through signed commands.
+
+The shared validator now checks optional expiry against authority time on
+both grant routes. Only exact conventional HUMAN grant records that are
+CONSUMED or expired PENDING/APPROVED may be re-requested; replacement remains
+PENDING and needs fresh human approval. The TUI eligibility check also honors
+expiry. No projection enforcement was added: historical expired-grant events
+still replay to the same role and consumed approval.
+
+Three uncached focused race repetitions passed: protocol 1.077s, projection
+1.025s, personal authority 4.267s, real disposable Postgres authority 3.410s.
+Both backend workflows proved rejected grants add no event, replacement loses
+the previous approver, fresh approval permits one grant, and reuse rejects.
+The full affected uncached race suite passed: protocol 1.226s, projection
+1.095s, personal authority 6.076s, Postgres authority 33.397s, service 66.463s,
+TUI 368.813s. Focused vet and diff checks passed.
+
+Independent security review delegation failed on the account usage limit;
+the required fallback separate local review traced both validator callers,
+the exact-ID/action/tier recovery conditions, TUI eligibility and projection
+replacement/consumption. No additional bypass was confirmed. This is not an
+independent-review success claim. Exact pushed candidate CI is still required.
+
+The separate immutable app observation lost its tool handle and its process
+subsequently disappeared without terminal output in the preserved empty log.
+That result is UNKNOWN, not a pass. A current-source uncached app race run
+with the longer local observation window was started only after confirming
+the previous process was absent. Original whole-suite 600s timeout evidence
+remains recorded; no repository timeout or assertion was weakened.
+
+TUI frame candidate ee6b7c4 completed exact CI 37182600329 successfully.

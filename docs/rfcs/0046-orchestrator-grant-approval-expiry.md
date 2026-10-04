@@ -2,8 +2,8 @@
 
 ## Status and owners
 
-Proposed, 2026-10-04. Owner: project maintainer; author: codex-main.
-Implementation requires maintainer acceptance. This governance change extends
+Accepted, 2026-10-04, by the maintainer's “RFC's approved”. Author: codex-main.
+This governance change extends
 RFC 0023's single-use orchestrator-grant authorization and RFC 0037's explicit
 expiry semantics. RFC 0045 acceptance does not approve this change.
 
@@ -93,5 +93,5 @@ approval or credential mutation during verification.
 
 ## Unresolved questions
 
-Maintainer acceptance of the bounded expiry enforcement and expired-record
-re-request recovery is required before implementation.
+None. Maintainer accepted the bounded expiry enforcement and expired-record
+re-request recovery.

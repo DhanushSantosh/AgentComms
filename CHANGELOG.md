@@ -23,6 +23,9 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
   and resumed threads and reject invalid directory paths before launch.
 
 ### Fixed
+- Enforce optional orchestrator-grant approval expiry on activation and role
+  switching. Expired conventional grants can be re-requested but require a
+  fresh human approval; historical replay and no-expiry approvals are unchanged.
 - Bound the final TUI frame, including overlays, to the actual terminal size
   and preserve navigation state after tiny or zero-area resizes.
 - Codex live runtimes explicitly apply the requested sandbox on new and resumed

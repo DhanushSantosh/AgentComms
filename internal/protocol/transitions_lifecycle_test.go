@@ -90,35 +90,35 @@ func TestHasOrchestratorGrantApprovalIsIDScoped(t *testing.T) {
 			Action: "agent.activate:THOR", Status: "APPROVED", Tier: "HUMAN",
 		},
 	}}
-	if hasOrchestratorGrantApproval(st, "THOR") {
+	if hasOrchestratorGrantApproval(st, "THOR", time.Now()) {
 		t.Fatal("expected an APPROVED approval under the wrong ID not to satisfy hasOrchestratorGrantApproval, even though its action string matches")
 	}
 
 	st.Approvals["grant-orchestrator-THOR"] = model.Approval{
 		Action: "agent.activate:THOR", Status: "APPROVED", Tier: "HUMAN",
 	}
-	if !hasOrchestratorGrantApproval(st, "THOR") {
+	if !hasOrchestratorGrantApproval(st, "THOR", time.Now()) {
 		t.Fatal("expected an APPROVED approval at the conventional ID to satisfy hasOrchestratorGrantApproval")
 	}
 
 	st.Approvals["grant-orchestrator-THOR"] = model.Approval{
 		Action: "agent.activate:THOR", Status: "APPROVED", Tier: "ORCHESTRATOR",
 	}
-	if hasOrchestratorGrantApproval(st, "THOR") {
+	if hasOrchestratorGrantApproval(st, "THOR", time.Now()) {
 		t.Fatal("expected an ORCHESTRATOR-tier approval not to satisfy hasOrchestratorGrantApproval")
 	}
 
 	st.Approvals["grant-orchestrator-THOR"] = model.Approval{
 		Action: "agent.activate:THOR", Status: "PENDING", Tier: "HUMAN",
 	}
-	if hasOrchestratorGrantApproval(st, "THOR") {
+	if hasOrchestratorGrantApproval(st, "THOR", time.Now()) {
 		t.Fatal("expected a PENDING approval not to satisfy hasOrchestratorGrantApproval")
 	}
 
 	st.Approvals["grant-orchestrator-THOR"] = model.Approval{
 		Action: "agent.activate:someone-else", Status: "APPROVED", Tier: "HUMAN",
 	}
-	if hasOrchestratorGrantApproval(st, "THOR") {
+	if hasOrchestratorGrantApproval(st, "THOR", time.Now()) {
 		t.Fatal("expected an approval at the right ID but wrong action not to satisfy hasOrchestratorGrantApproval")
 	}
 }
