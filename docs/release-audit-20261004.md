@@ -741,3 +741,18 @@ vet and diff checks passed. New exact-candidate native CI remains required.
 This establishes a recovery-policy defect independently of the historical
 Postgres stress result. It is not evidence that the earlier missing notify
 event was caused by an HTTP timeout, and does not close that investigation.
+
+## Real Claude native worker lifecycle
+
+The separate opt-in `TestManualSmokeClaudeExec` uses the actual authenticated
+Claude CLI through the native adapter and the complete Worker pipeline in an
+isolated personal project. It passed uncached with the race detector in 11.382
+seconds. The signed invocation is COMPLETED and links a result message authored
+by the executing principal containing the requested synthetic receipt. The
+fixture uses `dontAsk`, a USD 0.50 budget, a 150-second execution deadline,
+no session persistence, and instructions forbidding tools/files/commands or
+delegation. It is skipped unless `AGENTCOMMS_CLAUDE_EXEC_SMOKE=1`, so CI skips
+must not be counted as actual provider executions. This is real
+claim/execute/publish/complete evidence, not arbitrary tool-workflow coverage.
+The full ordinary worker package passed uncached with race instrumentation
+(25.557 seconds); vet and diff checks passed.
