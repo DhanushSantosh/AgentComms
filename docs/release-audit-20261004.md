@@ -34,6 +34,13 @@ Candidate 7315f3a (accepted RFC 0045) passed all eight CI jobs in workflow
 race run of that exact revision is live from an immutable Git archive at
 `/tmp/agc-release-candidate-7315f3a-HstUsH`, with output in `race.log`.
 Do not treat a running handle or partial package output as a completed pass.
+The app package subsequently hit its default ten-minute test-process deadline
+(600.890 seconds); the active test had run eight seconds at the timeout.
+The dump includes runnable executable-content hashing, not evidence that this
+specific test deadlocked. This full invocation is not a pass. Other packages
+continue in the same live process; retain its log and terminal result before
+deciding the scope of an isolated rerun. Do not weaken repository assertions
+or CI timeouts to suppress this outcome.
 
 ## Findings under investigation
 
@@ -524,6 +531,43 @@ conversation word (22.032 seconds), using the test-only explicit `gpt-5.5`
 model without altering the user's default model. This proves real scoped
 registration/prompt continuity, separately from fake-process collision/SSE
 tests and separately from the full claim/publish worker pipeline.
+
+## Candidate Windows cleanup-fixture failure
+
+The test-only follow-up ced2173 passed seven CI jobs, but Windows failed
+`TestProcessFailedStartTerminatesChild/initialize` in workflow 37181374929.
+The failure was the first read of the readiness byte: TCP reset after startup
+failure killed the helper. It was not the regression's live-child timeout.
+The fixture now waits for parent acknowledgment of readiness before serving
+the deliberately failing RPC. Ten uncached race repetitions passed (23.688
+seconds). Commit c025898 contains only this test synchronization, with no
+production cleanup change or relaxed assertion. Exact candidate CI 37181952570
+completed successfully, including native Windows validation.
+
+## Terminal resize-boundary follow-up
+
+A new real-Update/WindowSize regression reproduced Overview rendering eight
+rows in a 1x1 terminal. Pane-size floors and overlays were not bounded by a
+final physical-frame height constraint. The local correction clips the final
+frame after overlays and emits no content for zero-area terminals; the model,
+navigation and ordinary pane layout remain intact. Every view plus normal,
+palette and confirmation states passed three uncached race repetitions across
+ten edge sizes, from 1x1 to 220x70 (222.852 seconds), including restore after
+tiny/zero resize. The full affected uncached race suite passed: TUI 501.391
+seconds and Codex broker 4.327 seconds. Candidate platform CI remains required
+after pushing this local production correction.
+
+A fresh authoritative CLI/MCP parity and focused navigation/viewport race run
+on ced2173 passed: app 43.663 seconds, TUI 24.685 seconds. These prove actual
+adapter writes, inbox order/history parity, scoped viewport/selection hit tests
+and runtime-independent messaging within their fixtures, not blanket UI
+usability at a physically unreadable terminal size.
+
+The opt-in real native Codex exec worker smoke passed (18.730 seconds), using
+the explicit test-only gpt-5.5 model, read-only sandbox and ignored user config.
+It exercised claim, provider execution, result-message publication and final
+COMPLETED invocation state with a synthetic no-tool receipt. This is separate
+from the two-turn scoped HTTP broker smoke.
 
 Complete the pending ledger with exact commands, revisions and outcomes;
 resolve validated release blockers without weakening integrity or security

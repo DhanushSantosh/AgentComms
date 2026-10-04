@@ -23,6 +23,8 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
   and resumed threads and reject invalid directory paths before launch.
 
 ### Fixed
+- Bound the final TUI frame, including overlays, to the actual terminal size
+  and preserve navigation state after tiny or zero-area resizes.
 - Codex live runtimes explicitly apply the requested sandbox on new and resumed
   threads, and return terminal provider errors instead of waiting for a deadline.
 - Corrupt encrypted credential nonces are rejected without crashing decryption.
