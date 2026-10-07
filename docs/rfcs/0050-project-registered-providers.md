@@ -161,9 +161,10 @@ ACTIVE providers) instead of reading a package-level map.
   and the `provider_register` tool.
 - **TUI:** providers are fully manageable, following the existing
   Environment pattern:
-  - a new **Providers** view, opened from Settings › Agents & access and
-    from the command palette. Columns: name, status, active agents, display
-    name, added (RFC 0041 time). Built-ins appear first, marked built-in;
+  - a new **Providers** view in the Team group, also opened from a new
+    Settings › Agent providers domain and from the command palette ("new
+    provider"). Columns: name, status, kind (built-in or registered), active
+    agents, display name, added (RFC 0041 time). Built-ins appear first;
   - **[n] register provider** opens a form (name, display name,
     description) that issues `provider.register`;
   - a row action **retire** on a registered provider opens a form with a
@@ -174,15 +175,20 @@ ACTIVE providers) instead of reading a package-level map.
     view is read-only and says why ("only the owner or an orchestrator can
     register or retire providers"), instead of opening a form the authority
     would reject;
-  - the agent register form gains a provider field listing the project's
-    accepted set. When the owner or an orchestrator enters an unregistered name, the TUI shows
-    the same "register it now?" confirmation as the CLI, then issues the
-    two events in order;
+  - the agent register form gains a provider field, and its principal ID
+    becomes optional for an AGENT (derived from the provider, as in the
+    CLI). When the owner or an orchestrator enters an unregistered name, the
+    TUI shows the same "register it now?" confirmation as the CLI, then
+    issues the two events in order;
   - the agent inspector shows the provider and whether it is built-in,
     registered or retired.
 - **`doctor`:** use the project's set when it strips the provider from an
-  ID. Report an INFO finding for agents whose provider is RETIRED, so it's
-  visible without being an error.
+  ID. It adds no finding for agents of a retired provider: every doctor
+  finding marks the project unhealthy, and that state is deliberate.
+  `provider list` and `provider show` show a retired provider with its
+  still-active agents instead.
+- **`agent show`:** displays the agent's provider. Agent JSON stays the
+  stored record; no derived field is added to it.
 
 ### 8. Providers are identity, not execution
 
@@ -245,9 +251,8 @@ let adapter files add providers, which keeps RFC 0039's correction intact.
   refuses a database at schema 8 with the existing "newer than this binary
   supports" error.
 - **Public contract additions:** two event types, the `provider` command
-  group, the `provider_list` MCP tool, a `providers` collection in JSON
-  state, and a derived `provider` field on agents in CLI/MCP output, which
-  is computed from the ID and never stored. All are additive.
+  group, the `provider_list`, `provider_register` and `provider_retire` MCP
+  tools, and a `providers` collection in JSON state. All are additive.
 - **Docs:** the identity/agents pages, generated CLI and MCP references, and
   the changelog. Remove the backlog item when this ships.
 

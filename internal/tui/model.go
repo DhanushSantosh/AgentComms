@@ -20,7 +20,7 @@ import (
 var views = []string{
 	"Overview", "My work", "Tasks", "Inbox", "Agents", "Approvals", "Invocations",
 	"Runtimes", "Project settings", "Documents", "Contracts & decisions", "Artifacts", "Drafts",
-	"Blockers", "Audit & health", "Activity", "Archive search", "Environment",
+	"Blockers", "Audit & health", "Activity", "Archive search", "Environment", "Providers",
 }
 
 type navigationHub struct {
@@ -31,7 +31,7 @@ type navigationHub struct {
 var navigationHubs = []navigationHub{
 	{Name: "Command", Views: []string{"Overview", "My work", "Blockers", "Approvals"}},
 	{Name: "Work", Views: []string{"Tasks", "Documents", "Contracts & decisions", "Artifacts", "Drafts", "Archive search"}},
-	{Name: "Team", Views: []string{"Agents", "Runtimes"}},
+	{Name: "Team", Views: []string{"Agents", "Runtimes", "Providers"}},
 	{Name: "Relay", Views: []string{"Inbox", "Invocations", "Activity"}},
 	{Name: "Project", Views: []string{"Project settings", "Environment", "Audit & health"}},
 }
@@ -86,6 +86,7 @@ type Model struct {
 	decisionList     RowList
 	artifactList     RowList
 	envList          RowList
+	providerList     RowList
 	drafts           []controlplane.Draft
 	draftCursor      int
 	settingsFocus    bool
@@ -167,7 +168,7 @@ func New(s *service.Service, actor string) (Model, error) {
 		approvalList: newRowList(approvalRowSource{}), agentList: newRowList(agentRowSource{}),
 		invocationList: newRowList(invocationRowSource{}), runtimeList: newRowList(runtimeRowSource{root: s.Store.Root}),
 		documentList: newRowList(documentRowSource{}), decisionList: newRowList(decisionRowSource{}),
-		artifactList: newRowList(artifactRowSource{}), envList: newRowList(envRowSource{}),
+		artifactList: newRowList(artifactRowSource{}), envList: newRowList(envRowSource{}), providerList: newRowList(providerRowSource{}),
 		lifecycle: lifecycle, drafts: drafts, lastSeq: st.Integrity.ServerSequence,
 	}, e
 }
@@ -423,6 +424,8 @@ func (m *Model) refreshView(name string) {
 		m.artifactList.Refresh(m.state, m.actor)
 	case "Environment":
 		m.envList.Refresh(m.state, m.actor)
+	case "Providers":
+		m.providerList.Refresh(m.state, m.actor)
 	case "Drafts":
 		m.refreshDrafts()
 	case "Audit & health":
@@ -439,7 +442,7 @@ func (m *Model) focusCurrentView() {
 	m.refreshView(name)
 	switch name {
 	case "Tasks", "My work", "Inbox", "Approvals", "Agents", "Invocations",
-		"Runtimes", "Documents", "Contracts & decisions", "Artifacts", "Environment", "Drafts":
+		"Runtimes", "Documents", "Contracts & decisions", "Artifacts", "Environment", "Providers", "Drafts":
 		m.rowFocus = true
 	case "Project settings":
 		m.settingsFocus = true
@@ -533,6 +536,7 @@ func (m *Model) refreshLists() {
 	m.decisionList.Refresh(m.state, m.actor)
 	m.artifactList.Refresh(m.state, m.actor)
 	m.envList.Refresh(m.state, m.actor)
+	m.providerList.Refresh(m.state, m.actor)
 }
 
 func Run(s *service.Service, actor string, in io.Reader, out io.Writer, opts ...tea.ProgramOption) error {

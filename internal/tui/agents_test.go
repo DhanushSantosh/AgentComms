@@ -468,8 +468,8 @@ func TestFormFieldClickFocusesField(t *testing.T) {
 	}
 	m = enterAgentsView(t, m)
 	m = pressKey(t, m, keyText("n"))
-	if m.form != "agent.register" || len(m.inputs) != 3 {
-		t.Fatalf("expected agent.register form with 3 fields, got form=%q inputs=%d", m.form, len(m.inputs))
+	if m.form != "agent.register" || len(m.inputs) != 4 {
+		t.Fatalf("expected agent.register form with 4 fields, got form=%q inputs=%d", m.form, len(m.inputs))
 	}
 	if m.formFocus != 0 {
 		t.Fatalf("expected initial focus on field 0, got %d", m.formFocus)
@@ -504,8 +504,8 @@ func TestRegisterThenActivateAgent(t *testing.T) {
 	}
 	m = enterAgentsView(t, m)
 	m = pressKey(t, m, keyText("n"))
-	if m.form != "agent.register" || len(m.inputs) != 3 {
-		t.Fatalf("expected agent.register form with 3 fields, got form=%q inputs=%d", m.form, len(m.inputs))
+	if m.form != "agent.register" || len(m.inputs) != 4 {
+		t.Fatalf("expected agent.register form with 4 fields, got form=%q inputs=%d", m.form, len(m.inputs))
 	}
 	m.inputs[0].SetValue("claude-builder")
 	m.inputs[2].SetValue("AGENT")

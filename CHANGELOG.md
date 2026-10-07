@@ -5,6 +5,30 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 
 ## [Unreleased]
 
+### Added
+- Project-registered agent providers (RFC 0050). Agent IDs are no longer
+  limited to `claude`, `codex` and `opencode`: the owner or an active
+  orchestrator, human or agent, can register a provider such as `gemini`
+  for a project with `agent-comms provider add`, after which `gemini` and
+  `gemini-<suffix>` agents can register. Providers are signed project events,
+  so personal and team authorities accept the same set. `provider retire`
+  stops new registrations while existing agents keep working; the built-ins
+  cannot be retired. Names are 2-24 lower-case letters and digits, with no
+  hyphens, and cannot clash with an existing principal ID.
+- `agent-comms provider add|list|show|retire`, the MCP `provider_list`,
+  `provider_register` and `provider_retire` tools, and a TUI Providers view
+  (Team group, or Settings › Agent providers) with register, retire and
+  reactivate actions.
+- `agent register` run interactively with an unregistered provider offers to
+  register it first, in the CLI and the TUI; the TUI register form gains a
+  provider field and derives the agent ID from it. `agent show` displays
+  the agent's provider.
+
+### Changed
+- Shared servers apply automatic, additive PostgreSQL migration 8, which
+  creates the `providers` table. A v1.0 server refuses a database at
+  schema 8.
+
 ## [1.0.0] - 2026-10-04 — “Pilot”
 
 *The first stable release. Every provider turn now runs under processes and

@@ -14,7 +14,7 @@ import (
 //go:embed schema.sql
 var schema string
 
-const CurrentSchemaVersion = 7
+const CurrentSchemaVersion = 8
 
 const addActorKeyFingerprintMigration = `
 ALTER TABLE events
@@ -71,6 +71,18 @@ CREATE TABLE IF NOT EXISTS deleted_projects (
 	deleted_by TEXT NOT NULL,
 	actor_key_fingerprint TEXT NOT NULL,
 	deleted_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+`
+
+// addProvidersMigration stores project-registered agent providers
+// (RFC 0050). Additive: it creates an empty table and rewrites nothing.
+const addProvidersMigration = `
+CREATE TABLE IF NOT EXISTS providers (
+	project_id TEXT NOT NULL REFERENCES projects(project_id) ON DELETE CASCADE,
+	provider_name TEXT NOT NULL,
+	state JSONB NOT NULL,
+	updated_sequence BIGINT NOT NULL,
+	PRIMARY KEY (project_id, provider_name)
 );
 `
 
@@ -156,6 +168,7 @@ var schemaMigrations = []schemaMigration{
 	{Version: 6, Name: "consolidate-decisions-into-documents", Automatic: true, SQL: consolidateDecisionsMigration},
 	{Version: 7, Name: "backfill-entity-timestamps-from-history", Automatic: false, SQL: entityTimestampsBackfill,
 		Run: backfillEntityTimestamps, NeedsConfirmation: backfillNeedsConfirmation},
+	{Version: 8, Name: "project-registered-providers", Automatic: true, SQL: addProvidersMigration},
 }
 
 type SchemaMigrationStatus struct {

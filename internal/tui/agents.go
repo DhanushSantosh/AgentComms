@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -13,31 +14,145 @@ import (
 
 var agentRegisterForm = &ActionForm{
 	Title: "Register agent",
-	Hint:  "Registration creates a pending identity; activate it next to assign a role and scopes.",
+	Hint:  "Registration creates a pending identity; activate it next to assign a role and scopes. An AGENT ID is <provider> or <provider>-<suffix>; leave it empty to derive it from the provider.",
 	Fields: []FormField{
-		{Label: "Principal ID", Placeholder: "builder", Required: true},
+		{Label: "Principal ID", Placeholder: "claude-reviewer (optional for an AGENT)"},
 		{Label: "Display name", Placeholder: ""},
 		{Label: "Principal type", Options: []string{"AGENT", "HUMAN"}},
+		{Label: "Provider", Placeholder: "claude, codex, opencode, or a registered provider"},
 	},
 	Dispatch: func(m Model, v []string, _ string) (tea.Model, tea.Cmd) {
 		id := strings.TrimSpace(v[0])
-		pt := strings.ToUpper(strings.TrimSpace(v[2]))
+		pt := model.PrincipalType(strings.ToUpper(strings.TrimSpace(v[2])))
 		if pt == "" {
-			pt = "AGENT"
+			pt = model.PrincipalAgent
 		}
-		_, err := m.svc.Register(id, v[1], model.PrincipalType(pt))
+		if pt == model.PrincipalHuman {
+			if id == "" {
+				m.err = errors.New("a HUMAN principal needs a principal ID")
+				return m, nil
+			}
+			return m.registerPrincipal(id, v[1], pt)
+		}
+		provider := strings.ToLower(strings.TrimSpace(v[3]))
+		// RFC 0050: a provider the project does not accept yet can be
+		// registered first, after an explicit confirmation, by an actor
+		// allowed to; everyone else is told the exact command instead.
+		missing, err := missingAgentProvider(m.state, id, provider)
 		if err != nil {
 			m.err = err
 			return m, nil
 		}
-		m.err, m.form, m.inputs, m.formSpec = nil, "", nil, nil
-		m.notice = "Registered " + id + " (pending activation)"
-		m.refreshState()
-		// Select the new identity: activation is the usual next step.
-		m.agentList.SelectID(id, m.state, m.actor)
-		return m, nil
+		if missing != "" {
+			if !canManageProviders(m.state, m.actor) {
+				m.err = fmt.Errorf("provider %q is not registered for this project; %s", missing, providerReadOnly)
+				return m, nil
+			}
+			verb := "Register"
+			if m.state.Providers[missing].Status == model.ProviderStatusRetired {
+				verb = "Reactivate"
+			}
+			m.form, m.inputs, m.formSpec = "", nil, nil
+			m.openConfirm(confirmState{
+				prompt: fmt.Sprintf("Provider %q is not registered for this project. %s it, then register the agent?", missing, verb),
+				typ:    "agent.register", id: id,
+				registerProvider: missing, agentProvider: provider, agentDisplay: v[1],
+			})
+			return m, nil
+		}
+		resolved, err := resolveAgentRegistrationID(m.state, id, provider)
+		if err != nil {
+			m.err = err
+			return m, nil
+		}
+		return m.registerPrincipal(resolved, v[1], pt)
 	},
 }
+
+// registerPrincipal registers id and selects it: activation is the usual
+// next step.
+func (m Model) registerPrincipal(id, display string, pt model.PrincipalType) (tea.Model, tea.Cmd) {
+	if _, err := m.svc.Register(id, display, pt); err != nil {
+		m.err = err
+		return m, nil
+	}
+	m.err, m.form, m.inputs, m.formSpec = nil, "", nil, nil
+	m.notice = "Registered " + id + " (pending activation)"
+	m.refreshState()
+	m.agentList.SelectID(id, m.state, m.actor)
+	return m, nil
+}
+
+// missingAgentProvider returns the provider an AGENT registration names
+// that the project does not accept yet, or "" when there is none. A bare
+// ID such as "reviewer" is not treated as naming a provider.
+func missingAgentProvider(st model.State, id, provider string) (string, error) {
+	providers := model.RegistrableProviders(st)
+	if provider == "" && id == "" {
+		return "", fmt.Errorf("an AGENT needs a provider (%s) or a principal ID naming one", strings.Join(providers.Names(), ", "))
+	}
+	if provider != "" {
+		if providers.Has(provider) {
+			return "", nil
+		}
+		if err := model.ValidateProviderName(provider); err != nil {
+			return "", err
+		}
+		return provider, nil
+	}
+	if providers.ValidateAgentActorID(id) == nil {
+		return "", nil
+	}
+	if name, _, hyphenated := strings.Cut(id, "-"); hyphenated && !providers.Has(name) && model.ValidateProviderName(name) == nil {
+		return name, nil
+	}
+	return "", nil
+}
+
+// resolveAgentRegistrationID applies RFC 0039's rules to an AGENT's ID and
+// provider, matching the CLI's agent register: the ID defaults to the
+// provider name, then "<provider>-2", ..., and an ID and provider given
+// together must agree.
+func resolveAgentRegistrationID(st model.State, id, provider string) (string, error) {
+	providers := model.RegistrableProviders(st)
+	if id == "" {
+		return model.DefaultAgentActorID(provider, func(candidate string) bool {
+			_, taken := st.Agents[candidate]
+			return taken
+		}), nil
+	}
+	if err := providers.ValidateAgentActorID(id); err != nil {
+		return "", err
+	}
+	if provider != "" {
+		if actual, _ := providers.ProviderOf(id); actual != provider {
+			return "", fmt.Errorf("principal ID %q names provider %q, which contradicts provider %q", id, actual, provider)
+		}
+	}
+	return id, nil
+}
+
+// dispatchProviderThenAgent registers (or reactivates) c.registerProvider,
+// then the agent, as two separate signed events behind one confirmation.
+func (m Model) dispatchProviderThenAgent(c confirmState) (tea.Model, tea.Cmd) {
+	if _, err := m.svc.Execute(m.actor, "provider.register", c.registerProvider, model.ProviderRegistered{}); err != nil {
+		m.err = err
+		return m, nil
+	}
+	m.refreshState()
+	id, err := resolveAgentRegistrationID(m.state, c.id, c.agentProvider)
+	if err != nil {
+		m.err = fmt.Errorf("registered provider %s, but the agent was not registered: %w", c.registerProvider, err)
+		return m, nil
+	}
+	next, cmd := m.registerPrincipal(id, c.agentDisplay, model.PrincipalAgent)
+	if mm := next.(Model); mm.err == nil {
+		mm.notice = "Registered provider " + c.registerProvider + " and agent " + id + " (pending activation)"
+		return mm, cmd
+	}
+	return next, cmd
+}
+
 var activateForm = &ActionForm{
 	Title: "Activate agent",
 	Hint:  "Assign a role, capabilities, and write scopes before this principal can act. ORCHESTRATOR or any freeform label (Frontend-Architect, Tester, ...) -- never OWNER. Granting Orchestrator additionally requires your elevated-key passphrase, if one is registered.",

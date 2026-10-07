@@ -109,7 +109,7 @@ func Findings(ctx context.Context, svc *service.Service) ([]Finding, error) {
 		// "builder". Match on the part after the provider, or this warning
 		// silently stops firing for exactly the names it exists to catch.
 		suffix := id
-		if provider, ok := model.ProviderOf(id); ok {
+		if provider, ok := model.RecognizedProviders(st).ProviderOf(id); ok {
 			suffix = strings.TrimPrefix(strings.TrimPrefix(id, provider), "-")
 		}
 		if strings.EqualFold(suffix, "builder") || strings.Contains(strings.ToLower(id), "test") || strings.Contains(strings.ToLower(id), "smoke") {

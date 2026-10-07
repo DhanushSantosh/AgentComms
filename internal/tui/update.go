@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"unicode/utf8"
@@ -50,6 +51,14 @@ func paletteCommands() []paletteCommand {
 			open: func(v Model) (tea.Model, tea.Cmd) { return v.openActionForm(draftSaveForm, "draft.save", "") }},
 		{label: "new environment key", aliases: []string{"set environment key"}, view: "Environment",
 			open: func(v Model) (tea.Model, tea.Cmd) { return v.openActionForm(envSetForm, "env.set", "") }},
+		{label: "new provider", aliases: []string{"register provider", "add provider"}, view: "Providers",
+			open: func(v Model) (tea.Model, tea.Cmd) {
+				if !canManageProviders(v.state, v.actor) {
+					v.err = errors.New(providerReadOnly)
+					return v, nil
+				}
+				return v.openActionForm(providerRegisterForm, "provider.register", "")
+			}},
 	}
 }
 

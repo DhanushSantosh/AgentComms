@@ -1,6 +1,9 @@
 package model
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestProviderOfAcceptsTheGrammarAndRejectsEverythingElse(t *testing.T) {
 	valid := map[string]string{
@@ -67,7 +70,7 @@ func TestSuggestedReplacementsAreThemselvesValid(t *testing.T) {
 		if err == nil {
 			continue // legitimately valid; nothing to suggest
 		}
-		suggestion, ok := suggestedActorID(bad)
+		suggestion, ok := BuiltInProviders().suggestedActorID(bad)
 		if !ok {
 			// No suggestion offered -- the message must then not pretend to
 			// have one, which the "use <provider>-<suffix>" wording handles.
@@ -87,7 +90,7 @@ func TestPreviouslyMisleadingSuggestionsAreGone(t *testing.T) {
 			t.Fatalf("%q should be rejected", bad)
 		}
 		if contains(err.Error(), "try \"") {
-			suggestion, _ := suggestedActorID(bad)
+			suggestion, _ := BuiltInProviders().suggestedActorID(bad)
 			if vErr := ValidateAgentActorID(suggestion); vErr != nil {
 				t.Errorf("%q still offers the invalid suggestion %q", bad, suggestion)
 			}
@@ -129,4 +132,69 @@ func contains(haystack, needle string) bool {
 			}
 			return false
 		}())
+}
+
+func TestProviderSetsComeFromProjectState(t *testing.T) {
+	st := EmptyState()
+	st.Providers["gemini"] = Provider{Name: "gemini", Status: ProviderStatusActive}
+	st.Providers["aider"] = Provider{Name: "aider", Status: ProviderStatusRetired}
+
+	registrable := RegistrableProviders(st)
+	if got := strings.Join(registrable.Names(), ","); got != "claude,codex,gemini,opencode" {
+		t.Fatalf("registrable = %s, want the built-ins plus ACTIVE gemini only", got)
+	}
+	if registrable.Has("aider") {
+		t.Fatal("a RETIRED provider must not accept new agents")
+	}
+	if provider, ok := registrable.ProviderOf("gemini-code-reviewer"); !ok || provider != "gemini" {
+		t.Fatalf("ProviderOf(gemini-code-reviewer) = %q, %v", provider, ok)
+	}
+	if err := registrable.ValidateAgentActorID("gemini-main"); err != nil {
+		t.Fatalf("gemini-main must pass: %v", err)
+	}
+	// Existing agents of a retired provider still read correctly.
+	if provider, ok := RecognizedProviders(st).ProviderOf("aider-main"); !ok || provider != "aider" {
+		t.Fatalf("RecognizedProviders must still read aider-main, got %q, %v", provider, ok)
+	}
+	// The package-level helpers stay the built-in floor.
+	if IsKnownProvider("gemini") || ValidateAgentActorID("gemini-main") == nil {
+		t.Fatal("package-level helpers must only know the built-ins")
+	}
+}
+
+func TestValidateProviderName(t *testing.T) {
+	for _, name := range []string{"gemini", "g2", "aider", strings.Repeat("a", 24)} {
+		if err := ValidateProviderName(name); err != nil {
+			t.Errorf("%q: %v", name, err)
+		}
+	}
+	for _, name := range []string{"", "g", "claude-code", "Gemini", "9lives", "gem_ini", strings.Repeat("a", 25), "claude", "owner", "agc"} {
+		if ValidateProviderName(name) == nil {
+			t.Errorf("%q must be rejected", name)
+		}
+	}
+}
+
+func TestProviderListingsPutBuiltInsFirstAndCountActiveAgents(t *testing.T) {
+	st := EmptyState()
+	st.Providers["gemini"] = Provider{Name: "gemini", Status: ProviderStatusActive}
+	st.Providers["aider"] = Provider{Name: "aider", Status: ProviderStatusRetired}
+	st.Agents["gemini-main"] = Agent{ID: "gemini-main", Status: "ACTIVE", PrincipalType: PrincipalAgent}
+	st.Agents["gemini-2"] = Agent{ID: "gemini-2", Status: "PENDING", PrincipalType: PrincipalAgent}
+	st.Agents["aider"] = Agent{ID: "aider", Status: "ACTIVE", PrincipalType: PrincipalAgent}
+	st.Agents["claude-main"] = Agent{ID: "claude-main", Status: "ACTIVE", PrincipalType: PrincipalAgent}
+
+	listings, order := ProviderListings(st)
+	if got := strings.Join(order, ","); got != "claude,codex,opencode,aider,gemini" {
+		t.Fatalf("order = %s", got)
+	}
+	if !listings["codex"].BuiltIn || listings["codex"].Status != ProviderStatusActive || listings["gemini"].BuiltIn {
+		t.Fatalf("built-in flags/status wrong: %+v", listings)
+	}
+	if got := strings.Join(listings["gemini"].ActiveAgents, ","); got != "gemini-main" {
+		t.Fatalf("gemini active agents = %s, want only the ACTIVE one", got)
+	}
+	if got := strings.Join(listings["aider"].ActiveAgents, ","); got != "aider" {
+		t.Fatalf("a retired provider still lists its active agents, got %s", got)
+	}
 }
