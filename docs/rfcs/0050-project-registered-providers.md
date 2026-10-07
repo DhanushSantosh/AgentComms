@@ -2,8 +2,9 @@
 
 ## Status and owners
 
-Proposed, 2026-10-07. Author: claude-main, at the maintainer's direction
-("hardcoded provider ID must not be the case"). Extends RFC 0039, which
+Accepted, 2026-10-07, by the maintainer ("update the rfc and continue with
+it"). Author: claude-main, at the maintainer's direction ("hardcoded
+provider ID must not be the case"). Extends RFC 0039, which
 made every AGENT actor ID name its provider, and replaces its deferred
 "project-scoped custom providers" item (`docs/backlog.md`). Targets a 1.x
 minor release; nothing here breaks the v1.0 public contract.
@@ -27,8 +28,8 @@ and the authority rejected it. Loading adapter files in the authority would
 fix personal mode only, and would let an unsigned local file widen which
 identities a signed authority accepts.
 
-Desired outcome: a human principal can register a new provider for a
-project as a signed, governed event. Every authority and client then accepts
+Desired outcome: the project's owner or an active orchestrator, human or
+agent, can register a new provider as a signed, governed event. Every authority and client then accepts
 `<provider>` and `<provider>-<suffix>` agent IDs for it, in personal and team
 mode alike, with no rebuild. The three built-ins keep working exactly as in
 v1.0.
@@ -44,7 +45,7 @@ Add a `Providers` collection to `model.State`, keyed by provider name:
         DisplayName string // optional, e.g. "Google Gemini CLI"
         Description string // optional, free text
         Status      string // ACTIVE or RETIRED
-        AddedBy     string // actor ID of the human who registered it
+        AddedBy     string // actor ID of the principal who registered it
         RetiredBy   string
         RetireReason string
         model.EntityClock // RFC 0041 created/updated times and sequences
@@ -74,13 +75,18 @@ RFC 0039 §5 requires.
 
 ### 3. Who may change the set
 
-Both events require a **human principal**, the same bar
-`project.settings.update` already sets. Widening which identities a project
-accepts is a governance act; an agent, including an orchestrator agent, must
-not be able to invent a provider and then register agents under it. Both
-events are added to `elevated()`, so the actor must also be the owner or an
-active orchestrator, as for other log-wide writes. They don't require the
-elevated signing key.
+Both events are added to `elevated()`, so the actor must be the **owner or
+an active orchestrator**, as for other log-wide writes. The principal may be
+HUMAN or AGENT: an orchestrator agent that brings a new runtime into a
+project can register its provider itself. Ordinary agents (any other role)
+cannot. Neither event requires the elevated signing key or a separate
+approval.
+
+This is the same standing an orchestrator already needs to register a
+different principal, so it adds no new route to identities an orchestrator
+couldn't already create. It does mean an orchestrator agent can widen the
+set without a human in the loop. Every change is signed, attributed and
+listed by `provider list`, so it stays visible and reviewable.
 
 ### 4. Name rules
 
@@ -113,8 +119,8 @@ or hides history.
 
 - A provider with no remaining active agents can be retired directly. If
   active agents exist, retirement still succeeds, and the command lists
-  them so the human can suspend or revoke them separately if that's the
-  intent.
+  them so whoever retires it can suspend or revoke them separately if
+  that's the intent.
 - The three built-ins cannot be retired, so a project can never lock itself
   out of every provider.
 - `provider.register` on a RETIRED name reactivates it.
@@ -141,16 +147,18 @@ ACTIVE providers) instead of reading a package-level map.
     agc provider retire gemini --reason "..."
     agc agent register --provider gemini   # -> gemini, then gemini-2, ...
 
-- **Interactive shortcut.** When a human runs `agent register --provider
-  <name>` interactively and the name is not yet a provider, the CLI offers to
-  register it first ("Provider "gemini" is not registered for this project.
-  Register it now? [y/N]"). Accepting issues `provider.register` then
-  `agent.register` as two separate signed events. With `--non-interactive`,
-  or for an agent actor, it fails as today and adds the exact
-  `agc provider add` command to the message.
-- **MCP:** a read-only `provider_list` tool. MCP connections normally act as
-  agents, which cannot change the set, so no mutating provider tool is added.
-  `agent_register` errors name the project's set.
+- **Interactive shortcut.** When the owner or an active orchestrator runs
+  `agent register --provider <name>` interactively and the name is not yet a
+  provider, the CLI offers to register it first ("Provider "gemini" is not
+  registered for this project. Register it now? [y/N]"). Accepting issues
+  `provider.register` then `agent.register` as two separate signed events.
+  With `--non-interactive`, or for an actor without that standing, it fails
+  as today and adds the exact `agc provider add` command to the message.
+- **MCP:** `provider_list`, plus `provider_register` and `provider_retire`
+  for connections whose actor is the owner or an active orchestrator, so an
+  orchestrator agent can manage providers without a shell. `agent_register`
+  does not register providers implicitly; its error names the project's set
+  and the `provider_register` tool.
 - **TUI:** providers are fully manageable, following the existing
   Environment pattern:
   - a new **Providers** view, opened from Settings › Agents & access and
@@ -162,11 +170,12 @@ ACTIVE providers) instead of reading a package-level map.
     required reason. It lists the provider's active agents before
     confirming, as the CLI does. Built-in rows offer no retire action;
   - a RETIRED row offers **reactivate** (`provider.register` again);
-  - for a non-human actor, the view is read-only and says why ("a human
-    principal must register or retire providers"), instead of opening a
-    form the authority would reject;
+  - for an actor that is neither the owner nor an active orchestrator, the
+    view is read-only and says why ("only the owner or an orchestrator can
+    register or retire providers"), instead of opening a form the authority
+    would reject;
   - the agent register form gains a provider field listing the project's
-    accepted set. When a human enters an unregistered name, the TUI shows
+    accepted set. When the owner or an orchestrator enters an unregistered name, the TUI shows
     the same "register it now?" confirmation as the CLI, then issues the
     two events in order;
   - the agent inspector shows the provider and whether it is built-in,
@@ -244,11 +253,12 @@ let adapter files add providers, which keeps RFC 0039's correction intact.
 
 ## Security and privacy
 
-- **The trust boundary is unchanged.** Only a human principal acting as the
-  owner or an active orchestrator can widen the set, and every change is a
-  signed, hash-chained event with an author and time. An agent cannot
-  register a provider for itself, so it cannot mint a new identity class to
-  sidestep an operator's expectations.
+- **Who can widen the set.** Only the owner or an active orchestrator, human
+  or agent, can widen the set, and every change is a signed, hash-chained
+  event with an author and time. Ordinary agents cannot. An orchestrator
+  agent can now add a provider without a human, a deliberate choice by the
+  maintainer. Operators who want a human in the loop keep orchestrator
+  roles for humans, as they would for any other log-wide write.
 - **Name rules prevent reinterpretation.** No hyphens, and no collision
   with existing principal IDs, so registering a provider can never change
   which provider an existing agent belongs to.
@@ -272,7 +282,8 @@ let adapter files add providers, which keeps RFC 0039's correction intact.
      including longest-match with hyphenated suffixes;
    - suggestions only ever naming accepted providers.
 2. **Protocol (`ValidateTransition`):**
-   - human-only add and retire;
+   - owner and orchestrator add and retire, for HUMAN and AGENT principals;
+   - other roles rejected;
    - an agent orchestrator rejected;
    - collisions with existing AGENT and HUMAN IDs and the `<name>-` prefix;
    - reserved and built-in names rejected;
@@ -297,7 +308,7 @@ let adapter files add providers, which keeps RFC 0039's correction intact.
    - register, retire and reactivate forms dispatching the right events;
    - required retire reason;
    - no retire action on built-ins;
-   - the read-only state and message for an agent actor;
+   - the read-only state and message for an actor without standing;
    - the register-provider confirmation from the agent register form;
    - rendered-view assertions at narrow and wide terminal sizes, including
      the final frame staying within bounds.
@@ -322,8 +333,9 @@ let adapter files add providers, which keeps RFC 0039's correction intact.
 Settled by the maintainer on 2026-10-07:
 
 1. **Built-in providers are not retirable.** They stay the v1.0 floor.
-2. **A human principal is enough** to register or retire a provider; no
-   separate payload-bound approval is required.
+2. **The owner or an active orchestrator, human or agent,** can register or
+   retire a provider; no separate payload-bound approval is required. (The
+   first draft required a human principal; the maintainer changed this.)
 3. **Keep the interactive offer** to register a missing provider during
    `agent register`, in both the CLI and the TUI.
 4. **The TUI manages providers too**, not only the CLI (see §7).
