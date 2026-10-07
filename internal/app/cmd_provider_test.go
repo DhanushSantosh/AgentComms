@@ -30,7 +30,9 @@ func runProviderCLI(t *testing.T, input string, args ...string) (string, error) 
 	root := c.root()
 	root.SetOut(&stdout)
 	root.SetErr(&stderr)
-	root.SetArgs(args)
+	// Act explicitly as the owner: once a project holds several local
+	// identities, the CLI refuses to guess one from the machine default.
+	root.SetArgs(append(args, "--actor", "owner"))
 	err := root.Execute()
 	return stdout.String() + stderr.String(), err
 }
@@ -103,17 +105,34 @@ func TestAgentRegisterOffersToRegisterAMissingProvider(t *testing.T) {
 		t.Fatalf("missing prompt:\n%s", out)
 	}
 
+	if out, err = runProviderCLI(t, "y\n", "agent", "register", "--project", project, "--id", "aider-main", "--json"); err == nil {
+		t.Fatal("--json must not prompt, so an unregistered provider must fail")
+	}
 	if out, err = runProviderCLI(t, "y\n", "agent", "register", "--project", project, "--id", "aider-main", "--output", "plain"); err != nil {
 		t.Fatalf("answering y must register the provider and the agent: %v\n%s", err, out)
 	}
-	out, err = runProviderCLI(t, "", "history", "--project", project, "--output", "plain")
-	if err != nil {
-		t.Fatal(err)
+	// The provider must be signed before the agent that depends on it.
+	// Compare sequences rather than reading history, which may lag behind
+	// the authority by one sync.
+	sequenceOf := func(args ...string) uint64 {
+		t.Helper()
+		shown, showErr := runProviderCLI(t, "", append(args, "--project", project, "--json")...)
+		if showErr != nil {
+			t.Fatalf("%v: %v\n%s", args, showErr, shown)
+		}
+		var envelope struct {
+			Result struct {
+				CreatedSequence uint64 `json:"created_sequence"`
+			} `json:"result"`
+		}
+		if decodeErr := json.Unmarshal([]byte(shown), &envelope); decodeErr != nil {
+			t.Fatalf("%v: %v\n%s", args, decodeErr, shown)
+		}
+		return envelope.Result.CreatedSequence
 	}
-	register := strings.Index(out, "provider.register")
-	agent := strings.LastIndex(out, "agent.register")
-	if register < 0 || agent < register {
-		t.Fatalf("expected provider.register before the agent.register:\n%s", out)
+	provider, agent := sequenceOf("provider", "show", "aider"), sequenceOf("agent", "show", "--id", "aider-main")
+	if provider == 0 || agent <= provider {
+		t.Fatalf("provider.register (sequence %d) must precede agent.register (sequence %d)", provider, agent)
 	}
 
 	// --json never prompts.
