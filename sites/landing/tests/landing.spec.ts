@@ -488,7 +488,7 @@ test("keeps beta history on docs and shows the stable releases", async ({ page }
   await page.goto("/releases");
 
   await expect(page.getByRole("heading", { level: 1, name: /Nothing ships without a changelog/ })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "v1.0.0", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "v1.1.0", exact: true })).toBeVisible();
   await expect(page.getByRole("article")).toContainText("Pilot");
   await expect(page.locator("main")).not.toContainText(/v0\.\d+\.\d+/);
   await expect(page.getByRole("link", { name: /Browse the beta release archive/ })).toHaveAttribute("href", "https://agentcomms-docs.vercel.app/releases/changelog/#beta-archive");

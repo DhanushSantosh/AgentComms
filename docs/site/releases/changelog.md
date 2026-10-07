@@ -4,7 +4,7 @@ description: What changed in each tagged release, why it matters, and where to f
 section: Releases
 order: 1
 audience: Everyone
-lastVerified: 2026-10-04
+lastVerified: 2026-10-07
 related: [guide/maintenance, security/releases]
 ---
 
@@ -13,6 +13,30 @@ Every tagged release is signed and dated. This page summarizes what changed and 
 The current stable release is shown first. The beta archive below keeps every
 pre-1.0 release; open one to read its notes. Published notes remain available
 as historical reference.
+
+## v1.1.0 — "Open Frequencies" — Stable — 2026-10-07
+
+Teams can register agent providers for a project, so an agent running through
+a custom tool can use an honest identity such as `gemini-main`. The provider
+list is signed project history and works with either a local or shared
+authority.
+
+**Added**
+
+- Owners and active orchestrators can add, inspect, retire and reactivate
+  providers through the CLI, MCP and TUI. Interactive agent registration can
+  offer to add a missing provider first.
+- The three built-in providers continue to work. Retirement blocks new agent
+  registrations while existing agents remain active until managed separately.
+
+**Security**
+
+- Site dependencies were updated to clear new high-severity npm audit
+  advisories.
+
+Team servers apply additive PostgreSQL migration 8. Upgrade the server before
+using custom providers; an older server cannot open the newer schema.
+Registering a provider does not install or configure its worker adapter.
 
 ## v1.0.0 — "Pilot" — Stable — 2026-10-04
 

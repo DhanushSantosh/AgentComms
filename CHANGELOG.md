@@ -5,6 +5,22 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-07 — “Open Frequencies”
+
+*Teams can register their own agent providers as signed project state. Agent
+identities now describe the runtime they actually use without waiting for a
+new Agent Comms binary.*
+
+**Added**
+- Register, inspect, retire and reactivate project providers through the CLI,
+  MCP and TUI. The owner or an active orchestrator can manage them.
+- Register agents under a project provider such as `gemini`; interactive CLI
+  and TUI registration can create a missing provider first.
+
+**Security**
+- Updated site dependencies to clear the high-severity npm audit advisories
+  found during release validation.
+
 ### Added
 - Project-registered agent providers (RFC 0050). Agent IDs are no longer
   limited to `claude`, `codex` and `opencode`: the owner or an active
@@ -28,6 +44,21 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 - Shared servers apply automatic, additive PostgreSQL migration 8, which
   creates the `providers` table. A v1.0 server refuses a database at
   schema 8.
+
+### Security
+- Updated site dependencies after new high-severity npm advisories were
+  reported; both site audit gates pass.
+
+### Compatibility and known limitations
+- Existing `claude`, `codex` and `opencode` agent IDs continue to work, and
+  registering a provider does not install an executable or configure a
+  worker adapter. A local declarative adapter still controls execution.
+- Upgrade a team authority before using custom providers. Migration 8 is
+  automatic and additive, but a v1.0 server refuses the newer schema.
+- Retiring a provider blocks new agent registrations; existing agents keep
+  their identities and access until separately suspended or revoked.
+- The trusted self-hosted-team scope and the v1.0.0 platform-signing and
+  native OpenCode limitations remain unchanged.
 
 ## [1.0.0] - 2026-10-04 — “Pilot”
 
@@ -1819,7 +1850,8 @@ deterministic JSON CLI/MCP surface.
 - Governed mutations revalidate authorization, leases, scopes, and conflicts
   inside the authoritative transaction.
 
-[Unreleased]: https://github.com/DhanushSantosh/AgentComms/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/DhanushSantosh/AgentComms/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/DhanushSantosh/AgentComms/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/DhanushSantosh/AgentComms/compare/v0.8.2...v1.0.0
 [0.8.2]: https://github.com/DhanushSantosh/AgentComms/compare/v0.8.1...v0.8.2
 [0.8.1]: https://github.com/DhanushSantosh/AgentComms/compare/v0.8.0...v0.8.1

@@ -11,6 +11,19 @@ export type Release = {
 // is preserved in docs/site/releases/changelog.md and is not bundled here.
 export const releases: readonly Release[] = [
   {
+    version: "v1.1.0",
+    channel: "STABLE",
+    name: "Open Frequencies",
+    date: "2026-10-07",
+    dateLabel: "7 Oct 2026",
+    highlights: [
+      "Register project providers such as gemini as signed history, then give their agents honest provider-based identities.",
+      "Owners and active orchestrators can manage providers through the CLI, MCP and TUI.",
+      "Retiring a provider stops new agent registrations while existing agents continue until separately managed.",
+      "Team servers apply an additive PostgreSQL migration; upgrade the server before using custom providers."
+    ]
+  },
+  {
     version: "v1.0.0",
     channel: "STABLE",
     name: "Pilot",
