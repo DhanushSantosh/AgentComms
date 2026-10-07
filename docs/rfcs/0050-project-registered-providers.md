@@ -115,7 +115,8 @@ or hides history.
   active agents exist, retirement still succeeds, and the command lists
   them so the human can suspend or revoke them separately if that's the
   intent.
-- The three built-ins cannot be retired (see Unresolved question 1).
+- The three built-ins cannot be retired, so a project can never lock itself
+  out of every provider.
 - `provider.register` on a RETIRED name reactivates it.
 
 ### 6. Agent registration uses the project's set
@@ -150,9 +151,26 @@ ACTIVE providers) instead of reading a package-level map.
 - **MCP:** a read-only `provider_list` tool. MCP connections normally act as
   agents, which cannot change the set, so no mutating provider tool is added.
   `agent_register` errors name the project's set.
-- **TUI:** the agent register form and the agent inspector show the
-  provider. Settings gains a read-only providers list; managing providers
-  stays in the CLI for this RFC.
+- **TUI:** providers are fully manageable, following the existing
+  Environment pattern:
+  - a new **Providers** view, opened from Settings › Agents & access and
+    from the command palette. Columns: name, status, active agents, display
+    name, added (RFC 0041 time). Built-ins appear first, marked built-in;
+  - **[n] register provider** opens a form (name, display name,
+    description) that issues `provider.register`;
+  - a row action **retire** on a registered provider opens a form with a
+    required reason. It lists the provider's active agents before
+    confirming, as the CLI does. Built-in rows offer no retire action;
+  - a RETIRED row offers **reactivate** (`provider.register` again);
+  - for a non-human actor, the view is read-only and says why ("a human
+    principal must register or retire providers"), instead of opening a
+    form the authority would reject;
+  - the agent register form gains a provider field listing the project's
+    accepted set. When a human enters an unregistered name, the TUI shows
+    the same "register it now?" confirmation as the CLI, then issues the
+    two events in order;
+  - the agent inspector shows the provider and whether it is built-in,
+    registered or retired.
 - **`doctor`:** use the project's set when it strips the provider from an
   ID. Report an INFO finding for agents whose provider is RETIRED, so it's
   visible without being an error.
@@ -274,34 +292,42 @@ let adapter files add providers, which keeps RFC 0039's correction intact.
    - migration 8 apply, idempotence and checksum;
    - an older-schema refusal;
    - `persistProjectionChanges` round trip.
-5. **CLI and MCP:**
+5. **TUI:**
+   - the Providers view's rows and columns, with built-ins first;
+   - register, retire and reactivate forms dispatching the right events;
+   - required retire reason;
+   - no retire action on built-ins;
+   - the read-only state and message for an agent actor;
+   - the register-provider confirmation from the agent register form;
+   - rendered-view assertions at narrow and wide terminal sizes, including
+     the final frame staying within bounds.
+6. **CLI and MCP:**
    - `provider add/list/show/retire`;
    - the interactive register-then-agent flow, plus its `--non-interactive`
      error with the exact command;
    - JSON envelopes and `order`;
    - `provider_list`;
    - help text listing the project's set.
-6. **End to end:**
+7. **End to end:**
    - in a disposable personal project, register `gemini`, register
      `gemini-main`, activate it, and run a declarative-adapter worker that
      claims and completes an invocation;
    - retire `gemini`, confirm a new `gemini-2` registration is refused and
      `gemini-main` still works;
    - repeat registration and retirement against a real Postgres authority.
-7. **Docs:** generated references are current and the docs build passes.
+8. **Docs:** generated references are current and the docs build passes.
+
+## Resolved decisions
+
+Settled by the maintainer on 2026-10-07:
+
+1. **Built-in providers are not retirable.** They stay the v1.0 floor.
+2. **A human principal is enough** to register or retire a provider; no
+   separate payload-bound approval is required.
+3. **Keep the interactive offer** to register a missing provider during
+   `agent register`, in both the CLI and the TUI.
+4. **The TUI manages providers too**, not only the CLI (see §7).
 
 ## Unresolved questions
 
-1. **Should the built-ins be retirable?** This draft says no, keeping v1.0
-   behaviour as a floor and avoiding a project that can't register any
-   agents. A team that never uses, say, `opencode` might want to block it.
-   That could be a later, additive change.
-2. **Should registering a provider require a payload-bound approval** (the
-   RFC 0023 mechanism) in addition to a human principal? This draft says the
-   human-principal bar is enough, matching `project.settings.update`.
-3. **Should the interactive shortcut exist at all,** or should provider
-   registration always be a separate, deliberate command? This draft keeps
-   it because it directly addresses the failure that prompted this RFC, but
-   it is easy to drop.
-4. **Should `provider add` also be possible from the TUI** in this RFC, or
-   stay CLI-only until there's demand?
+None.
