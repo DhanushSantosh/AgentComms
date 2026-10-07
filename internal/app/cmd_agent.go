@@ -93,7 +93,7 @@ func (c *cli) agentCmd() *cobra.Command {
 		})
 	}}
 	reg.Flags().String("id", "", "principal ID (optional for AGENT: defaults to the provider name)")
-	reg.Flags().String("provider", "", "AI provider backing this agent: "+strings.Join(model.KnownProviders(), ", "))
+	reg.Flags().String("provider", "", "AI provider backing this agent: "+strings.Join(model.KnownProviders(), ", ")+", or one registered with `provider add`")
 	// --id is no longer required: for an AGENT it is derived from
 	// --provider (RFC 0039). RunE enforces that one of the two is present,
 	// and that a HUMAN principal still supplies an --id, which cobra's
@@ -198,8 +198,15 @@ func (c *cli) agentCmd() *cobra.Command {
 		if !ok {
 			return nil, nil, false
 		}
+		provider := "-"
+		if a.PrincipalType == model.PrincipalAgent {
+			if name, ok := model.RecognizedProviders(st).ProviderOf(id); ok {
+				provider = name
+			}
+		}
 		return a, []cliui.Field{
 			{Label: "Status", Value: a.Status}, {Label: "Role", Value: string(a.Role)},
+			{Label: "Provider", Value: provider},
 			{Label: "Type", Value: string(a.PrincipalType)}, {Label: "Scopes", Value: strings.Join(a.Scopes, ",")},
 			{Label: "Created", Value: formatEntityTime(a.CreatedAt)},
 			{Label: "Updated", Value: formatEntityTime(a.UpdatedAt)},
@@ -217,30 +224,53 @@ func (c *cli) agentCmd() *cobra.Command {
 func (c *cli) resolveAgentID(id, provider string) (string, error) {
 	id = strings.TrimSpace(id)
 	provider = strings.ToLower(strings.TrimSpace(provider))
-
-	if provider != "" && !model.IsKnownProvider(provider) {
-		return "", fmt.Errorf("agent register: unknown provider %q; known providers: %s",
-			provider, strings.Join(model.KnownProviders(), ", "))
+	state, stateErr := c.svc.State()
+	if stateErr != nil {
+		return "", stateErr
+	}
+	// RFC 0050: the accepted providers are the built-ins plus the project's
+	// registered ones. A missing provider can be registered on the spot by
+	// an actor allowed to, after an explicit yes.
+	providers := model.RegistrableProviders(state)
+	if provider != "" && !providers.Has(provider) {
+		if err := c.offerProviderRegistration(state, provider); err != nil {
+			return "", err
+		}
+		if state, stateErr = c.svc.State(); stateErr != nil {
+			return "", stateErr
+		}
+		providers = model.RegistrableProviders(state)
 	}
 	if id == "" {
 		if provider == "" {
 			return "", fmt.Errorf("agent register: --provider is required for an AGENT (one of: %s), or pass --id naming it",
-				strings.Join(model.KnownProviders(), ", "))
-		}
-		state, stateErr := c.svc.State()
-		if stateErr != nil {
-			return "", stateErr
+				strings.Join(providers.Names(), ", "))
 		}
 		return model.DefaultAgentActorID(provider, func(candidate string) bool {
 			_, taken := state.Agents[candidate]
 			return taken
 		}), nil
 	}
-	if err := model.ValidateAgentActorID(id); err != nil {
-		return "", err
+	if err := providers.ValidateAgentActorID(id); err != nil {
+		// "gemini-main" names a provider the project lacks; a bare name
+		// like "reviewer" keeps RFC 0039's suggestion.
+		name, _, hyphenated := strings.Cut(id, "-")
+		if !hyphenated || provider != "" || providers.Has(name) || model.ValidateProviderName(name) != nil {
+			return "", err
+		}
+		if offerErr := c.offerProviderRegistration(state, name); offerErr != nil {
+			return "", offerErr
+		}
+		if state, stateErr = c.svc.State(); stateErr != nil {
+			return "", stateErr
+		}
+		providers = model.RegistrableProviders(state)
+		if err = providers.ValidateAgentActorID(id); err != nil {
+			return "", err
+		}
 	}
 	if provider != "" {
-		if actual, _ := model.ProviderOf(id); actual != provider {
+		if actual, _ := providers.ProviderOf(id); actual != provider {
 			return "", fmt.Errorf("agent register: --id %q names provider %q, which contradicts --provider %q",
 				id, actual, provider)
 		}

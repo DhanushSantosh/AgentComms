@@ -138,7 +138,7 @@ func tools() []map[string]any {
 		tool("invocation_reject", "Reject an open invocation with a reason", map[string]any{
 			"id": map[string]any{"type": "string"}, "reason": map[string]any{"type": "string"},
 		}, "id", "reason"),
-		tool("agent_register", "Register a new agent principal, generating its own fresh signing keypair. Any connection may always self-register (id equal to this connection's own actor). Registering a different id requires this connection's actor to be an active orchestrator or human principal — otherwise rejected.", map[string]any{
+		tool("agent_register", "Register a new agent principal, generating its own fresh signing keypair. Any connection may always self-register (id equal to this connection's own actor). Registering a different id requires this connection's actor to be an active orchestrator or human principal — otherwise rejected. An AGENT id must be <provider> or <provider>-<suffix>, using a provider from provider_list; register a new provider with provider_register first.", map[string]any{
 			"id":             map[string]any{"type": "string"},
 			"display_name":   map[string]any{"type": "string"},
 			"principal_type": map[string]any{"type": "string", "enum": []string{"HUMAN", "AGENT"}},
@@ -156,6 +156,13 @@ func tools() []map[string]any {
 			"id":     map[string]any{"type": "string"},
 			"reason": map[string]any{"type": "string"},
 		}, "id"),
+		tool("provider_list", "List the agent providers this project accepts: the built-ins and any registered with provider_register, with status and active agents. An AGENT id must be <provider> or <provider>-<suffix>.", map[string]any{}),
+		tool("provider_register", "Register (or reactivate) a provider so agents can use <name> or <name>-<suffix> ids. Requires this connection's actor to be the owner or an active orchestrator. Names are 2-24 lower-case letters and digits, no hyphens.", map[string]any{
+			"name": map[string]any{"type": "string"}, "display_name": map[string]any{"type": "string"}, "description": map[string]any{"type": "string"},
+		}, "name"),
+		tool("provider_retire", "Retire a registered provider: new agent registrations under it are refused, existing agents keep working. Built-in providers cannot be retired. Requires the owner or an active orchestrator.", map[string]any{
+			"name": map[string]any{"type": "string"}, "reason": map[string]any{"type": "string"},
+		}, "name", "reason"),
 		tool("runtime_register", "Register an agent runtime without embedding connector secrets", map[string]any{
 			"id": map[string]any{"type": "string"}, "connector": map[string]any{"type": "string"},
 			"kind":             map[string]any{"type": "string", "enum": []string{"WORKER", "INTERACTIVE"}},
@@ -360,6 +367,21 @@ func call(s *service.Service, resolution identity.ActorResolution, p callParams)
 			return nil, fmt.Errorf("agent_register: principal_type must be HUMAN or AGENT")
 		}
 		return s.Register(id, stringArg(p.Arguments, "display_name"), model.PrincipalType(principalType))
+	case "provider_list":
+		state, e := s.State()
+		if e != nil {
+			return nil, e
+		}
+		listings, order := model.ProviderListings(state)
+		return orderedResult{Value: listings, Order: order}, nil
+	case "provider_register":
+		return s.Execute(actor, "provider.register", strings.ToLower(strings.TrimSpace(stringArg(p.Arguments, "name"))), model.ProviderRegistered{
+			DisplayName: stringArg(p.Arguments, "display_name"), Description: stringArg(p.Arguments, "description"),
+		})
+	case "provider_retire":
+		return s.Execute(actor, "provider.retire", strings.ToLower(strings.TrimSpace(stringArg(p.Arguments, "name"))), model.ProviderRetired{
+			Reason: stringArg(p.Arguments, "reason"),
+		})
 	case "agent_activate":
 		return s.Execute(actor, "agent.activate", stringArg(p.Arguments, "id"), model.AgentActivated{
 			Role: model.Role(stringArg(p.Arguments, "role")), Capabilities: stringsArg(p.Arguments["capabilities"]),

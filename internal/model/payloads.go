@@ -207,6 +207,18 @@ type ProjectSettingsUpdated struct {
 	ArtifactLimitBytes int64  `json:"artifact_limit_bytes"`
 	RequireReview      bool   `json:"require_review"`
 }
+
+// ProviderRegistered registers (or reactivates) a project provider; the
+// event's entity ID is the provider name (RFC 0050).
+type ProviderRegistered struct {
+	DisplayName string `json:"display_name,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
+// ProviderRetired stops new agent registrations under a provider.
+type ProviderRetired struct {
+	Reason string `json:"reason"`
+}
 type ApprovalRequested struct {
 	Tier          string     `json:"tier"`
 	Action        string     `json:"action"`
@@ -257,6 +269,8 @@ var payloadFactories = map[string]func() any{
 	"invocation.request": func() any { return &InvocationRequested{} }, "invocation.delivery-attempt": func() any { return &InvocationDeliveryAttempted{} }, "invocation.notify": func() any { return &InvocationNotified{} }, "invocation.claim": func() any { return &InvocationClaimed{} }, "invocation.start": func() any { return &InvocationProgress{} }, "invocation.wait": func() any { return &InvocationWaiting{} }, "invocation.resume": func() any { return &InvocationProgress{} }, "invocation.complete": func() any { return &InvocationCompleted{} }, "invocation.reject": func() any { return &InvocationRejected{} }, "invocation.expire": func() any { return &InvocationRejected{} }, "invocation.cancel": func() any { return &InvocationRejected{} }, "invocation.delivery-failed": func() any { return &InvocationDeliveryFailed{} },
 	"runtime.register": func() any { return &RuntimeRegistered{} }, "runtime.configure": func() any { return &RuntimeConfigured{} }, "runtime.heartbeat": func() any { return &RuntimeHeartbeat{} }, "runtime.offline": func() any { return &RuntimeStatusChanged{} }, "runtime.drain": func() any { return &RuntimeStatusChanged{} }, "runtime.resume": func() any { return &RuntimeStatusChanged{} }, "runtime.revoke": func() any { return &RuntimeStatusChanged{} }, "runtime.delete": func() any { return &RuntimeStatusChanged{} }, "invocation.policy.update": func() any { return &InvocationPolicyUpdated{} },
 	"project.settings.update": func() any { return &ProjectSettingsUpdated{} },
+	"provider.register":       func() any { return &ProviderRegistered{} },
+	"provider.retire":         func() any { return &ProviderRetired{} },
 	"approval.request":        func() any { return &ApprovalRequested{} }, "approval.approve": func() any { return &ApprovalResponse{} }, "approval.reject": func() any { return &ApprovalResponse{} },
 	"decision.create": func() any { return &DecisionPayload{} }, "decision.supersede": func() any { return &DecisionPayload{} },
 	"artifact.add": func() any { return &ArtifactAdded{} }, "archive.run": func() any { return &ArchiveRun{} },

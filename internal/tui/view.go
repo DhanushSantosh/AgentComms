@@ -470,6 +470,8 @@ func (m Model) renderBody(p palette, w, h int) string {
 		bodyContent = m.draftsView(p)
 	case "Environment":
 		bodyContent = m.envList.View(p, m.state, m.actor, listW, listH)
+	case "Providers":
+		bodyContent = m.providerList.View(p, m.state, m.actor, listW, listH)
 	case "Project settings":
 		bodyContent = m.projectSettings(p, contentW, contentH)
 	case "Blockers":
@@ -1614,6 +1616,7 @@ func (m Model) renderInspector(p palette, width int) string {
 			lines = append(lines, titleStyle.Render("Display Name: ")+empty(ag.DisplayName, ag.ID))
 			lines = append(lines, entityTimesLine(mutedStyle, ag.CreatedAt, ag.UpdatedAt))
 			lines = append(lines, mutedStyle.Render(fmt.Sprintf("Status: %s  |  Role: %s  |  Type: %s", fmtStatus(ag.Status), string(ag.Role), string(ag.PrincipalType))))
+			lines = append(lines, mutedStyle.Render("Provider: ")+agentProviderLabel(m.state, ag))
 			lines = append(lines, mutedStyle.Render("Scopes: ")+strings.Join(ag.Scopes, ", "))
 			lines = append(lines, mutedStyle.Render("Capabilities: ")+strings.Join(ag.Capabilities, ", "))
 			lines = append(lines, mutedStyle.Render("Fingerprint: ")+ag.KeyFingerprint)

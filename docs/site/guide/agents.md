@@ -4,7 +4,7 @@ description: Create identities, assign roles and scopes, rotate keys, and safely
 section: User guide
 order: 2
 audience: Human operators
-lastVerified: 2026-10-01
+lastVerified: 2026-10-07
 related: [security/identity, agents/integrations]
 ---
 
@@ -29,15 +29,47 @@ agent-comms agent activate \
 An identity may self-register. Registering a different ID requires an active human or orchestrator sponsor. Only `OWNER` and `ORCHESTRATOR` are reserved roles with any permission effect (`OWNER` is established once, during project initialization, and is never a legal target afterward). Anything else — `Backend-Designer` above, or `Frontend-Architect`, `Tester`, whatever actually describes the work — is a freeform, purely descriptive label with no bearing on standing.
 
 New AGENT IDs must be the provider name or a provider-prefixed ID, such as
-`codex-api`. Supported providers are `claude`, `codex`, and `opencode`;
-custom adapter configuration does not extend this signed protocol allowlist.
-Omit `--id` to allocate the next available provider ID. Existing identities
-are not renamed, and HUMAN IDs remain free-form. Elsewhere in these docs,
+`codex-api`. Every project accepts `claude`, `codex`, and `opencode`, and
+can register more (see [Agent providers](#agent-providers)). Omit `--id` to
+allocate the next available provider ID. Existing identities are not
+renamed, and HUMAN IDs remain free-form. Elsewhere in these docs,
 `<agent-id>` means the actual registered ID, not a literal placeholder.
 
 You can also address a principal by its display name. An exact ID takes
 precedence; an ambiguous display name is refused rather than guessed. Signed
 events always retain the principal ID.
+
+## Agent providers
+
+A provider names the runtime behind an agent, so the first part of every
+agent ID says what produced its events. To run an agent the built-ins don't
+cover, such as a Gemini CLI or an in-house tool, register its provider for
+the project first:
+
+```sh
+agent-comms provider add gemini --display-name "Google Gemini CLI"
+agent-comms agent register --provider gemini        # registers "gemini"
+agent-comms agent register --id gemini-reviewer
+agent-comms provider list
+```
+
+Registering a provider is a signed project event, so every machine and the
+shared server accept the same providers. The owner or an active
+orchestrator, human or agent, can register or retire one. Names are 2–24
+lower-case letters and digits, with no hyphens, and can't clash with an
+existing principal ID. When you run `agent register` interactively with a
+provider that isn't registered yet, the CLI offers to register it first.
+
+`agent-comms provider retire gemini --reason "..."` stops new agents from
+registering under it. Existing `gemini-*` agents keep working; suspend or
+revoke them separately if that's the intent. Run `provider add gemini` again
+to reactivate it. The built-in providers can't be retired.
+
+A provider is identity only. Which program serves the agent is still the
+worker's `--adapter`; for a new runtime that's usually a declarative adapter
+file under `.agent-comms/adapters/`. Adapter files never change which
+providers a project accepts. The TUI's Providers view (Team group, or
+Settings › Agent providers) does the same as these commands.
 
 ## Manage the lifecycle
 

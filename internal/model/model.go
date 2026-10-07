@@ -251,6 +251,19 @@ type EnvEntry struct {
 	UpdatedAt       time.Time `json:"updated_at"`
 	UpdatedBy       string    `json:"updated_by"`
 }
+
+// Provider is a project-registered agent provider (RFC 0050). The
+// built-ins are not stored here; they are accepted by every project.
+type Provider struct {
+	EntityClock
+	Name         string `json:"name"`
+	DisplayName  string `json:"display_name,omitempty"`
+	Description  string `json:"description,omitempty"`
+	Status       string `json:"status"`
+	AddedBy      string `json:"added_by"`
+	RetiredBy    string `json:"retired_by,omitempty"`
+	RetireReason string `json:"retire_reason,omitempty"`
+}
 type Integrity struct {
 	Verified       bool   `json:"verified"`
 	EventCount     int    `json:"event_count"`
@@ -313,6 +326,7 @@ type State struct {
 	Documents            map[string]Document           `json:"documents"`
 	Env                  map[string]EnvEntry           `json:"env"`
 	Artifacts            map[string]Artifact           `json:"artifacts"`
+	Providers            map[string]Provider           `json:"providers"`
 	ProjectSettings      ProjectSettings               `json:"project_settings"`
 	Integrity            Integrity                     `json:"integrity"`
 }
@@ -334,6 +348,7 @@ func EmptyState() State {
 		Documents:            map[string]Document{},
 		Env:                  map[string]EnvEntry{},
 		Artifacts:            map[string]Artifact{},
+		Providers:            map[string]Provider{},
 		ProjectSettings:      DefaultProjectSettings(),
 	}
 }

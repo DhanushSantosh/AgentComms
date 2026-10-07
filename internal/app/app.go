@@ -531,7 +531,7 @@ func (c *cli) root() *cobra.Command {
 	f.BoolVarP(&c.quiet, "quiet", "q", false, "suppress non-essential output")
 	f.BoolVarP(&c.verbose, "verbose", "v", false, "show operational metadata in human output")
 	f.BoolVar(&c.details, "details", false, "show secondary and nested fields in human output")
-	r.AddCommand(c.versionCmd(), c.initCmd(), c.projectCmd(), c.doctorCmd(), c.verifyCmd(), c.statusCmd(), c.attentionCmd(), c.historyCmd(), c.agentCmd(), c.runtimeCmd(), c.invocationCmd(), c.taskCmd(), c.messageCmd(), c.approvalCmd(), c.artifactCmd(), c.documentCmd(), c.envCmd(), c.draftCmd(), c.archiveCmd(), c.exportCmd(), c.profileCmd(), c.configCmd(), c.updateCmd(), c.completionCmd(r), c.agentInstructionsCmd(), c.mcpCmd(), c.watchCmd(), c.tuiCmd(), c.daemonCmd(), c.liveCmd())
+	r.AddCommand(c.versionCmd(), c.initCmd(), c.projectCmd(), c.doctorCmd(), c.verifyCmd(), c.statusCmd(), c.attentionCmd(), c.historyCmd(), c.agentCmd(), c.runtimeCmd(), c.invocationCmd(), c.taskCmd(), c.messageCmd(), c.approvalCmd(), c.artifactCmd(), c.documentCmd(), c.envCmd(), c.providerCmd(), c.draftCmd(), c.archiveCmd(), c.exportCmd(), c.profileCmd(), c.configCmd(), c.updateCmd(), c.completionCmd(r), c.agentInstructionsCmd(), c.mcpCmd(), c.watchCmd(), c.tuiCmd(), c.daemonCmd(), c.liveCmd())
 	configureRootHelp(r)
 	return r
 }

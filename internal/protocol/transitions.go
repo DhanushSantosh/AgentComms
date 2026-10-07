@@ -36,7 +36,11 @@ func elevated(typ string) bool {
 	// otherwise write or delete arbitrary key/value data there. Owner-or-
 	// orchestrator only, matching every other write with log-wide
 	// consequences.
-	return typ == "approval.approve" || typ == "approval.reject" || typ == "agent.activate" || typ == "agent.suspend" || typ == "agent.rotate-key" || typ == "agent.rename" || typ == "agent.revoke" || typ == "agent.delete" || typ == "project.settings.update" || typ == "env.set" || typ == "env.delete"
+	return typ == "approval.approve" || typ == "approval.reject" || typ == "agent.activate" || typ == "agent.suspend" || typ == "agent.rotate-key" || typ == "agent.rename" || typ == "agent.revoke" || typ == "agent.delete" || typ == "project.settings.update" || typ == "env.set" || typ == "env.delete" ||
+		// RFC 0050: widening which agent identities a project accepts is a
+		// log-wide governance write, open to the owner or an active
+		// orchestrator, human or agent.
+		typ == "provider.register" || typ == "provider.retire"
 }
 func eligibleActionApprovalID(st model.State, action string, now time.Time) (string, bool) {
 	chosen := ""
@@ -475,8 +479,23 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 		// shared by CLI, MCP, TUI and both authority backends. Replay is
 		// unaffected: projection.ApplyEvent does not call this, so
 		// principals registered before this rule keep projecting.
+		//
+		// RFC 0050: the accepted providers are the built-ins plus the
+		// project's ACTIVE registered providers, derived from the same
+		// signed state every authority holds.
 		if registered.PrincipalType == model.PrincipalAgent {
-			if err := model.ValidateAgentActorID(id); err != nil {
+			providers := model.RegistrableProviders(st)
+			if err := providers.ValidateAgentActorID(id); err != nil {
+				// "gemini-main" names a provider the project lacks; a bare
+				// name like "reviewer" keeps RFC 0039's suggestion instead.
+				if name, _, hyphenated := strings.Cut(id, "-"); hyphenated && !providers.Has(name) && model.ValidateProviderName(name) == nil {
+					if existing, ok := st.Providers[name]; ok && existing.Status == model.ProviderStatusRetired {
+						return nil, fmt.Errorf("%w: provider %q is retired; reactivate it with `agent-comms provider add %s` before registering %q",
+							model.ErrProviderNotRegistered, name, name, id)
+					}
+					return nil, fmt.Errorf("%w: provider %q; register it with `agent-comms provider add %s` (known providers: %s)",
+						model.ErrProviderNotRegistered, name, name, strings.Join(providers.Names(), ", "))
+				}
 				return nil, err
 			}
 		}
@@ -1610,6 +1629,58 @@ func ValidateTransition(st model.State, actor, typ, id string, payload any, now 
 		approval, exists := st.Approvals[id]
 		if !exists || approval.Status != "PENDING" {
 			return nil, errors.New("pending approval is required")
+		}
+	}
+	if typ == "provider.register" {
+		registered, ok := payload.(model.ProviderRegistered)
+		if !ok {
+			return nil, errors.New("invalid provider registration payload")
+		}
+		if err := model.ValidateProviderName(id); err != nil {
+			return nil, err
+		}
+		if err := model.ValidateProviderText("display name", registered.DisplayName, model.MaxProviderDisplayName); err != nil {
+			return nil, err
+		}
+		if err := model.ValidateProviderText("description", registered.Description, model.MaxProviderDescription); err != nil {
+			return nil, err
+		}
+		existing, exists := st.Providers[id]
+		if exists && existing.Status == model.ProviderStatusActive {
+			return nil, fmt.Errorf("provider %q is already registered", id)
+		}
+		// A brand-new name must not reinterpret any existing principal:
+		// an ID equal to it, or starting with "<name>-", would suddenly
+		// read as belonging to the new provider. Reactivating a RETIRED
+		// provider skips this -- the agents it matches are its own.
+		if !exists {
+			for principal := range st.Agents {
+				if principal == id || strings.HasPrefix(principal, id+"-") {
+					return nil, fmt.Errorf("provider name %q collides with existing principal %q", id, principal)
+				}
+			}
+		}
+	}
+	if typ == "provider.retire" {
+		retired, ok := payload.(model.ProviderRetired)
+		if !ok {
+			return nil, errors.New("invalid provider retirement payload")
+		}
+		if model.IsBuiltInProvider(id) {
+			return nil, fmt.Errorf("%q is a built-in provider and cannot be retired", id)
+		}
+		existing, exists := st.Providers[id]
+		if !exists {
+			return nil, fmt.Errorf("provider %q is not registered", id)
+		}
+		if existing.Status != model.ProviderStatusActive {
+			return nil, fmt.Errorf("provider %q is already retired", id)
+		}
+		if strings.TrimSpace(retired.Reason) == "" {
+			return nil, errors.New("retirement reason is required")
+		}
+		if err := model.ValidateProviderText("retirement reason", retired.Reason, model.MaxProviderRetireReason); err != nil {
+			return nil, err
 		}
 	}
 	if strings.HasPrefix(typ, "env.") {
