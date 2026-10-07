@@ -564,7 +564,7 @@
         },
         {
           "name": "provider",
-          "usage": "AI provider backing this agent: claude, codex, opencode",
+          "usage": "AI provider backing this agent: claude, codex, opencode, or one registered with `provider add`",
           "default": "",
           "type": "string"
         },
@@ -7465,6 +7465,399 @@
       ]
     },
     {
+      "path": "agent-comms provider",
+      "use": "agent-comms provider",
+      "summary": "Manage the agent providers this project accepts",
+      "flags": [
+        {
+          "name": "actor",
+          "usage": "actor override (credential must match)",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "details",
+          "usage": "show secondary and nested fields in human output",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "json",
+          "usage": "emit a versioned JSON envelope",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "no-color",
+          "usage": "disable ANSI color",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "non-interactive",
+          "usage": "never prompt",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
+          "name": "profile",
+          "usage": "user profile name",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "project",
+          "usage": "target project root",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "quiet",
+          "shorthand": "q",
+          "usage": "suppress non-essential output",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "timeout",
+          "usage": "transaction lock timeout",
+          "default": "10s",
+          "type": "duration"
+        },
+        {
+          "name": "verbose",
+          "shorthand": "v",
+          "usage": "show operational metadata in human output",
+          "default": "false",
+          "type": "bool"
+        }
+      ]
+    },
+    {
+      "path": "agent-comms provider add",
+      "use": "agent-comms provider add \u003cname\u003e [flags]",
+      "summary": "Register a provider so agents can use \u003cname\u003e or \u003cname\u003e-\u003csuffix\u003e IDs",
+      "flags": [
+        {
+          "name": "actor",
+          "usage": "actor override (credential must match)",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "description",
+          "usage": "description",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "details",
+          "usage": "show secondary and nested fields in human output",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "display-name",
+          "usage": "display name, for example \"Google Gemini CLI\"",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "json",
+          "usage": "emit a versioned JSON envelope",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "no-color",
+          "usage": "disable ANSI color",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "non-interactive",
+          "usage": "never prompt",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
+          "name": "profile",
+          "usage": "user profile name",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "project",
+          "usage": "target project root",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "quiet",
+          "shorthand": "q",
+          "usage": "suppress non-essential output",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "timeout",
+          "usage": "transaction lock timeout",
+          "default": "10s",
+          "type": "duration"
+        },
+        {
+          "name": "verbose",
+          "shorthand": "v",
+          "usage": "show operational metadata in human output",
+          "default": "false",
+          "type": "bool"
+        }
+      ]
+    },
+    {
+      "path": "agent-comms provider list",
+      "use": "agent-comms provider list",
+      "summary": "List built-in and registered providers",
+      "flags": [
+        {
+          "name": "actor",
+          "usage": "actor override (credential must match)",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "details",
+          "usage": "show secondary and nested fields in human output",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "json",
+          "usage": "emit a versioned JSON envelope",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "no-color",
+          "usage": "disable ANSI color",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "non-interactive",
+          "usage": "never prompt",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
+          "name": "profile",
+          "usage": "user profile name",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "project",
+          "usage": "target project root",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "quiet",
+          "shorthand": "q",
+          "usage": "suppress non-essential output",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "timeout",
+          "usage": "transaction lock timeout",
+          "default": "10s",
+          "type": "duration"
+        },
+        {
+          "name": "verbose",
+          "shorthand": "v",
+          "usage": "show operational metadata in human output",
+          "default": "false",
+          "type": "bool"
+        }
+      ]
+    },
+    {
+      "path": "agent-comms provider retire",
+      "use": "agent-comms provider retire \u003cname\u003e [flags]",
+      "summary": "Stop new agent registrations under a registered provider",
+      "flags": [
+        {
+          "name": "actor",
+          "usage": "actor override (credential must match)",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "details",
+          "usage": "show secondary and nested fields in human output",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "json",
+          "usage": "emit a versioned JSON envelope",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "no-color",
+          "usage": "disable ANSI color",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "non-interactive",
+          "usage": "never prompt",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
+          "name": "profile",
+          "usage": "user profile name",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "project",
+          "usage": "target project root",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "quiet",
+          "shorthand": "q",
+          "usage": "suppress non-essential output",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "reason",
+          "usage": "why the provider is retired",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "timeout",
+          "usage": "transaction lock timeout",
+          "default": "10s",
+          "type": "duration"
+        },
+        {
+          "name": "verbose",
+          "shorthand": "v",
+          "usage": "show operational metadata in human output",
+          "default": "false",
+          "type": "bool"
+        }
+      ]
+    },
+    {
+      "path": "agent-comms provider show",
+      "use": "agent-comms provider show \u003cname\u003e",
+      "summary": "Show one provider",
+      "flags": [
+        {
+          "name": "actor",
+          "usage": "actor override (credential must match)",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "details",
+          "usage": "show secondary and nested fields in human output",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "json",
+          "usage": "emit a versioned JSON envelope",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "no-color",
+          "usage": "disable ANSI color",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "non-interactive",
+          "usage": "never prompt",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "output",
+          "usage": "output format: human, plain, json, or jsonl",
+          "default": "human",
+          "type": "string"
+        },
+        {
+          "name": "profile",
+          "usage": "user profile name",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "project",
+          "usage": "target project root",
+          "default": "",
+          "type": "string"
+        },
+        {
+          "name": "quiet",
+          "shorthand": "q",
+          "usage": "suppress non-essential output",
+          "default": "false",
+          "type": "bool"
+        },
+        {
+          "name": "timeout",
+          "usage": "transaction lock timeout",
+          "default": "10s",
+          "type": "duration"
+        },
+        {
+          "name": "verbose",
+          "shorthand": "v",
+          "usage": "show operational metadata in human output",
+          "default": "false",
+          "type": "bool"
+        }
+      ]
+    },
+    {
       "path": "agent-comms runtime",
       "use": "agent-comms runtime",
       "summary": "Manage agent runtime connectors and presence",
@@ -11292,7 +11685,7 @@
       "name": "invocation_reject"
     },
     {
-      "description": "Register a new agent principal, generating its own fresh signing keypair. Any connection may always self-register (id equal to this connection's own actor). Registering a different id requires this connection's actor to be an active orchestrator or human principal — otherwise rejected.",
+      "description": "Register a new agent principal, generating its own fresh signing keypair. Any connection may always self-register (id equal to this connection's own actor). Registering a different id requires this connection's actor to be an active orchestrator or human principal — otherwise rejected. An AGENT id must be \u003cprovider\u003e or \u003cprovider\u003e-\u003csuffix\u003e, using a provider from provider_list; register a new provider with provider_register first.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -11383,6 +11776,58 @@
         "type": "object"
       },
       "name": "agent_revoke"
+    },
+    {
+      "description": "List the agent providers this project accepts: the built-ins and any registered with provider_register, with status and active agents. An AGENT id must be \u003cprovider\u003e or \u003cprovider\u003e-\u003csuffix\u003e.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "name": "provider_list"
+    },
+    {
+      "description": "Register (or reactivate) a provider so agents can use \u003cname\u003e or \u003cname\u003e-\u003csuffix\u003e ids. Requires this connection's actor to be the owner or an active orchestrator. Names are 2-24 lower-case letters and digits, no hyphens.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "name": "provider_register"
+    },
+    {
+      "description": "Retire a registered provider: new agent registrations under it are refused, existing agents keep working. Built-in providers cannot be retired. Requires the owner or an active orchestrator.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "name": "provider_retire"
     },
     {
       "description": "Register an agent runtime without embedding connector secrets",

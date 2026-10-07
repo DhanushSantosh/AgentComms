@@ -1,59 +1,181 @@
 <slot />
-<p><a href="/raw/releases/changelog.md">Read the complete archive as Markdown ↗</a></p>
-<noscript><p>Enable JavaScript to switch releases, or read the complete archive as Markdown.</p></noscript>
 
 <script>
-  const archive = document.querySelector<HTMLDetailsElement>("#beta-archive");
-  const stable = document.querySelector<HTMLElement>('[data-release-group="stable"]');
-  function selectRelease(group: Element, version: string) {
-    group.querySelectorAll<HTMLElement>("[data-release-panel]").forEach((panel) => {
-      panel.hidden = panel.dataset.releasePanel !== version;
-    });
-    const select = group.querySelector<HTMLSelectElement>("[data-release-select]");
-    if (select) select.value = version;
+  const rows = [...document.querySelectorAll<HTMLDetailsElement>("details.release-row")];
+  // Old panel links used #release-v0-8-2; current links use the heading ID.
+  function findTarget(id: string) {
+    const legacy = id.match(/^release-(v\d+-\d+-\d+(?:-[\w-]+)?)$/);
+    if (legacy) {
+      const version = legacy[1].replace(/^(v\d+)-(\d+)-(\d+)/, "$1.$2.$3");
+      return document.querySelector<HTMLElement>(`[data-release-panel="${CSS.escape(version)}"]`);
+    }
+    return document.getElementById(id);
   }
-  document.querySelectorAll<HTMLSelectElement>("[data-release-select]").forEach((select) => {
-    select.addEventListener("change", () => {
-      const group = select.closest("[data-release-group]");
-      if (!group) return;
-      selectRelease(group, select.value);
-      const panel = [...group.querySelectorAll<HTMLElement>("[data-release-panel]")].find((entry) => !entry.hidden);
-      const anchor = panel?.querySelector("h2")?.id || panel?.id;
-      if (anchor) history.replaceState(null, "", `#${anchor}`);
-    });
-  });
   function restoreAnchor() {
     let id;
     try { id = decodeURIComponent(location.hash.slice(1)); } catch { return; }
     if (!id) return;
-    const target = document.getElementById(id);
-    if (id === "beta-archive" && archive) archive.open = true;
-    const panel = target?.closest<HTMLElement>("[data-release-panel]");
-    const group = panel?.closest("[data-release-group]");
-    if (panel && group) {
-      selectRelease(group, panel.dataset.releasePanel!);
-      if (group === archive && archive) archive.open = true;
-      target?.scrollIntoView({ block: "start" });
+    const target = findTarget(id);
+    const row = target?.closest<HTMLDetailsElement>("details.release-row");
+    if (row) {
+      row.open = true;
+      row.scrollIntoView({ block: "start" });
     }
-    if (stable && archive) stable.hidden = archive.open;
   }
-  archive?.addEventListener("toggle", () => { if (stable) stable.hidden = archive.open; });
+  rows.forEach((row) => row.addEventListener("toggle", () => {
+    if (!row.open) return;
+    const id = row.querySelector(".release-title")?.id;
+    if (id) history.replaceState(null, "", `#${id}`);
+  }));
   window.addEventListener("hashchange", restoreAnchor);
   restoreAnchor();
 </script>
 
 <style is:global>
-  .release-picker { display: grid; gap: 0.6rem; margin-block: 1.5rem; }
-  .release-picker label { font-weight: 600; }
-  .release-picker select {
-    width: 100%; max-width: 100%; min-height: 3rem; padding: 0.75rem;
-    font: inherit; color: var(--ink); background: var(--surface-raised);
-    border: 1px solid var(--line); border-radius: 0.4rem;
+  .release-group { margin-block: 2.25rem 1rem; }
+  .release-pending { border: 1px dashed var(--line-strong); padding: 1.25rem; }
+
+  .release-eyebrow,
+  .release-label,
+  .release-badge,
+  .release-date,
+  .release-list__count {
+    font-family: var(--font-mono);
+    font-size: 0.66rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
   }
-  .release-picker select:focus-visible { outline: 2px solid var(--brand-strong); outline-offset: 3px; }
-  .release-panel[hidden], [data-release-group][hidden] { display: none !important; }
-  .beta-archive { border-block: 1px solid var(--line); padding-block: 1.25rem; margin-block: 2rem; }
-  .beta-archive > summary { cursor: pointer; font-weight: 600; padding-block: 0.25rem; }
-  .beta-archive > summary:focus-visible { outline: 2px solid var(--brand-strong); outline-offset: 4px; }
-  .release-panel h2 { overflow-wrap: anywhere; }
+
+  /* Current release */
+  .release-current {
+    background: var(--surface-raised);
+    border: 1px solid var(--line);
+    border-top: 3px solid var(--signal);
+    scroll-margin-top: calc(var(--header-height) + 1.5rem);
+  }
+  .release-current__head {
+    display: grid;
+    gap: 0.6rem;
+    padding: 1.5rem 1.75rem 1.25rem;
+    border-bottom: 1px solid var(--line);
+  }
+  .release-eyebrow { color: var(--brand-strong); font-weight: 700; margin: 0; }
+  .prose .release-current .release-title {
+    border: 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.35rem 0.9rem;
+    margin: 0;
+    padding: 0;
+  }
+  .release-title__version {
+    color: var(--ink);
+    font-family: var(--font-mono);
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+  .release-title__name { color: var(--ink); }
+  .release-current .release-title__version { font-size: 2.1rem; }
+  .release-current .release-title__name { font-size: 1.6rem; color: var(--muted); }
+  .release-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; }
+  .release-badge {
+    border: 1px solid currentColor;
+    font-weight: 700;
+    line-height: 1;
+    padding: 0.32rem 0.45rem;
+  }
+  .release-badge[data-channel="stable"] { color: var(--signal); background: var(--signal-soft); }
+  .release-badge[data-channel="beta"] { color: var(--receipt); background: var(--receipt-soft); }
+  .release-date { color: var(--steel); }
+
+  .release-notes { padding: 1.4rem 1.75rem 0.4rem; }
+  .release-notes > :first-child { color: var(--ink); font-size: 1.02rem; }
+  .release-label {
+    color: var(--steel);
+    font-weight: 700;
+    margin: 1.6rem 0 0.6rem !important;
+    padding-top: 1.1rem;
+    border-top: 1px solid var(--line);
+  }
+  .release-label[data-kind="breaking"] { color: var(--coral); }
+  .release-label[data-kind="security"] { color: var(--receipt); }
+  .release-label[data-kind="added"] { color: var(--signal); }
+  .release-label[data-kind="fixed"],
+  .release-label[data-kind="changed"] { color: var(--brand); }
+  .release-notes ul { padding-left: 1.1rem; }
+  .release-notes li::marker { color: var(--line-strong); }
+
+  /* Release lists (beta archive, earlier stable) */
+  .release-list { margin-block: 3.2rem 1rem; }
+  .release-list__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.5rem 1rem;
+    border-top: 1px solid var(--line-strong);
+    padding-top: 1.5rem;
+  }
+  .prose .release-list__title { border: 0; margin: 0; padding: 0; }
+  .release-list__count { color: var(--steel); }
+  .release-list__intro { margin: 0.6rem 0 1.25rem !important; max-width: 40rem; }
+  .release-list__rows { border-top: 1px solid var(--line); }
+  .release-list__raw { margin-top: 1.25rem !important; font-size: 0.9rem; }
+
+  .release-row { border-bottom: 1px solid var(--line); scroll-margin-top: calc(var(--header-height) + 1rem); }
+  .release-row__summary {
+    cursor: pointer;
+    display: grid;
+    grid-template-columns: 1rem minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 1rem;
+    list-style: none;
+    padding: 0.95rem 0.5rem;
+    transition: background-color 120ms ease;
+  }
+  .release-row__summary::-webkit-details-marker { display: none; }
+  .release-row__summary::before {
+    content: "";
+    width: 0.45rem;
+    height: 0.45rem;
+    border-right: 1.5px solid var(--steel);
+    border-bottom: 1.5px solid var(--steel);
+    transform: rotate(-45deg);
+    transition: transform 160ms ease;
+    justify-self: center;
+  }
+  .release-row[open] > .release-row__summary::before { transform: rotate(45deg); border-color: var(--signal); }
+  .release-row__summary:hover { background: var(--surface-muted); }
+  .release-row__summary:focus-visible { outline: 2px solid var(--brand-strong); outline-offset: -2px; }
+  .prose .release-row .release-title {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.2rem 0.85rem;
+    font-size: 1.05rem;
+    margin: 0;
+    min-width: 0;
+  }
+  .release-row .release-title__version { font-size: 0.95rem; min-width: 4.6rem; }
+  .release-row .release-title__name { font-family: var(--font-display); font-weight: 600; }
+  .release-row[open] { background: var(--surface-raised); }
+  .release-row .release-notes { padding: 0.25rem 1.25rem 0.75rem 2.5rem; }
+  .release-row .release-notes > :first-child { margin-top: 0.5rem; }
+  .release-row .release-badge { display: none; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .release-row__summary,
+    .release-row__summary::before { transition: none; }
+  }
+
+  @media (max-width: 40rem) {
+    .release-current__head { padding: 1.25rem 1.1rem 1rem; }
+    .release-notes { padding: 1.1rem 1.1rem 0.25rem; }
+    .release-current .release-title__version { font-size: 1.7rem; }
+    .release-current .release-title__name { font-size: 1.3rem; }
+    .release-row__summary { grid-template-columns: 0.75rem minmax(0, 1fr); gap: 0.25rem 0.75rem; padding-inline: 0.25rem; }
+    .release-row__summary > .release-meta { grid-column: 2; }
+    .release-row .release-notes { padding: 0.25rem 0.25rem 0.75rem 1.5rem; }
+  }
 </style>

@@ -1,37 +1,47 @@
 import { expect, test } from "@playwright/test";
 
-test("beta archive displays one selected release and preserves direct links", async ({ page }) => {
+test("the current release stays visible while archive releases open one at a time", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto("/releases/changelog/");
-  const archive = page.locator("#beta-archive");
-  const stable = page.locator('[data-release-group="stable"]');
-  await expect(stable.locator('[data-release-panel="v1.0.0"]')).toBeVisible();
-  await expect(page.getByLabel("Stable release", { exact: true })).toHaveValue("v1.0.0");
-  await expect(page.locator("[data-release-panel]:visible")).toHaveCount(1);
-  await expect(archive).not.toHaveAttribute("open");
-  await archive.locator("summary").click();
-  const picker = page.getByLabel("Beta release", { exact: true });
-  await expect(picker.locator("option")).toHaveCount(12);
-  await expect(archive.locator("[data-release-panel]:visible")).toHaveCount(1);
-  await picker.selectOption("v0.1.0");
+  const current = page.locator("#current-release");
+  const archive = page.locator("section.release-list", { has: page.locator("#beta-archive") });
+  const rows = archive.locator("details.release-row");
+  await expect(current.getByRole("heading", { level: 2 })).toContainText("v1.1.0");
+  await expect(current.getByRole("heading", { level: 2 })).toContainText("Open Frequencies");
+  await expect(current.locator(".release-badge")).toHaveText("Stable");
+  await expect(page.locator('[data-release-panel="v1.0.0"]')).toBeVisible();
+  // The "On this page" panel is hidden on mobile, so check the links exist.
+  await expect(page.locator('a[href="#current-release"]').first()).toHaveText("Current release");
+  await expect(page.locator('a[href="#beta-archive"]').first()).toHaveText("Beta archive");
+  await expect(rows).toHaveCount(12);
+  await expect(archive.locator("details.release-row[open]")).toHaveCount(0);
+
+  const newest = archive.locator('[data-release-panel="v0.8.2"]');
+  await newest.locator("summary").click();
+  await expect(newest).toHaveAttribute("open", "");
+  await expect(current).toBeVisible();
   const oldest = archive.locator('[data-release-panel="v0.1.0"]');
-  await expect(oldest).toBeVisible();
-  await expect(archive.locator("[data-release-panel]:visible")).toHaveCount(1);
-  const anchor = await oldest.locator("h2").getAttribute("id");
-  expect(anchor).toBeTruthy();
+  await oldest.locator("summary").click();
+  await expect(oldest).toHaveAttribute("open", "");
+  await expect(newest).not.toHaveAttribute("open");
+  await expect(current).toBeVisible();
+
+  const anchor = await oldest.locator("h3").getAttribute("id");
+  expect(anchor).toBe("v010--the-control-room--beta--2026-07-19");
+  await expect(page).toHaveURL(new RegExp(`#${anchor}$`));
   await page.reload();
-  await expect(oldest).toBeVisible();
-  await expect(picker).toHaveValue("v0.1.0");
-  await expect(archive.locator("[data-release-panel]:visible")).toHaveCount(1);
+  await expect(oldest).toHaveAttribute("open", "");
+  await expect(oldest.locator(".release-notes")).toBeVisible();
+  await expect(current).toBeVisible();
+
+  await page.goto("/releases/changelog/#release-v0-8-1");
+  await expect(archive.locator('[data-release-panel="v0.8.1"]')).toHaveAttribute("open", "");
+
   await expect(page.getByRole("link", { name: /Read the complete archive as Markdown/ })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-  await archive.locator("summary").focus();
+  await oldest.locator("summary").focus();
   await page.keyboard.press("Enter");
-  await expect(archive).not.toHaveAttribute("open");
-  await expect(stable).toBeVisible();
-  await expect(archive.locator("[data-release-panel]:visible")).toHaveCount(0);
-  await expect(page.locator("[data-release-panel]:visible")).toHaveCount(1);
   expect(errors).toEqual([]);
 });
 

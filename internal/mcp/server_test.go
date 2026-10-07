@@ -120,6 +120,7 @@ func TestInitializeAndToolCatalog(t *testing.T) {
 		"invocation_get", "invocation_redeliver", "invocation_policy_set",
 		"invocation_next", "invocation_listen", "invocation_claim",
 		"runtime_register", "runtime_configure", "runtime_heartbeat", "verify", `"agent_revoke"`,
+		`"provider_list"`, `"provider_register"`, `"provider_retire"`,
 	} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("missing %s", want)
@@ -700,5 +701,68 @@ func TestRpcFailIncludesDetailsWhenPresent(t *testing.T) {
 	}
 	if _, present := data["details"]; present {
 		t.Fatalf("expected no details entry for a plain error, got: %+v", data)
+	}
+}
+
+// TestProviderToolsLetAnOrchestratorAgentManageProviders covers RFC 0050 over
+// MCP: an orchestrator agent can register and retire a provider and then
+// sponsor an agent under it; an ordinary agent cannot change the set.
+func TestProviderToolsLetAnOrchestratorAgentManageProviders(t *testing.T) {
+	instance, _ := testsupport.StartPersonalProject(t)
+	if _, e := instance.Register("claude-lead", "Lead", model.PrincipalAgent); e != nil {
+		t.Fatal(e)
+	}
+	grantOrchestrator(t, instance, "owner", "claude-lead", []string{"src"})
+	if _, e := instance.Register("claude-reviewer", "Reviewer", model.PrincipalAgent); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := instance.Execute("owner", "agent.activate", "claude-reviewer",
+		model.AgentActivated{Role: model.Role("MEMBER"), Scopes: []string{"src"}}); e != nil {
+		t.Fatal(e)
+	}
+	serve := func(actor, input string) string {
+		t.Helper()
+		var out bytes.Buffer
+		if e := Serve(instance, asActor(actor), testServerVersion, strings.NewReader(input), &out); e != nil {
+			t.Fatal(e)
+		}
+		return out.String()
+	}
+
+	denied := serve("claude-reviewer", `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"provider_register","arguments":{"name":"gemini"}}}`+"\n")
+	if !strings.Contains(denied, `"data":{"code":"AUTHORIZATION"}`) {
+		t.Fatalf("an ordinary agent must not register a provider, got: %s", denied)
+	}
+
+	out := serve("claude-lead", `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"provider_register","arguments":{"name":"gemini","display_name":"Google Gemini CLI"}}}`+"\n"+
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"agent_register","arguments":{"id":"gemini-helper"}}}`+"\n"+
+		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"provider_list","arguments":{}}}`+"\n")
+	if strings.Contains(out, `"error"`) {
+		t.Fatalf("orchestrator agent provider flow failed: %s", out)
+	}
+	if !strings.Contains(out, `"order":["claude","codex","opencode","gemini"]`) {
+		t.Fatalf("provider_list must return the order in _meta: %s", out)
+	}
+	state, e := instance.State()
+	if e != nil {
+		t.Fatal(e)
+	}
+	if state.Providers["gemini"].AddedBy != "claude-lead" {
+		t.Fatalf("gemini not registered by claude-lead: %+v", state.Providers)
+	}
+	if _, ok := state.Agents["gemini-helper"]; !ok {
+		t.Fatal("gemini-helper was not registered")
+	}
+
+	out = serve("claude-lead", `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"provider_retire","arguments":{"name":"gemini","reason":"trial ended"}}}`+"\n"+
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"agent_register","arguments":{"id":"gemini-second"}}}`+"\n")
+	if !strings.Contains(out, "retired") {
+		t.Fatalf("registering under a retired provider must fail and say so: %s", out)
+	}
+	if state, e = instance.State(); e != nil {
+		t.Fatal(e)
+	}
+	if state.Providers["gemini"].Status != model.ProviderStatusRetired {
+		t.Fatalf("gemini not retired: %+v", state.Providers["gemini"])
 	}
 }

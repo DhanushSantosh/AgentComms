@@ -13,6 +13,12 @@ export async function getStaticPaths() {
 
 const { entry } = Astro.props;
 const { Content, headings } = await render(entry);
+// The changelog's per-release headings live inside the release browser; the
+// table of contents links to the current release and the archive instead.
+const releaseHeadings = [
+  ...(headings.some((heading) => heading.depth === 2 && heading.text.startsWith("v")) ? [{ depth: 2, slug: "current-release", text: "Current release" }] : []),
+  ...headings.filter((heading) => !heading.text.startsWith("v"))
+];
 ---
 
 <DocsLayout
@@ -22,7 +28,7 @@ const { Content, headings } = await render(entry);
   audience={entry.data.audience}
   lastVerified={entry.data.lastVerified}
   slug={entry.id}
-  headings={entry.id === "releases/changelog" ? headings.filter((heading) => !heading.text.startsWith("v")) : headings}
+  headings={entry.id === "releases/changelog" ? releaseHeadings : headings}
   related={entry.data.related}
 >
   {entry.id === "releases/changelog" ? <ReleaseBrowser><Content /></ReleaseBrowser> : <Content />}

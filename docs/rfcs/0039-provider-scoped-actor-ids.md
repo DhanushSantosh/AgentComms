@@ -14,6 +14,10 @@ Corrections.) Requested by the project owner; drafted by
 claude-main. Changes the public `agent register` contract, so it requires
 review before implementation.
 
+**Extended by RFC 0050 (2026-10-07):** projects can now register providers
+beyond the built-ins as signed state. The "fixed at build time" statements
+below describe this RFC's own scope; the built-ins remain the floor.
+
 ## Problem and desired outcome
 
 `agent register --id` accepts any string. Nothing ties a principal's

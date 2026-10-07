@@ -21,6 +21,7 @@ var settingsSections = []struct {
 	{"Agent runtimes", "RUNTIME", "Connectors, capacity, health, drain, and revocation."},
 	{"Authority & data", "SYSTEM", "Authority mode, consistency, cache, and internal storage."},
 	{"Environment", "ENV", "Project-scoped key/value configuration."},
+	{"Agent providers", "PROVIDERS", "Which providers agent IDs may name: built-ins and registered."},
 }
 
 // No "Interface" domain: it existed only to toggle between a muted and a
@@ -114,6 +115,10 @@ func (m Model) enterSettingsDomain(index int) (tea.Model, tea.Cmd) {
 		m.openView("Environment")
 		m.settingsFocus, m.rowFocus = false, true
 		m.envList.Refresh(m.state, m.actor)
+	case 5:
+		m.openView("Providers")
+		m.settingsFocus, m.rowFocus = false, true
+		m.providerList.Refresh(m.state, m.actor)
 	}
 	return m, nil
 }

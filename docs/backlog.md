@@ -84,9 +84,8 @@ The actual release gates and promotion sequence live in
 
 ### 3. Intentionally deferred — require a scope or policy change first
 
-7. **Medium, design first:** project-scoped custom providers must become
-   signed authority state shared by local and remote modes; the removed
-   local adapter escape hatch is not a partial implementation. See
+7. **Done (RFC 0050):** project-scoped custom providers are signed
+   authority state shared by local and remote modes. See
    [Project-scoped custom providers](#project-scoped-custom-providers).
 8. **Medium, external dependency:** cloud/hosted participation needs a
    project-join design and a host that permits this CLI. The protocol's
@@ -707,29 +706,14 @@ kept:
 
 ## Project-scoped custom providers
 
-- **Extending RFC 0039's provider set per project — attempted 2026-09-28,
-  removed, deferred.** `claude`, `codex` and `opencode` are fixed at build
-  time (`internal/model/provider.go`). An attempt to let a declarative
-  adapter (`.agent-comms/adapters/<name>.json`) add its own name was
-  implemented and then removed: adapters load in the **CLI** process, while
-  agent IDs are validated in `ValidateTransition` inside the **authority**
-  process. Verified by running it — with an adapter declared, the CLI
-  accepted `--provider housecat` and the daemon rejected the command,
-  reporting only the three built-ins.
-  **Why the obvious fix was rejected.** Loading adapters in the daemon
-  repairs personal mode only. In team mode the authority is a remote
-  service with no access to the project's files, so the two runtime modes
-  would disagree about which identities are registrable — and it would add
-  a write to a package-level map concurrent with the reads validation
-  performs.
-  **What a real design needs.** The accepted provider set has to be
-  something every process derives identically, which for this project means
-  signed project state rather than a local file — `model.ProjectSettings`
-  is the natural home, reached through `project.settings.update`, so
-  widening which identities an authority accepts is itself a governed,
-  audited act. Note there is no `project settings` CLI command today, so
-  this is a governance surface as well as a plumbing change. Until then the
-  set is fixed, which is at least consistent everywhere.
+- **Implemented by RFC 0050 (2026-10-07).** A project registers providers
+  with signed `provider.register` / `provider.retire` events, validated in
+  `ValidateTransition`, so the personal daemon and a remote team authority
+  derive the same accepted set from history. The owner or an active
+  orchestrator, human or agent, manages them through `agent-comms provider`,
+  the MCP `provider_*` tools and the TUI Providers view. RFC 0039's removed
+  attempt (declarative adapter files adding names in the CLI process) stays
+  removed: adapter files still never affect identity.
 
 ## Stabilization areas not yet started
 

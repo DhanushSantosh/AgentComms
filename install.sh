@@ -1,6 +1,6 @@
 #!/bin/sh
 set -eu
-VERSION="${AGENT_COMMS_VERSION:-v1.0.0}"
+VERSION="${AGENT_COMMS_VERSION:-v1.1.0}"
 INSTALL_DIR="${AGENT_COMMS_INSTALL_DIR:-$HOME/.local/bin}"
 REPO="DhanushSantosh/AgentComms"
 command -v curl >/dev/null || { echo "curl is required" >&2; exit 1; }

@@ -33,6 +33,10 @@ func ApplyEvent(s *model.State, e model.Event) error {
 	if s.InvocationPolicies == nil {
 		s.InvocationPolicies = map[string]model.InvocationPolicy{}
 	}
+	// Snapshots written before RFC 0050 have no providers collection.
+	if s.Providers == nil {
+		s.Providers = map[string]model.Provider{}
+	}
 	v, x := model.DecodePayload(e.Type, e.Data)
 	if x != nil {
 		return x
@@ -487,6 +491,20 @@ func ApplyEvent(s *model.State, e model.Event) error {
 		s.Env[p.Key] = model.EnvEntry{Key: p.Key, Value: p.Value, CreatedAt: createdAt, CreatedSequence: createdSequence, UpdatedAt: e.Time, UpdatedSequence: e.Sequence, UpdatedBy: e.Actor}
 	case *model.EnvDeletePayload:
 		delete(s.Env, p.Key)
+	case *model.ProviderRegistered:
+		// Registering a RETIRED name reactivates it and keeps its creation
+		// clock; stampEntity below advances the update clock.
+		provider := s.Providers[e.EntityID]
+		provider.Name, provider.Status = e.EntityID, model.ProviderStatusActive
+		provider.DisplayName, provider.Description = p.DisplayName, p.Description
+		provider.AddedBy = e.Actor
+		provider.RetiredBy, provider.RetireReason = "", ""
+		s.Providers[e.EntityID] = provider
+	case *model.ProviderRetired:
+		if provider, ok := s.Providers[e.EntityID]; ok {
+			provider.Status, provider.RetiredBy, provider.RetireReason = model.ProviderStatusRetired, e.Actor, p.Reason
+			s.Providers[e.EntityID] = provider
+		}
 	}
 	stampEntity(s, e)
 	return nil
@@ -531,6 +549,11 @@ func stampEntity(s *model.State, e model.Event) {
 		if value, ok := s.Approvals[e.EntityID]; ok {
 			stampClock(&value.EntityClock, e)
 			s.Approvals[e.EntityID] = value
+		}
+	case strings.HasPrefix(e.Type, "provider."):
+		if value, ok := s.Providers[e.EntityID]; ok {
+			stampClock(&value.EntityClock, e)
+			s.Providers[e.EntityID] = value
 		}
 	case strings.HasPrefix(e.Type, "document.") || strings.HasPrefix(e.Type, "decision."):
 		if value, ok := s.Documents[e.EntityID]; ok {

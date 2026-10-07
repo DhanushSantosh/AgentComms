@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -101,6 +102,11 @@ type confirmState struct {
 	// events, exactly as protocol.ValidateTransition requires, just chained
 	// into one confirmation instead of a separate trip through Approvals.
 	chainOrchestratorApproval bool
+	// registerProvider, when set, marks the agent register form's confirm
+	// (RFC 0050): on "y", provider.register for this name, then the agent
+	// registration described by id, agentProvider and agentDisplay.
+	registerProvider            string
+	agentProvider, agentDisplay string
 }
 
 // RowList owns its cursor and scroll position directly (cursor, topRow,
@@ -421,6 +427,8 @@ func (m *Model) activeRowList() *RowList {
 		return &m.artifactList
 	case "Environment":
 		return &m.envList
+	case "Providers":
+		return &m.providerList
 	}
 	return nil
 }
@@ -432,6 +440,8 @@ type createFormSpec struct {
 	form    *ActionForm
 	command string
 	task    bool
+	// readOnly, when it returns a reason, refuses the form with it.
+	readOnly func(Model) string
 }
 
 var createForms = map[string]createFormSpec{
@@ -447,6 +457,17 @@ var createForms = map[string]createFormSpec{
 	"Artifacts":             {label: "add artifact", form: artifactAddForm, command: "artifact.add"},
 	"Drafts":                {label: "save draft", form: draftSaveForm, command: "draft.save"},
 	"Environment":           {label: "set env key", form: envSetForm, command: "env.set"},
+	"Providers":             {label: "register provider", form: providerRegisterForm, command: "provider.register", readOnly: providerCreateReadOnly},
+}
+
+// providerCreateReadOnly explains why an actor without standing cannot
+// open the register-provider form, instead of letting the authority
+// reject it after the form is filled in.
+func providerCreateReadOnly(m Model) string {
+	if canManageProviders(m.state, m.actor) {
+		return ""
+	}
+	return providerReadOnly
 }
 
 func (m Model) openCreateForm() (tea.Model, tea.Cmd) {
@@ -456,6 +477,12 @@ func (m Model) openCreateForm() (tea.Model, tea.Cmd) {
 	}
 	if spec.task {
 		return m.openTaskForm()
+	}
+	if spec.readOnly != nil {
+		if reason := spec.readOnly(m); reason != "" {
+			m.err = errors.New(reason)
+			return m, nil
+		}
 	}
 	return m.openActionForm(spec.form, spec.command, "")
 }
@@ -664,6 +691,9 @@ func (m Model) resolveConfirm(yes bool) (tea.Model, tea.Cmd) {
 	}
 	if c.chainOrchestratorApproval {
 		return m.dispatchOrchestratorApprovalChain(c)
+	}
+	if c.registerProvider != "" {
+		return m.dispatchProviderThenAgent(c)
 	}
 	next, cmd := m.dispatchEventWithPassphrase(c.typ, c.id, c.payload, c.passphrase)
 	mm := next.(Model)

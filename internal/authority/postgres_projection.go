@@ -136,6 +136,16 @@ func loadState(ctx context.Context, tx *sql.Tx, projectID string) (model.State, 
 				return nil
 			})
 		},
+		func() error {
+			return loadProjection(ctx, tx, "providers", "provider_name", projectID, func(id string, raw []byte) error {
+				var v model.Provider
+				if err := json.Unmarshal(raw, &v); err != nil {
+					return err
+				}
+				state.Providers[id] = v
+				return nil
+			})
+		},
 	}
 	for _, load := range loaders {
 		if err := load(); err != nil {
@@ -161,7 +171,7 @@ func loadProjection(ctx context.Context, tx *sql.Tx, table, idColumn, projectID 
 		"agent_runtimes.runtime_id": true, "invocation_policies.agent_id": true,
 		"approvals.approval_id": true,
 		"documents.document_id": true, "artifacts.sha256": true,
-		"environment_entries.entry_key": true,
+		"environment_entries.entry_key": true, "providers.provider_name": true,
 	}
 	if !allowed[table+"."+idColumn] {
 		return errors.New("invalid projection query")
@@ -244,7 +254,10 @@ func persistProjectionChanges(ctx context.Context, tx *sql.Tx, projectID string,
 	if err := persistSimpleChanges(ctx, tx, projectID, sequence, "artifacts", "sha256", before.Artifacts, after.Artifacts); err != nil {
 		return err
 	}
-	return persistSimpleChanges(ctx, tx, projectID, sequence, "environment_entries", "entry_key", before.Env, after.Env)
+	if err := persistSimpleChanges(ctx, tx, projectID, sequence, "environment_entries", "entry_key", before.Env, after.Env); err != nil {
+		return err
+	}
+	return persistSimpleChanges(ctx, tx, projectID, sequence, "providers", "provider_name", before.Providers, after.Providers)
 }
 
 func persistRuntimeChanges(ctx context.Context, tx *sql.Tx, projectID string, sequence uint64, before, after map[string]model.AgentRuntime) error {
@@ -389,6 +402,7 @@ func persistSimpleChanges[V any](ctx context.Context, tx *sql.Tx, projectID stri
 		"messages.message_id": true, "approvals.approval_id": true,
 		"documents.document_id": true,
 		"artifacts.sha256":      true, "environment_entries.entry_key": true,
+		"providers.provider_name": true,
 	}
 	if !allowed[table+"."+idColumn] {
 		return errors.New("invalid projection update")
