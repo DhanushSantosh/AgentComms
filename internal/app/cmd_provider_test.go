@@ -105,7 +105,7 @@ func TestAgentRegisterOffersToRegisterAMissingProvider(t *testing.T) {
 		t.Fatalf("missing prompt:\n%s", out)
 	}
 
-	if out, err = runProviderCLI(t, "y\n", "agent", "register", "--project", project, "--id", "aider-main", "--json"); err == nil {
+	if _, err = runProviderCLI(t, "y\n", "agent", "register", "--project", project, "--id", "aider-main", "--json"); err == nil {
 		t.Fatal("--json must not prompt, so an unregistered provider must fail")
 	}
 	if out, err = runProviderCLI(t, "y\n", "agent", "register", "--project", project, "--id", "aider-main", "--output", "plain"); err != nil {
