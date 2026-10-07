@@ -7,9 +7,10 @@ test("the current release stays visible while archive releases open one at a tim
   const current = page.locator("#current-release");
   const archive = page.locator("section.release-list", { has: page.locator("#beta-archive") });
   const rows = archive.locator("details.release-row");
-  await expect(current.getByRole("heading", { level: 2 })).toContainText("v1.0.0");
-  await expect(current.getByRole("heading", { level: 2 })).toContainText("Pilot");
+  await expect(current.getByRole("heading", { level: 2 })).toContainText("v1.1.0");
+  await expect(current.getByRole("heading", { level: 2 })).toContainText("Open Frequencies");
   await expect(current.locator(".release-badge")).toHaveText("Stable");
+  await expect(page.locator('[data-release-panel="v1.0.0"]')).toBeVisible();
   // The "On this page" panel is hidden on mobile, so check the links exist.
   await expect(page.locator('a[href="#current-release"]').first()).toHaveText("Current release");
   await expect(page.locator('a[href="#beta-archive"]').first()).toHaveText("Beta archive");
