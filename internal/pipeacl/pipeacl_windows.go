@@ -1,7 +1,5 @@
 //go:build windows
 
-// Package pipeacl builds the security descriptor for this project's local
-// named pipes (the per-project daemon and interactive-serve control pipes).
 package pipeacl
 
 import (
