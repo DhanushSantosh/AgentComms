@@ -497,38 +497,41 @@ func (c *cli) runInteractiveServe(ctx context.Context, runtimeID string, command
 		}
 	}
 	endpointID := uuid.NewString()
+	// The first heartbeat stays fatal: it runs before the wrapped command
+	// starts, so failing here costs nothing and tells the operator the
+	// runtime could never have received a delivery.
 	if err = c.heartbeatInteractiveRuntime(runtimeID, endpointID); err != nil {
 		return fmt.Errorf("start interactive runtime heartbeat: %w", err)
 	}
+	sessionLog := newInteractiveSessionLog(c.svc.Store.Root, runtimeID)
+	sessionLog.Printf("session started: runtime=%s actor=%s endpoint=%s command=%q", runtimeID, c.actor, endpointID, command)
 	serveCtx, cancel := context.WithCancel(ctx)
-	heartbeatDone := make(chan error, 1)
+	heartbeat := &interactiveHeartbeatLoop{
+		beat:     func() error { return c.heartbeatInteractiveRuntime(runtimeID, endpointID) },
+		interval: interactiveHeartbeatInterval,
+		retry:    interactiveHeartbeatRetry,
+		report:   func(line string) { sessionLog.Printf("%s", line) },
+	}
+	heartbeatDone := make(chan struct{})
 	go func() {
-		ticker := time.NewTicker(interactiveHeartbeatInterval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-serveCtx.Done():
-				heartbeatDone <- nil
-				return
-			case <-ticker.C:
-				if heartbeatErr := c.heartbeatInteractiveRuntime(runtimeID, endpointID); heartbeatErr != nil {
-					heartbeatDone <- heartbeatErr
-					cancel()
-					return
-				}
-			}
-		}
+		defer close(heartbeatDone)
+		heartbeat.run(serveCtx)
 	}()
 	defer func() {
 		cancel()
-		heartbeatErr := <-heartbeatDone
+		<-heartbeatDone
 		_, offlineErr := c.svc.Execute(c.actor, "runtime.offline", runtimeID,
 			model.RuntimeStatusChanged{Reason: "interactive session exited", EndpointID: endpointID})
-		if runErr == nil && heartbeatErr != nil {
-			runErr = fmt.Errorf("interactive runtime heartbeat: %w", heartbeatErr)
+		sessionLog.Printf("session ended: exit=%d offline_err=%v", c.processExitCode, offlineErr)
+		// Neither of these may replace the wrapped command's own outcome:
+		// the session already ended, and an unreachable daemon only leaves
+		// presence to expire on its own after RuntimeOfflineAfter.
+		if summary := heartbeat.summary(); summary != "" && !c.quiet {
+			_, _ = fmt.Fprintf(c.err, "warning: %s (details: %s)\n", summary, sessionLog.path)
 		}
-		if runErr == nil && offlineErr != nil {
-			runErr = fmt.Errorf("mark interactive runtime offline: %w", offlineErr)
+		if offlineErr != nil && !c.quiet {
+			_, _ = fmt.Fprintf(c.err, "warning: could not mark interactive runtime %s offline (%v); its presence will expire on its own\n",
+				cliui.SanitizeInline(runtimeID), offlineErr)
 		}
 	}()
 	code, err := interactiveserve.Serve(serveCtx, interactiveserve.ServeOptions{
