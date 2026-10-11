@@ -1,7 +1,5 @@
 package interactiveserve
 
-import "path/filepath"
-
 // resumeSpec describes how one adapter's CLI accepts an explicit, pinned
 // session/conversation ID to resume, as opposed to its own implicit "most
 // recent conversation in this directory" behavior.
@@ -52,7 +50,7 @@ func PinResumeArgs(command []string, sessionID string) []string {
 	if len(command) == 0 || sessionID == "" {
 		return command
 	}
-	spec, ok := resumeSpecs[filepath.Base(command[0])]
+	spec, ok := resumeSpecs[CommandName(command[0])]
 	if !ok {
 		return command
 	}
