@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
-	"sync"
 	"syscall"
 	"time"
 
@@ -103,6 +102,8 @@ func Serve(ctx context.Context, opts ServeOptions) (int, error) {
 	// "Many-to-many delivery" section for that structural limit.
 	fmt.Fprintf(opts.Stdout, "\x1b[1;36m[agent-comms] serving runtime %q here — do not use this terminal as a personal session\x1b[0m\r\n", opts.RuntimeID)
 
+	screen := newTerminalScreen(w, h)
+	defer screen.Close()
 	winch := make(chan os.Signal, 1)
 	signal.Notify(winch, syscall.SIGWINCH)
 	defer signal.Stop(winch)
@@ -110,19 +111,20 @@ func Serve(ctx context.Context, opts ServeOptions) (int, error) {
 		for range winch {
 			if width, height, sizeErr := term.GetSize(fd); sizeErr == nil {
 				_ = pty.Setsize(ptmx, &pty.Winsize{Rows: uint16(height), Cols: uint16(width)})
+				screen.Resize(width, height)
 			}
 		}
 	}()
 
-	tee := newOutputTee()
-	go func() { _, _ = io.Copy(ptmx, opts.Stdin) }() // keystrokes in; errors not actionable
+	gate := newInputGate(ptmx)
+	go func() { _, _ = io.Copy(gate, opts.Stdin) }() // keystrokes in; errors not actionable
 	outputDone := make(chan struct{})
 	go func() {
 		defer close(outputDone)
 		// Once the child's slave-side fd closes, reading the pty master
 		// returns EIO on Linux, not io.EOF — creack/pty's most common
 		// gotcha. Both mean "the child is gone," not a real I/O error.
-		_, copyErr := io.Copy(io.MultiWriter(opts.Stdout, tee), ptmx)
+		_, copyErr := io.Copy(io.MultiWriter(opts.Stdout, screen), ptmx)
 		_ = copyErr
 	}()
 
@@ -130,8 +132,7 @@ func Serve(ctx context.Context, opts ServeOptions) (int, error) {
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(sigCh)
 
-	var deliverMu sync.Mutex
-	go acceptLoop(listener, tee, ptmx, &deliverMu)
+	go acceptLoop(listener, &ptyTarget{input: ptmx, screen: screen, gate: gate})
 
 	waitDone := make(chan error, 1)
 	go func() { waitDone <- cmd.Wait() }()

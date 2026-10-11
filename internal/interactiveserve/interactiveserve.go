@@ -162,10 +162,14 @@ type DeliveryReceipt struct {
 }
 
 func TryDeliverWithEvidence(ctx context.Context, projectRoot, runtimeID, message string) (DeliveryReceipt, error) {
+	return tryDeliver(ctx, projectRoot, runtimeID, message, "")
+}
+
+func tryDeliver(ctx context.Context, projectRoot, runtimeID, message, echoToken string) (DeliveryReceipt, error) {
 	if strings.ContainsAny(message, "\n\r") {
 		return DeliveryReceipt{}, errors.New("interactiveserve: message must be a single line")
 	}
-	resp, err := call(ctx, SocketPath(projectRoot, runtimeID), Request{Kind: "try-deliver", Message: message})
+	resp, err := call(ctx, SocketPath(projectRoot, runtimeID), Request{Kind: "try-deliver", Message: message, EchoToken: echoToken})
 	if err != nil {
 		return DeliveryReceipt{}, fmt.Errorf("interactiveserve: deliver to %q: %w", runtimeID, err)
 	}
@@ -187,9 +191,35 @@ func TryDeliverWithEvidence(ctx context.Context, projectRoot, runtimeID, message
 // channel limited to "wake up and look," never a second, unaudited path for
 // instruction content to reach the runtime.
 func NotifyInvocationWithEvidence(ctx context.Context, projectRoot, targetRuntimeID, targetAgentID, invocationID, requestedBy string) (DeliveryReceipt, error) {
-	message := fmt.Sprintf(
-		"Agent Comms: new invocation %q is pending for you (requested by %s). Run agent-comms invocation list --status PENDING --to %s --json to see it, then handle it per your existing protocol.",
-		invocationID, requestedBy, targetAgentID,
+	return tryDeliver(ctx, projectRoot, targetRuntimeID,
+		invocationNotice(targetRuntimeID, targetAgentID, invocationID, requestedBy), invocationID)
+}
+
+// invocationNotice is the one line typed into a target's terminal. It names
+// the exact commands to run, because the previous wording ("handle it per
+// your existing protocol") left a real Codex session exploring the CLI for
+// minutes before doing anything. The invocation ID is repeated at the end
+// so a composer that only shows the tail of a long line still displays it
+// (see newlyEchoed). Kept short enough that no supported TUI collapses it
+// into a "[Pasted ...]" placeholder.
+func invocationNotice(targetRuntimeID, targetAgentID, invocationID, requestedBy string) string {
+	// Everything here is typed as keystrokes, so a control character in any
+	// identifier (Enter, ESC starting a sequence) must never get through,
+	// whatever validation happened upstream.
+	targetRuntimeID, targetAgentID = typeableText(targetRuntimeID), typeableText(targetAgentID)
+	invocationID, requestedBy = typeableText(invocationID), typeableText(requestedBy)
+	return fmt.Sprintf(
+		"Agent Comms: %s requested invocation %s for %s. Run agent-comms invocation inspect --id %s --json, "+
+			"then invocation claim --id %s --runtime %s, start, and complete (or reject) it. [%s]",
+		requestedBy, invocationID, targetAgentID, invocationID, invocationID, targetRuntimeID, invocationID,
 	)
-	return TryDeliverWithEvidence(ctx, projectRoot, targetRuntimeID, message)
+}
+
+func typeableText(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f || (r >= 0x80 && r < 0xa0) {
+			return '?'
+		}
+		return r
+	}, s)
 }

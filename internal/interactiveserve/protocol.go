@@ -14,8 +14,13 @@ import (
 // long-lived multi-tenant daemon; here it's one connection per delivery
 // attempt and exactly two verbs.
 type Request struct {
-	Kind    string `json:"kind"`              // "ping" or "deliver"
-	Message string `json:"message,omitempty"` // required for "deliver"
+	Kind    string `json:"kind"`              // "ping", "snapshot", "deliver" or "try-deliver"
+	Message string `json:"message,omitempty"` // required for "deliver"/"try-deliver"
+	// EchoToken is an optional fragment of Message that only this delivery
+	// introduces (the invocation ID). It lets the server confirm the echo on
+	// TUIs that truncate or reflow long input past recognition. Optional so
+	// older clients and servers interoperate: either side ignores it.
+	EchoToken string `json:"echo_token,omitempty"`
 }
 
 // Response is the single message shape returned for a Request.

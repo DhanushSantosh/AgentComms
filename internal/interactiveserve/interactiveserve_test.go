@@ -3,6 +3,7 @@ package interactiveserve
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -19,7 +20,7 @@ import (
 // (protocol_windows.go), share none of that: they live in the kernel's
 // `\\.\pipe\` namespace, not the filesystem, so these specific scenarios
 // don't translate. Most of this file's transport tests are NOT guarded by
-// this — they exercise listenLocal/dialLocal generically via SocketPath
+// this â€” they exercise listenLocal/dialLocal generically via SocketPath
 // and run unmodified on both platforms, now that Serve/interactive-serve
 // itself works on Windows too (see serve_windows.go).
 func requireUnixSocketFilesystemSemantics(t *testing.T) {
@@ -57,12 +58,12 @@ func TestSocketPathIsIndependentOfProcessTempDirectory(t *testing.T) {
 
 // TestSocketPathConfinesUnsafeRuntimeIDToSharedDirectory confirms an unsafe
 // runtime ID (path traversal characters, in this case) never survives into
-// the returned control address literally — it's always hashed first
+// the returned control address literally â€” it's always hashed first
 // (safeRuntimeComponent). What "confined" means differs by platform: on
 // unix, SocketPath returns a real filesystem path, so confinement means it
 // stays nested under socketRootDir(); on Windows, it returns a `\\.\pipe\`
 // address, which was never a filesystem path to begin with (see
-// socket_address_windows.go) — there, confinement means the traversal
+// socket_address_windows.go) â€” there, confinement means the traversal
 // characters simply don't appear in the pipe name, which
 // safeRuntimeComponent already guarantees platform-independently.
 func TestSocketPathConfinesUnsafeRuntimeIDToSharedDirectory(t *testing.T) {
@@ -319,24 +320,50 @@ func TestListenLocalRecoversStaleRegularFile(t *testing.T) {
 	defer second.Close()
 }
 
-// --- matcher: busy/echo heuristics ---------------------------------------
+// --- matcher: busy/echo decisions against the rendered screen -------------
 
-func TestIsBusyDetectsAndIgnoresMarkers(t *testing.T) {
-	if isBusy([]byte("nothing interesting here")) {
+func TestScreenBusyDetectsAndIgnoresMarkers(t *testing.T) {
+	if screenBusy(screenOf(t, 80, 24, "nothing interesting here")) {
 		t.Fatal("expected no false positive on unrelated text")
 	}
 	for _, marker := range busyMarkers {
-		if !isBusy([]byte("some UI chrome " + marker + " more chrome")) {
-			t.Fatalf("expected isBusy to detect marker %q", marker)
+		if !screenBusy(screenOf(t, 80, 24, "some UI chrome "+marker+" more chrome")) {
+			t.Fatalf("expected screenBusy to detect marker %q", marker)
 		}
 	}
 }
 
-func TestIsBusyOnlyLooksAtRecentTail(t *testing.T) {
-	old := strings.Repeat("x", busyTailBytes+500) + busyMarkers[0]
-	fresh := []byte(old + strings.Repeat("y", busyTailBytes+500))
-	if isBusy(fresh) {
-		t.Fatal("expected an old marker far outside the tail window to not count as busy")
+func TestScreenBusyIgnoresColorCodesAroundMarker(t *testing.T) {
+	if !screenBusy(screenOf(t, 80, 24, "\x1b[90m"+busyMarkers[0]+"\x1b[0m")) {
+		t.Fatal("expected screenBusy to detect a marker wrapped in color escape codes")
+	}
+}
+
+// TestScreenBusyIgnoresMarkerOverwrittenInPlace is the regression for a
+// session that read as busy forever: a TUI that clears its status line by
+// overwriting it with spaces (differential rendering, no erase-line) left
+// the marker's bytes in the old raw tail buffer, and an idle TUI never
+// emitted enough to push them out. Confirmed with a scripted fake agent
+// under a real ConPTY: every delivery was refused while the screen showed
+// nothing busy.
+func TestScreenBusyIgnoresMarkerOverwrittenInPlace(t *testing.T) {
+	raw := "\x1b[20;1H• Working (3s • " + busyMarkers[0] + ")" +
+		"\x1b[20;1H" + strings.Repeat(" ", 40)
+	if screenBusy(screenOf(t, 80, 24, raw)) {
+		t.Fatal("a marker that is no longer on screen still counted as busy")
+	}
+}
+
+// Only the status area counts: a transcript row far above it that merely
+// quotes a marker is not the agent working.
+func TestScreenBusyOnlyLooksAtTheStatusArea(t *testing.T) {
+	var raw strings.Builder
+	raw.WriteString("the docs say: " + busyMarkers[0] + "\r\n")
+	for i := 0; i < busyRegionRows+2; i++ {
+		fmt.Fprintf(&raw, "transcript line %d\r\n", i)
+	}
+	if screenBusy(screenOf(t, 80, 40, raw.String())) {
+		t.Fatal("a marker quoted in the transcript, outside the status area, counted as busy")
 	}
 }
 
@@ -346,188 +373,163 @@ func TestNormalizeForMatchIsCaseInsensitiveAndStripsPunctuation(t *testing.T) {
 	}
 }
 
-// TestEchoedSurvivesBoxDrawingWrapPrefix guards the fix for a failure
-// confirmed live against the tmux-backed design: OpenCode's compose box
-// renders a "┃" border character at the start of every wrapped line, and a
-// long delivered message reliably wraps across several lines in any
-// reasonably-sized pane. A plain whitespace-collapsed comparison treated
-// "┃" as ordinary content and it ended up interleaved into the captured
-// text at every wrap point, breaking the substring match even though the
-// message had, in fact, been delivered correctly. The raw-pty design
-// forwards the same real, wrapping rendering verbatim, so this risk is
-// exactly as real here as it was there.
-func TestEchoedSurvivesBoxDrawingWrapPrefix(t *testing.T) {
+// TestNewlyEchoedSurvivesBoxDrawingWrapPrefix guards a failure confirmed
+// live against the tmux-backed design: OpenCode's compose box renders a "┃"
+// border at the start of every wrapped line, and a long delivered message
+// reliably wraps across several lines.
+func TestNewlyEchoedSurvivesBoxDrawingWrapPrefix(t *testing.T) {
 	original := `Agent Comms: new invocation "verify-fix-3" is pending for you (requested by owner). Run agent-comms invocation list --status PENDING --to opencode-runner --json to see it, then handle it per your existing protocol.`
-	wrapped := []byte("        ┃  Agent Comms: new invocation \"verify-fix-3\" is pending for you (\n" +
-		"        ┃  requested by owner). Run agent-comms invocation list --status PENDING\n" +
-		"        ┃  --to opencode-runner --json to see it, then handle it per your\n" +
-		"        ┃  existing protocol.")
-	if !echoed(wrapped, original) {
-		t.Fatalf("expected the box-drawing-wrapped rendering to still match the original message")
+	wrapped := "        ┃  Agent Comms: new invocation \"verify-fix-3\" is pending for you (\r\n" +
+		"        ┃  requested by owner). Run agent-comms invocation list --status PENDING\r\n" +
+		"        ┃  --to opencode-runner --json to see it, then handle it per your\r\n" +
+		"        ┃  existing protocol."
+	if !newlyEchoed(screenOf(t, 100, 24, ""), screenOf(t, 100, 24, wrapped), original, "") {
+		t.Fatal("expected the box-drawing-wrapped rendering to match the original message")
 	}
 }
 
-func TestEchoedIsFalseWhenTextNeverAppeared(t *testing.T) {
-	if echoed([]byte("totally unrelated content"), "the delivered message") {
-		t.Fatal("expected echoed to report false when the text never appeared")
+func TestNewlyEchoedIsFalseWhenTextNeverAppeared(t *testing.T) {
+	if newlyEchoed(screenOf(t, 80, 24, ""), screenOf(t, 80, 24, "totally unrelated content"), "the delivered message", "") {
+		t.Fatal("expected false when the text never appeared")
 	}
 }
 
-// TestEchoedSurvivesInterleavedCursorMovement guards the fix for a failure
-// confirmed live against real codex: a full-screen TUI can redraw the same
-// logical text across several separate writes with cursor-repositioning
-// escape sequences interspersed between individual characters. Those
-// sequences routinely contain digits and letters (parameter and final
-// command bytes) that survive a plain "keep only letters and digits"
-// filter and get treated as content, fragmenting what should be one
-// contiguous run of real text — even though the text is, in fact, present
-// and correctly rendered. Delivery against a trivial wrapped command (cat)
-// worked immediately; delivery against real codex failed with exactly this
-// symptom until ANSI sequences were stripped as whole units first.
-func TestEchoedSurvivesInterleavedCursorMovement(t *testing.T) {
-	// "hello" typed one character at a time, each followed by a cursor-move
-	// sequence containing a digit and a letter (\x1b[5C = move right 5).
+// TestNewlyEchoedSurvivesInterleavedCursorMovement guards a failure
+// confirmed live against real codex: a full-screen TUI redraws the same
+// logical text with cursor-repositioning sequences between individual
+// characters. An emulator resolves them to the text actually on screen.
+func TestNewlyEchoedSurvivesInterleavedCursorMovement(t *testing.T) {
 	wrapped := "h\x1b[5Ce\x1b[5Cl\x1b[5Cl\x1b[5Co\x1b[5C"
-	if !echoed([]byte(wrapped), "hello") {
-		t.Fatal("expected echoed to survive text interleaved with cursor-movement escape sequences")
+	if !newlyEchoed(screenOf(t, 80, 24, ""), screenOf(t, 80, 24, wrapped), "hello", "") {
+		t.Fatal("expected text interleaved with cursor-movement sequences to match")
 	}
 }
 
-// TestEchoedFallsBackToInvocationIDWhenFullTextIsShredded guards the fix
-// added for agy: its TUI redraws long text streams with status/UI elements
-// interleaved at points the box-drawing and cursor-movement handling above
-// doesn't cover, so a delivered prompt can come back with most of its
-// content scrambled by redraw artifacts -- while the "Invocation ID:
-// inv-XXXX" line embedded near the top of the prompt (see agyPrompt,
-// adapter_agy.go) survives intact. Without this fallback, that would read
-// as never-delivered and the caller would keep retrying (or time out and
-// refuse to send Enter) even though the target genuinely has the message.
-func TestEchoedFallsBackToInvocationIDWhenFullTextIsShredded(t *testing.T) {
-	original := "You are the autonomous Agent Comms runtime for agent HULK.\n" +
-		"Invocation ID: inv-047\nRequester: owner\nPriority: NORMAL\n\n" +
-		"Instruction:\nCheck system health"
-	// The rest of the message is unrecognizable after a redraw, but the
-	// invocation ID line rendered cleanly.
-	shredded := []byte("### some unrelated status redraw with no other overlap at all ###\ninvocationid inv047\n### more redraw noise ###")
-	if !echoed(shredded, original) {
-		t.Fatal("expected echoed to fall back to matching the invocation ID when the rest of the text was shredded by a redraw")
+// TestNewlyEchoedFallsBackToTheEchoToken covers TUIs that shred or truncate
+// a long line past recognition while the invocation ID survives.
+func TestNewlyEchoedFallsBackToTheEchoToken(t *testing.T) {
+	message := invocationNotice("rt-1", "codex", "inv-047", "owner")
+	shredded := "### unrelated status redraw ###\r\n…check inv-047 for owner\r\n### more noise ###"
+	if !newlyEchoed(screenOf(t, 80, 24, ""), screenOf(t, 80, 24, shredded), message, "inv-047") {
+		t.Fatal("expected the echo token to confirm a shredded rendering")
 	}
 }
 
-// TestEchoedFallbackHasAFalsePositiveRisk documents, rather than fixes, a
-// known tradeoff in the invocation-ID fallback above: because it only
-// requires the ID substring to be present somewhere in buf -- not the rest
-// of the message, and not that it appeared recently -- a buffer that
-// happens to still contain a PREVIOUS delivery's invocation ID (outputTee
-// only resets on a screen-clear, not between deliverToPty calls) would
-// register as "echoed" for a NEW delivery of a message that mentions that
-// same ID, even though the new message was never actually typed at all.
-// This test exists so that risk is visible and intentional, not
-// rediscovered by surprise: if a stricter fallback ever replaces this one
-// (e.g. requiring some minimum overlap with the rest of the text, not just
-// the ID), this test should start failing and can be deleted.
-func TestEchoedFallbackHasAFalsePositiveRisk(t *testing.T) {
-	newMessage := "Invocation ID: inv-047\nInstruction:\nThis text was never actually delivered"
-	staleBufferFromAnEarlierDelivery := []byte("some earlier screen content mentioning inv-047 for an unrelated reason")
-	if !echoed(staleBufferFromAnEarlierDelivery, newMessage) {
-		t.Fatal("known tradeoff regressed: the ID fallback no longer produces this false positive -- update this test's comment, it's no longer describing current behavior")
+// TestNewlyEchoedIgnoresStaleCopy replaces a test that documented, as a
+// known tradeoff, the old matcher accepting a PREVIOUS delivery's text still
+// in its buffer as the echo of a new one. Echo now has to be new on screen.
+func TestNewlyEchoedIgnoresStaleCopy(t *testing.T) {
+	message := invocationNotice("rt-1", "codex", "inv-047", "owner")
+	stale := screenOf(t, 200, 24, "> "+message)
+	if newlyEchoed(stale, stale, message, "inv-047") {
+		t.Fatal("a copy that was already on screen before typing counted as a new echo")
+	}
+	again := screenOf(t, 200, 24, "> "+message+"\r\n› "+message)
+	if !newlyEchoed(stale, again, message, "inv-047") {
+		t.Fatal("a second, newly rendered copy must count")
 	}
 }
 
-func TestIsBusyIgnoresColorCodesAroundMarker(t *testing.T) {
-	styled := "\x1b[90m" + busyMarkers[0] + "\x1b[0m"
-	if !isBusy([]byte(styled)) {
-		t.Fatal("expected isBusy to detect a marker wrapped in color escape codes")
+// Interleaved status rows between wrapped segments break a full-text match;
+// the distinctive tail still confirms it.
+func TestNewlyEchoedMatchesTailAcrossInterleavedStatusRows(t *testing.T) {
+	delivered := "Agent Comms: new invocation is pending for you. Run agent-comms invocation list to see it."
+	screen := "Agent Comms: new invocation\r\n" +
+		"─── [model] ─── [status: active] ───\r\n" +
+		"is pending for you. Run agent-comms\r\n" +
+		"─── [tokens: 1420] ───\r\n" +
+		"invocation list to see it."
+	if !newlyEchoed(screenOf(t, 80, 24, ""), screenOf(t, 80, 24, screen), delivered, "") {
+		t.Fatal("expected the message tail to match across interleaved status rows")
 	}
 }
 
-func TestEchoedMatchesTokenNGramsAcrossInterleavedTUIStatusHeaders(t *testing.T) {
-	deliveredText := "Agent Comms: new invocation is pending for you. Run agent-comms invocation list to see it."
-	interleavedTUIBuffer := []byte(
-		"Agent Comms: new invocation\n" +
-			"─── [Gemini 2.5 Pro] ─── [status: active] ───\n" +
-			"is pending for you. Run agent-comms\n" +
-			"─── [tokens: 1420] ───\n" +
-			"invocation list to see it.",
-	)
-	if !echoed(interleavedTUIBuffer, deliveredText) {
-		t.Fatal("expected tokenized n-gram matching to match text with interleaved TUI status headers")
-	}
-}
-
-func TestTokenizeStripsPunctuationAndBorderChars(t *testing.T) {
-	tokens := tokenize("┃  Agent Comms: --status PENDING (v2.1)  ┃")
-	expected := []string{"agent", "comms", "status", "pending", "v2", "1"}
-	if len(tokens) != len(expected) {
-		t.Fatalf("tokenize returned %v, want %v", tokens, expected)
-	}
-	for i, tok := range tokens {
-		if tok != expected[i] {
-			t.Fatalf("token[%d] = %q, want %q", i, tok, expected[i])
+// A TUI that collapses long input into a placeholder never shows the text;
+// the placeholder appearing is the echo.
+func TestNewlyEchoedAcceptsPastePlaceholders(t *testing.T) {
+	message := invocationNotice("rt-1", "codex", "inv-1791726870134014400", "claude")
+	for _, placeholder := range []string{"› [Pasted Content 287 chars]", "> [Pasted text #1 +1 lines]"} {
+		if !newlyEchoed(screenOf(t, 80, 24, ""), screenOf(t, 80, 24, placeholder), message, "inv-1791726870134014400") {
+			t.Errorf("placeholder %q was not accepted as the echo", placeholder)
 		}
 	}
 }
 
-// --- outputTee: the new risk this design introduces (raw tee vs tmux's own
-// rendered screen grid) ---------------------------------------------------
-
-func TestOutputTeeAccumulatesAndCaps(t *testing.T) {
-	tee := newOutputTee()
-	if _, err := tee.Write([]byte("hello ")); err != nil {
-		t.Fatal(err)
+func TestCursorRowHoldsMessage(t *testing.T) {
+	message := "wake up and check"
+	cases := []struct {
+		name string
+		raw  string
+		want bool
+	}{
+		{"still typed at the cursor", "\x1b[25;1H› wake up and check", true},
+		{"newline inserted below it", "\x1b[25;1H› wake up and check\x1b[26;1H› ", true},
+		{"composer cleared after submit", "\x1b[1;1H> wake up and check\x1b[25;1H› ", false},
+		{"cursor parked elsewhere", "\x1b[25;1H› wake up and check\x1b[30;1H", false},
+		// Found by the fake-agent suite: a notice wrapped across rows hid
+		// its tail from a check that only read the cursor row.
+		{"wrapped across rows with a newline after", "\x1b[24;1H› wake up and c\x1b[25;1Hheck\x1b[26;1H", true},
+		{"placeholder still in the composer", "\x1b[25;1H› Ask Codex to do anything", false},
+		// Also found by the suite: stale fragments of a wrapped message left
+		// above an emptied composer must not read as an unsent message.
+		{"stale fragment above an emptied composer", "\x1b[23;1Hup and check\x1b[24;1H›\x1b[25;1H", false},
 	}
-	if _, err := tee.Write([]byte("world")); err != nil {
-		t.Fatal(err)
-	}
-	if got := string(tee.snapshot()); got != "hello world" {
-		t.Fatalf("got %q, want %q", got, "hello world")
-	}
-	big := strings.Repeat("z", outputTeeCap+1000)
-	if _, err := tee.Write([]byte(big)); err != nil {
-		t.Fatal(err)
-	}
-	if len(tee.snapshot()) > outputTeeCap {
-		t.Fatalf("expected the tee to stay capped at %d bytes, got %d", outputTeeCap, len(tee.snapshot()))
-	}
-}
-
-// TestOutputTeeResetsOnScreenClear guards the mitigation for a failure mode
-// the tmux-backed design never had to worry about: tmux's capture-pane
-// already reflects the post-clear, currently-visible screen. Teeing the raw
-// byte stream instead means stale, already-cleared content could otherwise
-// still sit in the tail buffer and produce a false busy/echo match after
-// the target has genuinely redrawn a fresh, unrelated screen.
-func TestOutputTeeResetsOnScreenClear(t *testing.T) {
-	tee := newOutputTee()
-	if _, err := tee.Write([]byte("stale content that should be purged")); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := tee.Write([]byte("\x1b[2Jfresh screen content")); err != nil {
-		t.Fatal(err)
-	}
-	got := string(tee.snapshot())
-	if strings.Contains(got, "stale content") {
-		t.Fatalf("expected pre-clear content to be purged, got %q", got)
-	}
-	if !strings.Contains(got, "fresh screen content") {
-		t.Fatalf("expected post-clear content to survive, got %q", got)
+	for _, tc := range cases {
+		if got := cursorRowHoldsMessage(screenOf(t, 100, 30, tc.raw), message); got != tc.want {
+			t.Errorf("%s: cursorRowHoldsMessage = %v, want %v", tc.name, got, tc.want)
+		}
 	}
 }
 
-func TestOutputTeeResetsOnAlternateScreenBuffer(t *testing.T) {
-	tee := newOutputTee()
-	if _, err := tee.Write([]byte("primary screen chatter")); err != nil {
-		t.Fatal(err)
+// --- terminalScreen ------------------------------------------------------
+
+func TestTerminalScreenRendersClearsAndAlternateScreen(t *testing.T) {
+	screen := newTerminalScreen(40, 10)
+	defer screen.Close()
+	_, _ = screen.Write([]byte("stale content that should be purged"))
+	_, _ = screen.Write([]byte("\x1b[2J\x1b[Hfresh screen content"))
+	got := screen.snapshot().text()
+	if strings.Contains(got, "stale content") || !strings.Contains(got, "fresh screen content") {
+		t.Fatalf("after a clear the screen reads %q", got)
 	}
-	if _, err := tee.Write([]byte("\x1b[?1049halternate screen redraw")); err != nil {
-		t.Fatal(err)
+	_, _ = screen.Write([]byte("\x1b[?1049h\x1b[Halternate screen redraw"))
+	got = screen.snapshot().text()
+	if strings.Contains(got, "fresh screen content") || !strings.Contains(got, "alternate screen redraw") {
+		t.Fatalf("on the alternate screen the screen reads %q", got)
 	}
-	got := string(tee.snapshot())
-	if strings.Contains(got, "primary screen chatter") {
-		t.Fatalf("expected content before entering the alternate screen buffer to be purged, got %q", got)
+}
+
+// Terminal queries (device attributes, mode reports) make the emulator write
+// replies into a pipe nobody reads in production; that must never block the
+// output path, or the whole session freezes.
+func TestTerminalScreenNeverBlocksOnTerminalQueries(t *testing.T) {
+	screen := newTerminalScreen(80, 24)
+	defer screen.Close()
+	done := make(chan struct{})
+	go func() {
+		for i := 0; i < 200; i++ {
+			_, _ = screen.Write([]byte("\x1b[c\x1b[>c\x1b[?2004$p\x1b[6n"))
+		}
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("writing terminal queries blocked the screen")
 	}
-	if !strings.Contains(got, "alternate screen redraw") {
-		t.Fatalf("expected the new screen's content to survive, got %q", got)
+}
+
+func TestTerminalScreenResizeReflowsGeometry(t *testing.T) {
+	screen := newTerminalScreen(20, 5)
+	defer screen.Close()
+	screen.Resize(60, 12)
+	snap := screen.snapshot()
+	if len(snap.rows) != 12 {
+		t.Fatalf("rows = %d after resize, want 12", len(snap.rows))
+	}
+	_, _ = screen.Write([]byte(strings.Repeat("x", 50)))
+	if got := screen.snapshot().rows[0]; got != strings.Repeat("x", 50) {
+		t.Fatalf("row 0 = %q, want 50 x's on one 60-column row", got)
 	}
 }
 

@@ -1,17 +1,31 @@
 package interactiveserve
 
-import "time"
+import (
+	"testing"
+	"time"
+)
 
-// deliverToPty writes message into w as terminal input: waits for the
-// target to be idle (see isBusy) before sending anything — the direct
-// replacement for the old cross-process delivery lock, since there's now
-// only ever one process touching this pty, concurrent senders just make
-// concurrent socket connections and this mutex-guarded function serializes
-// them — then writes the text and a separate Enter only once tee has
-// visibly reflected the text back, never blind. idleTO/echoTO are the real
-// package constants in production; tests call this directly with short
-// overrides rather than waiting out the real, deliberately generous values.
-func deliverToPty(w writeFlusher, tee *outputTee, message string, idleTO, echoTO time.Duration) error {
-	_, err := deliverToPtyWithEvidence(w, tee, message, idleTO, echoTO)
+// newTestTarget wires a delivery target around w the way Serve does, with
+// screen standing in for the child's rendered output.
+func newTestTarget(w writeFlusher, screen *terminalScreen) *ptyTarget {
+	return &ptyTarget{input: w, screen: screen, gate: newInputGate(w)}
+}
+
+// deliverToPty runs one delivery against w. idleTO/echoTO are the real
+// package constants in production; tests pass short overrides rather than
+// waiting out the real, deliberately generous values.
+func deliverToPty(w writeFlusher, screen *terminalScreen, message string, idleTO, echoTO time.Duration) error {
+	_, err := newTestTarget(w, screen).deliver(message, "", idleTO, echoTO)
 	return err
+}
+
+// screenOf renders raw terminal output on a fresh cols x rows screen.
+func screenOf(t *testing.T, cols, rows int, raw string) screenSnapshot {
+	t.Helper()
+	screen := newTerminalScreen(cols, rows)
+	t.Cleanup(screen.Close)
+	if _, err := screen.Write([]byte(raw)); err != nil {
+		t.Fatal(err)
+	}
+	return screen.snapshot()
 }

@@ -9,7 +9,6 @@ import (
 	"io"
 	"os"
 	"os/signal"
-	"sync"
 	"syscall"
 	"time"
 
@@ -119,27 +118,33 @@ func Serve(ctx context.Context, opts ServeOptions) (int, error) {
 	// can't distinguish a human from an idle runtime.
 	fmt.Fprintf(opts.Stdout, "\x1b[1;36m[agent-comms] serving runtime %q here — do not use this terminal as a personal session\x1b[0m\r\n", opts.RuntimeID)
 
+	screen := newTerminalScreen(width, height)
+	defer screen.Close()
 	resizeStop := make(chan struct{})
 	defer close(resizeStop)
-	go pollResize(cpty, fd, resizeStop)
+	go pollResize(cpty, screen, fd, resizeStop)
 
-	tee := newOutputTee()
-	go func() { _, _ = io.Copy(cpty, opts.Stdin) }() // keystrokes in; errors not actionable
+	gate := newInputGate(cpty)
+	go func() { _, _ = io.Copy(gate, opts.Stdin) }() // keystrokes in; errors not actionable
 	outputDone := make(chan struct{})
 	go func() {
 		defer close(outputDone)
 		// See outputDrainGrace's doc comment: unlike serve.go's unix
 		// io.Copy, this one does not naturally unblock when the child
 		// exits — Serve's own wait/drain sequence below is what ends it.
-		_, _ = io.Copy(io.MultiWriter(opts.Stdout, tee), cpty)
+		_, _ = io.Copy(io.MultiWriter(opts.Stdout, screen), cpty)
 	}()
 
+	// SIGTERM is how Go reports the console window being closed
+	// (CTRL_CLOSE_EVENT), logoff and shutdown. Handling it lets Serve
+	// return within the few seconds Windows allows, so the caller can mark
+	// the runtime offline instead of leaving it ONLINE until its presence
+	// expires.
 	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, os.Interrupt)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(sigCh)
 
-	var deliverMu sync.Mutex
-	go acceptLoop(listener, tee, cpty, &deliverMu)
+	go acceptLoop(listener, &ptyTarget{input: cpty, screen: screen, gate: gate})
 
 	waitDone := make(chan uint32, 1)
 	go func() {
@@ -192,7 +197,7 @@ func terminateAndWait(handle windows.Handle, waitDone <-chan uint32) uint32 {
 // resizePollInterval and resizes cpty to match on change, until stop is
 // closed. See resizePollInterval's doc comment for why this polls instead
 // of reacting to a resize signal.
-func pollResize(cpty *conpty.ConPty, fd uintptr, stop <-chan struct{}) {
+func pollResize(cpty *conpty.ConPty, screen *terminalScreen, fd uintptr, stop <-chan struct{}) {
 	lastWidth, lastHeight := -1, -1
 	ticker := time.NewTicker(resizePollInterval)
 	defer ticker.Stop()
@@ -207,6 +212,7 @@ func pollResize(cpty *conpty.ConPty, fd uintptr, stop <-chan struct{}) {
 			}
 			if resizeErr := cpty.Resize(width, height); resizeErr == nil {
 				lastWidth, lastHeight = width, height
+				screen.Resize(width, height)
 			}
 		}
 	}
