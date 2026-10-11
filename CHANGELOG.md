@@ -45,6 +45,11 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
   `reject`) and repeats the invocation ID at its end.
 
 ### Security
+- Interactive delivery no longer types into a menu or permission prompt.
+  A session waiting at Claude Code's "Do you want to proceed?" (options
+  selected by digit) or codex's command approval ("y" approves, "p" means
+  don't ask again) looked idle, and a typed notice could answer it. Such a
+  session is now left pending until the prompt is answered.
 - `interactive-serve` no longer passes the launching Claude Code session's
   host markers and credentials (`CLAUDECODE`, the desktop app's messaging
   socket and token, session IDs) to the wrapped command, where any wrapped

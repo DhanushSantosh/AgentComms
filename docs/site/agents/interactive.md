@@ -71,7 +71,7 @@ agent-comms --actor <agent-id> runtime configure \
 
 ## Delivery discipline
 
-The wrapped terminal is best dedicated to the runtime. Delivery decisions are made against the provider's rendered screen. A session whose provider is mid-turn, or whose human is typing or has an unsent draft in the composer, is left pending — without spending delivery attempts — until it is ready, however long that takes. While a notice is being typed, human keystrokes are held and follow it in order. The notice must newly appear on screen before Enter is pressed (otherwise it is erased), Enter waits for output to settle, and an Enter the provider swallows is retried; a notice that is never accepted is erased and the attempt fails rather than being reported as delivered.
+The wrapped terminal is best dedicated to the runtime. Delivery decisions are made against the provider's rendered screen. A session whose provider is mid-turn or showing a menu or permission prompt, or whose human is typing or has an unsent draft in the composer, is left pending — without spending delivery attempts — until it is ready, however long that takes. While a notice is being typed, human keystrokes are held and follow it in order. The notice must newly appear on screen before Enter is pressed (otherwise it is erased), Enter waits for output to settle, and an Enter the provider swallows is retried; a notice that is never accepted is erased and the attempt fails rather than being reported as delivered.
 
 The session itself never depends on Agent Comms bookkeeping: heartbeat failures are retried and logged to `.agent-comms/tmp/interactive-<runtime-id>.log`, never printed into the provider's terminal and never a reason to stop it. Closing the terminal window marks the runtime offline.
 

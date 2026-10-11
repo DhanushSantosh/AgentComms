@@ -757,21 +757,32 @@ scripted fake agent under a real pty/ConPTY:
    the marker in the old raw-byte buffer, and the session read as busy
    forever. This is a heuristic — no provider exposes a protocol-level busy
    signal.
-2. **The human at the keyboard.** Human keystrokes and injected text share
+2. **Prompts waiting for a choice.** Both TUIs act on single keys at a menu
+   or permission prompt — Claude Code selects an option on a digit
+   ("2. Yes, and always allow access to ..."), codex's command approval takes
+   `y` for yes and `p` for "don't ask again" — so typing a notice into one
+   could approve a command or grant a standing permission. A session whose
+   last screen rows show a choice footer (`Esc to cancel`, `Enter to
+   confirm`, `enter continue`, `esc to dismiss`, `Press a number to choose`)
+   is not ready: nothing is typed, and the notice follows once the prompt is
+   answered.
+3. **The human at the keyboard.** Human keystrokes and injected text share
    one input. Delivery holds human input while it types (keystrokes wait and
    follow, in order, never interleave), never starts within three seconds of
    the human typing, and never starts while the human has typed text they
    have not submitted or cleared — typing onto a half-written prompt and
-   pressing Enter would send it along. On Windows, keys arriving in
-   win32-input-mode encoding (what Windows Terminal sends once the nested
+   pressing Enter would send it along. A draft cleared with a key the gate
+   cannot interpret (Esc, word-delete) is dropped once the human pauses and
+   its last characters are gone from the composer. On Windows, keys arriving
+   in win32-input-mode encoding (what Windows Terminal sends once the nested
    console requests it) are decoded for this.
-3. **Echo.** Enter is only pressed after the typed text newly appears on
+4. **Echo.** Enter is only pressed after the typed text newly appears on
    screen: the whole message, its invocation ID, its tail, or a
    "[Pasted ...]" placeholder — more times than before typing, so a previous
    delivery's text still visible in the transcript is never mistaken for
    this one's echo. If it never appears, the typed text is erased and the
    attempt fails.
-4. **Enter.** Enter waits for output to settle (300ms of quiet, capped at
+5. **Enter.** Enter waits for output to settle (300ms of quiet, capped at
    2s): codex treats keys arriving in a burst as a paste and takes an Enter
    inside that window as a newline. If the complete message is still in the
    composer at the cursor afterwards, Enter is pressed again after a longer
@@ -812,7 +823,7 @@ input followed by one Enter, and a smuggled newline could otherwise submit
 early, mid-message.
 
 What remains a structural limit: delivery now notices a human typing in a
-live session's terminal (guard 2 above) and waits for them, but it cannot
+live session's terminal (guard 3 above) and waits for them, but it cannot
 know what a human *intends* — a wake-up line that arrives in the moment
 after someone submits their own prompt is still typed into the same
 conversation. A terminal running `interactive-serve` is best dedicated to
