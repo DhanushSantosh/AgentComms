@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 	"unicode"
 )
 
@@ -77,8 +78,9 @@ const outputTeeCap = 8192
 // clearSequences match — see the package-level comment on clearSequences for
 // why that reset matters here in a way it never did for the tmux design.
 type outputTee struct {
-	mu  sync.Mutex
-	buf []byte
+	mu        sync.Mutex
+	buf       []byte
+	lastWrite time.Time
 }
 
 func newOutputTee() *outputTee { return &outputTee{} }
@@ -86,6 +88,7 @@ func newOutputTee() *outputTee { return &outputTee{} }
 func (t *outputTee) Write(p []byte) (int, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	t.lastWrite = time.Now()
 	if idx := lastClearIndex(p); idx >= 0 {
 		t.buf = append([]byte(nil), p[idx:]...)
 	} else {
@@ -95,6 +98,13 @@ func (t *outputTee) Write(p []byte) (int, error) {
 		t.buf = append([]byte(nil), t.buf[len(t.buf)-outputTeeCap:]...)
 	}
 	return len(p), nil
+}
+
+// sinceLastWrite reports how long the target has produced no output at all.
+func (t *outputTee) sinceLastWrite() time.Duration {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return time.Since(t.lastWrite)
 }
 
 // snapshot returns a copy of the currently retained bytes, safe to inspect

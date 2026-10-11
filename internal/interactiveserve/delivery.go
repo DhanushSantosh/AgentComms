@@ -31,6 +31,20 @@ const idleTimeout = 90 * time.Second
 // fixed sleep to be long enough for a given provider's input handling.
 const echoTimeout = 10 * time.Second
 
+// enterSettleQuiet is the minimum delay, and the required output silence,
+// between the echoed text and the Enter that follows it. Confirmed live: codex's composer
+// treats keystrokes arriving in a rapid burst as a paste, and an Enter that
+// lands inside that burst window is inserted as a newline rather than
+// submitting — the wake-up line sat typed-but-unsent until a human pressed
+// Enter. Claude Code submitted fine either way, which is why sending Enter
+// the instant the echo appeared looked correct until codex was a target.
+const enterSettleQuiet = 300 * time.Millisecond
+
+// enterSettleMax caps that wait, so a target that redraws continuously
+// (a spinner, a blinking status line) can't stall delivery: Enter still goes
+// out, just never sooner than enterSettleQuiet after the echo.
+const enterSettleMax = 2 * time.Second
+
 // directDeliveryIdleTimeout keeps invocation creation responsive. A direct
 // wake is opportunistic: if the target became busy after the caller's probe,
 // it is safer to return a retryable warning than to hold the requester while
@@ -112,6 +126,7 @@ func deliverToPtyWithEvidence(w writeFlusher, tee *outputTee, message string, id
 		return DeliveryReceipt{}, errors.New("target never echoed the sent text back within the timeout; refusing to send Enter blind")
 	}
 	textEchoedAt := time.Now().UTC()
+	waitForOutputQuiet(tee, enterSettleQuiet, enterSettleMax)
 	if _, err := w.Write([]byte("\r")); err != nil {
 		return DeliveryReceipt{}, fmt.Errorf("write enter: %w", err)
 	}
@@ -129,6 +144,21 @@ func waitForIdle(tee *outputTee, timeout time.Duration) bool {
 			return false
 		}
 		time.Sleep(300 * time.Millisecond)
+	}
+}
+
+// waitForOutputQuiet returns once tee has seen no output for quiet, or once
+// maxWait has elapsed, whichever comes first. It always waits at least quiet.
+func waitForOutputQuiet(tee *outputTee, quiet, maxWait time.Duration) {
+	started := time.Now()
+	for {
+		if since := tee.sinceLastWrite(); since >= quiet && time.Since(started) >= quiet {
+			return
+		}
+		if time.Since(started) >= maxWait {
+			return
+		}
+		time.Sleep(25 * time.Millisecond)
 	}
 }
 

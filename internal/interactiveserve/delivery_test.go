@@ -186,3 +186,66 @@ func (l loopbackWriter) Write(p []byte) (int, error) {
 	}
 	return l.buf.Write(p)
 }
+
+// timedLoopback records when the message text and the Enter were each
+// written, and mirrors writes into tee the way a real pty echoes input.
+type timedLoopback struct {
+	mu      sync.Mutex
+	tee     *outputTee
+	textAt  time.Time
+	enterAt time.Time
+}
+
+func (w *timedLoopback) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	if string(p) == "\r" {
+		w.enterAt = time.Now()
+	} else {
+		w.textAt = time.Now()
+	}
+	w.mu.Unlock()
+	return w.tee.Write(p)
+}
+
+// Guards the codex paste-burst regression: Enter written the instant the
+// echo appeared was swallowed as a newline by codex's composer.
+func TestDeliverWaitsForQuietOutputBeforeEnter(t *testing.T) {
+	tee := newOutputTee()
+	target := &timedLoopback{tee: tee}
+
+	if err := deliverToPty(target, tee, "wake", time.Second, time.Second); err != nil {
+		t.Fatalf("deliver: %v", err)
+	}
+	if gap := target.enterAt.Sub(target.textAt); gap < enterSettleQuiet {
+		t.Fatalf("Enter followed the text after %s; want at least %s of settle time", gap, enterSettleQuiet)
+	}
+}
+
+func TestDeliverStillSendsEnterWhenTargetNeverGoesQuiet(t *testing.T) {
+	tee := newOutputTee()
+	target := &timedLoopback{tee: tee}
+
+	stop := make(chan struct{})
+	defer close(stop)
+	go func() {
+		for {
+			select {
+			case <-stop:
+				return
+			case <-time.After(20 * time.Millisecond):
+				_, _ = tee.Write([]byte("."))
+			}
+		}
+	}()
+
+	started := time.Now()
+	if err := deliverToPty(target, tee, "wake", time.Second, time.Second); err != nil {
+		t.Fatalf("deliver: %v", err)
+	}
+	if target.enterAt.IsZero() {
+		t.Fatal("Enter was never written")
+	}
+	if elapsed := time.Since(started); elapsed > enterSettleMax+time.Second {
+		t.Fatalf("delivery took %s; the settle wait should be capped at %s", elapsed, enterSettleMax)
+	}
+}
