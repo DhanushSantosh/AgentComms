@@ -35,7 +35,7 @@ func setupWithLocalConnector(t *testing.T) *service.Service {
 	raw, err := json.Marshal(map[string]any{
 		"connectors": map[string]any{
 			"test-local-process": map[string]any{
-				"type": "LOCAL_PROCESS", "executable": os.Args[0], "timeout": "5s",
+				"type": "LOCAL_PROCESS", "executable": os.Args[0], "timeout": "30s", // bounds a hung helper only; see daemon connectors_test.go
 				"arguments": []string{"-test.run=TestServiceConnectorHelperProcess", "--"},
 				"environment": map[string]string{
 					"SERVICE_CONNECTOR_HELPER":  "1",

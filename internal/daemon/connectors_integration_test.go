@@ -129,7 +129,7 @@ func TestPostgresToCacheToLocalConnectorDelivery(t *testing.T) {
 			Environment: map[string]string{
 				"CONNECTOR_TEST_HELPER": "1", "CONNECTOR_TEST_OUTPUT": outputPath,
 			},
-			Timeout: 5 * time.Second,
+			Timeout: 30 * time.Second, // bounds a hung helper only; see connectors_test.go
 		},
 	}, submit)
 	if err != nil {
