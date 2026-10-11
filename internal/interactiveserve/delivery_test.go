@@ -57,6 +57,10 @@ func TestChildEnvironStripsClaudeSessionInheritance(t *testing.T) {
 	t.Setenv("CLAUDE_CODE_CHILD_SESSION", "1")
 	t.Setenv("CLAUDE_CODE_SESSION_ID", "parent-session-id")
 	t.Setenv("CLAUDE_CODE_BRIDGE_SESSION_ID", "session_parentbridge")
+	t.Setenv("CLAUDECODE", "1")
+	t.Setenv("CLAUDE_CODE_MESSAGING_TOKEN", "parent-host-secret")
+	t.Setenv("CLAUDE_CODE_ENTRYPOINT", "claude-desktop")
+	t.Setenv("CLAUDE_CODE_USE_BEDROCK", "1") // user configuration: must survive
 	t.Setenv("SOME_UNRELATED_VAR", "keep-me")
 
 	env := childEnviron()
@@ -68,14 +72,16 @@ func TestChildEnvironStripsClaudeSessionInheritance(t *testing.T) {
 			}
 		}
 	}
-	found := false
-	for _, kv := range env {
-		if kv == "SOME_UNRELATED_VAR=keep-me" {
-			found = true
+	for _, keep := range []string{"SOME_UNRELATED_VAR=keep-me", "CLAUDE_CODE_USE_BEDROCK=1"} {
+		found := false
+		for _, kv := range env {
+			if kv == keep {
+				found = true
+			}
 		}
-	}
-	if !found {
-		t.Fatal("expected an unrelated environment variable to be preserved")
+		if !found {
+			t.Fatalf("expected %s to be preserved", keep)
+		}
 	}
 }
 
