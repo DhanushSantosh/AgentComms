@@ -5,6 +5,51 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 
 ## [Unreleased]
 
+### Fixed
+- `runtime interactive-serve` no longer kills the wrapped agent when a
+  heartbeat fails. A single heartbeat timeout (for example while the daemon
+  was being replaced) used to terminate a live Codex or Claude session
+  mid-turn. Failures are now retried, logged to
+  `.agent-comms/tmp/interactive-<runtime>.log` instead of the agent's
+  terminal, and summarised once the session ends.
+- Interactive delivery decides from the session's rendered screen (a VT
+  emulator) instead of a tail of raw output: a status line cleared in place
+  no longer reads as busy forever, and a previous notice still on screen is
+  no longer mistaken for the echo of the next one.
+- Interactive delivery no longer types into a human's half-written prompt or
+  interleaves with their keystrokes: it waits while someone is typing or has
+  an unsent draft, and holds their input while a notice is typed. Keys sent
+  in Windows Terminal's win32-input-mode encoding are understood.
+- An Enter swallowed by the provider (codex taking it as a newline inside a
+  paste burst) is retried, and a notice that is never accepted or never
+  appears is erased and reported as a failed attempt instead of left unsent
+  in the composer.
+- A busy interactive session no longer spends delivery attempts. Invocations
+  requested while an agent worked a task longer than about fourteen minutes
+  used to exhaust every retry and were never delivered; they now wait,
+  without extra signed events, until the session is ready.
+- Closing an `interactive-serve` terminal window on Windows marks the
+  runtime offline instead of leaving it online until its presence expired.
+- On Windows, `claude.exe` and npm `.cmd` shims are recognised by resume
+  pinning, session discovery and `--claude-allow-agent-comms`, whose
+  bare-name rule is now `Bash(agent-comms *)` rather than
+  `Bash(agent-comms.exe *)`.
+- On Windows, the daemon and interactive-session pipes grant access to the
+  user's SID rather than OWNER RIGHTS, so a daemon started from an
+  Administrator terminal no longer locks out ordinary terminals of the same
+  user, and the reverse.
+
+### Changed
+- The interactive wake-up line names the commands to run (`invocation
+  inspect`, then `claim` with the runtime ID, `start`, and `complete` or
+  `reject`) and repeats the invocation ID at its end.
+
+### Security
+- `interactive-serve` no longer passes the launching Claude Code session's
+  host markers and credentials (`CLAUDECODE`, the desktop app's messaging
+  socket and token, session IDs) to the wrapped command, where any wrapped
+  agent and every tool it ran could read them.
+
 ## [1.1.0] - 2026-10-07 — “Open Frequencies”
 
 *Teams can register their own agent providers as signed project state. Agent

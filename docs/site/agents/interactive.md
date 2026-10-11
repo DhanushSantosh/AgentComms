@@ -4,7 +4,7 @@ description: Wrap a real Claude, Codex, or OpenCode terminal so the daemon can w
 section: Agent integration
 order: 5
 audience: Operators
-lastVerified: 2026-08-10
+lastVerified: 2026-10-11
 related: [agents/delivery, agents/invocations]
 ---
 
@@ -71,6 +71,8 @@ agent-comms --actor <agent-id> runtime configure \
 
 ## Delivery discipline
 
-The wrapped terminal must be dedicated to the runtime. Agent Comms cannot distinguish a human actively typing from an otherwise idle provider. The delivery coordinator serializes writers, waits for the provider's busy marker to clear, rejects embedded newlines, verifies that the full notification text echoed, and then submits Enter.
+The wrapped terminal is best dedicated to the runtime. Delivery decisions are made against the provider's rendered screen. A session whose provider is mid-turn, or whose human is typing or has an unsent draft in the composer, is left pending — without spending delivery attempts — until it is ready, however long that takes. While a notice is being typed, human keystrokes are held and follow it in order. The notice must newly appear on screen before Enter is pressed (otherwise it is erased), Enter waits for output to settle, and an Enter the provider swallows is retried; a notice that is never accepted is erased and the attempt fails rather than being reported as delivered.
+
+The session itself never depends on Agent Comms bookkeeping: heartbeat failures are retried and logged to `.agent-comms/tmp/interactive-<runtime-id>.log`, never printed into the provider's terminal and never a reason to stop it. Closing the terminal window marks the runtime offline.
 
 Interactive PTY delivery is host-local. A foreign-host runtime is unavailable and never marked delivered — including across a Linux/macOS host and a Windows host, which never share a control socket even for the same project.
