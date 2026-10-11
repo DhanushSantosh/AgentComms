@@ -80,6 +80,11 @@ type Dispatcher struct {
 	hostID      string
 	launch      func(context.Context, ConnectorConfig, InvocationEnvelope) error
 	deliver     func(context.Context, ConnectorConfig, InvocationEnvelope) (DeliveryResult, error)
+	// probeInteractive reports whether a local interactive runtime's
+	// session is reachable and whether it is busy (agent mid-turn, or a
+	// human typing or holding an unsent draft). Nil when this daemon has no
+	// local interactive delivery.
+	probeInteractive func(ctx context.Context, projectRoot, runtimeID string) (alive, busy bool)
 }
 
 type DeliveryResult struct {
@@ -251,6 +256,7 @@ func NewDispatcher(configs map[string]ConnectorConfig, submit commandSubmitter) 
 func (d *Dispatcher) SetLocalInteractive(projectRoot, hostID string) {
 	d.projectRoot = projectRoot
 	d.hostID = hostID
+	d.probeInteractive = probeLocalInteractive
 	d.deliver = func(ctx context.Context, config ConnectorConfig, envelope InvocationEnvelope) (DeliveryResult, error) {
 		if config.Type != "INTERACTIVE" {
 			return d.deliverConfiguredConnector(ctx, config, envelope)
@@ -328,6 +334,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, projectID string, state model
 		invocationIDs = append(invocationIDs, id)
 	}
 	sort.Strings(invocationIDs)
+	notReady := map[string]bool{} // interactive runtimes probed busy or unreachable this pass
 	for _, invocationID := range invocationIDs {
 		invocation := state.Invocations[invocationID]
 		// Expiry submits a new failure/backoff event, but this dispatch still
@@ -339,6 +346,25 @@ func (d *Dispatcher) Dispatch(ctx context.Context, projectID string, state model
 		runtime, config, found := d.selectRuntime(state, invocation)
 		if !found {
 			continue
+		}
+		// An interactive session that is busy (agent mid-turn, human typing
+		// or holding a draft) or not reachable at all is simply not ready
+		// yet. Recording that as a failed attempt spent the whole retry
+		// budget within ~14 minutes, so an invocation requested while an
+		// agent worked a longer task was never delivered, and every refusal
+		// added a signed failure event. Leave it pending instead; this pass
+		// runs every deliveryCoordinatorInterval, so delivery follows within
+		// moments of the session becoming ready.
+		if config.Type == "INTERACTIVE" && d.probeInteractive != nil {
+			if notReady[runtime.ID] {
+				continue
+			}
+			// Probed per invocation, not cached as ready: a delivery just
+			// made earlier in this pass usually leaves the agent busy.
+			if alive, busy := d.probeInteractive(ctx, d.projectRoot, runtime.ID); !alive || busy {
+				notReady[runtime.ID] = true
+				continue
+			}
 		}
 		attempt := deliveryAttempt(state, invocation.ID) + 1
 		if automaticDeliveryAttemptCount(state, invocation.ID) >= controlplane.MaxDeliveryAttempts {

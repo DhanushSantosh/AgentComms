@@ -4,6 +4,7 @@ package daemon
 
 import (
 	"context"
+	"time"
 
 	"github.com/DhanushSantosh/AgentComms/internal/interactiveserve"
 	"github.com/DhanushSantosh/AgentComms/internal/model"
@@ -31,3 +32,16 @@ func notifyLocalInteractive(
 		{Stage: "PTY_ENTER_SENT", At: receipt.EnterSentAt},
 	}, nil
 }
+
+// probeLocalInteractive asks a local interactive session whether it is
+// reachable and busy, bounded so one wedged session cannot stall a dispatch
+// pass.
+func probeLocalInteractive(ctx context.Context, projectRoot, runtimeID string) (alive, busy bool) {
+	probeCtx, cancel := context.WithTimeout(ctx, interactiveProbeTimeout)
+	defer cancel()
+	return interactiveserve.Probe(probeCtx, projectRoot, runtimeID)
+}
+
+// interactiveProbeTimeout bounds one readiness probe. A live session answers
+// a ping in milliseconds; anything slower is treated as not ready this pass.
+const interactiveProbeTimeout = time.Second
