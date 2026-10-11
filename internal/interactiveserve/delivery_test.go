@@ -236,6 +236,49 @@ func TestDeliverRefusesWhileHumanDraftPending(t *testing.T) {
 	}
 }
 
+// Once a nested ConPTY asks for win32-input-mode, Windows Terminal encodes
+// every key as "CSI Vk;Sc;Uc;Kd;Cs;Rc _". The sequences here are the exact
+// bytes captured through ConPTY: Enter arrived as
+// "\x1b[13;28;13;1;0;1_\x1b[13;28;13;0;0;1_" while letters typed earlier
+// came through plain, so without decoding the draft could never be cleared.
+func TestInputGateDecodesWin32InputModeKeys(t *testing.T) {
+	quiet := func(g *inputGate) bool {
+		g.stateMu.Lock()
+		g.lastTyped = time.Now().Add(-time.Hour)
+		g.stateMu.Unlock()
+		return g.humanQuietFor(humanQuietPeriod)
+	}
+	encodedEnter := "\x1b[13;28;13;1;0;1_\x1b[13;28;13;0;0;1_"
+
+	mixed := newInputGate(&syncedBuffer{})
+	_, _ = mixed.Write([]byte("ab"))
+	_, _ = mixed.Write([]byte(encodedEnter))
+	if !quiet(mixed) {
+		t.Fatal("an encoded Enter did not clear a plain-text draft")
+	}
+
+	encoded := newInputGate(&syncedBuffer{})
+	// "hi" as key-down/key-up pairs.
+	_, _ = encoded.Write([]byte("\x1b[72;35;104;1;0;1_\x1b[72;35;104;0;0;1_\x1b[73;23;105;1;0;1_\x1b[73;23;105;0;0;1_"))
+	if encoded.humanQuietFor(humanQuietPeriod) {
+		t.Fatal("encoded typing was not seen as typing")
+	}
+	if quiet(encoded) {
+		t.Fatal("encoded typing did not leave a draft")
+	}
+	// Two encoded backspaces (one event with a repeat count of 2) empty it.
+	_, _ = encoded.Write([]byte("\x1b[8;14;8;1;0;2_"))
+	if !quiet(encoded) {
+		t.Fatal("encoded backspaces did not clear the draft")
+	}
+	// An arrow key (no character) and a key release are not typing.
+	arrows := newInputGate(&syncedBuffer{})
+	_, _ = arrows.Write([]byte("\x1b[38;72;0;1;0;1_\x1b[65;30;97;0;0;1_"))
+	if !arrows.humanQuietFor(humanQuietPeriod) {
+		t.Fatal("an arrow key or a key release counted as typing")
+	}
+}
+
 // Keystrokes typed while a delivery is in flight must arrive after it, never
 // in the middle of the injected line.
 func TestHumanKeystrokesWaitForDelivery(t *testing.T) {

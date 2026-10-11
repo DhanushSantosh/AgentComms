@@ -1,6 +1,8 @@
 package interactiveserve
 
 import (
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -27,7 +29,13 @@ import (
 //
 // Escape sequences (arrow keys, mouse reports, focus events, terminal query
 // replies) are not typing and never create a draft; text inside a bracketed
-// paste is.
+// paste is. Windows "win32-input-mode" key events are decoded: a nested
+// ConPTY asks its host for that mode at startup, interactive-serve forwards
+// the request to the user's terminal like any other output, and Windows
+// Terminal then encodes every key -- letters, Enter, backspace -- as
+// "CSI Vk;Sc;Uc;Kd;Cs;Rc _". Confirmed with a raw stdin capture under
+// ConPTY: without decoding, all typing was invisible to the gate, and a
+// draft typed as plain text could never be cleared by an encoded Enter.
 type inputGate struct {
 	mu     sync.Mutex // held for the duration of a delivery
 	target writeFlusher
@@ -84,11 +92,17 @@ func (g *inputGate) observe(p []byte) {
 				st.sawESC = b == 0x1b
 			case st.escapeCSI:
 				if b >= 0x40 && b <= 0x7e {
-					switch string(st.seq) {
-					case "[200~":
+					switch seq := string(st.seq); {
+					case seq == "[200~":
 						st.inPaste = true
-					case "[201~":
+					case seq == "[201~":
 						st.inPaste = false
+					case b == '_':
+						if r, repeat, ok := win32KeyDown(seq); ok {
+							for i := 0; i < repeat; i++ {
+								typed = g.key(r) || typed
+							}
+						}
 					}
 					st.inEscape, st.escapeCSI = false, false
 				}
@@ -106,31 +120,71 @@ func (g *inputGate) observe(p []byte) {
 			}
 			continue
 		}
-		switch {
-		case b == 0x1b:
+		if b == 0x1b {
 			st.inEscape, st.seq = true, st.seq[:0]
-		case b == '\r' || b == '\n':
-			if st.inPaste {
-				g.draft++
-				typed = true
-			} else {
-				g.draft = 0
-			}
-		case b == 0x03 || b == 0x15: // Ctrl-C, Ctrl-U: composer cleared
-			g.draft = 0
-		case b == 0x7f || b == 0x08: // backspace
-			if g.draft > 0 {
-				g.draft--
-			}
-			typed = true
-		case b >= 0x20 || b == '\t':
-			if b < 0x80 || b >= 0xc0 { // count UTF-8 lead bytes only
-				g.draft++
-			}
-			typed = true
+			continue
 		}
+		if b >= 0x80 && b < 0xc0 {
+			continue // UTF-8 continuation byte: its lead byte already counted
+		}
+		typed = g.key(rune(b)) || typed
 	}
 	if typed {
 		g.lastTyped = time.Now()
 	}
+}
+
+// key applies one typed character to the draft state and reports whether it
+// counts as the human typing. Called with stateMu held.
+func (g *inputGate) key(r rune) bool {
+	switch {
+	case r == '\r' || r == '\n':
+		if g.parse.inPaste {
+			g.draft++
+			return true
+		}
+		g.draft = 0
+		return false
+	case r == 0x03 || r == 0x15: // Ctrl-C, Ctrl-U: composer cleared
+		g.draft = 0
+		return false
+	case r == 0x7f || r == 0x08: // backspace
+		if g.draft > 0 {
+			g.draft--
+		}
+		return true
+	case r >= 0x20 || r == '\t':
+		g.draft++
+		return true
+	}
+	return false
+}
+
+// win32KeyDown decodes a win32-input-mode key event ("[Vk;Sc;Uc;Kd;Cs;Rc",
+// the CSI body without its final '_') and returns its character and repeat
+// count when it is a key press that produces one. Key releases and keys
+// without a character (arrows, modifiers alone) report ok=false.
+func win32KeyDown(seq string) (r rune, repeat int, ok bool) {
+	if !strings.HasPrefix(seq, "[") || !strings.HasSuffix(seq, "_") {
+		return 0, 0, false
+	}
+	fields := strings.Split(seq[1:len(seq)-1], ";")
+	value := func(i, fallback int) int {
+		if i >= len(fields) || fields[i] == "" {
+			return fallback
+		}
+		n, err := strconv.Atoi(fields[i])
+		if err != nil {
+			return -1
+		}
+		return n
+	}
+	char, down, count := value(2, 0), value(3, 0), value(5, 1)
+	if down != 1 || char <= 0 || count < 1 {
+		return 0, 0, false
+	}
+	if count > 64 {
+		count = 64
+	}
+	return rune(char), count, true
 }
