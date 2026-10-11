@@ -279,6 +279,36 @@ func TestInputGateDecodesWin32InputModeKeys(t *testing.T) {
 	}
 }
 
+// A draft emptied with a key the gate cannot interpret (Esc, word-delete, a
+// selection) must not hold deliveries forever: once the human pauses, a
+// draft whose last characters are gone from the composer is dropped. One
+// still on screen keeps the session busy.
+func TestInputGateDropsDraftTheScreenShowsIsGone(t *testing.T) {
+	gate := newInputGate(&syncedBuffer{})
+	_, _ = gate.Write([]byte("fix the login bug"))
+	gate.stateMu.Lock()
+	gate.lastTyped = time.Now().Add(-time.Hour)
+	gate.stateMu.Unlock()
+
+	stillThere := screenOf(t, 80, 24, "\x1b[20;1H› fix the login bug")
+	if gate.humanQuietOnScreen(humanQuietPeriod, stillThere) {
+		t.Fatal("a draft still visible in the composer was dropped")
+	}
+	// The human pressed Esc twice (the gate cannot model that) and the
+	// composer is back to its placeholder.
+	_, _ = gate.Write([]byte("\x1b\x1b"))
+	gate.stateMu.Lock()
+	gate.lastTyped = time.Now().Add(-time.Hour)
+	gate.stateMu.Unlock()
+	cleared := screenOf(t, 80, 24, "\x1b[20;1H› Ask Codex to do anything\x1b[20;3H")
+	if !gate.humanQuietOnScreen(humanQuietPeriod, cleared) {
+		t.Fatal("a draft the screen shows is gone still held deliveries")
+	}
+	if !gate.humanQuietFor(humanQuietPeriod) {
+		t.Fatal("dropping the draft should clear it for later checks too")
+	}
+}
+
 // Keystrokes typed while a delivery is in flight must arrive after it, never
 // in the middle of the injected line.
 func TestHumanKeystrokesWaitForDelivery(t *testing.T) {

@@ -367,6 +367,61 @@ func TestScreenBusyOnlyLooksAtTheStatusArea(t *testing.T) {
 	}
 }
 
+// The screens below are verbatim captures from real sessions. Typing a notice
+// into any of them would answer the prompt: Claude selects on a digit, and
+// codex's approval takes "y" (yes) and "p" (don't ask again).
+var choicePromptScreens = map[string]string{
+	"claude permission": " PowerShell command\r\n Create perm-test-dir directory\r\n" +
+		" mkdir perm-test-dir\r\n Do you want to proceed?\r\n > 1. Yes\r\n" +
+		"   2. Yes, and always allow access to C:\\work\\proj1 from this project\r\n   3. No\r\n\r\n" +
+		" Esc to cancel · Tab to amend",
+	"claude folder trust": " Quick safety check: Is this a project you created or one you trust?\r\n\r\n" +
+		" > No, exit\r\n   Yes, I trust this folder\r\n\r\n Enter to confirm · Esc to cancel",
+	"codex approval": "  Would you like to run the following command?\r\n\r\n  $ mkdir C:\\temp\\x\r\n\r\n" +
+		"› 1. Yes, proceed (y)\r\n  2. Yes, and don't ask again for commands that start with `mkdir` (p)\r\n" +
+		"  3. No, and tell Codex what to do differently (esc)\r\n\r\n  Press enter to confirm or esc to cancel",
+	"codex folder trust": "  Trust this folder? Codex can read, edit, and run files here.\r\n\r\n" +
+		"› 1. Trust and continue\r\n  2. Back to Agent Command Center\r\n\r\n  enter continue · esc back",
+	"codex startup notice": "  Set up security for Daybreak mode\r\n\r\n› 1. Set up security\r\n\r\n" +
+		"  Press a number to choose · esc to dismiss · type to continue\r\n\r\n\r\n" +
+		"› Ask Codex to do anything\r\n\r\n  GPT-6-Sol default · ~\\proj1\r\n  ← for agents · ? for shortcuts",
+}
+
+func TestScreenAwaitingChoiceRecognisesRealPrompts(t *testing.T) {
+	for name, raw := range choicePromptScreens {
+		if !screenAwaitingChoice(screenOf(t, 120, 40, raw)) {
+			t.Errorf("%s: not recognised as waiting for a choice", name)
+		}
+	}
+	idle := map[string]string{
+		"claude idle": "● Done.\r\n\r\n────────\r\n> \r\n────────\r\n  ⏸ manual mode on · ? for shortcuts · ← for agents",
+		"codex idle":  "• Done.\r\n\r\n› Ask Codex to do anything\r\n\r\n  GPT-6-Sol medium · ~\\proj1\r\n  ← for agents · ? for shortcuts",
+		// An agent's answer that merely mentions such a footer, well above
+		// the footer rows, must not block delivery.
+		"prose far above the footer": "The prompt says Esc to cancel.\r\n" + strings.Repeat("more output\r\n", choiceFooterRows+1) +
+			"› Ask Codex to do anything\r\n  ← for agents · ? for shortcuts",
+	}
+	for name, raw := range idle {
+		if screenAwaitingChoice(screenOf(t, 120, 40, raw)) {
+			t.Errorf("%s: wrongly read as waiting for a choice", name)
+		}
+	}
+}
+
+// Nothing at all may be typed while a prompt waits for a choice.
+func TestDeliverTypesNothingIntoAPermissionPrompt(t *testing.T) {
+	for name, raw := range choicePromptScreens {
+		screen := newTerminalScreen(120, 40)
+		_, _ = screen.Write([]byte(raw))
+		var buf syncedBuffer
+		_, err := newTestTarget(&buf, screen).deliver(invocationNotice("rt", "codex", "inv-12", "claude"), "inv-12", 300*time.Millisecond, time.Second)
+		screen.Close()
+		if err == nil || buf.String() != "" {
+			t.Errorf("%s: err=%v typed=%q; want a refusal with nothing typed", name, err, buf.String())
+		}
+	}
+}
+
 func TestNormalizeForMatchIsCaseInsensitiveAndStripsPunctuation(t *testing.T) {
 	if got, want := normalizeForMatch(`Hello, "World"! (42)`), "helloworld42"; got != want {
 		t.Fatalf("normalizeForMatch(%q) = %q, want %q", `Hello, "World"! (42)`, got, want)

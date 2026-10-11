@@ -97,7 +97,14 @@ func handleConn(conn net.Conn, target *ptyTarget) {
 	}
 	switch req.Kind {
 	case "ping":
-		_ = json.NewEncoder(conn).Encode(Response{OK: true, Busy: target.busy()})
+		// A delivery already in flight makes the session busy too: the
+		// daemon probes before reserving an attempt, and a second delivery
+		// would only be refused.
+		inFlight := !target.mu.TryLock()
+		if !inFlight {
+			target.mu.Unlock()
+		}
+		_ = json.NewEncoder(conn).Encode(Response{OK: true, Busy: inFlight || target.busy()})
 	case "snapshot":
 		snap := target.screen.snapshot()
 		_ = json.NewEncoder(conn).Encode(Response{OK: true, Busy: target.busy(), OutputSnapshot: snap.text()})
@@ -127,10 +134,11 @@ func deliveryResponse(evidence DeliveryReceipt, err error) Response {
 }
 
 // busy reports whether a delivery right now would interrupt someone: the
-// agent's status line shows it working, or the human is typing or has an
-// unsent draft.
+// agent's status line shows it working, a menu or permission prompt is
+// waiting for a choice, or the human is typing or has an unsent draft.
 func (t *ptyTarget) busy() bool {
-	return screenBusy(t.screen.snapshot()) || !t.gate.humanQuietFor(humanQuietPeriod)
+	snap := t.screen.snapshot()
+	return screenBusy(snap) || screenAwaitingChoice(snap) || !t.gate.humanQuietOnScreen(humanQuietPeriod, snap)
 }
 
 // deliver types message into the child's composer and submits it:
@@ -233,7 +241,7 @@ func (t *ptyTarget) confirmSubmitted(beforeEnter screenSnapshot, message string)
 		}
 		snap := t.screen.snapshot()
 		holds, newline := composerHoldsMessage(snap, message)
-		if !holds || screenBusy(snap) {
+		if !holds || screenBusy(snap) || screenAwaitingChoice(snap) {
 			return nil
 		}
 		if attempt == maxEnterAttempts {
@@ -261,7 +269,10 @@ func (t *ptyTarget) waitForSubmit(beforeEnter screenSnapshot, message string) bo
 	for time.Now().Before(deadline) {
 		time.Sleep(50 * time.Millisecond)
 		snap := t.screen.snapshot()
-		if screenBusy(snap) || !cursorRowHoldsMessage(snap, message) || newlyShownComplete(beforeEnter, snap, message) {
+		// A prompt appearing right after Enter (the agent immediately asking
+		// to run something) is as much proof of a submit as a busy marker.
+		if screenBusy(snap) || screenAwaitingChoice(snap) || !cursorRowHoldsMessage(snap, message) ||
+			newlyShownComplete(beforeEnter, snap, message) {
 			return true
 		}
 	}

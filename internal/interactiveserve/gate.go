@@ -42,9 +42,14 @@ type inputGate struct {
 
 	stateMu   sync.Mutex
 	lastTyped time.Time
-	draft     int // printable characters typed since the last submit/clear
+	draft     int    // printable characters typed since the last submit/clear
+	draftTail []rune // the last draftTailLength of them, for checking against the screen
 	parse     inputParseState
 }
+
+// draftTailLength is how many of the human's most recent draft characters
+// are remembered to confirm, on screen, that the draft still exists.
+const draftTailLength = 24
 
 type inputParseState struct {
 	inEscape  bool
@@ -74,6 +79,31 @@ func (g *inputGate) humanQuietFor(d time.Duration) bool {
 	g.stateMu.Lock()
 	defer g.stateMu.Unlock()
 	return g.draft == 0 && (g.lastTyped.IsZero() || time.Since(g.lastTyped) >= d)
+}
+
+// humanQuietOnScreen is humanQuietFor, except that a draft the screen shows
+// is gone no longer counts. The gate only models Enter, Ctrl-C, Ctrl-U and
+// backspace; a human can also empty the composer with keys it cannot
+// interpret (Esc, word-delete, a selection), and a draft that stayed
+// "pending" forever would hold every delivery indefinitely. Once the human
+// has paused, a remembered draft whose most recent characters are no longer
+// in the composer at the cursor is dropped. A draft that cannot be checked
+// (nothing but punctuation typed) stays pending: waiting is the safe side.
+func (g *inputGate) humanQuietOnScreen(d time.Duration, snap screenSnapshot) bool {
+	g.stateMu.Lock()
+	defer g.stateMu.Unlock()
+	if !g.lastTyped.IsZero() && time.Since(g.lastTyped) < d {
+		return false
+	}
+	if g.draft == 0 {
+		return true
+	}
+	tail := normalizeForMatch(string(g.draftTail))
+	if tail != "" && !strings.Contains(composerText(snap), tail) {
+		g.draft, g.draftTail = 0, nil
+		return true
+	}
+	return false
 }
 
 func (g *inputGate) observe(p []byte) {
@@ -140,24 +170,35 @@ func (g *inputGate) key(r rune) bool {
 	switch {
 	case r == '\r' || r == '\n':
 		if g.parse.inPaste {
-			g.draft++
+			g.addDraft(' ')
 			return true
 		}
-		g.draft = 0
+		g.draft, g.draftTail = 0, nil
 		return false
 	case r == 0x03 || r == 0x15: // Ctrl-C, Ctrl-U: composer cleared
-		g.draft = 0
+		g.draft, g.draftTail = 0, nil
 		return false
 	case r == 0x7f || r == 0x08: // backspace
 		if g.draft > 0 {
 			g.draft--
 		}
+		if len(g.draftTail) > 0 {
+			g.draftTail = g.draftTail[:len(g.draftTail)-1]
+		}
 		return true
 	case r >= 0x20 || r == '\t':
-		g.draft++
+		g.addDraft(r)
 		return true
 	}
 	return false
+}
+
+func (g *inputGate) addDraft(r rune) {
+	g.draft++
+	g.draftTail = append(g.draftTail, r)
+	if len(g.draftTail) > draftTailLength {
+		g.draftTail = g.draftTail[len(g.draftTail)-draftTailLength:]
+	}
 }
 
 // win32KeyDown decodes a win32-input-mode key event ("[Vk;Sc;Uc;Kd;Cs;Rc",

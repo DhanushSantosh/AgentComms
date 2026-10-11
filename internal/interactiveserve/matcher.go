@@ -39,6 +39,52 @@ func screenBusy(snap screenSnapshot) bool {
 	return false
 }
 
+// choiceFooters are the footer hints codex's and Claude Code's TUIs show
+// while a menu or permission prompt waits for a choice, captured from real
+// sessions:
+//
+//	Claude Code permission prompt  "Esc to cancel · Tab to amend"
+//	Claude Code folder trust       "Enter to confirm · Esc to cancel"
+//	codex command approval         "Press enter to confirm or esc to cancel"
+//	codex folder trust             "enter continue · esc back"
+//	codex startup notice           "Press a number to choose · esc to dismiss · type to continue"
+//
+// Typing a notice into such a prompt is the worst thing delivery could do:
+// both TUIs act on single keys there. Claude selects an option on a digit
+// ("1. Yes", "2. Yes, and always allow access to ..."), and codex's approval
+// takes "y" for yes and "p" for "don't ask again for commands that start
+// with ..." -- letters every notice contains. A session showing one is not
+// ready for a delivery, however idle it otherwise looks.
+var choiceFooters = []string{
+	"esc to cancel", "enter to confirm", "enter continue", "esc to dismiss", "press a number to choose",
+}
+
+// choiceFooterRows bounds how far up screenAwaitingChoice looks: these hints
+// are footers, the last non-blank rows of the screen (codex's startup notice
+// sits a few rows above its composer and footer). Prose in the transcript
+// that mentions one, further up, does not count.
+const choiceFooterRows = 6
+
+// screenAwaitingChoice reports whether the target is showing a menu or
+// permission prompt that is waiting for the human to choose.
+func screenAwaitingChoice(snap screenSnapshot) bool {
+	seen := 0
+	for y := len(snap.rows) - 1; y >= 0 && seen < choiceFooterRows; y-- {
+		row := snap.rows[y]
+		if strings.TrimSpace(row) == "" {
+			continue
+		}
+		seen++
+		lower := strings.ToLower(row)
+		for _, footer := range choiceFooters {
+			if strings.Contains(lower, footer) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // normalizeForMatch keeps only letters and digits, lower-cased, so text
 // compares equal across wrapping, box-drawing borders, prompt glyphs and
 // punctuation the TUI adds or reflows.
@@ -120,6 +166,30 @@ var pastePlaceholders = []string{"pastedcontent", "pastedtext"}
 // composerRows is how many contiguous rows above the cursor are read as one
 // composer: enough for a wrapped notice on a narrow terminal.
 const composerRows = 16
+
+// composerText is the normalized text of the composer around the cursor:
+// the whole cursor row plus the contiguous non-blank rows above and below
+// it. Confirmed against captures of real Codex and Claude Code sessions,
+// both of which keep the terminal cursor in their input box. Reading a
+// little too much (a footer, a border) only makes checks against it more
+// conservative.
+func composerText(snap screenSnapshot) string {
+	if snap.cursorY < 0 || snap.cursorY >= len(snap.rows) {
+		return ""
+	}
+	top, bottom := snap.cursorY, snap.cursorY
+	for top > 0 && snap.cursorY-top < composerRows && strings.TrimSpace(snap.rows[top-1]) != "" {
+		top--
+	}
+	for bottom < len(snap.rows)-1 && bottom-snap.cursorY < composerRows && strings.TrimSpace(snap.rows[bottom+1]) != "" {
+		bottom++
+	}
+	var b strings.Builder
+	for y := top; y <= bottom; y++ {
+		b.WriteString(normalizeForMatch(snap.rows[y]))
+	}
+	return b.String()
+}
 
 // cursorRowHoldsMessage reports whether message is still sitting, complete,
 // in the composer at the cursor after Enter was sent. The composer is read
