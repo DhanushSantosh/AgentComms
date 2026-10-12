@@ -63,6 +63,17 @@ func (s *terminalScreen) newEmulator() *vt.Emulator {
 	return emu
 }
 
+// retireEmulator stops an emulator's reply-drain goroutine. It closes the
+// reply pipe rather than calling Emulator.Close: Close writes an unguarded
+// "closed" flag that Emulator.Read checks, which the race detector caught
+// against the drain goroutine. The pipe itself is safe for concurrent use,
+// and closing its writer makes the pending Read return EOF.
+func retireEmulator(emu *vt.Emulator) {
+	if closer, ok := emu.InputPipe().(io.Closer); ok {
+		_ = closer.Close()
+	}
+}
+
 func (s *terminalScreen) Write(p []byte) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -70,7 +81,7 @@ func (s *terminalScreen) Write(p []byte) (int, error) {
 	func() {
 		defer func() {
 			if recover() != nil {
-				_ = s.emu.Close()
+				retireEmulator(s.emu)
 				s.emu = s.newEmulator()
 			}
 		}()
@@ -95,7 +106,7 @@ func (s *terminalScreen) Resize(cols, rows int) {
 	func() {
 		defer func() {
 			if recover() != nil {
-				_ = s.emu.Close()
+				retireEmulator(s.emu)
 				s.emu = s.newEmulator()
 			}
 		}()
@@ -106,7 +117,7 @@ func (s *terminalScreen) Resize(cols, rows int) {
 func (s *terminalScreen) Close() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_ = s.emu.Close()
+	retireEmulator(s.emu)
 }
 
 // sinceLastWrite reports how long the child has produced no output at all.
