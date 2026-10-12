@@ -3,7 +3,7 @@ set -eu
 
 VERSION=${1:-}
 echo "$VERSION" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-(preview|rc)\.[0-9]+)?$' || { echo "usage: $0 vX.Y.Z" >&2; exit 2; }
-RELEASE_GO_VERSION=go1.26.6
+RELEASE_GO_VERSION=go1.26.9
 
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT

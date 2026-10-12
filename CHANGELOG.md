@@ -5,6 +5,16 @@ a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 
 ## [Unreleased]
 
+### Security
+- Releases, CI and the server image build with Go 1.26.9 (was 1.26.6, and
+  1.26.5 for the server image), which fixes 11 standard-library advisories
+  reported by govulncheck in `net/http`, `net/textproto` and `crypto/tls`
+  (for example GO-2026-6605 and GO-2026-6617). `golang.org/x/net` moves to
+  v0.60.0 for the advisories it shares, and the other `golang.org/x`
+  modules follow. Verifier pins for
+  the next release are generated with the new toolchain; existing pins are
+  unchanged.
+
 ## [1.1.0] - 2026-10-07 — “Open Frequencies”
 
 *Teams can register their own agent providers as signed project state. Agent
