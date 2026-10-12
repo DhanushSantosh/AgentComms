@@ -2245,6 +2245,28 @@ func TestWithClaudeAllowAgentCommsAppendsScopedAllowedTools(t *testing.T) {
 	}
 }
 
+// On Windows the wrapped CLI is routinely claude.exe and this binary is
+// agent-comms.exe. The flag used to reject the former and build a
+// "Bash(agent-comms.exe *)" rule that never matches the bare
+// "agent-comms ..." calls an agent actually makes.
+func TestWithClaudeAllowAgentCommsHandlesWindowsExecutableNames(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows executable spelling")
+	}
+	dir := t.TempDir()
+	fakeExe := filepath.Join(dir, "agent-comms.exe")
+	if err := os.WriteFile(fakeExe, []byte("MZ"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	got, err := withClaudeAllowAgentComms([]string{`C:\Users\me\.local\bin\claude.exe`}, func() (string, error) { return fakeExe, nil })
+	if err != nil {
+		t.Fatalf("claude.exe was rejected: %v", err)
+	}
+	if last := got[len(got)-1]; last != "Bash(agent-comms *)" {
+		t.Fatalf("bare-name rule = %q, want %q", last, "Bash(agent-comms *)")
+	}
+}
+
 func TestStripLaunchTerminalFlag(t *testing.T) {
 	cases := []struct {
 		name string

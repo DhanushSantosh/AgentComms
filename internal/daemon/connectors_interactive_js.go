@@ -26,3 +26,11 @@ func notifyLocalInteractive(
 	return nil, errors.New(
 		"interactive PTY delivery is unavailable in js/wasm builds: there is no local terminal to drive")
 }
+
+// probeLocalInteractive reports every session as ready so the attempt goes
+// ahead and fails loudly in notifyLocalInteractive, as above, instead of
+// leaving the invocation silently pending.
+func probeLocalInteractive(ctx context.Context, projectRoot, runtimeID string) (alive, busy bool) {
+	_, _, _ = ctx, projectRoot, runtimeID
+	return true, false
+}

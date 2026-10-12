@@ -101,7 +101,13 @@ func TestLocalProcessConnectorReceivesBoundedEnvelope(t *testing.T) {
 			"CONNECTOR_TEST_HELPER": "1",
 			"CONNECTOR_TEST_OUTPUT": outputPath,
 		},
-		Timeout: 5 * time.Second,
+		// The helper is this whole test binary re-launched, and the timeout
+		// only bounds a hung helper. 5s was exceeded under a loaded parallel
+		// `go test ./...` on Windows once the daemon package came to link the
+		// interactive-serve VT emulator (its go-runewidth init made the
+		// binary's own startup ~250ms instead of ~50ms): the connector was
+		// killed before the helper ran ("exit status 1"), never a real fault.
+		Timeout: 30 * time.Second,
 	}
 	envelope := InvocationEnvelope{
 		ProjectID: "project", Invocation: model.Invocation{ID: "inv-process", Target: "claude-builder"},

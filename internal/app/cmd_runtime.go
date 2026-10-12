@@ -497,38 +497,41 @@ func (c *cli) runInteractiveServe(ctx context.Context, runtimeID string, command
 		}
 	}
 	endpointID := uuid.NewString()
+	// The first heartbeat stays fatal: it runs before the wrapped command
+	// starts, so failing here costs nothing and tells the operator the
+	// runtime could never have received a delivery.
 	if err = c.heartbeatInteractiveRuntime(runtimeID, endpointID); err != nil {
 		return fmt.Errorf("start interactive runtime heartbeat: %w", err)
 	}
+	sessionLog := newInteractiveSessionLog(c.svc.Store.Root, runtimeID)
+	sessionLog.Printf("session started: runtime=%s actor=%s endpoint=%s command=%q", runtimeID, c.actor, endpointID, command)
 	serveCtx, cancel := context.WithCancel(ctx)
-	heartbeatDone := make(chan error, 1)
+	heartbeat := &interactiveHeartbeatLoop{
+		beat:     func() error { return c.heartbeatInteractiveRuntime(runtimeID, endpointID) },
+		interval: interactiveHeartbeatInterval,
+		retry:    interactiveHeartbeatRetry,
+		report:   func(line string) { sessionLog.Printf("%s", line) },
+	}
+	heartbeatDone := make(chan struct{})
 	go func() {
-		ticker := time.NewTicker(interactiveHeartbeatInterval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-serveCtx.Done():
-				heartbeatDone <- nil
-				return
-			case <-ticker.C:
-				if heartbeatErr := c.heartbeatInteractiveRuntime(runtimeID, endpointID); heartbeatErr != nil {
-					heartbeatDone <- heartbeatErr
-					cancel()
-					return
-				}
-			}
-		}
+		defer close(heartbeatDone)
+		heartbeat.run(serveCtx)
 	}()
 	defer func() {
 		cancel()
-		heartbeatErr := <-heartbeatDone
+		<-heartbeatDone
 		_, offlineErr := c.svc.Execute(c.actor, "runtime.offline", runtimeID,
 			model.RuntimeStatusChanged{Reason: "interactive session exited", EndpointID: endpointID})
-		if runErr == nil && heartbeatErr != nil {
-			runErr = fmt.Errorf("interactive runtime heartbeat: %w", heartbeatErr)
+		sessionLog.Printf("session ended: exit=%d offline_err=%v", c.processExitCode, offlineErr)
+		// Neither of these may replace the wrapped command's own outcome:
+		// the session already ended, and an unreachable daemon only leaves
+		// presence to expire on its own after RuntimeOfflineAfter.
+		if summary := heartbeat.summary(); summary != "" && !c.quiet {
+			_, _ = fmt.Fprintf(c.err, "warning: %s (details: %s)\n", summary, sessionLog.path)
 		}
-		if runErr == nil && offlineErr != nil {
-			runErr = fmt.Errorf("mark interactive runtime offline: %w", offlineErr)
+		if offlineErr != nil && !c.quiet {
+			_, _ = fmt.Fprintf(c.err, "warning: could not mark interactive runtime %s offline (%v); its presence will expire on its own\n",
+				cliui.SanitizeInline(runtimeID), offlineErr)
 		}
 	}()
 	code, err := interactiveserve.Serve(serveCtx, interactiveserve.ServeOptions{
@@ -537,7 +540,7 @@ func (c *cli) runInteractiveServe(ctx context.Context, runtimeID string, command
 			if len(command) == 0 {
 				return
 			}
-			adapter := filepath.Base(command[0])
+			adapter := interactiveserve.CommandName(command[0])
 			if sessionID, ok := discoverSessionID(adapter, pid, c.svc.Store.Root); ok {
 				_ = sessionbind.Save(c.svc.Store.Root, runtimeID, sessionID, adapter)
 			}
@@ -592,7 +595,7 @@ func (c *cli) heartbeatInteractiveRuntime(runtimeID, endpointID string) error {
 // so tests can exercise this without depending on the actual test binary's
 // path.
 func withClaudeAllowAgentComms(args []string, executablePath func() (string, error)) ([]string, error) {
-	if len(args) == 0 || filepath.Base(args[0]) != "claude" {
+	if len(args) == 0 || interactiveserve.CommandName(args[0]) != "claude" {
 		return nil, errors.New("--claude-allow-agent-comms only applies when the wrapped command is claude")
 	}
 	agentCommsPath, err := executablePath()
@@ -605,6 +608,8 @@ func withClaudeAllowAgentComms(args []string, executablePath func() (string, err
 	}
 	out := append([]string{}, args...)
 	out = append(out, "--allowedTools", "Bash("+agentCommsPath+" *)")
-	out = append(out, "--allowedTools", "Bash("+filepath.Base(agentCommsPath)+" *)")
+	// The bare name, as the delivered notice and the agent's own follow-up
+	// calls spell it: "agent-comms", never "agent-comms.exe".
+	out = append(out, "--allowedTools", "Bash("+interactiveserve.CommandName(agentCommsPath)+" *)")
 	return out, nil
 }

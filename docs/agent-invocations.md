@@ -697,12 +697,18 @@ runtimes. An interactive request may specify
 the target's defaults. Multiple eligible interactive runtimes without a
 preferred runtime are ambiguous, so the coordinator never guesses.
 
-Delivery is daemon-coordinated after the invocation is durably recorded. It
-first commits `invocation.delivery-attempt`, then dials the selected runtime's
-control socket. Success is recorded only after the PTY echoes the complete text
-and accepts Enter. Busy, foreign-host, offline, or otherwise unavailable
-sessions produce `delivery.outcome=UNAVAILABLE` and an actionable warning
-while the request itself still exits successfully. Use
+Delivery is daemon-coordinated after the invocation is durably recorded. For a
+local interactive runtime the daemon first asks the session whether it is
+ready: a session whose agent is mid-turn, whose human is typing or holding an
+unsent draft, or that cannot be reached is simply left pending — no attempt is
+recorded and no retry budget is spent — and is checked again every half
+second, so the notice follows within moments of the session becoming ready,
+however long the agent's current task takes. Once ready, the daemon commits
+`invocation.delivery-attempt` and dials the runtime's control socket. Success
+is recorded only after the text visibly appeared on the target's screen and
+Enter was accepted. Foreign-host, offline, or otherwise unavailable sessions
+produce `delivery.outcome=UNAVAILABLE` and an actionable warning while the
+request itself still exits successfully. Use
 `agent-comms invocation redeliver --id <invocation-id> --runtime <runtime-id>`
 for an explicit retry of an open, unclaimed invocation.
 
@@ -712,14 +718,21 @@ daemon therefore derive the same path even when they inherit different
 temporary-directory environments.
 
 This intentionally does not extend to the instruction content itself: the
-delivered notification only ever says an invocation is pending and how to
-look it up. The target's own interactive session is expected to read the
-instruction back through the normal, auditable
-`invocation list`/`claim`/`start`/`complete` sequence — the same as every
-other adapter — and reply, if it wants to, with its own
+delivered notification only ever says an invocation is pending and names the
+commands to handle it, in one line of this shape:
+
+```text
+Agent Comms: <requester> requested invocation <id> for <agent>. Run agent-comms invocation inspect --id <id> --json, then invocation claim --id <id> --runtime <runtime-id>, start, and complete (or reject) it. [<id>]
+```
+
+The target's own interactive session reads the instruction back through the
+normal, auditable `invocation inspect`/`claim`/`start`/`complete` sequence —
+the same as every other adapter — and replies, if it wants to, with its own
 `invocation request`. That keeps terminal injection limited to "wake up and
 look," never a second, unaudited channel for instruction content to reach a
-runtime.
+runtime. (An earlier wording, "handle it per your existing protocol", left a
+real Codex session exploring the CLI for minutes before acting; naming the
+commands had it, and Claude Code, handling the invocation immediately.)
 
 `runtime interactive-session --id <runtime>` reports whether a runtime
 currently has a live session. This mechanism now works on Linux, macOS, and
@@ -728,38 +741,68 @@ Windows (10 version 1809+): Linux/macOS use a real pty
 (`github.com/charmbracelet/x/conpty`) — see RFC 0014 for the full design
 and the Windows-specific process-lifecycle differences it documents.
 
-**Two failure modes were confirmed live and are actively guarded against, not
-just documented — carried over from an earlier tmux-based iteration of this
-same mechanism, now implemented against the owned pty instead of shelling
-out:**
+**How a delivery decides, and the failure modes each step guards against.**
+`interactive-serve` renders the wrapped command's output with a VT terminal
+emulator alongside the user's real terminal, so every decision below is made
+against what is actually on screen right now — the way an earlier tmux-based
+iteration read tmux's rendered grid — not against a tail of raw output bytes.
+Each guard was confirmed against a real Codex or Claude Code session, or a
+scripted fake agent under a real pty/ConPTY:
 
-1. A second invocation arriving while the target is still busy on its own
-   long tool-calling turn used to land glued onto an earlier, not-yet-
-   submitted delivery with no separator — confirmed live with two
-   agent-to-agent messages that arrived back to back mid-turn. `Deliver`
-   checks readiness first: it waits (up to 90s) for the target to stop
-   showing a busy marker (`esc to interrupt` / `esc again to interrupt`,
-   the status-line hint both codex's and opencode's TUIs show while working
-   and omit once idle, read from an in-process tee of the child's own raw
-   output) before sending anything at all, rather than injecting and
-   hoping. This is a heuristic, not a protocol-level signal — neither
-   provider exposes one.
-2. Firing "send text" and "send Enter" back to back, with no gap, let Enter
-   arrive before the target registered the preceding text as input and
-   silently dropped it — confirmed live against a real codex session, where
-   the message sat typed-but-unsubmitted until something pressed Enter
-   again. `Deliver` waits (up to 10s) for the pty to visibly echo the sent
-   text back before pressing Enter, rather than trusting a fixed sleep to
-   be long enough. Owning the raw byte stream (instead of tmux's
-   already-rendered screen grid) introduced one further, genuinely new risk
-   here: stale, pre-clear content could otherwise sit in the match buffer
-   and produce a false echo/busy match after a real screen repaint — the
-   buffer resets whenever a clear or alternate-screen-buffer escape
-   sequence is observed, specifically to close that gap.
+1. **Busy.** A second invocation arriving mid-turn used to land glued onto an
+   earlier, not-yet-submitted delivery. Delivery waits until the status area
+   (the bottom rows of the screen) shows no busy marker (`esc to interrupt`,
+   `esc again to interrupt`, `esc interrupt`). Reading the rendered screen
+   matters: a TUI that clears its status line by overwriting it in place left
+   the marker in the old raw-byte buffer, and the session read as busy
+   forever. This is a heuristic — no provider exposes a protocol-level busy
+   signal.
+2. **Prompts waiting for a choice.** Both TUIs act on single keys at a menu
+   or permission prompt — Claude Code selects an option on a digit
+   ("2. Yes, and always allow access to ..."), codex's command approval takes
+   `y` for yes and `p` for "don't ask again" — so typing a notice into one
+   could approve a command or grant a standing permission. A session whose
+   last screen rows show a choice footer (`Esc to cancel`, `Enter to
+   confirm`, `enter continue`, `esc to dismiss`, `Press a number to choose`)
+   is not ready: nothing is typed, and the notice follows once the prompt is
+   answered.
+3. **The human at the keyboard.** Human keystrokes and injected text share
+   one input. Delivery holds human input while it types (keystrokes wait and
+   follow, in order, never interleave), never starts within three seconds of
+   the human typing, and never starts while the human has typed text they
+   have not submitted or cleared — typing onto a half-written prompt and
+   pressing Enter would send it along. A draft cleared with a key the gate
+   cannot interpret (Esc, word-delete) is dropped once the human pauses and
+   its last characters are gone from the composer. On Windows, keys arriving
+   in win32-input-mode encoding (what Windows Terminal sends once the nested
+   console requests it) are decoded for this.
+4. **Echo.** Enter is only pressed after the typed text newly appears on
+   screen: the whole message, its invocation ID, its tail, or a
+   "[Pasted ...]" placeholder — more times than before typing, so a previous
+   delivery's text still visible in the transcript is never mistaken for
+   this one's echo. If it never appears, the typed text is erased and the
+   attempt fails.
+5. **Enter.** Enter waits for output to settle (300ms of quiet, capped at
+   2s): codex treats keys arriving in a burst as a paste and takes an Enter
+   inside that window as a newline. If the complete message is still in the
+   composer at the cursor afterwards, Enter is pressed again after a longer
+   quiet period — removing the newline the swallowed Enter left — up to three
+   times; if it is never accepted, the text is erased and the attempt fails
+   rather than reporting a line that sits unsent.
 
-Both checks fail closed as `invocation.delivery-failed`, never as a blind
+Every check fails closed as `invocation.delivery-failed`, never as a blind
 Enter-press or false notification. `invocation inspect --id <id>` shows each
 attempt, its transport evidence, and the separate target acknowledgement.
+
+**The session itself is never at the mercy of bookkeeping.** Heartbeat
+failures (a daemon restarting, replaced, or slow) are retried and logged to
+`.agent-comms/tmp/interactive-<runtime>.log` — never printed into the
+agent's terminal and never a reason to stop the wrapped command; presence
+simply lapses after 45 seconds and returns with the next successful beat.
+Closing the terminal window ends the session cleanly and marks the runtime
+offline. The wrapped command does not inherit the launching session's
+Claude Code host markers or credentials (`CLAUDECODE`, the desktop app's
+messaging socket and token, session IDs).
 
 ### Many-to-many delivery: concurrency and hardening
 
@@ -779,17 +822,14 @@ containing an embedded newline outright — it sends exactly one line of
 input followed by one Enter, and a smuggled newline could otherwise submit
 early, mid-message.
 
-What remains a genuine, structural limit rather than something more testing
-would find: nothing here can distinguish a human directly using a live
-session's own terminal from the runtime it belongs to being idle — a
-terminal running `interactive-serve` has to be dedicated to that purpose.
-This was hit live in exactly this form under the earlier tmux-based
-iteration (a demo pane doubled as a personal chat session) and there is no
-code fix for it, only the operating discipline `--session-id`'s
-documentation already states. `interactive-serve` prints a one-line banner
-before handing control to the wrapped command as a visibility nudge — it
-reduces, but cannot eliminate, the chance of forgetting a terminal is
-dedicated this way; it is not a detection mechanism.
+What remains a structural limit: delivery now notices a human typing in a
+live session's terminal (guard 3 above) and waits for them, but it cannot
+know what a human *intends* — a wake-up line that arrives in the moment
+after someone submits their own prompt is still typed into the same
+conversation. A terminal running `interactive-serve` is best dedicated to
+that purpose. `interactive-serve` prints a one-line banner before handing
+control to the wrapped command as a visibility nudge; it is not a
+detection mechanism.
 
 ## User policy
 

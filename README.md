@@ -55,7 +55,7 @@ Deleting an identity, granting orchestrator authority, touching credentials or p
 
 ### Delivery you can inspect
 
-Agent Comms records delivery evidence separately from an agent's claim and completion. For a live interactive session, it types the request into that session and checks bounded terminal echo evidence before sending Enter. Interactive PTY checks use echo heuristics; signed delivery records attest the recorded outcome.
+Agent Comms records delivery evidence separately from an agent's claim and completion. For a live interactive session, it waits until neither the agent nor a human at that terminal is busy, types the request in, checks that it appeared on the session's rendered screen before sending Enter, and confirms Enter was accepted. These PTY checks are screen heuristics; signed delivery records attest the recorded outcome.
 
 <br>
 

@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/DhanushSantosh/AgentComms/internal/pipeacl"
 	"github.com/Microsoft/go-winio"
 	"golang.org/x/sys/windows"
 )
@@ -25,16 +26,21 @@ func dialLocal(ctx context.Context, socketPath string) (net.Conn, error) {
 	return winio.DialPipeContext(dialCtx, socketPath)
 }
 
-// interactivePipeConfig matches the exact owner-only SDDL descriptor
-// internal/daemon/listener_windows.go already established for this
-// project's daemon control socket -- kept local here rather than
-// cross-imported since these are otherwise unrelated subsystems (matching
-// protocol_unix.go's listenLocal, and RFC 0010's stated philosophy for
-// this package).
-var interactivePipeConfig = &winio.PipeConfig{
-	SecurityDescriptor: "D:P(A;;GA;;;OW)",
-	InputBufferSize:    64 * 1024,
-	OutputBufferSize:   64 * 1024,
+// interactivePipeConfig uses the same current-user-only descriptor as the
+// project's daemon pipe (internal/pipeacl). This matters for delivery, not
+// just CLI probes: the daemon dials this pipe to wake the session, and an
+// interactive-serve started from an elevated terminal used to create a pipe
+// a non-elevated daemon could never open (see pipeacl.CurrentUserOnly).
+func interactivePipeConfig() (*winio.PipeConfig, error) {
+	descriptor, err := pipeacl.CurrentUserOnly()
+	if err != nil {
+		return nil, err
+	}
+	return &winio.PipeConfig{
+		SecurityDescriptor: descriptor,
+		InputBufferSize:    64 * 1024,
+		OutputBufferSize:   64 * 1024,
+	}, nil
 }
 
 // listenLocal binds sockPath as a named pipe.
@@ -64,7 +70,12 @@ func listenLocal(sockPath string) (net.Listener, error) {
 	if err != nil {
 		return nil, fmt.Errorf("interactiveserve: runtime already has a live interactive-serve session (lock %s is held): %w", lockPath, err)
 	}
-	listener, err := winio.ListenPipe(sockPath, interactivePipeConfig)
+	config, err := interactivePipeConfig()
+	if err != nil {
+		_ = releaseExclusiveLock(lockFile)
+		return nil, err
+	}
+	listener, err := winio.ListenPipe(sockPath, config)
 	if err != nil {
 		_ = releaseExclusiveLock(lockFile)
 		return nil, err

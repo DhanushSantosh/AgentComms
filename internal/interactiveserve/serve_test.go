@@ -450,19 +450,20 @@ func TestDeliverToPtyWaitsForIdleThenSucceeds(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = cmd.Process.Kill() })
 
-	tee := newOutputTee()
-	go func() { _, _ = io.Copy(tee, master) }()
+	screen := newTerminalScreen(80, 24)
+	defer screen.Close()
+	go func() { _, _ = io.Copy(screen, master) }()
 
-	// Simulate "busy" by writing the marker directly into the tee (the
-	// production path feeds this from the child's own real output; here we
+	// Simulate "busy" by writing the marker directly onto the screen (the
+	// production path feeds it from the child's own real output; here we
 	// drive it directly to test the timing logic in isolation).
-	if _, err := tee.Write([]byte("esc to interrupt")); err != nil {
+	if _, err := screen.Write([]byte("esc to interrupt")); err != nil {
 		t.Fatal(err)
 	}
 
 	deliverDone := make(chan error, 1)
 	go func() {
-		deliverDone <- deliverToPty(master, tee, "hello", 2*time.Second, 3*time.Second)
+		deliverDone <- deliverToPty(master, screen, "hello", 2*time.Second, 3*time.Second)
 	}()
 
 	select {
@@ -471,7 +472,7 @@ func TestDeliverToPtyWaitsForIdleThenSucceeds(t *testing.T) {
 	case <-time.After(300 * time.Millisecond):
 	}
 
-	if _, err := tee.Write([]byte("\x1b[2Jnow idle")); err != nil {
+	if _, err := screen.Write([]byte("\x1b[2J\x1b[Hnow idle\r\n")); err != nil {
 		t.Fatal(err)
 	}
 
@@ -485,7 +486,7 @@ func TestDeliverToPtyWaitsForIdleThenSucceeds(t *testing.T) {
 	}
 
 	waitForCondition(t, 5*time.Second, func() bool {
-		return bytes.Contains(tee.snapshot(), []byte("GOT: hello"))
+		return strings.Contains(screen.snapshot().text(), "GOT: hello")
 	})
 }
 
@@ -498,16 +499,17 @@ func TestDeliverToPtyFailsClosedWhenTargetStaysBusy(t *testing.T) {
 	defer master.Close()
 	defer slave.Close()
 
-	tee := newOutputTee()
-	if _, err := tee.Write([]byte("esc to interrupt")); err != nil {
+	screen := newTerminalScreen(80, 24)
+	defer screen.Close()
+	if _, err := screen.Write([]byte("esc to interrupt")); err != nil {
 		t.Fatal(err)
 	}
 
-	err = deliverToPty(master, tee, "should not be injected", 300*time.Millisecond, time.Second)
+	err = deliverToPty(master, screen, "should not be injected", 300*time.Millisecond, time.Second)
 	if err == nil {
 		t.Fatal("expected deliverToPty to fail closed rather than inject while the target stayed busy")
 	}
-	if bytes.Contains(tee.snapshot(), []byte("should not be injected")) {
+	if strings.Contains(screen.snapshot().text(), "should not be injected") {
 		t.Fatal("deliverToPty must not have written anything while the target stayed busy")
 	}
 }
